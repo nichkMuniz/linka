@@ -1,5 +1,5 @@
 import { useEffect, useCallback, useRef } from "react";
-import { LocalNotifications } from "@capacitor/local-notifications";
+import { LocalNotifications, type LocalNotificationSchema } from "@capacitor/local-notifications";
 import { Capacitor } from "@capacitor/core";
 import { getRoutineSchedulesDb, RoutineScheduleEntry } from "@/lib/ritmofit-db";
 
@@ -58,6 +58,23 @@ function nextOccurrence(timeStr: string): Date {
 }
 
 /**
+ * Parses a comma-separated list of Monday-first weekday indices (0=Mon…6=Sun)
+ * into Capacitor LocalNotifications weekdays (1=Sun…7=Sat). Invalid/empty → [].
+ */
+function parseWeekdays(days: string): number[] {
+  if (!days.trim()) return [];
+  const result: number[] = [];
+  for (const part of days.split(",")) {
+    const mondayIdx = Number(part.trim());
+    if (!Number.isInteger(mondayIdx) || mondayIdx < 0 || mondayIdx > 6) continue;
+    // Monday-first idx → JS getDay (Sun=0) → Capacitor weekday (Sun=1)
+    const jsDay = (mondayIdx + 1) % 7;
+    result.push(jsDay + 1);
+  }
+  return result;
+}
+
+/**
  * Deterministic numeric ID from a routine schedule entry string ID.
  * LocalNotifications requires an integer id.
  */
@@ -84,37 +101,57 @@ async function applySchedulesNative(schedules: RoutineScheduleEntry[]): Promise<
     // getPending/cancel may fail on first run — safe to continue
   }
 
-  // Group by routine (type + name + time) so 15 items of the same routine
-  // produce a single notification instead of 15.
-  const groups = new Map<string, { type: string; name: string; time: string; count: number }>();
+  // Group by routine (type + name + time + days) so N items of the same routine
+  // produce a single notification instead of N.
+  const groups = new Map<
+    string,
+    { type: string; name: string; time: string; days: string; count: number }
+  >();
   for (const e of schedules) {
     if (!e.scheduled_time) continue;
     const time = e.scheduled_time.slice(0, 5);
-    const key = `${e.type}|${e.name ?? ""}|${time}`;
+    const days = (e.scheduled_days ?? "").trim();
+    const key = `${e.type}|${e.name ?? ""}|${time}|${days}`;
     const existing = groups.get(key);
     if (existing) {
       existing.count += 1;
     } else {
-      groups.set(key, { type: e.type, name: e.name, time, count: 1 });
+      groups.set(key, { type: e.type, name: e.name, time, days, count: 1 });
     }
   }
 
   const labels = getTypeLabels();
-  const toSchedule = Array.from(groups.values()).map((g) => ({
-    id: entryToNotifId(`${g.type}|${g.name}|${g.time}`),
-    title: `${TYPE_ICONS[g.type] || "🔔"} ${g.name || labels[g.type] || "Rotina"}`,
-    body: g.count > 1
-      ? `Hora da sua rotina (${g.count} ${labels[g.type] || "itens"})`
-      : `Hora da sua rotina: ${labels[g.type] || "item"}`,
-    schedule: {
-      at: nextOccurrence(g.time),
-      repeats: true,
-      every: "day" as const,
-    },
-    extra: { url: "/metas" },
-    smallIcon: "ic_stat_icon_config_sample",
-    iconColor: "#f97316",
-  }));
+  const toSchedule = Array.from(groups.values()).flatMap<LocalNotificationSchema>((g) => {
+    const title = `${TYPE_ICONS[g.type] || "🔔"} ${g.name || labels[g.type] || "Rotina"}`;
+    const body =
+      g.count > 1
+        ? `Hora da sua rotina (${g.count} ${labels[g.type] || "itens"})`
+        : `Hora da sua rotina: ${labels[g.type] || "item"}`;
+    const base = {
+      title,
+      body,
+      extra: { url: "/metas" },
+      smallIcon: "ic_stat_icon_config_sample",
+      iconColor: "#f97316",
+    };
+
+    const weekdays = parseWeekdays(g.days);
+    // No weekday filter → daily repeat (backward-compatible).
+    if (weekdays.length === 0) {
+      return [{
+        ...base,
+        id: entryToNotifId(`${g.type}|${g.name}|${g.time}`),
+        schedule: { at: nextOccurrence(g.time), repeats: true, every: "day" as const },
+      }];
+    }
+    // One repeating notification per selected weekday.
+    const [hh, mm] = g.time.split(":").map(Number);
+    return weekdays.map((capWeekday) => ({
+      ...base,
+      id: entryToNotifId(`${g.type}|${g.name}|${g.time}|${capWeekday}`),
+      schedule: { on: { weekday: capWeekday, hour: hh, minute: mm }, repeats: true },
+    }));
+  });
 
   if (toSchedule.length > 0) {
     await LocalNotifications.schedule({ notifications: toSchedule });

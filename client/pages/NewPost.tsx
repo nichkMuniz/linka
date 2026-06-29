@@ -370,6 +370,8 @@ export default function NewPost() {
   const imageCameraRef = React.useRef<HTMLInputElement>(null);
   const videoCameraRef = React.useRef<HTMLInputElement>(null);
   const hasAutoSelectedRef = React.useRef(false);
+  // Monotonic token to ignore stale full-res loads when the user taps fast
+  const tapRequestRef = React.useRef(0);
   // Tracks the actual pixel width of the preview frame for accurate crop export
   const cropContainerWidthRef = React.useRef<number>(
     typeof window !== "undefined" ? window.innerWidth : 375
@@ -497,6 +499,18 @@ export default function NewPost() {
     const firstAsset = galleryAssets.find((a) => a.type === "image");
     if (!firstAsset) return;
 
+    const reqId = ++tapRequestRef.current;
+
+    // Instant preview from the already-loaded thumbnail; full-res swaps in later.
+    const hadThumb = !!firstAsset.thumbnail?.webPath;
+    if (hadThumb) {
+      setSelectedFiles([]);
+      setPreviewUrls([firstAsset.thumbnail!.webPath]);
+      setCropTransforms({});
+      setCurrentPreviewIndex(0);
+      setSelectedAssetIds([firstAsset.id]);
+    }
+
     (async () => {
       try {
         const { webPath } = await PhotoLibrary.getPhotoUrl({ id: firstAsset.id });
@@ -505,11 +519,11 @@ export default function NewPost() {
         const file = new File([blob], firstAsset.fileName, { type: firstAsset.mimeType || "image/jpeg" });
         const reader = new FileReader();
         reader.onloadend = () => {
+          if (tapRequestRef.current !== reqId) return; // superseded by a later tap
           const dataUrl = reader.result as string;
           setSelectedFiles([file]);
           setPreviewUrls([dataUrl]);
-          setCropTransforms({});
-          setCurrentPreviewIndex(0);
+          if (!hadThumb) { setCropTransforms({}); setCurrentPreviewIndex(0); }
           setSelectedAssetIds([firstAsset.id]);
         };
         reader.readAsDataURL(file);
@@ -561,6 +575,19 @@ export default function NewPost() {
           setSelectedAssetIds([]);
         } else {
           // Replace preview with this single photo
+          const reqId = ++tapRequestRef.current;
+
+          // Instant preview from the already-loaded thumbnail — the full-res
+          // data URL (needed for crop export + draft persistence) swaps in below.
+          const hadThumb = !!asset.thumbnail?.webPath;
+          if (hadThumb) {
+            setSelectedFiles([]);
+            setPreviewUrls([asset.thumbnail!.webPath]);
+            setCropTransforms({});
+            setCurrentPreviewIndex(0);
+            setSelectedAssetIds([asset.id]);
+          }
+
           try {
             const { webPath } = await PhotoLibrary.getPhotoUrl({ id: asset.id });
             const response = await fetch(webPath);
@@ -568,16 +595,16 @@ export default function NewPost() {
             const file = new File([blob], asset.fileName, { type: asset.mimeType || "image/jpeg" });
             const reader = new FileReader();
             reader.onloadend = () => {
+              if (tapRequestRef.current !== reqId) return; // superseded by a later tap
               const dataUrl = reader.result as string;
               setSelectedFiles([file]);
               setPreviewUrls([dataUrl]);
-              setCropTransforms({});
-              setCurrentPreviewIndex(0);
+              if (!hadThumb) { setCropTransforms({}); setCurrentPreviewIndex(0); }
               setSelectedAssetIds([asset.id]);
             };
             reader.readAsDataURL(file);
           } catch {
-            imageInputRef.current?.click();
+            if (tapRequestRef.current === reqId) imageInputRef.current?.click();
           }
         }
       } else {
@@ -604,15 +631,17 @@ export default function NewPost() {
             return prev;
           });
         } else {
-          // Toggle on — add to carousel
+          // Toggle on — add to carousel. Show the selection badge instantly,
+          // then append the full-res image once it finishes loading.
+          setSelectedAssetIds((prev) => [...prev, asset.id]);
           try {
             const { webPath } = await PhotoLibrary.getPhotoUrl({ id: asset.id });
             const response = await fetch(webPath);
             const blob = await response.blob();
             const file = new File([blob], asset.fileName, { type: asset.mimeType || "image/jpeg" });
-            setSelectedAssetIds((prev) => [...prev, asset.id]);
             addImageFile(file);
           } catch {
+            setSelectedAssetIds((prev) => prev.filter((id) => id !== asset.id));
             imageInputRef.current?.click();
           }
         }

@@ -63,12 +63,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 // Tabs component replaced by custom underline tabs
 import { toast } from "@/components/ui/use-toast";
-import { ArrowLeft, Send, Check, CheckCheck, Trophy, TrendingUp, Plus, X, ChevronRight, Trash2, Edit3, Search, PenSquare, MessageCircle, Users, ChevronLeft, Swords, BarChart2, Camera, Image, Mic, Crop, CheckCircle2, XCircle, Pencil } from "lucide-react";
+import { ArrowLeft, Send, Check, CheckCheck, Trophy, TrendingUp, Plus, X, ChevronRight, Trash2, Edit3, Search, PenSquare, MessageCircle, Users, ChevronLeft, Swords, BarChart2, Camera, Image, Mic, Crop, CheckCircle2, XCircle, Pencil, FileText } from "lucide-react";
 import { CommentReactions } from "@/components/shared/comment-reactions";
 import { ClassificationsDrawer } from "@/components/community/classifications-drawer";
 import { NewConversationDrawer } from "@/components/community/new-conversation-drawer";
 import { AddMembersDrawer } from "@/components/community/add-members-drawer";
 import { EditCheckInDrawer } from "@/components/community/edit-checkin-drawer";
+import { SwipeableConversationRow } from "@/components/community/swipeable-conversation-row";
 import { ImageCropperDrawer } from "@/components/shared/image-cropper-drawer";
 import { PostCarousel } from "@/components/post/post-carousel";
 import {
@@ -78,6 +79,15 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
+import {
+  GLASS_SHEET_STYLE,
+  GLASS_FIELD_STYLE,
+  GLASS_PRIMARY_BTN_STYLE,
+  GLASS_PANEL_STYLE,
+  GLASS_SHEET_PROPS,
+  GLASS_LABEL_CLASS,
+  GLASS_FIELD_CLASS,
+} from "@/lib/glass-styles";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -97,7 +107,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
-import { Browser } from "@capacitor/browser";
 import { supabase } from "@/lib/supabase";
 import { CommunitySkeleton } from "@/components/shared/animated-loading";
 import { useLanguage } from "@/lib/language-context";
@@ -130,6 +139,7 @@ export default function Community() {
   const messageInputRef = React.useRef<HTMLInputElement>(null);
   const photoInputRef = React.useRef<HTMLInputElement>(null);
   const [isSendingPhoto, setIsSendingPhoto] = React.useState(false);
+  const [imageViewerUrl, setImageViewerUrl] = React.useState<string | null>(null);
   const [isRecording, setIsRecording] = React.useState(false);
   const [recordingSeconds, setRecordingSeconds] = React.useState(0);
   const mediaRecorderRef = React.useRef<MediaRecorder | null>(null);
@@ -754,12 +764,17 @@ export default function Community() {
     if (!selectedConversation || isRecording) return;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-        ? "audio/webm;codecs=opus"
-        : MediaRecorder.isTypeSupported("audio/mp4")
-          ? "audio/mp4"
-          : "";
-      audioMimeTypeRef.current = mimeType || "audio/webm";
+      // Prefer MP4/AAC: reproduz instantaneamente no WebView do iOS (alvo do app).
+      // WebM/Opus fica só como fallback (não é reproduzível nativamente no iOS).
+      const preferredTypes = [
+        "audio/mp4;codecs=mp4a.40.2",
+        "audio/mp4",
+        "audio/aac",
+        "audio/webm;codecs=opus",
+        "audio/webm",
+      ];
+      const mimeType = preferredTypes.find((mt) => MediaRecorder.isTypeSupported(mt)) || "";
+      audioMimeTypeRef.current = mimeType || "audio/mp4";
       const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
       audioChunksRef.current = [];
       recorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
@@ -1016,13 +1031,13 @@ export default function Community() {
                           src={mainText.replace("[image]:", "")}
                           alt="Imagem"
                           className="rounded-lg max-w-[220px] max-h-[280px] object-cover cursor-pointer"
-                          onClick={() => Browser.open({ url: mainText.replace("[image]:", "") })}
+                          onClick={() => setImageViewerUrl(mainText.replace("[image]:", ""))}
                         />
                       ) : mainText.startsWith("[audio]:") ? (
                         <audio
                           src={mainText.replace("[audio]:", "")}
                           controls
-                          preload="metadata"
+                          preload="auto"
                           className="max-w-[220px] h-10 rounded-lg"
                           style={{ colorScheme: isOwn ? "dark" : "light" }}
                           onError={(e) => { const el = e.target as HTMLAudioElement; console.error("Audio playback error:", el.error, "src:", el.src); }}
@@ -1354,6 +1369,38 @@ export default function Community() {
             </div>
           </div>
         )}
+
+        {/* Image Viewer — fullscreen, sem expor a URL do storage */}
+        {imageViewerUrl && (
+          <div
+            className="fixed inset-0 z-[120] flex items-center justify-center bg-black/95"
+            style={{
+              paddingTop: "max(1rem, env(safe-area-inset-top))",
+              paddingBottom: "max(1rem, env(safe-area-inset-bottom))",
+              paddingLeft: "max(1rem, env(safe-area-inset-left))",
+              paddingRight: "max(1rem, env(safe-area-inset-right))",
+            }}
+            onClick={() => setImageViewerUrl(null)}
+          >
+            <button
+              onClick={() => setImageViewerUrl(null)}
+              className="absolute z-10 flex items-center justify-center w-10 h-10 rounded-full bg-white/10 text-white hover:bg-white/20 transition-colors"
+              style={{
+                top: "calc(env(safe-area-inset-top) + 0.5rem)",
+                right: "calc(env(safe-area-inset-right) + 0.5rem)",
+              }}
+              aria-label={t("close")}
+            >
+              <X className="h-5 w-5" />
+            </button>
+            <img
+              src={imageViewerUrl}
+              alt="Imagem"
+              className="max-w-full max-h-full object-contain rounded-lg"
+              onClick={(e) => e.stopPropagation()}
+            />
+          </div>
+        )}
       </div>,
       document.body
     );
@@ -1459,51 +1506,49 @@ export default function Community() {
             {filteredConversations.length > 0 ? (
               <div className="flex flex-col gap-1">
                 {filteredConversations.map((conversation) => (
-                  <div
+                  <SwipeableConversationRow
                     key={conversation.userId}
-                    className="group relative flex items-center gap-3 rounded-[20px] px-3 py-3 transition-colors hover:bg-white/[.07] active:bg-white/[.09]"
-                    style={{ background: "rgba(255,255,255,.04)" }}
+                    deleteLabel={t("community_delete_conversation")}
+                    onDelete={() => { setConvToDelete(conversation); setDeleteConvConfirmOpen(true); }}
                   >
-                    <button
-                      onClick={() => handleOpenConversation(conversation)}
-                      className="flex flex-1 items-center gap-3 min-w-0 text-left"
+                    <div
+                      className="relative flex items-center gap-3 rounded-[20px] px-3 py-3 transition-colors active:bg-white/[.09]"
+                      style={{ background: "rgba(255,255,255,.04)" }}
                     >
-                      <div className="relative shrink-0">
-                        <UserAvatar
-                          photo={conversation.userPhoto}
-                          nickname={conversation.userNickname}
-                          size="lg"
-                        />
-                      </div>
+                      <button
+                        onClick={() => handleOpenConversation(conversation)}
+                        className="flex flex-1 items-center gap-3 min-w-0 text-left"
+                      >
+                        <div className="relative shrink-0">
+                          <UserAvatar
+                            photo={conversation.userPhoto}
+                            nickname={conversation.userNickname}
+                            size="lg"
+                          />
+                        </div>
 
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between gap-2 mb-0.5">
-                          <p className={`text-sm truncate ${conversation.unreadCount > 0 ? "font-semibold text-white" : "font-medium text-white/90"}`}>
-                            {conversation.userNickname}
-                          </p>
-                          <p className={`text-xs shrink-0 ${conversation.unreadCount > 0 ? "text-brand font-medium" : "text-white/40"}`}>
-                            {formatTimeAgo(conversation.lastMessageTime)}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-2 mb-0.5">
+                            <p className={`text-sm truncate ${conversation.unreadCount > 0 ? "font-semibold text-white" : "font-medium text-white/90"}`}>
+                              {conversation.userNickname}
+                            </p>
+                            <p className={`text-xs shrink-0 ${conversation.unreadCount > 0 ? "text-brand font-medium" : "text-white/40"}`}>
+                              {formatTimeAgo(conversation.lastMessageTime)}
+                            </p>
+                          </div>
+                          <p className={`text-sm truncate ${conversation.unreadCount > 0 ? "font-medium text-white/80" : "text-white/55"}`}>
+                            {conversation.lastMessage?.startsWith("[audio]:") ? "🎤 Áudio" : conversation.lastMessage?.startsWith("[image]:") ? "🖼️ Imagem" : conversation.lastMessage || t("community_start_conversation")}
                           </p>
                         </div>
-                        <p className={`text-sm truncate ${conversation.unreadCount > 0 ? "font-medium text-white/80" : "text-white/55"}`}>
-                          {conversation.lastMessage?.startsWith("[audio]:") ? "🎤 Áudio" : conversation.lastMessage?.startsWith("[image]:") ? "🖼️ Imagem" : conversation.lastMessage || t("community_start_conversation")}
-                        </p>
-                      </div>
-                    </button>
+                      </button>
 
-                    {conversation.unreadCount > 0 && (
-                      <span className="flex items-center justify-center h-5 min-w-[20px] px-1.5 rounded-full bg-brand text-white text-[11px] font-bold shrink-0 transition-opacity group-hover:opacity-0">
-                        {conversation.unreadCount > 9 ? "9+" : conversation.unreadCount}
-                      </span>
-                    )}
-                    <button
-                      onClick={() => { setConvToDelete(conversation); setDeleteConvConfirmOpen(true); }}
-                      className="absolute right-3 p-1.5 rounded-full text-white/50 hover:text-destructive hover:bg-white/[.08] transition-all opacity-0 group-hover:opacity-100"
-                      aria-label={t("community_delete_conversation")}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
+                      {conversation.unreadCount > 0 && (
+                        <span className="flex items-center justify-center h-5 min-w-[20px] px-1.5 rounded-full bg-brand text-white text-[11px] font-bold shrink-0">
+                          {conversation.unreadCount > 9 ? "9+" : conversation.unreadCount}
+                        </span>
+                      )}
+                    </div>
+                  </SwipeableConversationRow>
                 ))}
 
                 {/* Separador para sugestões quando há busca */}
@@ -1585,9 +1630,18 @@ export default function Community() {
 
       {/* Duels Tab - Full Screen Group View */}
       {selectedGroupForView && ReactDOM.createPortal(
-        <div className="fixed top-0 right-0 bottom-0 bg-background flex flex-col z-[100]" style={{ left: "var(--sidebar-width, 0px)" }}>
+        <div className="fixed top-0 right-0 bottom-0 flex flex-col z-[100]" style={{ left: "var(--sidebar-width, 0px)", background: "linear-gradient(rgba(20,19,28,1),rgba(10,10,16,1))" }}>
           {/* Header with Back Button */}
-          <div className="flex-shrink-0 px-4 pb-0 flex items-center justify-start border-b border-border/40" style={{ paddingTop: "calc(env(safe-area-inset-top) + 0.75rem)" }}>
+          <div
+            className="flex-shrink-0 px-2 py-2 flex items-center justify-start"
+            style={{
+              paddingTop: "calc(env(safe-area-inset-top) + 0.5rem)",
+              background: "linear-gradient(rgba(255,255,255,.06),rgba(255,255,255,.02))",
+              backdropFilter: "blur(24px) saturate(180%)",
+              WebkitBackdropFilter: "blur(24px) saturate(180%)",
+              borderBottom: "1px solid rgba(255,255,255,.08)",
+            }}
+          >
             <button
               onClick={() => {
                 setSelectedGroupForView(null);
@@ -1598,7 +1652,7 @@ export default function Community() {
                   return next;
                 }, { replace: true });
               }}
-              className="p-2 hover:bg-muted rounded-full transition-colors"
+              className="p-2 rounded-full transition-colors text-white/80 hover:text-white hover:bg-white/[.08] active:scale-95"
             >
               <ArrowLeft className="h-5 w-5" />
             </button>
@@ -1608,7 +1662,7 @@ export default function Community() {
           <div className="flex-1 overflow-y-auto">
             <div className="pb-32">
               {/* Hero Banner Section */}
-              <div className="relative h-48 flex items-end border-b border-border/40 overflow-hidden">
+              <div className="relative h-48 flex items-end overflow-hidden">
                 {selectedGroupForView.photo ? (
                   <img
                     src={selectedGroupForView.photo}
@@ -1616,7 +1670,7 @@ export default function Community() {
                     className="absolute inset-0 w-full h-full object-cover"
                   />
                 ) : (
-                  <div className="absolute inset-0 bg-gradient-to-br from-brand/20 via-brand/10 to-background" />
+                  <div className="absolute inset-0" style={{ background: "linear-gradient(135deg,rgba(91,140,255,.28),rgba(157,107,255,.16) 55%,rgba(10,10,16,0))" }} />
                 )}
                 <div className="relative z-10 w-full px-4 pb-4 bg-gradient-to-t from-black/60 to-transparent">
                   {!selectedGroupForView.photo && (
@@ -1640,18 +1694,19 @@ export default function Community() {
                           setUserCreatedGroups((prev) =>
                             prev.map((g) => g.id === selectedGroupForView.id ? { ...g, photo: photoUrl } : g)
                           );
-                          toast({ title: "Capa atualizada!" });
+                          toast({ title: t("duels_group_cover_updated") });
                         } catch {
-                          toast({ title: "Erro ao salvar capa", variant: "destructive" });
+                          toast({ title: t("duels_group_cover_error"), variant: "destructive" });
                         }
                       }}
                     />
                     <button
-                      className="absolute top-3 right-3 z-20 p-2 rounded-full bg-black/50 hover:bg-black/70 transition-colors"
+                      className="absolute top-3 right-3 z-20 p-2 rounded-full transition-colors text-white active:scale-95"
+                      style={{ background: "rgba(0,0,0,.4)", border: "1px solid rgba(255,255,255,.14)", backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)" }}
                       onClick={() => editCoverInputRef.current?.click()}
-                      title="Editar capa"
+                      title={t("duels_group_edit_cover")}
                     >
-                      <Edit3 className="h-4 w-4 text-white" />
+                      <Edit3 className="h-4 w-4" />
                     </button>
                   </>
                 )}
@@ -1692,44 +1747,52 @@ export default function Community() {
                     )
                     : null;
 
+                  const STAT_CARD_STYLE = {
+                    background: "rgba(255,255,255,.04)",
+                    border: "1px solid rgba(255,255,255,.08)",
+                    boxShadow: "inset 0 1px 0 rgba(255,255,255,.06)",
+                  } as const;
                   return (
                     <div className="grid grid-cols-3 gap-3">
                       {/* Leader Card */}
                       <button
                         onClick={() => setIsClassificationsOpen(true)}
-                        className="p-3 rounded-lg bg-muted/30 border border-border/40 text-center flex flex-col items-center hover:bg-muted/50 active:scale-95 transition-all"
+                        className="p-3 rounded-[18px] text-center flex flex-col items-center active:scale-95 transition-transform"
+                        style={STAT_CARD_STYLE}
                       >
-                        <div className="text-lg font-bold text-brand mb-1">
+                        <div className="text-lg font-bold mb-1" style={{ color: "#9d6bff" }}>
                           {leaderStats ? Math.round(leaderStats.score) : 0}
                         </div>
                         {leaderStats?.userName && (
-                          <div className="text-xs text-muted-foreground truncate w-full">
+                          <div className="text-xs truncate w-full" style={{ color: "rgba(255,255,255,.5)" }}>
                             {leaderStats.userName}
                           </div>
                         )}
-                        <div className="text-xs text-muted-foreground">Líder</div>
+                        <div className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>{t("duels_group_leader")}</div>
                       </button>
 
                       {/* User Ranking Card */}
                       <button
                         onClick={() => setIsClassificationsOpen(true)}
-                        className="p-3 rounded-lg bg-muted/30 border border-border/40 text-center hover:bg-muted/50 active:scale-95 transition-all"
+                        className="p-3 rounded-[18px] text-center active:scale-95 transition-transform"
+                        style={STAT_CARD_STYLE}
                       >
-                        <div className="text-lg font-bold text-brand mb-2">
+                        <div className="text-lg font-bold mb-2" style={{ color: "#9d6bff" }}>
                           {userRanking > 0 ? `#${userRanking}` : "-"}
                         </div>
-                        <div className="text-xs text-muted-foreground">Você</div>
+                        <div className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>{t("duels_group_you")}</div>
                       </button>
 
                       {/* Days Remaining Card */}
                       <button
                         onClick={() => setIsGroupDetailsOpen(true)}
-                        className="p-3 rounded-lg bg-muted/30 border border-border/40 text-center hover:bg-muted/50 active:scale-95 transition-all"
+                        className="p-3 rounded-[18px] text-center active:scale-95 transition-transform"
+                        style={STAT_CARD_STYLE}
                       >
-                        <div className="text-lg font-bold text-brand mb-2">
-                          {daysRemaining !== null ? (daysRemaining > 0 ? daysRemaining : "Fim") : "-"}
+                        <div className="text-lg font-bold mb-2" style={{ color: "#9d6bff" }}>
+                          {daysRemaining !== null ? (daysRemaining > 0 ? daysRemaining : t("duels_group_ended_short")) : "-"}
                         </div>
-                        <div className="text-xs text-muted-foreground">dias</div>
+                        <div className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>{t("duels_group_days")}</div>
                       </button>
                     </div>
                   );
@@ -1738,19 +1801,17 @@ export default function Community() {
 
               {/* Divider */}
               <div className="px-4 py-3">
-                <div className="h-px bg-border/40"></div>
+                <div className="h-px" style={{ background: "rgba(255,255,255,.08)" }}></div>
               </div>
 
               {/* Tabs Header */}
-              <div className="px-4 py-2 flex gap-4 border-b border-border/40">
+              <div className="px-4 py-2 flex gap-4" style={{ borderBottom: "1px solid rgba(255,255,255,.08)" }}>
                 <button
                   onClick={() => setActiveGroupViewTab("check-ins")}
-                  className={`px-2 py-2 text-sm font-medium transition-colors ${activeGroupViewTab === "check-ins"
-                      ? "text-foreground border-b-2 border-brand -mb-[2px]"
-                      : "text-muted-foreground hover:text-foreground"
-                    }`}
+                  className="px-2 py-2 text-sm font-semibold transition-colors text-white"
+                  style={{ borderBottom: "2px solid #9d6bff", marginBottom: -2 }}
                 >
-                  Histórico ({groupCheckIns.length})
+                  {t("duels_group_history")} ({groupCheckIns.length})
                 </button>
               </div>
 
@@ -1760,11 +1821,11 @@ export default function Community() {
                   {isLoadingCheckIns ? (
                     <div className="space-y-3">
                       {[1, 2, 3].map((i) => (
-                        <div key={i} className="animate-pulse flex gap-3 p-3 rounded-lg bg-muted/30 border border-border/40">
-                          <div className="w-10 h-10 rounded-full bg-muted flex-shrink-0" />
+                        <div key={i} className="animate-pulse flex gap-3 p-3 rounded-[18px]" style={{ background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.08)" }}>
+                          <div className="w-10 h-10 rounded-full bg-white/10 flex-shrink-0" />
                           <div className="flex-1 space-y-2">
-                            <div className="h-3 bg-muted rounded w-1/3" />
-                            <div className="h-2 bg-muted rounded w-1/2" />
+                            <div className="h-3 bg-white/10 rounded w-1/3" />
+                            <div className="h-2 bg-white/10 rounded w-1/2" />
                           </div>
                         </div>
                       ))}
@@ -1779,7 +1840,7 @@ export default function Community() {
                       const dayKey = d.toDateString();
                       const today = new Date();
                       const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
-                      const label = dayKey === today.toDateString() ? "Hoje" : dayKey === yesterday.toDateString() ? "Ontem" : d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+                      const label = dayKey === today.toDateString() ? t("goals_today_label") : dayKey === yesterday.toDateString() ? t("goals_dash_yesterday") : d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
                       if (!seenDays.has(dayKey)) {
                         seenDays.set(dayKey, []);
                         grouped.push({ label, items: seenDays.get(dayKey)! });
@@ -1788,7 +1849,7 @@ export default function Community() {
                     }
                     return grouped.map((group) => (
                       <div key={group.label}>
-                        <p className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide">{group.label}</p>
+                        <p className="text-xs font-semibold mb-2 uppercase tracking-wide" style={{ color: "rgba(255,255,255,.4)" }}>{group.label}</p>
                         <div className="space-y-2">
                           {group.items.map((checkIn) => {
                             const reactions = checkInReactions[checkIn.id] ?? [];
@@ -1807,7 +1868,8 @@ export default function Community() {
                                 })()}`}
                               >
                                 <div
-                                  className="flex items-center gap-3 px-1 py-2 rounded-lg hover:bg-muted/40 active:bg-muted/60 transition-colors cursor-pointer select-none"
+                                  className="flex items-center gap-3 p-2.5 rounded-[18px] active:opacity-80 transition-opacity cursor-pointer select-none"
+                                  style={{ background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.08)" }}
                                   onTouchStart={() => handleCheckInTouchStart(checkIn)}
                                   onTouchEnd={handleCheckInTouchEnd}
                                   onTouchMove={handleCheckInTouchEnd}
@@ -1838,24 +1900,24 @@ export default function Community() {
                                   />
                                   {/* Content */}
                                   <div className="flex-1 min-w-0">
-                                    <p className="text-sm font-medium truncate text-foreground/90">
+                                    <p className="text-sm font-medium truncate text-white/90">
                                       {checkIn.description || checkIn.workoutInfo}
                                     </p>
                                     <div className="flex items-center gap-1.5">
-                                      <span className="text-xs text-muted-foreground truncate">{checkIn.userName}</span>
+                                      <span className="text-xs truncate" style={{ color: "rgba(255,255,255,.5)" }}>{checkIn.userName}</span>
                                       {checkIn.muscleGroup && (
-                                        <span className="text-[10px] bg-brand/10 text-brand px-1 py-0.5 rounded-full shrink-0 leading-none">{checkIn.muscleGroup}</span>
+                                        <span className="text-[10px] px-1.5 py-0.5 rounded-full shrink-0 leading-none" style={{ color: "#9d6bff", background: "rgba(157,107,255,.14)" }}>{checkIn.muscleGroup}</span>
                                       )}
                                     </div>
                                   </div>
                                   {/* Right side: thumbnail + time always */}
                                   <div className="flex flex-col items-end gap-1 shrink-0">
                                     {checkIn.photo && (
-                                      <div className="w-16 h-14 rounded-lg overflow-hidden bg-muted">
+                                      <div className="w-16 h-14 rounded-[12px] overflow-hidden" style={{ background: "rgba(255,255,255,.06)" }}>
                                         <img src={checkIn.photo} alt="check-in" className="w-full h-full object-cover" />
                                       </div>
                                     )}
-                                    <span className="text-[11px] text-muted-foreground">{new Date(checkIn.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+                                    <span className="text-[11px]" style={{ color: "rgba(255,255,255,.4)" }}>{new Date(checkIn.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
                                   </div>
                                 </div>
                                 {/* Emoji reactions — all users */}
@@ -1873,7 +1935,8 @@ export default function Community() {
                                             setReactionViewerState((prev) => prev ? { ...prev, loading: false } : null);
                                           });
                                         }}
-                                        className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-xs bg-muted/50 border border-border/40 leading-none active:bg-muted/80 transition-colors"
+                                        className="flex items-center gap-0.5 px-2 py-1 rounded-full text-xs leading-none active:opacity-70 transition-opacity text-white/80"
+                                        style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}
                                       >
                                         {emoji} {count > 1 && <span className="font-medium">{count}</span>}
                                       </button>
@@ -1889,8 +1952,8 @@ export default function Community() {
                                   const disqualified = disqualifyCount > classifyCount && disqualifyCount > 0;
                                   const isOwn = checkIn.userId === user?.id;
                                   return (
-                                    <div className="ml-11 mt-1.5 flex items-center gap-2 border-t border-border/30 pt-1.5">
-                                      <span className="text-[10px] font-medium text-muted-foreground/70 shrink-0 tracking-wide">🎭 avaliar</span>
+                                    <div className="ml-11 mt-1.5 flex items-center gap-2 pt-1.5" style={{ borderTop: "1px solid rgba(255,255,255,.08)" }}>
+                                      <span className="text-[10px] font-medium shrink-0 tracking-wide" style={{ color: "rgba(255,255,255,.45)" }}>🎭 {t("duels_group_evaluate")}</span>
                                       <div className="flex items-center gap-1.5 flex-1">
                                         {!isOwn ? (
                                           <>
@@ -1940,7 +2003,7 @@ export default function Community() {
                                       </div>
                                       {disqualified && (
                                         <span className="text-[9px] font-bold uppercase tracking-wider text-destructive bg-destructive/10 border border-destructive/20 px-1.5 py-0.5 rounded shrink-0">
-                                          Anulado
+                                          {t("duels_group_annulled")}
                                         </span>
                                       )}
                                     </div>
@@ -1953,7 +2016,7 @@ export default function Community() {
                       </div>
                     ));
                   })() : (
-                    <p className="text-sm text-muted-foreground text-center py-4">Nenhum check-in ainda</p>
+                    <p className="text-sm text-center py-8" style={{ color: "rgba(255,255,255,.4)" }}>{t("duels_group_no_checkins")}</p>
                   )}
 
                 </div>
@@ -1963,28 +2026,38 @@ export default function Community() {
           </div>
 
           {/* Bottom Navigation Tabs */}
-          <div className="fixed bottom-0 right-0 bg-background border-t border-border/40 z-[52]" style={{ left: "var(--sidebar-width, 0px)" }}>
+          <div
+            className="fixed bottom-0 right-0 z-[52]"
+            style={{
+              left: "var(--sidebar-width, 0px)",
+              background: "linear-gradient(rgba(255,255,255,.06),rgba(255,255,255,.02))",
+              backdropFilter: "blur(24px) saturate(180%)",
+              WebkitBackdropFilter: "blur(24px) saturate(180%)",
+              borderTop: "1px solid rgba(255,255,255,.08)",
+              paddingBottom: "env(safe-area-inset-bottom)",
+            }}
+          >
             <div className="flex items-center justify-around h-16 px-4">
               <button
                 onClick={() => setIsGroupDetailsOpen(true)}
-                className="flex flex-col items-center justify-center gap-1 flex-1 text-muted-foreground hover:text-foreground transition-colors"
+                className="flex flex-col items-center justify-center gap-1 flex-1 text-white/60 hover:text-white transition-colors active:scale-95"
               >
-                <span className="text-xl">📋</span>
-                <span className="text-xs">Detalhes</span>
+                <FileText className="h-[22px] w-[22px]" strokeWidth={1.8} />
+                <span className="text-[11px] font-medium">{t("duels_group_tab_details")}</span>
               </button>
               <button
                 onClick={() => setIsParticipantsModalOpen(true)}
-                className="flex flex-col items-center justify-center gap-1 flex-1 text-muted-foreground hover:text-foreground transition-colors"
+                className="flex flex-col items-center justify-center gap-1 flex-1 text-white/60 hover:text-white transition-colors active:scale-95"
               >
-                <span className="text-xl">👥</span>
-                <span className="text-xs">Participantes</span>
+                <Users className="h-[22px] w-[22px]" strokeWidth={1.8} />
+                <span className="text-[11px] font-medium">{t("duels_group_tab_participants")}</span>
               </button>
               <button
                 onClick={() => setIsClassificationsOpen(true)}
-                className="flex flex-col items-center justify-center gap-1 flex-1 text-muted-foreground hover:text-foreground transition-colors"
+                className="flex flex-col items-center justify-center gap-1 flex-1 text-white/60 hover:text-white transition-colors active:scale-95"
               >
-                <span className="text-xl">🏆</span>
-                <span className="text-xs">Classificações</span>
+                <Trophy className="h-[22px] w-[22px]" strokeWidth={1.8} />
+                <span className="text-[11px] font-medium">{t("duels_group_tab_rankings")}</span>
               </button>
             </div>
           </div>
@@ -1995,7 +2068,7 @@ export default function Community() {
               ? new Date(selectedGroupForView.endDate) <= new Date()
               : false;
             return (
-              <div className="fixed bottom-[88px] right-4 z-[101]">
+              <div className="fixed right-4 z-[101]" style={{ bottom: "calc(88px + env(safe-area-inset-bottom))" }}>
                 <button
                   disabled={isGroupExpired}
                   onClick={() => {
@@ -2013,7 +2086,12 @@ export default function Community() {
                       .catch((err: any) => { console.error("Error loading completed routines:", err); })
                       .finally(() => setIsLoadingRoutines(false));
                   }}
-                  className={`h-14 w-14 rounded-full text-white flex items-center justify-center transition-colors shadow-lg ${isGroupExpired ? "bg-muted-foreground/40 cursor-not-allowed" : "bg-brand hover:bg-brand/90"}`}
+                  className="h-14 w-14 rounded-full text-white flex items-center justify-center transition-transform active:scale-95"
+                  style={
+                    isGroupExpired
+                      ? { background: "rgba(255,255,255,.08)", border: "1px solid rgba(255,255,255,.1)", color: "rgba(255,255,255,.35)", cursor: "not-allowed" }
+                      : { background: "linear-gradient(135deg,#5b8cff,#9d6bff)", boxShadow: "0 10px 28px -6px rgba(123,63,242,.6), inset 0 1px 0 rgba(255,255,255,.3)" }
+                  }
                   title={isGroupExpired ? t("duels_ended") : t("duels_checkin_today")}
                 >
                   <Plus className="h-6 w-6" />
@@ -2029,13 +2107,20 @@ export default function Community() {
               onClick={() => setLongPressedCheckIn(null)}
             >
               <div
-                className="bg-background rounded-2xl w-full max-w-sm mx-4 overflow-hidden shadow-2xl"
+                className="rounded-[28px] w-full max-w-sm mx-4 overflow-hidden"
+                style={{
+                  background: "linear-gradient(rgba(30,28,40,.92),rgba(14,13,20,.97))",
+                  backdropFilter: "blur(40px) saturate(180%)",
+                  WebkitBackdropFilter: "blur(40px) saturate(180%)",
+                  border: "1px solid rgba(255,255,255,.12)",
+                  boxShadow: "0 24px 60px -12px rgba(0,0,0,.7)",
+                }}
                 onClick={(e) => e.stopPropagation()}
               >
                 {/* Preview */}
-                <div className="px-4 py-3 border-b border-border/60">
-                  <p className="text-xs text-muted-foreground mb-0.5">Check-in de {longPressedCheckIn.userName}</p>
-                  <p className="text-sm line-clamp-2 font-medium">{longPressedCheckIn.description || longPressedCheckIn.workoutInfo}</p>
+                <div className="px-4 py-3" style={{ borderBottom: "1px solid rgba(255,255,255,.08)" }}>
+                  <p className="text-xs mb-0.5" style={{ color: "rgba(255,255,255,.5)" }}>{t("duels_group_checkin_of").replace("{name}", longPressedCheckIn.userName)}</p>
+                  <p className="text-sm line-clamp-2 font-medium text-white/90">{longPressedCheckIn.description || longPressedCheckIn.workoutInfo}</p>
                 </div>
 
                 {/* Emoji rápido */}
@@ -2071,7 +2156,7 @@ export default function Community() {
                         className={`text-2xl active:scale-125 transition-transform relative ${isActive ? "scale-110" : ""}`}
                       >
                         {emoji}
-                        {isActive && <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-brand" />}
+                        {isActive && <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full" style={{ background: "#9d6bff" }} />}
                       </button>
                     );
                   })}
@@ -2079,11 +2164,12 @@ export default function Community() {
 
                 {/* Cancelar */}
                 <button
-                  className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-muted/40 transition-colors text-left border-t border-border/40"
+                  className="w-full flex items-center gap-3 px-4 py-3.5 transition-colors text-left text-white/80 hover:bg-white/[.06]"
+                  style={{ borderTop: "1px solid rgba(255,255,255,.08)" }}
                   onClick={() => setLongPressedCheckIn(null)}
                 >
-                  <X className="h-5 w-5 text-muted-foreground" />
-                  <span className="text-sm font-medium">Cancelar</span>
+                  <X className="h-5 w-5 text-white/60" />
+                  <span className="text-sm font-medium">{t("duels_group_cancel")}</span>
                 </button>
               </div>
             </div>
@@ -2254,24 +2340,9 @@ export default function Community() {
                         }}
                       >
                         <button
-                          disabled={daysRemaining !== null && daysRemaining <= 0}
                           onClick={(e) => {
                             e.stopPropagation();
-                            if (daysRemaining !== null && daysRemaining <= 0) return;
                             openGroupView(group);
-                            if (user?.id) {
-                              setSelectedRoutineKey(null);
-                              setCheckInForm({ photo: "", photos: [], description: "", workoutId: "" });
-                              setCheckInPhotoFiles([]);
-                              setCheckInPhotoPreviewUrls([]);
-                              setCompletedRoutines([]);
-                              setIsAddCheckInModalOpen(true);
-                              setIsLoadingRoutines(true);
-                              getCompletedRoutinesTodayDb(user.id)
-                                .then(setCompletedRoutines)
-                                .catch(() => {})
-                                .finally(() => setIsLoadingRoutines(false));
-                            }
                           }}
                           style={{
                             width: "100%",
@@ -2283,16 +2354,14 @@ export default function Community() {
                             gap: 8,
                             fontSize: 14,
                             fontWeight: 600,
-                            color: daysRemaining !== null && daysRemaining <= 0 ? "rgba(255,255,255,.35)" : "#0a0b12",
-                            background: daysRemaining !== null && daysRemaining <= 0
-                              ? "rgba(255,255,255,.08)"
-                              : "linear-gradient(rgba(255,255,255,.95),rgba(255,255,255,.82))",
+                            color: "#0a0b12",
+                            background: "linear-gradient(rgba(255,255,255,.95),rgba(255,255,255,.82))",
                             border: "none",
-                            cursor: daysRemaining !== null && daysRemaining <= 0 ? "not-allowed" : "pointer",
+                            cursor: "pointer",
                           }}
                         >
-                          <Check className="h-[17px] w-[17px]" />
-                          {daysRemaining !== null && daysRemaining <= 0 ? t("duels_ended") : t("duels_checkin_today")}
+                          {t("duels_view")}
+                          <ChevronRight className="h-[17px] w-[17px]" />
                         </button>
                       </div>
                     </div>
@@ -2669,19 +2738,23 @@ export default function Community() {
           }
         }}
       >
-        <DrawerContent className="max-h-[90dvh] flex flex-col" onOpenAutoFocus={(e) => e.preventDefault()}>
+        <DrawerContent
+          {...GLASS_SHEET_PROPS}
+          style={GLASS_SHEET_STYLE}
+          onOpenAutoFocus={(e) => e.preventDefault()}
+        >
           <DrawerHeader className="shrink-0">
             {/* Progress indicator */}
             <div className="flex items-center gap-2 mb-2">
               {[1, 2, 3, 4, 5].map((s) => (
                 <div
                   key={s}
-                  className={`h-1.5 flex-1 rounded-full transition-colors ${s <= groupStep ? "bg-brand" : "bg-muted"
-                    }`}
+                  className={`h-1.5 flex-1 rounded-full transition-colors ${s <= groupStep ? "bg-brand" : ""}`}
+                  style={s <= groupStep ? undefined : { background: "rgba(255,255,255,.12)" }}
                 />
               ))}
             </div>
-            <DrawerTitle>
+            <DrawerTitle className="text-white">
               {groupStep === 1 && "Passo 1 — Identidade do grupo"}
               {groupStep === 2 && "Passo 2 — Localização"}
               {groupStep === 3 && "Passo 3 — Duração"}
@@ -2689,7 +2762,7 @@ export default function Community() {
               {groupStep === 5 && "Passo 5 — Convidar participantes"}
             </DrawerTitle>
             <DrawerDescription className="sr-only">Criação de grupo de desafio</DrawerDescription>
-            <p className="text-xs text-muted-foreground mt-0.5">
+            <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,.5)" }}>
               {groupStep === 1 && "Nome, meta e capa do grupo"}
               {groupStep === 2 && "Estado onde o desafio acontece"}
               {groupStep === 3 && "Por quanto tempo o desafio vai durar"}
@@ -2704,8 +2777,8 @@ export default function Community() {
               <div className="space-y-4">
                 {/* Group Photo */}
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Capa do Grupo</label>
-                  <div className="relative w-full h-36 rounded-xl overflow-hidden bg-muted border border-border/60 flex items-center justify-center">
+                  <label className={GLASS_LABEL_CLASS}>Capa do Grupo</label>
+                  <div className="relative w-full h-36 rounded-xl overflow-hidden flex items-center justify-center" style={GLASS_PANEL_STYLE}>
                     {groupConfig.photo ? (
                       <>
                         <img src={groupConfig.photo} alt="capa" className="w-full h-full object-cover" />
@@ -2717,7 +2790,7 @@ export default function Community() {
                         </button>
                       </>
                     ) : (
-                      <label className="cursor-pointer flex flex-col items-center gap-2 text-muted-foreground">
+                      <label className="cursor-pointer flex flex-col items-center gap-2 text-white/50">
                         <span className="text-3xl">📷</span>
                         <span className="text-xs">Adicionar capa</span>
                         <input
@@ -2741,22 +2814,25 @@ export default function Community() {
 
                 {/* Group Name */}
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Nome do Grupo *</label>
+                  <label className={GLASS_LABEL_CLASS}>Nome do Grupo *</label>
                   <Input
                     value={groupConfig.name}
                     onChange={(e) => setGroupConfig({ ...groupConfig, name: e.target.value })}
                     placeholder="Ex: Supino Masters, Cardio Challenge..."
+                    className={GLASS_FIELD_CLASS}
+                    style={GLASS_FIELD_STYLE}
                   />
                 </div>
 
                 {/* Goal */}
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Meta do Grupo *</label>
+                  <label className={GLASS_LABEL_CLASS}>Meta do Grupo *</label>
                   <Textarea
                     value={groupConfig.goal}
                     onChange={(e) => setGroupConfig({ ...groupConfig, goal: e.target.value })}
                     placeholder="Ex: Maior volume total de supino em 30 dias..."
-                    className="min-h-20"
+                    className={`min-h-20 ${GLASS_FIELD_CLASS}`}
+                    style={GLASS_FIELD_STYLE}
                   />
                 </div>
 
@@ -2768,7 +2844,8 @@ export default function Community() {
                       toast({ title: "Campos obrigatórios", description: "Preencha nome e meta para continuar", variant: "destructive" });
                     }
                   }}
-                  className="w-full rounded-full mt-4"
+                  className="w-full rounded-full mt-4 border-0"
+                  style={GLASS_PRIMARY_BTN_STYLE}
                 >
                   Próximo
                   <ChevronRight className="h-4 w-4 ml-2" />
@@ -2780,9 +2857,9 @@ export default function Community() {
             {groupStep === 2 && (
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Estado (UF) *</label>
+                  <label className={GLASS_LABEL_CLASS}>Estado (UF) *</label>
                   <Select value={groupConfig.location} onValueChange={(value) => setGroupConfig({ ...groupConfig, location: value })}>
-                    <SelectTrigger className="rounded-lg">
+                    <SelectTrigger className={`rounded-lg ${GLASS_FIELD_CLASS}`} style={GLASS_FIELD_STYLE}>
                       <SelectValue placeholder="Selecione um estado" />
                     </SelectTrigger>
                     <SelectContent className="z-[500]">
@@ -2818,7 +2895,7 @@ export default function Community() {
                 </div>
 
                 <div className="flex gap-2 mt-4">
-                  <Button onClick={() => setGroupStep(1)} variant="outline" className="flex-1 rounded-full">Voltar</Button>
+                  <Button onClick={() => setGroupStep(1)} variant="outline" className="flex-1 rounded-full bg-transparent border-white/20 text-white hover:bg-white/10 hover:text-white">Voltar</Button>
                   <Button
                     onClick={() => {
                       if (groupConfig.location) {
@@ -2827,7 +2904,8 @@ export default function Community() {
                         toast({ title: "Campo obrigatório", description: "Selecione um estado para continuar", variant: "destructive" });
                       }
                     }}
-                    className="flex-1 rounded-full"
+                    className="flex-1 rounded-full border-0"
+                    style={GLASS_PRIMARY_BTN_STYLE}
                   >
                     Próximo <ChevronRight className="h-4 w-4 ml-2" />
                   </Button>
@@ -2839,9 +2917,9 @@ export default function Community() {
             {groupStep === 3 && (
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Duração do Desafio *</label>
+                  <label className={GLASS_LABEL_CLASS}>Duração do Desafio *</label>
                   <Select value={groupConfig.durationDays} onValueChange={(value) => setGroupConfig({ ...groupConfig, durationDays: value })}>
-                    <SelectTrigger className="rounded-lg">
+                    <SelectTrigger className={`rounded-lg ${GLASS_FIELD_CLASS}`} style={GLASS_FIELD_STYLE}>
                       <SelectValue placeholder="Selecione a duração" />
                     </SelectTrigger>
                     <SelectContent className="z-[500]">
@@ -2854,7 +2932,7 @@ export default function Community() {
                     </SelectContent>
                   </Select>
                   {groupConfig.durationDays && (
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>
                       Término previsto: {(() => {
                         const d = new Date();
                         d.setDate(d.getDate() + parseInt(groupConfig.durationDays));
@@ -2865,7 +2943,7 @@ export default function Community() {
                 </div>
 
                 <div className="flex gap-2 mt-4">
-                  <Button onClick={() => setGroupStep(2)} variant="outline" className="flex-1 rounded-full">Voltar</Button>
+                  <Button onClick={() => setGroupStep(2)} variant="outline" className="flex-1 rounded-full bg-transparent border-white/20 text-white hover:bg-white/10 hover:text-white">Voltar</Button>
                   <Button
                     onClick={() => {
                       if (groupConfig.durationDays) {
@@ -2874,7 +2952,8 @@ export default function Community() {
                         toast({ title: "Campo obrigatório", description: "Selecione a duração para continuar", variant: "destructive" });
                       }
                     }}
-                    className="flex-1 rounded-full"
+                    className="flex-1 rounded-full border-0"
+                    style={GLASS_PRIMARY_BTN_STYLE}
                   >
                     Próximo <ChevronRight className="h-4 w-4 ml-2" />
                   </Button>
@@ -2899,24 +2978,19 @@ export default function Community() {
                     <button
                       key={opt.value}
                       onClick={() => setGroupConfig({ ...groupConfig, scoringType: opt.value })}
-                      className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all text-left ${
-                        groupConfig.scoringType === opt.value
-                          ? "border-brand bg-brand/8"
-                          : "border-border/60 hover:border-brand/40"
-                      }`}
+                      className="w-full flex items-center gap-3 p-3 rounded-xl border transition-all text-left"
+                      style={groupConfig.scoringType === opt.value
+                        ? { borderColor: "#5b8cff", background: "rgba(91,140,255,.12)" }
+                        : { borderColor: "rgba(255,255,255,.1)", background: "rgba(255,255,255,.04)" }}
                     >
-                      <div className={`w-9 h-9 rounded-lg flex items-center justify-center text-xl shrink-0 ${
-                        groupConfig.scoringType === opt.value ? "bg-brand/15" : "bg-muted/50"
-                      }`}>
+                      <div className="w-9 h-9 rounded-lg flex items-center justify-center text-xl shrink-0" style={{ background: groupConfig.scoringType === opt.value ? "rgba(91,140,255,.2)" : "rgba(255,255,255,.06)" }}>
                         {opt.icon}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold">{opt.title}</p>
-                        <p className="text-xs text-muted-foreground">{opt.desc}</p>
+                        <p className="text-sm font-semibold text-white">{opt.title}</p>
+                        <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>{opt.desc}</p>
                       </div>
-                      <div className={`w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center transition-colors ${
-                        groupConfig.scoringType === opt.value ? "border-brand bg-brand" : "border-muted-foreground"
-                      }`}>
+                      <div className="w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center transition-colors" style={groupConfig.scoringType === opt.value ? { borderColor: "#5b8cff", background: "#5b8cff" } : { borderColor: "rgba(255,255,255,.4)" }}>
                         {groupConfig.scoringType === opt.value && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
                       </div>
                     </button>
@@ -2926,19 +3000,21 @@ export default function Community() {
                 {/* Meme rule input — shown only when memes is selected */}
                 {groupConfig.scoringType === "memes" && (
                   <div className="space-y-2 pt-1">
-                    <label className="text-sm font-medium">Regra do desafio *</label>
+                    <label className={GLASS_LABEL_CLASS}>Regra do desafio *</label>
                     <Input
                       placeholder="Ex: Todos devem postar foto fazendo pose de vitória"
                       value={groupConfig.memeRule}
                       onChange={(e) => setGroupConfig({ ...groupConfig, memeRule: e.target.value })}
                       maxLength={200}
+                      className={GLASS_FIELD_CLASS}
+                      style={GLASS_FIELD_STYLE}
                     />
-                    <p className="text-xs text-muted-foreground">Esta regra aparece para todos os membros. Check-ins que não seguirem podem ser desclassificados.</p>
+                    <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>Esta regra aparece para todos os membros. Check-ins que não seguirem podem ser desclassificados.</p>
                   </div>
                 )}
 
                 <div className="flex gap-2 mt-4">
-                  <Button onClick={() => setGroupStep(3)} variant="outline" className="flex-1 rounded-full">Voltar</Button>
+                  <Button onClick={() => setGroupStep(3)} variant="outline" className="flex-1 rounded-full bg-transparent border-white/20 text-white hover:bg-white/10 hover:text-white">Voltar</Button>
                   <Button
                     onClick={() => {
                       if (groupConfig.scoringType === "memes" && !groupConfig.memeRule.trim()) {
@@ -2947,7 +3023,8 @@ export default function Community() {
                       }
                       setGroupStep(5);
                     }}
-                    className="flex-1 rounded-full"
+                    className="flex-1 rounded-full border-0"
+                    style={GLASS_PRIMARY_BTN_STYLE}
                   >
                     Próximo <ChevronRight className="h-4 w-4 ml-2" />
                   </Button>
@@ -2959,15 +3036,15 @@ export default function Community() {
             {groupStep === 5 && (
               <div className="space-y-4">
                 {/* Summary */}
-                <div className="p-4 rounded-xl bg-muted/20 border border-brand/20 space-y-1">
+                <div className="p-4 rounded-xl space-y-1" style={{ background: "rgba(91,140,255,.1)", border: "1px solid rgba(91,140,255,.25)" }}>
                   <p className="text-sm font-semibold text-brand">{groupConfig.name}</p>
-                  <p className="text-xs text-muted-foreground">📍 {groupConfig.location} · ⏱ {groupConfig.durationDays} dias</p>
-                  <p className="text-xs text-muted-foreground mt-1">{groupConfig.goal}</p>
+                  <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>📍 {groupConfig.location} · ⏱ {groupConfig.durationDays} dias</p>
+                  <p className="text-xs mt-1" style={{ color: "rgba(255,255,255,.5)" }}>{groupConfig.goal}</p>
                 </div>
 
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <label className="text-sm font-medium">Convidar Participantes ({selectedInvitees.size})</label>
+                    <label className={GLASS_LABEL_CLASS}>Convidar Participantes ({selectedInvitees.size})</label>
                     {followers.length > 0 && (
                       <Button
                         onClick={() => {
@@ -2982,7 +3059,7 @@ export default function Community() {
                         }}
                         variant="ghost"
                         size="sm"
-                        className="text-xs h-7"
+                        className="text-xs h-7 text-white/70 hover:text-white hover:bg-white/10"
                       >
                         {selectedInvitees.size === followers.length ? "Desselecionar Todos" : "Selecionar Todos"}
                       </Button>
@@ -2994,7 +3071,8 @@ export default function Community() {
                       placeholder="Pesquisar seguidor..."
                       value={participantsSearch}
                       onChange={(e) => setParticipantsSearch(e.target.value)}
-                      className="rounded-lg"
+                      className={`rounded-lg ${GLASS_FIELD_CLASS}`}
+                      style={GLASS_FIELD_STYLE}
                     />
                   )}
 
@@ -3014,21 +3092,23 @@ export default function Community() {
                               }
                               setSelectedInvitees(newSelected);
                             }}
-                            className={`w-full p-3 rounded-lg border transition-all text-left flex items-center gap-2 ${selectedInvitees.has(follower.id) ? "border-brand bg-brand/10" : "border-border hover:border-brand/50"
-                              }`}
+                            className="w-full p-3 rounded-lg border transition-all text-left flex items-center gap-2"
+                            style={selectedInvitees.has(follower.id)
+                              ? { borderColor: "#5b8cff", background: "rgba(91,140,255,.12)" }
+                              : { borderColor: "rgba(255,255,255,.1)", background: "rgba(255,255,255,.04)" }}
                           >
-                            <div className={`h-5 w-5 rounded border-2 flex items-center justify-center flex-shrink-0 ${selectedInvitees.has(follower.id) ? "bg-brand border-brand" : "border-muted-foreground"}`}>
+                            <div className="h-5 w-5 rounded border-2 flex items-center justify-center flex-shrink-0" style={selectedInvitees.has(follower.id) ? { background: "#5b8cff", borderColor: "#5b8cff" } : { borderColor: "rgba(255,255,255,.4)" }}>
                               {selectedInvitees.has(follower.id) && <Check className="h-3 w-3 text-white" />}
                             </div>
                             <div className="flex-1 min-w-0">
-                              <div className="text-sm font-medium truncate">{follower.nickname}</div>
+                              <div className="text-sm font-medium truncate text-white">{follower.nickname}</div>
                             </div>
                           </button>
                         ))
                     ) : (
                       <div className="flex flex-col items-center gap-3 py-4">
-                        <p className="text-sm text-muted-foreground text-center">Você não segue ninguém ainda</p>
-                        <Button variant="outline" size="sm" className="rounded-full gap-2" onClick={() => { setIsCreateGroupModalOpen(false); navigate("/buscar"); }}>
+                        <p className="text-sm text-center" style={{ color: "rgba(255,255,255,.5)" }}>Você não segue ninguém ainda</p>
+                        <Button variant="outline" size="sm" className="rounded-full gap-2 bg-transparent border-white/20 text-white hover:bg-white/10 hover:text-white" onClick={() => { setIsCreateGroupModalOpen(false); navigate("/buscar"); }}>
                           <Search className="h-4 w-4" />
                           Buscar Usuários
                         </Button>
@@ -3038,7 +3118,7 @@ export default function Community() {
                 </div>
 
                 <div className="flex gap-2">
-                  <Button onClick={() => setGroupStep(4)} variant="outline" className="flex-1 rounded-full">Voltar</Button>
+                  <Button onClick={() => setGroupStep(4)} variant="outline" className="flex-1 rounded-full bg-transparent border-white/20 text-white hover:bg-white/10 hover:text-white">Voltar</Button>
                   <Button
                     onClick={async () => {
                       if (!user || isCreatingGroup) return;
@@ -3109,7 +3189,8 @@ export default function Community() {
                         setIsCreatingGroup(false);
                       }
                     }}
-                    className="flex-1 rounded-full"
+                    className="flex-1 rounded-full border-0"
+                    style={GLASS_PRIMARY_BTN_STYLE}
                     disabled={isCreatingGroup}
                   >
                     {isCreatingGroup ? "Criando..." : t("duels_create")}
@@ -3126,9 +3207,13 @@ export default function Community() {
         open={isAddCheckInModalOpen}
         onOpenChange={setIsAddCheckInModalOpen}
       >
-        <DrawerContent className="max-h-[80dvh] flex flex-col" onOpenAutoFocus={(e) => e.preventDefault()}>
+        <DrawerContent
+          {...GLASS_SHEET_PROPS}
+          style={GLASS_SHEET_STYLE}
+          onOpenAutoFocus={(e) => e.preventDefault()}
+        >
           <DrawerHeader className="shrink-0">
-            <DrawerTitle>Adicionar Check-in</DrawerTitle>
+            <DrawerTitle className="text-white">Adicionar Check-in</DrawerTitle>
             <DrawerDescription className="sr-only">Registre seu check-in de treino</DrawerDescription>
           </DrawerHeader>
 
@@ -3136,12 +3221,12 @@ export default function Community() {
             <div className="space-y-4">
               {/* Photo Upload Carousel */}
               <div className="space-y-2">
-                <label className="text-sm font-medium">Fotos do Treino ({checkInPhotoFiles.length})</label>
-                <div className="relative border-2 border-dashed border-brand/40 rounded-xl overflow-hidden bg-muted/10">
+                <label className={GLASS_LABEL_CLASS}>Fotos do Treino ({checkInPhotoFiles.length})</label>
+                <div className="relative border-2 border-dashed border-brand/40 rounded-xl overflow-hidden" style={{ background: "rgba(255,255,255,.03)" }}>
                   {checkInPhotoPreviewUrls.length > 0 ? (
                     <div className="space-y-3 p-4">
                       {/* Preview Carousel */}
-                      <div className="relative group aspect-square rounded-lg overflow-hidden border border-border/40 bg-black/5">
+                      <div className="relative group aspect-square rounded-lg overflow-hidden border border-white/10 bg-black/20">
                         <img
                           src={checkInPhotoPreviewUrls[activePhotoPreviewIndex]}
                           alt={`Preview ${activePhotoPreviewIndex + 1}`}
@@ -3280,8 +3365,8 @@ export default function Community() {
                       <div className="w-16 h-16 bg-brand/10 rounded-full flex items-center justify-center mx-auto mb-3 group-hover:scale-110 transition-transform">
                         <Plus className="h-8 w-8 text-brand" />
                       </div>
-                      <p className="text-sm font-medium">Adicionar Fotos</p>
-                      <p className="text-xs text-muted-foreground mt-1">Selecione uma imagem por vez</p>
+                      <p className="text-sm font-medium text-white">Adicionar Fotos</p>
+                      <p className="text-xs mt-1" style={{ color: "rgba(255,255,255,.5)" }}>Selecione uma imagem por vez</p>
                       <input
                         type="file"
                         accept="image/*"
@@ -3305,44 +3390,45 @@ export default function Community() {
 
               {/* Description */}
               <div className="space-y-2">
-                <label className="text-sm font-medium">Descrição</label>
+                <label className={GLASS_LABEL_CLASS}>Descrição</label>
                 <Textarea
                   value={checkInForm.description}
                   onChange={(e) =>
                     setCheckInForm({ ...checkInForm, description: e.target.value })
                   }
                   placeholder="Como foi seu treino? Deixe uma mensagem..."
-                  className="min-h-20"
+                  className={`min-h-20 ${GLASS_FIELD_CLASS}`}
+                  style={GLASS_FIELD_STYLE}
                 />
               </div>
 
               {/* Completed Routine Selector */}
               <div className="space-y-2">
-                <label className="text-sm font-medium">O que você treinou? *</label>
+                <label className={GLASS_LABEL_CLASS}>O que você treinou? *</label>
                 {isLoadingRoutines ? (
                   <div className="space-y-2">
                     {[1, 2].map((i) => (
-                      <div key={i} className="animate-pulse rounded-xl border border-border/60 bg-muted/20 p-3">
+                      <div key={i} className="animate-pulse rounded-xl p-3" style={GLASS_PANEL_STYLE}>
                         <div className="flex gap-3">
-                          <div className="w-5 h-5 rounded-full bg-muted flex-shrink-0 mt-0.5" />
+                          <div className="w-5 h-5 rounded-full bg-white/10 flex-shrink-0 mt-0.5" />
                           <div className="flex-1 space-y-2">
-                            <div className="h-3 bg-muted rounded w-2/3" />
-                            <div className="h-2 bg-muted rounded w-1/3" />
+                            <div className="h-3 bg-white/10 rounded w-2/3" />
+                            <div className="h-2 bg-white/10 rounded w-1/3" />
                           </div>
                         </div>
                       </div>
                     ))}
                   </div>
                 ) : completedRoutines.length === 0 ? (
-                  <div className="rounded-xl border border-border/60 bg-muted/20 p-4 text-center space-y-3">
+                  <div className="rounded-xl p-4 text-center space-y-3" style={GLASS_PANEL_STYLE}>
                     <div>
-                      <p className="text-sm font-medium">Nenhum treino concluído</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">Conclua uma rotina hoje para fazer check-in</p>
+                      <p className="text-sm font-medium text-white">Nenhum treino concluído</p>
+                      <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,.5)" }}>Conclua uma rotina hoje para fazer check-in</p>
                     </div>
                     <Button
                       size="sm"
                       variant="outline"
-                      className="rounded-full text-xs h-8 px-4"
+                      className="rounded-full text-xs h-8 px-4 bg-transparent border-white/20 text-white hover:bg-white/10 hover:text-white"
                       onClick={() => {
                         setIsAddCheckInModalOpen(false);
                         navigate("/metas");
@@ -3367,27 +3453,30 @@ export default function Community() {
                         <button
                           key={key}
                           onClick={() => setSelectedRoutineKey(isSelected ? null : key)}
-                          className={`w-full text-left rounded-xl border overflow-hidden transition-colors ${isSelected ? "border-brand bg-brand/5" : "border-border/60 hover:border-brand/40"}`}
+                          className="w-full text-left rounded-xl border overflow-hidden transition-colors"
+                          style={isSelected
+                            ? { borderColor: "#5b8cff", background: "rgba(91,140,255,.1)" }
+                            : { borderColor: "rgba(255,255,255,.1)", background: "rgba(255,255,255,.04)" }}
                         >
                           <div className="flex items-start gap-3 px-3 py-2.5">
-                            <div className={`shrink-0 mt-0.5 h-5 w-5 rounded-full border-2 flex items-center justify-center transition-colors ${isSelected ? "border-brand bg-brand" : "border-border"}`}>
+                            <div className="shrink-0 mt-0.5 h-5 w-5 rounded-full border-2 flex items-center justify-center transition-colors" style={isSelected ? { borderColor: "#5b8cff", background: "#5b8cff" } : { borderColor: "rgba(255,255,255,.3)" }}>
                               {isSelected && <div className="h-2 w-2 rounded-full bg-white" />}
                             </div>
                             <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium truncate">{routine.routineName}</p>
+                              <p className="text-sm font-medium truncate text-white">{routine.routineName}</p>
                               <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                                 {routine.primaryMuscleGroup && (
-                                  <span className="text-xs bg-brand/10 text-brand px-1.5 py-0.5 rounded-full">{routine.primaryMuscleGroup}</span>
+                                  <span className="text-xs bg-brand/15 text-brand px-1.5 py-0.5 rounded-full">{routine.primaryMuscleGroup}</span>
                                 )}
-                                <span className="text-xs text-muted-foreground">{routine.exercises.length} exerc. · {dateLabel}</span>
+                                <span className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>{routine.exercises.length} exerc. · {dateLabel}</span>
                               </div>
                               {/* Exercise list preview */}
                               <div className="mt-1.5 space-y-0.5">
                                 {routine.exercises.slice(0, 3).map((ex, i) => (
-                                  <p key={i} className="text-xs text-muted-foreground truncate">• {ex.workoutName}{ex.kilos ? ` — ${ex.kilos}kg` : ""}</p>
+                                  <p key={i} className="text-xs truncate" style={{ color: "rgba(255,255,255,.5)" }}>• {ex.workoutName}{ex.kilos ? ` — ${ex.kilos}kg` : ""}</p>
                                 ))}
                                 {routine.exercises.length > 3 && (
-                                  <p className="text-xs text-muted-foreground">+{routine.exercises.length - 3} mais</p>
+                                  <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>+{routine.exercises.length - 3} mais</p>
                                 )}
                               </div>
                             </div>
@@ -3409,7 +3498,7 @@ export default function Community() {
                 }[selectedGroupForView.scoringType as "duration" | "distance" | "steps" | "calories"];
                 return (
                   <div className="space-y-2">
-                    <label className="text-sm font-medium">{metricConfig?.label}</label>
+                    <label className={GLASS_LABEL_CLASS}>{metricConfig?.label}</label>
                     <div className="flex items-center gap-2">
                       <Input
                         type="number"
@@ -3417,9 +3506,10 @@ export default function Community() {
                         placeholder={metricConfig?.placeholder}
                         value={checkInMetricValue}
                         onChange={(e) => setCheckInMetricValue(e.target.value)}
-                        className="flex-1"
+                        className={`flex-1 ${GLASS_FIELD_CLASS}`}
+                        style={GLASS_FIELD_STYLE}
                       />
-                      <span className="text-sm text-muted-foreground shrink-0">{metricConfig?.unit}</span>
+                      <span className="text-sm shrink-0" style={{ color: "rgba(255,255,255,.5)" }}>{metricConfig?.unit}</span>
                     </div>
                   </div>
                 );
@@ -3507,7 +3597,8 @@ export default function Community() {
                     setIsSubmittingCheckIn(false);
                   }
                 }}
-                className="w-full rounded-full"
+                className="w-full rounded-full border-0"
+                style={GLASS_PRIMARY_BTN_STYLE}
                 disabled={!selectedRoutineKey || !user || isSubmittingCheckIn}
               >
                 Adicionar Check-in
@@ -3558,11 +3649,16 @@ export default function Community() {
 
       {/* Reaction Viewer — who reacted with a specific emoji */}
       <Drawer open={!!reactionViewerState} onOpenChange={(open) => { if (!open) setReactionViewerState(null); }}>
-        <DrawerContent className="max-h-[60dvh] flex flex-col z-[110]" onOpenAutoFocus={(e) => e.preventDefault()}>
+        <DrawerContent
+          {...GLASS_SHEET_PROPS}
+          className="flex flex-col !rounded-t-[32px] !border-0 z-[110]"
+          style={{ ...GLASS_SHEET_STYLE, maxHeight: "60dvh" }}
+          onOpenAutoFocus={(e) => e.preventDefault()}
+        >
           {reactionViewerState && (
             <>
               <DrawerHeader className="shrink-0">
-                <DrawerTitle className="text-base flex items-center gap-2">
+                <DrawerTitle className="text-base flex items-center gap-2 text-white">
                   <span className="text-xl">{reactionViewerState.emoji}</span>
                   {!reactionViewerState.loading && (
                     <span>{reactionViewerState.users.filter(u => u.emoji === reactionViewerState.emoji).length} {reactionViewerState.users.filter(u => u.emoji === reactionViewerState.emoji).length === 1 ? "reação" : "reações"}</span>
@@ -3575,8 +3671,8 @@ export default function Community() {
                   <div className="space-y-3">
                     {[1, 2, 3].map((i) => (
                       <div key={i} className="flex items-center gap-3 animate-pulse">
-                        <div className="w-9 h-9 rounded-full bg-muted flex-shrink-0" />
-                        <div className="h-3 bg-muted rounded w-28" />
+                        <div className="w-9 h-9 rounded-full bg-white/10 flex-shrink-0" />
+                        <div className="h-3 bg-white/10 rounded w-28" />
                       </div>
                     ))}
                   </div>
@@ -3590,7 +3686,7 @@ export default function Community() {
                           nickname={u.userName}
                           className="w-9 h-9 flex-shrink-0"
                         />
-                        <span className="text-sm font-medium">{u.userName}</span>
+                        <span className="text-sm font-medium text-white">{u.userName}</span>
                       </div>
                     ))
                 )}
@@ -3602,9 +3698,13 @@ export default function Community() {
 
       {/* Check-in Detail Modal */}
       <Drawer open={isCheckInDetailOpen} onOpenChange={setIsCheckInDetailOpen}>
-        <DrawerContent className="max-h-[80dvh] flex flex-col" onOpenAutoFocus={(e) => e.preventDefault()}>
+        <DrawerContent
+          {...GLASS_SHEET_PROPS}
+          style={{ ...GLASS_SHEET_STYLE, maxHeight: "80dvh" }}
+          onOpenAutoFocus={(e) => e.preventDefault()}
+        >
           <DrawerHeader className="shrink-0 flex items-center justify-between">
-            <DrawerTitle>Detalhes do Check-in</DrawerTitle>
+            <DrawerTitle className="text-white">Detalhes do Check-in</DrawerTitle>
             <DrawerDescription className="sr-only">Veja detalhes e comentários do check-in</DrawerDescription>
             {selectedCheckInForDetail && selectedCheckInForDetail.userId === user?.id && (
               <div className="flex gap-2">
@@ -3614,10 +3714,10 @@ export default function Community() {
                       setIsEditCheckInOpen(true);
                     }
                   }}
-                  className="p-2 hover:bg-muted rounded-lg transition-colors"
+                  className="p-2 hover:bg-white/10 rounded-lg transition-colors"
                   title="Editar check-in"
                 >
-                  <Edit3 className="h-4 w-4 text-muted-foreground hover:text-foreground" />
+                  <Edit3 className="h-4 w-4 text-white/60 hover:text-white" />
                 </button>
                 <button
                   onClick={() => {
@@ -3659,12 +3759,12 @@ export default function Community() {
                   />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5">
-                      <span className="text-sm font-semibold truncate">{selectedCheckInForDetail.userName}</span>
+                      <span className="text-sm font-semibold truncate text-white">{selectedCheckInForDetail.userName}</span>
                       {selectedCheckInForDetail.muscleGroup && (
-                        <span className="text-[10px] bg-brand/10 text-brand px-1 py-0.5 rounded-full shrink-0 leading-none">{selectedCheckInForDetail.muscleGroup}</span>
+                        <span className="text-[10px] bg-brand/15 text-brand px-1 py-0.5 rounded-full shrink-0 leading-none">{selectedCheckInForDetail.muscleGroup}</span>
                       )}
                     </div>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>
                       {new Date(selectedCheckInForDetail.createdAt).toLocaleDateString("pt-BR", { day: "numeric", month: "short" })} · {new Date(selectedCheckInForDetail.createdAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
                     </p>
                   </div>
@@ -3689,18 +3789,18 @@ export default function Community() {
 
                 {/* Description */}
                 {selectedCheckInForDetail.description && (
-                  <p className="text-sm text-foreground/90">{selectedCheckInForDetail.description}</p>
+                  <p className="text-sm" style={{ color: "rgba(255,255,255,.85)" }}>{selectedCheckInForDetail.description}</p>
                 )}
 
                 {/* Rotina + stats numa linha */}
-                <div className="flex items-center gap-3 py-1 border-t border-border/40">
-                  <span className="text-xs text-muted-foreground shrink-0">Rotina</span>
+                <div className="flex items-center gap-3 py-1" style={{ borderTop: "1px solid rgba(255,255,255,.1)" }}>
+                  <span className="text-xs shrink-0" style={{ color: "rgba(255,255,255,.5)" }}>Rotina</span>
                   <span className="text-xs font-medium text-brand truncate flex-1">{selectedCheckInForDetail.workoutInfo}</span>
                   {selectedCheckInForDetail.exercises?.length > 0 && (
-                    <span className="text-xs text-muted-foreground shrink-0">{selectedCheckInForDetail.exercises.length} exerc.</span>
+                    <span className="text-xs shrink-0" style={{ color: "rgba(255,255,255,.5)" }}>{selectedCheckInForDetail.exercises.length} exerc.</span>
                   )}
                   {selectedCheckInForDetail.volume > 0 && (
-                    <span className="text-xs text-muted-foreground shrink-0">{selectedCheckInForDetail.volume}kg</span>
+                    <span className="text-xs shrink-0" style={{ color: "rgba(255,255,255,.5)" }}>{selectedCheckInForDetail.volume}kg</span>
                   )}
                 </div>
 
@@ -3719,11 +3819,11 @@ export default function Community() {
                     <div className="space-y-2 pt-0.5">
                       {grouped.map((ex, i) => (
                         <div key={i} className="flex items-start gap-2">
-                          <span className="text-xs text-foreground/70 flex-1 leading-5 truncate">{ex.name}</span>
+                          <span className="text-xs flex-1 leading-5 truncate" style={{ color: "rgba(255,255,255,.7)" }}>{ex.name}</span>
                           {ex.sets.length > 0 && (
                             <div className="flex flex-wrap gap-1 justify-end shrink-0 max-w-[55%]">
                               {ex.sets.map((s, j) => (
-                                <span key={j} className="text-[10px] font-medium text-brand bg-brand/10 rounded px-1.5 py-0.5 leading-none">{s}</span>
+                                <span key={j} className="text-[10px] font-medium text-brand bg-brand/15 rounded px-1.5 py-0.5 leading-none">{s}</span>
                               ))}
                             </div>
                           )}
@@ -3742,15 +3842,15 @@ export default function Community() {
                   const disqualified = disqualifyCount > classifyCount && disqualifyCount > 0;
                   const isOwn = selectedCheckInForDetail.userId === user?.id;
                   return (
-                    <div className="py-3 border-t border-border/40 space-y-2">
+                    <div className="py-3 space-y-2" style={{ borderTop: "1px solid rgba(255,255,255,.1)" }}>
                       {selectedGroupForView.memeRule && (
-                        <div className="flex items-start gap-2 p-2.5 rounded-lg bg-muted/30 border border-border/40">
+                        <div className="flex items-start gap-2 p-2.5 rounded-lg" style={GLASS_PANEL_STYLE}>
                           <span className="text-base shrink-0">🎭</span>
-                          <p className="text-xs text-muted-foreground">{selectedGroupForView.memeRule}</p>
+                          <p className="text-xs" style={{ color: "rgba(255,255,255,.6)" }}>{selectedGroupForView.memeRule}</p>
                         </div>
                       )}
                       {disqualified && (
-                        <div className="flex items-center gap-2.5 p-3 rounded-lg bg-destructive/8 border border-destructive/20">
+                        <div className="flex items-center gap-2.5 p-3 rounded-lg bg-destructive/10 border border-destructive/30">
                           <XCircle className="h-4 w-4 text-destructive shrink-0" />
                           <p className="text-xs font-semibold text-destructive">Check-in anulado — {disqualifyCount} anulação{disqualifyCount !== 1 ? "ões" : ""} vs {classifyCount} aprovação{classifyCount !== 1 ? "ões" : ""}</p>
                         </div>
@@ -3769,7 +3869,7 @@ export default function Community() {
                               });
                             }}
                             aria-label="Aprovar check-in"
-                            className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl border text-sm font-semibold transition-colors ${userVote === "classify" ? "bg-emerald-500/15 border-emerald-500/50 text-emerald-600 dark:text-emerald-400" : "bg-muted/20 border-border/50 text-muted-foreground hover:border-emerald-500/40 hover:text-emerald-600"}`}
+            className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl border text-sm font-semibold transition-colors ${userVote === "classify" ? "bg-emerald-500/15 border-emerald-500/50 text-emerald-400" : "bg-white/5 border-white/15 text-white/60 hover:border-emerald-500/40 hover:text-emerald-400"}`}
                           >
                             <CheckCircle2 className="h-4 w-4 shrink-0" />
                             Aprovar
@@ -3787,7 +3887,7 @@ export default function Community() {
                               });
                             }}
                             aria-label="Anular check-in"
-                            className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl border text-sm font-semibold transition-colors ${userVote === "disqualify" ? "bg-destructive/15 border-destructive/50 text-destructive" : "bg-muted/20 border-border/50 text-muted-foreground hover:border-destructive/40 hover:text-destructive"}`}
+            className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl border text-sm font-semibold transition-colors ${userVote === "disqualify" ? "bg-destructive/15 border-destructive/50 text-destructive" : "bg-white/5 border-white/15 text-white/60 hover:border-destructive/40 hover:text-destructive"}`}
                           >
                             <XCircle className="h-4 w-4 shrink-0" />
                             Anular
@@ -3796,7 +3896,7 @@ export default function Community() {
                         </div>
                       )}
                       {isOwn && (
-                        <div className="flex gap-4 text-sm text-muted-foreground">
+                        <div className="flex gap-4 text-sm text-white/60">
                           <span className="flex items-center gap-1.5">
                             <CheckCircle2 className="h-4 w-4 text-emerald-500" />
                             {classifyCount} aprovação{classifyCount !== 1 ? "ões" : ""}
@@ -3812,8 +3912,8 @@ export default function Community() {
                 })()}
 
                 {/* Comments Section */}
-                <div className="pt-2 border-t border-border/40 space-y-3">
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                <div className="pt-2 space-y-3" style={{ borderTop: "1px solid rgba(255,255,255,.1)" }}>
+                  <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: "rgba(255,255,255,.5)" }}>
                     Comentários {checkInComments.length > 0 ? `(${checkInComments.length})` : ""}
                   </p>
 
@@ -3821,10 +3921,10 @@ export default function Community() {
                     <div className="space-y-2">
                       {[1, 2].map((i) => (
                         <div key={i} className="animate-pulse flex gap-2">
-                          <div className="w-7 h-7 rounded-full bg-muted flex-shrink-0" />
+                          <div className="w-7 h-7 rounded-full bg-white/10 flex-shrink-0" />
                           <div className="flex-1 space-y-1">
-                            <div className="h-2.5 bg-muted rounded w-1/4" />
-                            <div className="h-2 bg-muted rounded w-3/4" />
+                            <div className="h-2.5 bg-white/10 rounded w-1/4" />
+                            <div className="h-2 bg-white/10 rounded w-3/4" />
                           </div>
                         </div>
                       ))}
@@ -3841,15 +3941,15 @@ export default function Community() {
                           <div className="flex-1 min-w-0">
                             <div className="flex items-start justify-between gap-1">
                               <div className="flex items-baseline gap-1.5 flex-wrap flex-1 min-w-0">
-                                <span className="text-xs font-semibold">{comment.userNickname}</span>
-                                <span className="text-[10px] text-muted-foreground">{new Date(comment.createdAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span>
+                                <span className="text-xs font-semibold text-white">{comment.userNickname}</span>
+                                <span className="text-[10px]" style={{ color: "rgba(255,255,255,.4)" }}>{new Date(comment.createdAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span>
                               </div>
                               {user?.id === comment.userId && editingCommentId !== comment.id && (
                                 <div className="flex shrink-0 gap-0.5">
                                   <button
                                     type="button"
                                     onClick={() => handleStartEditComment(comment)}
-                                    className="rounded-lg p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                                    className="rounded-lg p-1 text-white/50 transition-colors hover:bg-white/10 hover:text-white"
                                     aria-label="Editar comentário"
                                   >
                                     <Pencil className="h-3.5 w-3.5" />
@@ -3858,7 +3958,7 @@ export default function Community() {
                                     type="button"
                                     onClick={() => handleDeleteCheckInComment(comment.id)}
                                     disabled={deletingCommentId === comment.id}
-                                    className="rounded-lg p-1 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-50 disabled:cursor-not-allowed"
+                                    className="rounded-lg p-1 text-white/50 transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-50 disabled:cursor-not-allowed"
                                     aria-label="Excluir comentário"
                                   >
                                     <Trash2 className="h-3.5 w-3.5" />
@@ -3871,7 +3971,8 @@ export default function Community() {
                                 <textarea
                                   value={editCommentDraft}
                                   onChange={(e) => setEditCommentDraft(e.target.value)}
-                                  className="w-full resize-none rounded-md border border-border bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring min-h-14"
+                                  className="w-full resize-none rounded-md px-2 py-1.5 text-xs text-white placeholder:text-white/35 focus:outline-none focus:ring-2 focus:ring-ring min-h-14"
+                                  style={GLASS_FIELD_STYLE}
                                   disabled={isSavingEditComment}
                                   autoFocus
                                   onKeyDown={(e) => {
@@ -3896,7 +3997,7 @@ export default function Community() {
                                     type="button"
                                     onClick={handleCancelEditComment}
                                     disabled={isSavingEditComment}
-                                    className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium bg-muted text-muted-foreground hover:bg-muted/80 disabled:opacity-50 transition-colors"
+                                    className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium bg-white/10 text-white/70 hover:bg-white/20 disabled:opacity-50 transition-colors"
                                   >
                                     <X className="h-3 w-3" />
                                     Cancelar
@@ -3904,7 +4005,7 @@ export default function Community() {
                                 </div>
                               </div>
                             ) : (
-                              <p className="text-xs text-foreground/90 break-words">{comment.text}</p>
+                              <p className="text-xs break-words" style={{ color: "rgba(255,255,255,.85)" }}>{comment.text}</p>
                             )}
                             <CommentReactions commentType="checkin" commentId={comment.id} commentOwnerId={comment.userId} sourceId={selectedCheckInForDetail?.id} isOwnComment={!!(user?.id === comment.userId)} />
                           </div>
@@ -3912,7 +4013,7 @@ export default function Community() {
                       ))}
                     </div>
                   ) : (
-                    <p className="text-xs text-muted-foreground">Nenhum comentário ainda. Seja o primeiro!</p>
+                    <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>Nenhum comentário ainda. Seja o primeiro!</p>
                   )}
 
                   {/* Comment Input */}
@@ -3927,12 +4028,14 @@ export default function Community() {
                           handleSendComment(selectedCheckInForDetail.id);
                         }
                       }}
-                      className="rounded-full text-xs h-9"
+                      className={`rounded-full text-xs h-9 ${GLASS_FIELD_CLASS}`}
+                      style={GLASS_FIELD_STYLE}
                       disabled={isSendingComment}
                     />
                     <Button
                       size="sm"
-                      className="rounded-full flex-shrink-0 h-9 w-9 p-0"
+                      className="rounded-full flex-shrink-0 h-9 w-9 p-0 border-0"
+                      style={GLASS_PRIMARY_BTN_STYLE}
                       disabled={!commentText.trim() || isSendingComment}
                       onClick={() => selectedCheckInForDetail && handleSendComment(selectedCheckInForDetail.id)}
                     >
@@ -3948,17 +4051,21 @@ export default function Community() {
 
       {/* Group Details Modal */}
       <Drawer open={isGroupDetailsOpen} onOpenChange={(open) => { setIsGroupDetailsOpen(open); if (!open) setIsEditingGroupInfo(false); }}>
-        <DrawerContent className="max-h-[80dvh] flex flex-col" onOpenAutoFocus={(e) => e.preventDefault()}>
+        <DrawerContent
+          {...GLASS_SHEET_PROPS}
+          style={{ ...GLASS_SHEET_STYLE, maxHeight: "80dvh" }}
+          onOpenAutoFocus={(e) => e.preventDefault()}
+        >
           <DrawerHeader className="shrink-0 flex flex-row items-center justify-between pr-4">
             <div>
-              <DrawerTitle>Detalhes do Grupo</DrawerTitle>
+              <DrawerTitle className="text-white">Detalhes do Grupo</DrawerTitle>
               <DrawerDescription className="sr-only">Informações e estatísticas do grupo</DrawerDescription>
             </div>
             {selectedGroupForView?.createdBy === user?.id && !isEditingGroupInfo && (
               <Button
                 variant="ghost"
                 size="sm"
-                className="gap-1.5 text-xs text-muted-foreground"
+                className="gap-1.5 text-xs text-white/60 hover:text-white hover:bg-white/10"
                 onClick={() => {
                   setEditGroupName(selectedGroupForView.name);
                   setEditGroupGoal(selectedGroupForView.goal ?? "");
@@ -4056,14 +4163,15 @@ export default function Community() {
                   <div className="flex gap-2 pt-2">
                     <Button
                       variant="outline"
-                      className="flex-1 rounded-full"
+                      className="flex-1 rounded-full bg-transparent border-white/20 text-white hover:bg-white/10 hover:text-white"
                       onClick={() => setIsEditingGroupInfo(false)}
                       disabled={isSavingGroupInfo}
                     >
                       Cancelar
                     </Button>
                     <Button
-                      className="flex-1 rounded-full"
+                      className="flex-1 rounded-full border-0"
+                      style={GLASS_PRIMARY_BTN_STYLE}
                       disabled={isSavingGroupInfo || !editGroupName.trim()}
                       onClick={async () => {
                         if (!selectedGroupForView) return;
@@ -4089,7 +4197,7 @@ export default function Community() {
 
                 {/* Action Buttons */}
                 {!isEditingGroupInfo && (
-                  <div className="space-y-2 pt-4 border-t border-border/40">
+                  <div className="space-y-2 pt-4" style={{ borderTop: "1px solid rgba(255,255,255,.1)" }}>
                     {selectedGroupForView.createdBy === user?.id ? (
                       <>
                         <Button
@@ -4105,7 +4213,7 @@ export default function Community() {
                       <Button
                         onClick={() => setLeaveGroupConfirmOpen(true)}
                         variant="outline"
-                        className="w-full rounded-full gap-2"
+                        className="w-full rounded-full gap-2 bg-transparent border-white/20 text-white hover:bg-white/10 hover:text-white"
                       >
                         Sair do Grupo
                       </Button>
@@ -4214,9 +4322,13 @@ export default function Community() {
         setIsParticipantsModalOpen(open);
         if (!open) setParticipantDetailsId(null);
       }}>
-        <DrawerContent className="max-h-[80dvh] flex flex-col" onOpenAutoFocus={(e) => e.preventDefault()}>
+        <DrawerContent
+          {...GLASS_SHEET_PROPS}
+          style={{ ...GLASS_SHEET_STYLE, maxHeight: "80dvh" }}
+          onOpenAutoFocus={(e) => e.preventDefault()}
+        >
           <DrawerHeader className="shrink-0">
-            <DrawerTitle>Participantes ({groupParticipants.length})</DrawerTitle>
+            <DrawerTitle className="text-white">Participantes ({groupParticipants.length})</DrawerTitle>
             <DrawerDescription className="sr-only">Lista de participantes do grupo</DrawerDescription>
           </DrawerHeader>
 
@@ -4250,15 +4362,15 @@ export default function Community() {
 
               return (
                 <div className="grid grid-cols-3 gap-2 mb-4">
-                  <div className="p-3 rounded-lg bg-muted/30 border border-border/40 flex flex-col items-center justify-center text-center">
+                  <div className="p-3 rounded-lg flex flex-col items-center justify-center text-center" style={GLASS_PANEL_STYLE}>
                     <span className="text-xl font-bold text-brand mb-1">{totalCheckIns}</span>
-                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Total Check-ins</span>
+                    <span className="text-[10px] uppercase tracking-wider font-semibold text-white/50">Total Check-ins</span>
                   </div>
-                  <div className="p-3 rounded-lg bg-muted/30 border border-border/40 flex flex-col items-center justify-center text-center">
+                  <div className="p-3 rounded-lg flex flex-col items-center justify-center text-center" style={GLASS_PANEL_STYLE}>
                     <span className="text-xl font-bold text-brand mb-1">{avgCheckInsPerDay.toFixed(1)}</span>
-                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Média / Dia</span>
+                    <span className="text-[10px] uppercase tracking-wider font-semibold text-white/50">Média / Dia</span>
                   </div>
-                  <div className="p-3 rounded-lg bg-muted/30 border border-border/40 flex flex-col items-center justify-center text-center">
+                  <div className="p-3 rounded-lg flex flex-col items-center justify-center text-center" style={GLASS_PANEL_STYLE}>
                     {topReactionUser && topReactionUser.count > 0 ? (
                       <>
                         <div className="flex items-center justify-center gap-1.5 mb-1">
@@ -4266,15 +4378,15 @@ export default function Community() {
                           <UserAvatar
                             photo={topReactionUser.userPhoto}
                             nickname={topReactionUser.userName}
-                            className="h-6 w-6 border border-border/40"
+                            className="h-6 w-6 border border-white/15"
                           />
                         </div>
-                        <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Mais Reações</span>
+                        <span className="text-[10px] uppercase tracking-wider font-semibold text-white/50">Mais Reações</span>
                       </>
                     ) : (
                       <>
                         <span className="text-xl font-bold text-brand mb-1">0</span>
-                        <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Mais Reações</span>
+                        <span className="text-[10px] uppercase tracking-wider font-semibold text-white/50">Mais Reações</span>
                       </>
                     )}
                   </div>
@@ -4288,7 +4400,7 @@ export default function Community() {
                   <div
                     key={participant.userId}
                     onClick={() => setParticipantDetailsId(participant.userId)}
-                    className="p-3 rounded-lg bg-muted/30 border border-border/40 flex items-center gap-3 cursor-pointer hover:bg-muted/50 transition-colors"
+                    className="p-3 rounded-lg flex items-center gap-3 cursor-pointer transition-colors hover:brightness-125" style={GLASS_PANEL_STYLE}
                   >
                     <UserAvatar
                       photo={participant.userPhoto}
@@ -4296,11 +4408,11 @@ export default function Community() {
                       size="md"
                       className="flex-shrink-0"
                     />
-                    <p className="text-sm font-medium flex-1">{participant.userNickname}</p>
+                    <p className="text-sm font-medium flex-1 text-white">{participant.userNickname}</p>
                     {selectedGroupForView?.createdBy === user?.id && participant.userId !== user?.id && (
                       <button
                         onClick={(e) => { e.stopPropagation(); setRemoveMemberConfirm({ open: true, participant }); }}
-                        className="p-1.5 rounded-full hover:bg-destructive/10 transition-colors text-muted-foreground hover:text-destructive flex-shrink-0"
+                        className="p-1.5 rounded-full hover:bg-destructive/10 transition-colors text-white/50 hover:text-destructive flex-shrink-0"
                         title="Remover do grupo"
                       >
                         <X className="h-4 w-4" />
@@ -4309,14 +4421,15 @@ export default function Community() {
                   </div>
                 ))
               ) : (
-                <p className="text-sm text-muted-foreground text-center py-4">Nenhum participante ainda</p>
+                <p className="text-sm text-center py-4" style={{ color: "rgba(255,255,255,.5)" }}>Nenhum participante ainda</p>
               )}
             </div>
           </div>
           {selectedGroupForView?.createdBy === user?.id && (
-            <div className="border-t border-border/40 p-4">
+            <div className="p-4" style={{ borderTop: "1px solid rgba(255,255,255,.1)" }}>
               <Button
-                className="w-full rounded-full gap-2"
+                className="w-full rounded-full gap-2 border-0"
+                style={GLASS_PRIMARY_BTN_STYLE}
                 onClick={() => {
                   setIsParticipantsModalOpen(false);
                   setIsAddMembersModalOpen(true);
@@ -4332,7 +4445,12 @@ export default function Community() {
 
       {/* Participant Details Modal */}
       <Drawer open={!!participantDetailsId} onOpenChange={(open) => !open && setParticipantDetailsId(null)}>
-        <DrawerContent className="h-[95dvh] flex flex-col z-[110]" onOpenAutoFocus={(e) => e.preventDefault()}>
+        <DrawerContent
+          {...GLASS_SHEET_PROPS}
+          className="flex flex-col !rounded-t-[32px] !border-0 z-[110]"
+          style={{ ...GLASS_SHEET_STYLE, height: "95dvh", maxHeight: "95dvh" }}
+          onOpenAutoFocus={(e) => e.preventDefault()}
+        >
           {(() => {
             if (!participantDetailsId) return null;
             const pInfo = groupParticipants.find(p => p.userId === participantDetailsId);
@@ -4371,41 +4489,41 @@ export default function Community() {
             return (
               <>
                 <DrawerHeader className="shrink-0 flex items-center justify-between pb-2">
-                  <button onClick={() => setParticipantDetailsId(null)} className="p-2 -ml-2 rounded-full hover:bg-muted/50 transition-colors"><ChevronLeft className="h-6 w-6" /></button>
+                  <button onClick={() => setParticipantDetailsId(null)} className="p-2 -ml-2 rounded-full hover:bg-white/10 transition-colors"><ChevronLeft className="h-6 w-6 text-white" /></button>
                   <div className="flex-1" />
                 </DrawerHeader>
 
-                <div className="flex-1 overflow-y-auto px-4 py-3 bg-background flex flex-col justify-center">
+                <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col justify-center">
                   <div className="flex flex-col items-center mb-4">
                     <UserAvatar
                       photo={pInfo?.userPhoto}
                       nickname={pInfo?.userNickname}
                       size="xl"
-                      className="mb-2 border-2 border-border/40"
+                      className="mb-2 border-2 border-white/15"
                     />
-                    <h2 className="text-lg font-bold">{pInfo?.userNickname}</h2>
+                    <h2 className="text-lg font-bold text-white">{pInfo?.userNickname}</h2>
                   </div>
 
                   <div className="flex justify-between w-full mb-6 px-2">
                     <div className="text-center flex-1">
-                      <p className="text-lg font-bold leading-none mb-1">{pCheckIns.length}</p>
-                      <p className="text-[11px] text-muted-foreground">Check-ins</p>
+                      <p className="text-lg font-bold leading-none mb-1 text-white">{pCheckIns.length}</p>
+                      <p className="text-[11px] text-white/50">Check-ins</p>
                     </div>
                     <div className="text-center flex-1">
-                      <p className="text-lg font-bold leading-none mb-1">{activeDays}</p>
-                      <p className="text-[11px] text-muted-foreground">Dias ativos</p>
+                      <p className="text-lg font-bold leading-none mb-1 text-white">{activeDays}</p>
+                      <p className="text-[11px] text-white/50">Dias ativos</p>
                     </div>
                     <div className="text-center flex-1">
-                      <p className="text-lg font-bold leading-none mb-1">{durationStr}</p>
-                      <p className="text-[11px] text-muted-foreground">Duração</p>
+                      <p className="text-lg font-bold leading-none mb-1 text-white">{durationStr}</p>
+                      <p className="text-[11px] text-white/50">Duração</p>
                     </div>
                   </div>
 
                   <div className="mb-4">
-                    <h3 className="text-center font-bold text-base mb-3">{monthTitle}</h3>
+                    <h3 className="text-center font-bold text-base mb-3 text-white">{monthTitle}</h3>
                     <div className="grid grid-cols-7 gap-y-2 text-center mb-1">
                       {dayNames.map(d => (
-                        <div key={d} className="text-[10px] text-muted-foreground">{d}</div>
+                        <div key={d} className="text-[10px] text-white/50">{d}</div>
                       ))}
                     </div>
                     <div className="grid grid-cols-7 gap-y-2 text-center items-center justify-items-center">
@@ -4422,7 +4540,7 @@ export default function Community() {
                                 <ImageWithFallback src={checkIn.photo} alt="Check-in" className="w-8 h-8 object-cover" fallback="/placeholder.svg" />
                               </div>
                             ) : (
-                              <span className="text-xs font-medium opacity-80">{day}</span>
+                              <span className="text-xs font-medium opacity-80 text-white">{day}</span>
                             )}
                           </div>
                         );

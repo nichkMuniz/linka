@@ -3,10 +3,10 @@ import * as React from "react";
 /**
  * Returns the full window height, ignoring the iOS software keyboard.
  *
- * Drawers/modals using this value keep their size constant when the keyboard
- * opens — matching native iOS behavior where the keyboard overlays the sheet.
- * Inner input bars that need to stay visible should lift themselves above the
- * keyboard via `marginBottom: var(--keyboard-offset)` (set by `DrawerContent`).
+ * Drawers/modals using this value get a stable max-height that ignores the iOS
+ * software keyboard. When the keyboard opens, `DrawerContent` lifts the entire
+ * sheet above it and caps its height to the visible area, so the content keeps
+ * the same size and just slides up (no need for consumers to lift input bars).
  */
 export function useKeyboardAwareHeight() {
   const [height, setHeight] = React.useState<number>(() =>

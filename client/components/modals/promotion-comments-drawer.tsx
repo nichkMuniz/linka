@@ -311,12 +311,9 @@ export function PromotionCommentsDrawer({
             )}
           </div>
 
-          {/* Input — floats above the iOS keyboard via --keyboard-offset */}
+          {/* Input — the whole sheet is lifted above the iOS keyboard by DrawerContent */}
           {user ? (
-            <div
-              className="space-y-2 shrink-0 transition-[margin] duration-200 ease-out"
-              style={{ marginBottom: "var(--keyboard-offset, 0px)" }}
-            >
+            <div className="space-y-2 shrink-0">
               <Textarea
                 placeholder="A promoção tá boa? Já expirou? Compartilhe com a galera..."
                 value={draft}

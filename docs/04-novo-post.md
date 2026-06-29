@@ -152,6 +152,7 @@ Campos automaticamente salvos na sessão:
 
 ## Observações Técnicas
 
+- **Preview instantâneo:** ao tocar numa foto da galeria, o frame de preview é preenchido **imediatamente** com a thumbnail já carregada (`asset.thumbnail.webPath`); o arquivo full-res é carregado em background (`getPhotoUrl` → `fetch` → `FileReader`) e trocado quando pronto. Um token (`tapRequestRef`) descarta carregamentos obsoletos quando o usuário toca rápido em várias fotos. O mesmo vale para o auto-select da primeira foto e o badge de número no multi-select (mostrado antes do carregamento concluir)
 - Imagens são convertidas para `File[]` e URLs de preview geradas com `URL.createObjectURL`
 - URLs de preview são revogadas no unmount (evita memory leak)
 - Tab ativa é preservada em sessionStorage — ao voltar, usuário retorna na mesma aba

@@ -46,10 +46,14 @@ import {
   Check,
   ChevronUp,
 } from "lucide-react";
-import { renderIncentiveIcon } from "@/lib/incentive-config";
+import {
+  renderIncentiveIcon,
+  INCENTIVE_CONFIG,
+  INCENTIVE_TYPES,
+} from "@/lib/incentive-config";
 import { CommentReactions } from "@/components/shared/comment-reactions";
 import { useAuth } from "@/hooks/useAuth";
-import { PostIncentiveButton } from "@/components/shared/post-incentive-button";
+import { hapticLight } from "@/lib/haptics";
 import { showIncentiveToast } from "@/lib/incentive-toast";
 import { toast } from "@/components/ui/use-toast";
 import { Input } from "@/components/ui/input";
@@ -148,6 +152,16 @@ export default function FlowViewer() {
     [sortedStories, storyId],
   );
 
+  const isVideo = React.useMemo(() => {
+    if (!story?.media_url) return false;
+    return (
+      story.media_url.includes(".mp4") ||
+      story.media_url.includes(".webm") ||
+      story.media_url.includes(".mov") ||
+      (story.media_url.startsWith("data:") && story.media_url.includes("video"))
+    );
+  }, [story?.media_url]);
+
   React.useEffect(() => {
     if (!loadingStories && !story) {
       navigate("/", { replace: true });
@@ -245,7 +259,14 @@ export default function FlowViewer() {
 
   React.useEffect(() => {
     isTypingRef.current = isTyping;
-  }, [isTyping]);
+    if (isVideo && videoRef.current) {
+      if (isTyping) {
+        videoRef.current.pause();
+      } else if (!isPausedRef.current) {
+        videoRef.current.play().catch(() => {});
+      }
+    }
+  }, [isTyping, isVideo]);
 
   React.useEffect(() => {
     isPausedRef.current = isPaused;
@@ -297,6 +318,11 @@ export default function FlowViewer() {
 
     if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
 
+    // Vídeos dirigem o próprio progresso e o avanço automático pelos eventos
+    // timeupdate/ended do elemento <video>, de modo que a barra de progresso
+    // corresponde exatamente à duração real do vídeo.
+    if (isVideo) return;
+
     const STORY_DURATION = 8000;
     const TIMER_INTERVAL = 50;
     let elapsedTime = 0;
@@ -317,10 +343,24 @@ export default function FlowViewer() {
     return () => {
       if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
     };
-  }, [story?.id, restartKey]);
+  }, [story?.id, restartKey, isVideo]);
 
   const handleTogglePause = React.useCallback(() => {
     setIsPaused((prev) => !prev);
+  }, []);
+
+  // Mantém a barra de progresso sincronizada com a posição real do vídeo.
+  const handleVideoTimeUpdate = React.useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
+    const video = e.currentTarget;
+    if (!video.duration || !isFinite(video.duration)) return;
+    const remaining = Math.max(0, 100 - (video.currentTime / video.duration) * 100);
+    setTimerProgress(remaining);
+  }, []);
+
+  // Quando o vídeo termina, avança para o próximo flow.
+  const handleVideoEnded = React.useCallback(() => {
+    setTimerProgress(0);
+    handleNextRef.current();
   }, []);
 
   const handleRestart = React.useCallback(() => {
@@ -519,16 +559,6 @@ export default function FlowViewer() {
     }
   }, [story, navigate, nextStory, prevStory]);
 
-  const isVideo = React.useMemo(() => {
-    if (!story?.media_url) return false;
-    return (
-      story.media_url.includes(".mp4") ||
-      story.media_url.includes(".webm") ||
-      story.media_url.includes(".mov") ||
-      (story.media_url.startsWith("data:") && story.media_url.includes("video"))
-    );
-  }, [story?.media_url]);
-
   if (loadingStories) {
     return (
       <div className="fixed inset-0 bg-black flex items-center justify-center">
@@ -560,7 +590,7 @@ export default function FlowViewer() {
             {prevStory.background_color && !prevStory.media_url ? (
               <div className="w-full h-full" style={{ background: prevStory.background_color }} />
             ) : prevStory.media_url?.includes(".mp4") || prevStory.media_url?.includes(".webm") ? (
-              <video src={prevStory.media_url} muted loop playsInline className="w-full h-full object-cover" />
+              <video src={prevStory.media_url} muted loop playsInline preload="metadata" className="w-full h-full object-cover" />
             ) : (
               <img
                 src={cdnImg(prevStory.media_url, { width: 800, quality: 70 }) ?? prevStory.media_url}
@@ -582,9 +612,15 @@ export default function FlowViewer() {
         {/* Main card — mobile: fullscreen, desktop: centered 9:16 */}
         <div className="relative w-full h-full md:w-auto md:h-full md:max-h-[92dvh] md:aspect-[9/16] bg-black md:rounded-2xl overflow-hidden flex flex-col shadow-2xl border-0 md:border md:border-white/10">
           <main
-            className="relative w-full h-full flex flex-col"
+            className="relative w-full h-full flex flex-col select-none"
+            style={{
+              WebkitTouchCallout: "none",
+              WebkitUserSelect: "none",
+              userSelect: "none",
+            }}
             onTouchStart={handleSwipeTouchStart}
             onTouchEnd={handleSwipeTouchEnd}
+            onContextMenu={(e) => e.preventDefault()}
           >
             {/* Header overlay */}
             <div
@@ -605,7 +641,10 @@ export default function FlowViewer() {
                         transition={{ duration: isActive ? 0.05 : 0.3, ease: "linear" }}
                         style={
                           isDone || isActive
-                            ? { background: "linear-gradient(to right, #3A8DFF, #7B3FF2, #FF8A2A)" }
+                            ? {
+                                background: "linear-gradient(to right, #3A8DFF, #7B3FF2, #FF8A2A)",
+                                boxShadow: "0 0 6px rgba(123,63,242,.55)",
+                              }
                             : undefined
                         }
                         className={`h-full rounded-full relative overflow-hidden ${!isDone && !isActive ? "bg-white/40" : ""}`}
@@ -760,16 +799,18 @@ export default function FlowViewer() {
                           : undefined
                       }
                       autoPlay
-                      loop
                       muted
                       playsInline
                       preload="auto"
+                      onTimeUpdate={handleVideoTimeUpdate}
+                      onEnded={handleVideoEnded}
                     />
                   ) : (
                     <img
                       src={cdnImg(story.media_url, { width: 1920, quality: 90 }) ?? story.media_url}
                       alt="Flow"
-                      className="w-full h-full object-cover"
+                      draggable={false}
+                      className="w-full h-full object-cover select-none pointer-events-none"
                       style={
                         story.media_transform
                           ? {
@@ -780,6 +821,34 @@ export default function FlowViewer() {
                       }
                     />
                   )}
+
+                  {/* Frases posicionadas sobre a mídia (renderizadas ao vivo) */}
+                  {story.media_url &&
+                    Array.isArray(story.text_elements) &&
+                    story.text_elements.length > 0 && (
+                      <div className="absolute inset-0 pointer-events-none z-[5]">
+                        {story.text_elements.map((el, idx) => (
+                          <div
+                            key={idx}
+                            className="absolute px-6 max-w-[90%]"
+                            style={{ left: `${el.x}%`, top: `${el.y}%`, transform: "translate(-50%, -50%)" }}
+                          >
+                            <p
+                              className="text-3xl leading-tight break-words whitespace-pre-wrap"
+                              style={{
+                                textShadow: "0 1px 6px rgba(0,0,0,0.5)",
+                                fontFamily: el.style?.fontFamily ?? "system-ui, sans-serif",
+                                fontWeight: el.style?.fontWeight ?? 800,
+                                textAlign: el.style?.align ?? "center",
+                                color: el.style?.color ?? "#ffffff",
+                              }}
+                            >
+                              {el.text}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                 </motion.div>
               </AnimatePresence>
 
@@ -791,7 +860,7 @@ export default function FlowViewer() {
                 onPointerUp={handleTapZonePointerUp}
                 onPointerCancel={handleTapZonePointerCancel}
               >
-                <div className="flex-1 cursor-pointer" onClick={(e) => { if (holdFiredRef.current) { holdFiredRef.current = false; return; } e.stopPropagation(); handleRestart(); }} />
+                <div className="flex-1 cursor-pointer" onClick={(e) => { if (holdFiredRef.current) { holdFiredRef.current = false; return; } e.stopPropagation(); if (hasPrevStory) { handlePrev(); } else { handleRestart(); } }} />
                 <div className="flex-[2] cursor-pointer" onClick={() => { if (holdFiredRef.current) { holdFiredRef.current = false; return; } handleTogglePause(); }} />
                 <div className="flex-1 cursor-pointer" onClick={(e) => { if (holdFiredRef.current) { holdFiredRef.current = false; return; } e.stopPropagation(); handleNext(); }} />
               </div>
@@ -808,19 +877,20 @@ export default function FlowViewer() {
                 </div>
               )}
 
-              {story.description && !(story.background_color && !story.media_url) && (
-                <div className="absolute bottom-0 left-0 right-0 px-4 pt-8 pb-3 bg-gradient-to-t from-black/80 to-transparent z-[56] pointer-events-none">
-                  <p className="text-sm text-white drop-shadow-md leading-relaxed">{story.description}</p>
-                </div>
-              )}
+            </div>
 
-              {/* Floating comment bubbles */}
-              <div className="absolute left-3 bottom-20 z-[57] flex flex-col gap-2 items-start max-w-[80%] pointer-events-none">
+            {/* Bottom section — Direção B: doca de vidro flutuando sobre a mídia */}
+            <div
+              className="absolute bottom-0 left-0 right-0 pt-14 px-3.5 bg-gradient-to-t from-black/55 via-black/15 to-transparent z-[60] pointer-events-none"
+              style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 0.85rem)" }}
+            >
+              {/* Floating comment bubbles (acima da doca) */}
+              <div className="flex flex-col gap-2 items-start max-w-[80%] mb-2 px-1.5">
                 <AnimatePresence>
                   {floatingBubbles.map(({ id, comment }) => (
                     <motion.button
                       key={id}
-                      className="pointer-events-auto flex items-center gap-2 bg-black/50 backdrop-blur-md rounded-2xl px-3 py-2 border border-white/15 shadow-lg text-left active:scale-95 transition-transform"
+                      className="pointer-events-auto flex items-center gap-2 bg-black/45 backdrop-blur-md rounded-2xl px-3 py-2 border border-white/15 shadow-lg text-left active:scale-95 transition-transform"
                       initial={{ opacity: 0, x: -24, scale: 0.9 }}
                       animate={{ opacity: 1, x: 0, scale: 1 }}
                       exit={{ opacity: 0, y: -16, scale: 0.92 }}
@@ -849,44 +919,82 @@ export default function FlowViewer() {
                   ))}
                 </AnimatePresence>
               </div>
-            </div>
 
-            {/* Bottom section */}
-            <div
-              className="shrink-0 pt-2 px-4 bg-gradient-to-t from-black/90 via-black/40 to-transparent z-[60]"
-              style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 1.5rem)" }}
-            >
+              {/* Legenda do flow (acima da doca) */}
+              {story.description && !(story.background_color && !story.media_url) && (
+                <p
+                  className="px-1.5 mb-2.5 text-sm font-medium text-white leading-relaxed"
+                  style={{ textShadow: "0 1px 8px rgba(0,0,0,.65)" }}
+                >
+                  {story.description}
+                </p>
+              )}
+
               {isOwner && (
                 <motion.button
-                  className="flex items-center justify-center gap-1.5 w-full mb-2 py-1 active:opacity-60 transition-opacity"
+                  className="pointer-events-auto flex items-center justify-center gap-1.5 w-full mb-2.5 py-1 active:opacity-60 transition-opacity"
                   onClick={handleOpenViewers}
                   animate={{ y: [0, -4, 0] }}
                   transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
                 >
-                  <ChevronUp className="h-3.5 w-3.5 text-white/40" />
-                  <Eye className="h-3.5 w-3.5 text-white/40" />
-                  <span className="text-[10px] text-white/40 font-medium tracking-wide">visualizações</span>
+                  <ChevronUp className="h-3.5 w-3.5 text-white/45" />
+                  <Eye className="h-3.5 w-3.5 text-white/45" />
+                  <span className="text-[10px] text-white/45 font-medium tracking-wide">visualizações</span>
                 </motion.button>
               )}
-              {user && (
-                <motion.div className="flex justify-around items-center mb-3">
-                  {([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => {
-                    const isLiked = userLikes.includes(type);
-                    return (
-                      <motion.div key={type} whileTap={{ scale: 1.4 }} animate={isLiked ? { scale: [1, 1.2, 1] } : {}}>
-                        <PostIncentiveButton
-                          type={type}
-                          isActive={isLiked}
-                          loading={togglingLikeId === story.id}
-                          onClick={() => handleToggleLike(type)}
-                        />
-                      </motion.div>
-                    );
-                  })}
-                </motion.div>
-              )}
-              <div className="flex gap-3 items-center">
-                <div className="flex-1 flex gap-2 items-center bg-white/5 border border-white/20 rounded-full px-4 py-3 focus-within:border-white/50 transition-all backdrop-blur-sm">
+
+              {/* Glass dock */}
+              <div
+                className="pointer-events-auto rounded-[28px] p-3.5"
+                style={{
+                  background: "linear-gradient(rgba(255,255,255,.08),rgba(255,255,255,.03))",
+                  backdropFilter: "blur(22px) saturate(170%)",
+                  WebkitBackdropFilter: "blur(22px) saturate(170%)",
+                  border: "1px solid rgba(255,255,255,.14)",
+                  boxShadow:
+                    "inset 0 1px 0 rgba(255,255,255,.22), 0 16px 36px -14px rgba(0,0,0,.5)",
+                }}
+              >
+                {user && (
+                  <div className="flex items-center justify-between mb-3 px-1">
+                    {INCENTIVE_TYPES.map((type) => {
+                      const isLiked = userLikes.includes(type);
+                      const cfg = INCENTIVE_CONFIG[type];
+                      const Icon = cfg.Icon;
+                      return (
+                        <motion.button
+                          key={type}
+                          type="button"
+                          disabled={togglingLikeId === story.id}
+                          aria-pressed={isLiked}
+                          whileTap={{ scale: 0.82 }}
+                          animate={isLiked ? { scale: [1, 1.25, 1] } : { scale: 1 }}
+                          onClick={() => {
+                            hapticLight();
+                            handleToggleLike(type);
+                          }}
+                          className={`relative h-[42px] w-[42px] rounded-full flex items-center justify-center transition-all disabled:opacity-50 ${
+                            isLiked ? `${cfg.bgColor} ring-1 ring-white/20` : ""
+                          }`}
+                        >
+                          <Icon
+                            className={`h-5 w-5 transition-all duration-150 ${
+                              isLiked ? cfg.activeClassName : cfg.iconClassName
+                            }`}
+                          />
+                        </motion.button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <div
+                  className="h-[46px] rounded-[23px] flex items-center gap-2.5 pl-[18px] pr-1.5 focus-within:border-white/30 transition-colors"
+                  style={{
+                    background: "rgba(0,0,0,.18)",
+                    border: "1px solid rgba(255,255,255,.12)",
+                  }}
+                >
                   <Input
                     placeholder={isOwner ? "Seu flow..." : `Responder a ${story.userNickname}...`}
                     value={newComment}
@@ -894,17 +1002,19 @@ export default function FlowViewer() {
                     onFocus={() => setIsTyping(true)}
                     onBlur={() => setIsTyping(false)}
                     onKeyPress={(e) => e.key === "Enter" && newComment.trim() && handleAddComment()}
-                    className="flex-1 bg-transparent border-0 text-xs text-white placeholder-white/50 focus-visible:ring-0 h-auto p-0"
+                    className="flex-1 bg-transparent border-0 text-[13.5px] text-white placeholder:text-white/55 focus-visible:ring-0 h-auto p-0"
                     disabled={isAddingComment}
                   />
+                  <motion.button
+                    onClick={handleAddComment}
+                    disabled={!newComment.trim() || isAddingComment}
+                    whileTap={{ scale: 0.9 }}
+                    className="shrink-0 h-[34px] w-[34px] rounded-full flex items-center justify-center text-white shadow-lg disabled:opacity-40 transition-opacity"
+                    style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)" }}
+                  >
+                    <Send className="h-4 w-4" />
+                  </motion.button>
                 </div>
-                <motion.button
-                  onClick={handleAddComment}
-                  disabled={!newComment.trim() || isAddingComment}
-                  className="bg-brand text-white p-3 rounded-full shadow-lg disabled:opacity-40"
-                >
-                  <Send className="h-5 w-5" />
-                </motion.button>
               </div>
             </div>
           </main>
@@ -928,7 +1038,7 @@ export default function FlowViewer() {
             {nextStory.background_color && !nextStory.media_url ? (
               <div className="w-full h-full" style={{ background: nextStory.background_color }} />
             ) : nextStory.media_url?.includes(".mp4") || nextStory.media_url?.includes(".webm") ? (
-              <video src={nextStory.media_url} muted loop playsInline className="w-full h-full object-cover" />
+              <video src={nextStory.media_url} muted loop playsInline preload="metadata" className="w-full h-full object-cover" />
             ) : (
               <img src={nextStory.media_url} className="w-full h-full object-cover" alt="" />
             )}
@@ -958,22 +1068,30 @@ export default function FlowViewer() {
         shouldScaleBackground={false}
       >
         <DrawerContent
-          className="flex flex-col"
-          style={{ maxHeight: "88dvh" }}
+          handleClassName="mt-[10px] h-1 w-[38px] bg-white/25"
+          className="flex flex-col !rounded-t-[32px] !border-0"
+          style={{
+            maxHeight: "88dvh",
+            background: "linear-gradient(rgba(30,28,40,.88),rgba(14,13,20,.96))",
+            backdropFilter: "blur(40px) saturate(180%)",
+            WebkitBackdropFilter: "blur(40px) saturate(180%)",
+            borderTop: "1px solid rgba(255,255,255,.14)",
+          }}
           onOpenAutoFocus={(e) => e.preventDefault()}
         >
-          <DrawerHeader>
-            <DrawerTitle className="flex items-center gap-2 pt-2">
-              Comentários ({comments.length})
-            </DrawerTitle>
-            <DrawerDescription className="sr-only">Lista de comentários do flow</DrawerDescription>
-          </DrawerHeader>
+          <DrawerTitle
+            className="flex-shrink-0 px-[18px] pb-[14px] pt-2 text-[18px] leading-none"
+            style={{ fontWeight: 740, color: "#fff" }}
+          >
+            Comentários · {comments.length}
+          </DrawerTitle>
+          <DrawerDescription className="sr-only">Lista de comentários do flow</DrawerDescription>
           <div
-            className="flex-1 overflow-y-auto overscroll-contain px-4 space-y-4"
+            className="flex-1 overflow-y-auto overscroll-contain px-[18px] space-y-4"
             style={{ paddingBottom: "max(3rem, env(safe-area-inset-bottom))" }}
           >
             {comments.length === 0 ? (
-              <p className="text-center text-muted-foreground py-10">Nenhum comentário ainda</p>
+              <p className="text-center py-10 text-sm" style={{ color: "rgba(255,255,255,.5)" }}>Nenhum comentário ainda</p>
             ) : (
               comments.map((comment) => (
                 <div key={comment.id} className="flex flex-col gap-1.5">
@@ -983,10 +1101,10 @@ export default function FlowViewer() {
                         <UserAvatar photo={comment.userPhoto} nickname={comment.userName} className="h-full w-full" />
                       </div>
                       <div className="flex flex-col min-w-0 flex-1">
-                        <span className="text-sm font-bold leading-tight">
+                        <span className="text-sm font-bold leading-tight" style={{ color: "#fff" }}>
                           {comment.userName}
                           {comment.userHandle && (
-                            <span className="font-normal text-muted-foreground">
+                            <span className="font-normal" style={{ color: "rgba(255,255,255,.5)" }}>
                               {" "}@{comment.userHandle.replace(/^@/, "")}
                             </span>
                           )}
@@ -996,7 +1114,12 @@ export default function FlowViewer() {
                             <textarea
                               value={editCommentDraft}
                               onChange={(e) => setEditCommentDraft(e.target.value)}
-                              className="w-full resize-none rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring min-h-16"
+                              className="w-full resize-none rounded-2xl px-3 py-2 text-sm focus:outline-none min-h-16"
+                              style={{
+                                background: "rgba(255,255,255,.07)",
+                                border: "1px solid rgba(255,255,255,.12)",
+                                color: "#fff",
+                              }}
                               disabled={savingEditCommentId === comment.id}
                               autoFocus
                               onKeyDown={(e) => {
@@ -1012,7 +1135,8 @@ export default function FlowViewer() {
                                 type="button"
                                 onClick={() => handleSaveEditComment(comment.id)}
                                 disabled={!editCommentDraft.trim() || savingEditCommentId === comment.id}
-                                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}
                               >
                                 <Check className="h-3 w-3" />
                                 Salvar
@@ -1021,7 +1145,8 @@ export default function FlowViewer() {
                                 type="button"
                                 onClick={handleCancelEditComment}
                                 disabled={savingEditCommentId === comment.id}
-                                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium bg-muted text-muted-foreground hover:bg-muted/80 disabled:opacity-50 transition-colors"
+                                className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium disabled:opacity-50 transition-colors"
+                                style={{ background: "rgba(255,255,255,.08)", color: "rgba(255,255,255,.7)" }}
                               >
                                 <X className="h-3 w-3" />
                                 Cancelar
@@ -1029,7 +1154,7 @@ export default function FlowViewer() {
                             </div>
                           </div>
                         ) : (
-                          <span className="text-sm leading-normal break-words">{comment.text}</span>
+                          <span className="text-sm leading-normal break-words" style={{ color: "rgba(255,255,255,.82)" }}>{comment.text}</span>
                         )}
                       </div>
                     </div>
@@ -1037,13 +1162,15 @@ export default function FlowViewer() {
                       <div className="flex shrink-0 gap-0.5 ml-2">
                         <button
                           onClick={() => handleStartEditComment(comment)}
-                          className="text-muted-foreground hover:text-foreground p-1"
+                          className="rounded-lg p-1.5 transition-colors active:opacity-70"
+                          style={{ color: "rgba(255,255,255,.4)" }}
                         >
                           <Pencil className="h-4 w-4" />
                         </button>
                         <button
                           onClick={() => setCommentToDelete(comment.id)}
-                          className="text-muted-foreground hover:text-red-400 p-1"
+                          className="rounded-lg p-1.5 transition-colors active:opacity-70 hover:text-red-400"
+                          style={{ color: "rgba(255,255,255,.4)" }}
                         >
                           <Trash2 className="h-4 w-4" />
                         </button>

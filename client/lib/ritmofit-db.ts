@@ -615,6 +615,9 @@ export async function getProfilesBatchDb(
 
 // ─── Profile cache (avoid redundant getUserProfileDb calls) ─────────────────
 const _profileCache = new Map<string, { data: UserProfile | null; expiry: number }>();
+// Dedup concurrent cold reads: when several callers (e.g. Profile Batch 1 +
+// getUserPostsDb) ask for the same profile at once, share a single request.
+const _profileInflight = new Map<string, Promise<UserProfile | null>>();
 const PROFILE_CACHE_TTL_MS = 30_000; // 30 seconds
 
 export function invalidateProfileCache(userId?: string) {
@@ -1228,42 +1231,51 @@ export async function getUserProfileDb(
   const cached = _profileCache.get(userId);
   if (cached && Date.now() < cached.expiry) return cached.data;
 
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("id, nickname, bio, photo, cover_photo, objectives, height, weight, age, handle, is_verified, hide_follow_lists, hide_posts_from_non_followers")
-    .eq("user_id", userId)
-    .maybeSingle();
+  // Dedup concurrent cold reads for the same user
+  const inflight = _profileInflight.get(userId);
+  if (inflight) return inflight;
 
-  if (error) {
-    const errorMsg = error?.message || String(error);
-    const errorCode = error?.code || "UNKNOWN";
-    console.error(`Error fetching user profile [${errorCode}]:`, errorMsg);
-    return null;
-  }
+  const request = (async (): Promise<UserProfile | null> => {
+    const { data, error } = await supabase!
+      .from("profiles")
+      .select("id, nickname, bio, photo, cover_photo, objectives, height, weight, age, handle, is_verified, hide_follow_lists, hide_posts_from_non_followers")
+      .eq("user_id", userId)
+      .maybeSingle();
 
-  if (!data) {
-    _profileCache.set(userId, { data: null, expiry: Date.now() + PROFILE_CACHE_TTL_MS });
-    return null;
-  }
+    if (error) {
+      const errorMsg = error?.message || String(error);
+      const errorCode = error?.code || "UNKNOWN";
+      console.error(`Error fetching user profile [${errorCode}]:`, errorMsg);
+      return null;
+    }
 
-  const profile: UserProfile = {
-    id: String(data.id ?? ""),
-    nickname: String(data.nickname ?? ""),
-    bio: String(data.bio ?? ""),
-    photo: data.photo ? String(data.photo) : null,
-    cover_photo: data.cover_photo ? String(data.cover_photo) : null,
-    objectives: data.objectives ?? null,
-    handle: data.handle ? String(data.handle) : undefined,
-    height: data.height != null ? String(data.height) : null,
-    weight: data.weight != null ? String(data.weight) : null,
-    age: data.age != null ? String(data.age) : null,
-    is_verified: data.is_verified === true,
-    hide_follow_lists: data.hide_follow_lists === true,
-    hide_posts_from_non_followers: data.hide_posts_from_non_followers === true,
-  };
+    if (!data) {
+      _profileCache.set(userId, { data: null, expiry: Date.now() + PROFILE_CACHE_TTL_MS });
+      return null;
+    }
 
-  _profileCache.set(userId, { data: profile, expiry: Date.now() + PROFILE_CACHE_TTL_MS });
-  return profile;
+    const profile: UserProfile = {
+      id: String(data.id ?? ""),
+      nickname: String(data.nickname ?? ""),
+      bio: String(data.bio ?? ""),
+      photo: data.photo ? String(data.photo) : null,
+      cover_photo: data.cover_photo ? String(data.cover_photo) : null,
+      objectives: data.objectives ?? null,
+      handle: data.handle ? String(data.handle) : undefined,
+      height: data.height != null ? String(data.height) : null,
+      weight: data.weight != null ? String(data.weight) : null,
+      age: data.age != null ? String(data.age) : null,
+      is_verified: data.is_verified === true,
+      hide_follow_lists: data.hide_follow_lists === true,
+      hide_posts_from_non_followers: data.hide_posts_from_non_followers === true,
+    };
+
+    _profileCache.set(userId, { data: profile, expiry: Date.now() + PROFILE_CACHE_TTL_MS });
+    return profile;
+  })().finally(() => { _profileInflight.delete(userId); });
+
+  _profileInflight.set(userId, request);
+  return request;
 }
 
 export async function updateUserProfileDb(
@@ -1354,12 +1366,18 @@ export type PostWithUser = {
 export async function getUserPostsDb(userId: string): Promise<PostWithUser[]> {
   if (!hasSupabaseConfig || !supabase) return [];
   return cached(`userPosts:${userId}`, CACHE_TTL_SHORT, async () => {
-  const { data, error } = await supabase
-    .from("posts")
-    .select("id, description, photo, photos, created_at, user_id, user_goal_id")
-    .eq("user_id", userId)
-    .order("created_at", { ascending: false })
-    .limit(100);
+  // Fetch posts and the author's profile in parallel — the profile lookup used
+  // to run sequentially after the posts query, adding a needless round-trip.
+  const [postsRes, userProfile] = await Promise.all([
+    supabase
+      .from("posts")
+      .select("id, description, photo, photos, created_at, user_id, user_goal_id")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(100),
+    getUserProfileDb(userId),
+  ]);
+  const { data, error } = postsRes;
 
   if (error) {
     const errorMsg = error?.message || String(error);
@@ -1368,8 +1386,6 @@ export async function getUserPostsDb(userId: string): Promise<PostWithUser[]> {
     return [];
   }
 
-  // Fetch user profile info
-  const userProfile = await getUserProfileDb(userId);
   const userNickname = userProfile?.nickname || "Usuário";
   const userPhoto = userProfile?.photo || null;
   const isVerified = userProfile?.is_verified === true;
@@ -2035,6 +2051,36 @@ export async function updateRoutineItemsScheduledTimeDb(
   return true;
 }
 
+/**
+ * Sets the weekdays (`scheduled_days`) for every item of a routine card.
+ * `days` is a comma-separated list of Monday-first indices (0=Mon…6=Sun), or
+ * null/empty for "every day". Mirrors {@link updateRoutineItemsScheduledTimeDb}.
+ */
+export async function updateRoutineItemsScheduledDaysDb(
+  userId: string,
+  typeCode: number,
+  routineName: string | null | undefined,
+  scheduledDays: string | null,
+): Promise<boolean> {
+  if (!hasSupabaseConfig || !supabase) return false;
+  const table =
+    typeCode === 1 ? "user_workouts" : typeCode === 2 ? "user_diets" : "user_habits";
+  let q = supabase
+    .from(table)
+    .update({ scheduled_days: scheduledDays || null })
+    .eq("user_id", userId);
+  q = routineName ? q.eq("name", routineName) : q.is("name", null);
+  const { error } = await q;
+  if (error) {
+    console.error("Error updating routine items scheduled_days:", error);
+    return false;
+  }
+  invalidateQueryCache(
+    typeCode === 1 ? "userWorkouts:" : typeCode === 2 ? "userDiets:" : "userHabits:",
+  );
+  return true;
+}
+
 export async function deleteRoutineDb(routineId: string, userId: string): Promise<void> {
   if (!hasSupabaseConfig || !supabase) return;
 
@@ -2339,6 +2385,7 @@ export type UserWorkoutWithDetails = {
   muscle_group?: string | null;
   created_at?: string | null;
   scheduled_time?: string | null;
+  scheduled_days?: string | null;
   notes?: string | null;
   routine_id?: string | null;
   time_to_rest?: number | null;
@@ -2352,7 +2399,7 @@ export async function getUserWorkoutsDb(
   const { data, error } = await supabase
     .from("user_workouts")
     .select(
-      "id, workout_id, user_id, name, created_at, scheduled_time, notes, routine_id, time_to_rest, workouts(name, photo, description, muscle_group, wger_id)",
+      "id, workout_id, user_id, name, created_at, scheduled_time, scheduled_days, notes, routine_id, time_to_rest, workouts(name, photo, description, muscle_group, wger_id)",
     )
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
@@ -2375,7 +2422,7 @@ export async function getUserWorkoutsDb(
       const { data: dataFallback, error: errorFallback } = await supabase
         .from("user_workouts")
         .select(
-          "id, workout_id, user_id, name, created_at, routine_id, time_to_rest",
+          "id, workout_id, user_id, name, created_at, scheduled_time, scheduled_days, routine_id, time_to_rest",
         )
         .eq("user_id", userId)
         .order("created_at", { ascending: false });
@@ -2413,6 +2460,7 @@ export async function getUserWorkoutsDb(
             muscle_group: workoutDetails?.muscle_group || null,
             created_at: row.created_at ? String(row.created_at) : null,
             scheduled_time: row.scheduled_time ? String(row.scheduled_time) : null,
+            scheduled_days: row.scheduled_days ? String(row.scheduled_days) : null,
             notes: row.notes ? String(row.notes) : null,
             routine_id: row.routine_id != null ? String(row.routine_id) : null,
             time_to_rest: row.time_to_rest != null ? Number(row.time_to_rest) : null,
@@ -2443,6 +2491,7 @@ export async function getUserWorkoutsDb(
     muscle_group: (row.workouts as any)?.muscle_group || null,
     created_at: row.created_at ? String(row.created_at) : null,
     scheduled_time: row.scheduled_time ? String(row.scheduled_time) : null,
+    scheduled_days: row.scheduled_days ? String(row.scheduled_days) : null,
     notes: row.notes ? String(row.notes) : null,
     routine_id: row.routine_id != null ? String(row.routine_id) : null,
     time_to_rest: row.time_to_rest != null ? Number(row.time_to_rest) : null,
@@ -2516,6 +2565,7 @@ export type UserDietWithDetails = {
   is_completed?: boolean | null;
   completed_at?: string | null;
   scheduled_time?: string | null;
+  scheduled_days?: string | null;
 };
 
 export async function getUserDietsDb(
@@ -2526,7 +2576,7 @@ export async function getUserDietsDb(
   const { data, error } = await supabase
     .from("user_diets")
     .select(
-      "id, diet_id, user_id, name, is_completed, completed_at, scheduled_time, diets(name, photo, description, category, calories, protein_g, carbs_g, fat_g, fiber_g, food_quality)",
+      "id, diet_id, user_id, name, is_completed, completed_at, scheduled_time, scheduled_days, diets(name, photo, description, category, calories, protein_g, carbs_g, fat_g, fiber_g, food_quality)",
     )
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
@@ -2548,7 +2598,7 @@ export async function getUserDietsDb(
 
       const { data: dataFallback, error: errorFallback } = await supabase
         .from("user_diets")
-        .select("id, diet_id, user_id, name, is_completed, completed_at")
+        .select("id, diet_id, user_id, name, is_completed, completed_at, scheduled_time, scheduled_days")
         .eq("user_id", userId)
         .order("created_at", { ascending: false });
 
@@ -2592,6 +2642,7 @@ export async function getUserDietsDb(
             is_completed: row.is_completed ?? false,
             completed_at: row.completed_at ?? null,
             scheduled_time: row.scheduled_time ? String(row.scheduled_time) : null,
+            scheduled_days: row.scheduled_days ? String(row.scheduled_days) : null,
           };
         });
       } else if (errorFallback) {
@@ -2655,6 +2706,7 @@ export async function getUserDietsDb(
     is_completed: row.is_completed ?? false,
     completed_at: row.completed_at ?? null,
     scheduled_time: row.scheduled_time ? String(row.scheduled_time) : null,
+    scheduled_days: row.scheduled_days ? String(row.scheduled_days) : null,
   }));
 
   });
@@ -2717,6 +2769,7 @@ export type UserHabitWithDetails = {
   is_completed?: boolean | null;
   completed_at?: string | null;
   scheduled_time?: string | null;
+  scheduled_days?: string | null;
 };
 
 export async function getUserHabitsDb(
@@ -2726,7 +2779,7 @@ export async function getUserHabitsDb(
   return cached(`userHabits:${userId}`, CACHE_TTL_SHORT, async () => {
   const { data, error } = await supabase
     .from("user_habits")
-    .select("id, habit_id, user_id, name, is_completed, completed_at, scheduled_time, habits(name, description)")
+    .select("id, habit_id, user_id, name, is_completed, completed_at, scheduled_time, scheduled_days, habits(name, description)")
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
@@ -2747,7 +2800,7 @@ export async function getUserHabitsDb(
     // Fallback 1: no join, with optional columns (is_completed only — completed_at may not exist)
     const { data: fb1Data, error: fb1Error } = await supabase
       .from("user_habits")
-      .select("id, habit_id, user_id, name, is_completed, completed_at, scheduled_time")
+      .select("id, habit_id, user_id, name, is_completed, completed_at, scheduled_time, scheduled_days")
       .eq("user_id", userId)
       .order("created_at", { ascending: false });
 
@@ -2775,6 +2828,7 @@ export async function getUserHabitsDb(
           is_completed: row.is_completed ?? false,
           completed_at: row.completed_at ?? null,
           scheduled_time: row.scheduled_time ? String(row.scheduled_time) : null,
+          scheduled_days: row.scheduled_days ? String(row.scheduled_days) : null,
         };
       });
     }
@@ -2851,6 +2905,7 @@ export async function getUserHabitsDb(
     is_completed: row.is_completed ?? false,
     completed_at: row.completed_at ?? null,
     scheduled_time: row.scheduled_time ? String(row.scheduled_time) : null,
+    scheduled_days: row.scheduled_days ? String(row.scheduled_days) : null,
   }));
 
   });
@@ -2865,6 +2920,8 @@ export type RoutineScheduleEntry = {
   type: RoutineKind;
   name: string;
   scheduled_time: string;
+  /** comma-separated Monday-first weekday indices (0=Mon…6=Sun); null/"" = daily */
+  scheduled_days: string | null;
 };
 
 export async function getRoutineSchedulesDb(
@@ -2875,17 +2932,17 @@ export async function getRoutineSchedulesDb(
   const [workoutsRes, dietsRes, habitsRes] = await Promise.all([
     supabase
       .from("user_workouts")
-      .select("id, name, scheduled_time, workouts(name)")
+      .select("id, name, scheduled_time, scheduled_days, workouts(name)")
       .eq("user_id", userId)
       .not("scheduled_time", "is", null),
     supabase
       .from("user_diets")
-      .select("id, name, scheduled_time, diets(name)")
+      .select("id, name, scheduled_time, scheduled_days, diets(name)")
       .eq("user_id", userId)
       .not("scheduled_time", "is", null),
     supabase
       .from("user_habits")
-      .select("id, name, scheduled_time, habits(name)")
+      .select("id, name, scheduled_time, scheduled_days, habits(name)")
       .eq("user_id", userId)
       .not("scheduled_time", "is", null),
   ]);
@@ -2898,6 +2955,7 @@ export async function getRoutineSchedulesDb(
       type: "workout",
       name: row.name || (row.workouts as any)?.name || "Treino",
       scheduled_time: String(row.scheduled_time),
+      scheduled_days: row.scheduled_days ? String(row.scheduled_days) : null,
     });
   });
   (dietsRes.data ?? []).forEach((row: any) => {
@@ -2906,6 +2964,7 @@ export async function getRoutineSchedulesDb(
       type: "diet",
       name: row.name || (row.diets as any)?.name || "Dieta",
       scheduled_time: String(row.scheduled_time),
+      scheduled_days: row.scheduled_days ? String(row.scheduled_days) : null,
     });
   });
   (habitsRes.data ?? []).forEach((row: any) => {
@@ -2914,6 +2973,7 @@ export async function getRoutineSchedulesDb(
       type: "habit",
       name: row.name || (row.habits as any)?.name || "Hábito",
       scheduled_time: String(row.scheduled_time),
+      scheduled_days: row.scheduled_days ? String(row.scheduled_days) : null,
     });
   });
 
@@ -6657,6 +6717,11 @@ export async function saveWorkoutHistoryDb(
   kilos: number | null = null,
   volume: string | null = null,
   routineId: string | null = null,
+  // Carimbo único da sessão: todas as séries gravadas em um mesmo "Finalizar"
+  // devem compartilhar o mesmo date_completed, para que a leitura da última
+  // sessão (getLastWorkoutSessionSeriesDb) agrupe exatamente uma execução —
+  // nunca misturando registros de finalizações diferentes.
+  dateCompleted: string | null = null,
 ): Promise<void> {
   if (!hasSupabaseConfig || !supabase) return;
 
@@ -6671,7 +6736,7 @@ export async function saveWorkoutHistoryDb(
           kilos,
           volume,
           routine_id: routineId != null ? Number(routineId) : null,
-          date_completed: new Date().toISOString(),
+          date_completed: dateCompleted ?? new Date().toISOString(),
         },
       ]);
 
@@ -6781,21 +6846,29 @@ export async function getLastWorkoutSessionSeriesDb(
 
     if (error || !data) return {};
 
-    // Group rows by workout_id, then pick the most recent session
-    // A "session" = rows whose date_completed is within 2 hours of the first (latest) row for that workout
+    // Agrupa por workout_id e isola APENAS a sessão mais recente de cada um.
+    // Uma sessão = as séries gravadas em um mesmo "Finalizar", carimbadas em
+    // rajada (base + índice em ms), portanto a poucos ms umas das outras.
+    // Finalizações distintas estão sempre a segundos/minutos/dias de distância.
+    // Uma janela curta separa as sessões com segurança, então a contagem de
+    // séries é sempre exatamente a da última execução — nunca a soma de
+    // execuções anteriores. (Antes, uma janela de 2h misturava finalizações
+    // próximas e inflava a contagem.)
+    const SESSION_WINDOW_MS = 2000; // 2s: > rajada de uma execução, << intervalo entre execuções
     const result: Record<string, Array<{ kg: number; reps: number }>> = {};
 
     for (const workoutId of workoutIds) {
+      // Linhas deste exercício, mais recentes primeiro (date_completed desc)
       const rows = (data as any[]).filter((r) => String(r.workout_id) === workoutId);
       if (rows.length === 0) continue;
 
       const latestTime = new Date(rows[0].date_completed).getTime();
       const sessionRows = rows.filter(
-        (r) => latestTime - new Date(r.date_completed).getTime() < 2 * 60 * 60 * 1000,
+        (r) => latestTime - new Date(r.date_completed).getTime() <= SESSION_WINDOW_MS,
       );
 
-      // Sort by date_completed ascending to restore the original insertion order
-      // (each series is saved sequentially with a fresh new Date(), so timestamps differ)
+      // Ordena por date_completed ascendente para restaurar a ordem das séries
+      // (1..N) — cada série recebeu um carimbo crescente na gravação.
       sessionRows.sort((a, b) =>
         new Date(a.date_completed).getTime() - new Date(b.date_completed).getTime(),
       );

@@ -16,13 +16,22 @@ Tela de descoberta. Permite ao usuário encontrar outros usuários para seguir e
 
 ```
 ┌──────────────────────────────────┐
-│  Tabs: [Usuários] [Rotinas]      │
-├──────────────────────────────────┤
 │  [Campo de busca]                │
+├──────────────────────────────────┤
+│  Tabs: [Pessoas][Exercícios][Dietas] │
 ├──────────────────────────────────┤
 │  Lista de resultados             │
 └──────────────────────────────────┘
 ```
+
+### Tabs (segmented control)
+
+As abas usam o **segmented control de vidro**, padronizado com a tela de Comunidade (`docs/07-comunidade.md`):
+- Container `rounded-xl` com fundo glass (`linear-gradient` + `backdrop-filter blur(20px) saturate(160%)`) e borda `rgba(255,255,255,.10)`
+- Cada aba é um `<button>` com ícone Lucide + label
+- Aba ativa: `bg-brand text-white`; inativa: `text-white/50 hover:text-white/80`
+- Ícones: `Users` (Pessoas), `Dumbbell` (Exercícios), `Salad` (Dietas)
+- Não usa mais o `TabsList`/`TabsTrigger` do Shadcn — apenas o wrapper `Tabs` + `TabsContent` para alternar o conteúdo
 
 ---
 

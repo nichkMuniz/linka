@@ -23,6 +23,8 @@ export type RoutineCard = {
   items: RoutineItem[];
   /** first non-null scheduled_time among items */
   scheduledTime: string | null;
+  /** first non-empty scheduled_days among items: Monday-first weekday indices "0,2,4" (null/empty = every day) */
+  scheduledDays: string | null;
 };
 
 function groupByName<T extends { name?: string | null }>(items: T[]): Map<string | null, T[]> {
@@ -65,6 +67,9 @@ export function buildRoutineCards(
         goalId: routine?.goal_id ?? null,
         items: items.map((i) => ({ ...i, kind }) as RoutineItem),
         scheduledTime: items.find((i: any) => i.scheduled_time)?.scheduled_time ?? null,
+        scheduledDays:
+          items.find((i: any) => i.scheduled_days && String(i.scheduled_days).trim())
+            ?.scheduled_days ?? null,
       });
     }
   };
@@ -141,4 +146,32 @@ export function computeWeekCheckins(history: Array<{ check_in_date: string }>): 
 export function isCompletedToday(item: { is_completed?: boolean | null; completed_at?: string | null }): boolean {
   if (!item.is_completed || !item.completed_at) return false;
   return localDateStr(new Date(item.completed_at)) === localDateStr(new Date());
+}
+
+/** Início (segunda-feira) da semana atual, "YYYY-MM-DD". */
+export function weekStartStr(now: Date = new Date()): string {
+  const d = new Date(now);
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return localDateStr(d);
+}
+
+/**
+ * Uma rotina conta como "concluída" para fins de progresso:
+ * - treino (type 1): executado em algum dia desta semana (última execução ≥ segunda);
+ * - dieta/hábito (type 2/3): todos os itens concluídos hoje.
+ */
+export function isRoutineCompleted(
+  card: RoutineCard,
+  routineLastDates: Record<string, string>,
+): boolean {
+  if (card.type === 1) {
+    const lastDate = card.items
+      .map((i) => routineLastDates[i.id])
+      .filter(Boolean)
+      .map((d) => d.slice(0, 10))
+      .sort()
+      .pop();
+    return !!lastDate && lastDate >= weekStartStr();
+  }
+  return card.items.length > 0 && card.items.every((i) => isCompletedToday(i as never));
 }

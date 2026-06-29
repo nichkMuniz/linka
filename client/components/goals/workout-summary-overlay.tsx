@@ -100,6 +100,25 @@ const CANVAS_W = 540;
 const CANVAS_H = 540;
 const FONT = `"Inter", -apple-system, system-ui, sans-serif`;
 
+// ── Shell "liquid glass" (mesma linguagem do workout-session-dialog) ──────────
+const GLASS_ROOT_BG = "linear-gradient(165deg,#1b1828 0%,#100e18 55%,#0a0910 100%)";
+const GLASS_BAR_BG  = "rgba(14,13,20,0.72)";
+const GLASS_BLUR    = "blur(24px) saturate(180%)";
+
+// Logo oficial (branco) desenhado no header do card gerado. Carregado uma vez e
+// cacheado; mesma origem do app, então não tinge o canvas (toBlob continua ok).
+let logoImgPromise: Promise<HTMLImageElement | null> | null = null;
+function loadLogo(): Promise<HTMLImageElement | null> {
+  if (logoImgPromise) return logoImgPromise;
+  logoImgPromise = new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = "/logo-branco.png";
+  });
+  return logoImgPromise;
+}
+
 type CanvasVariant = "standard" | "pr" | "machine";
 
 function getCanvasVariant(data: WorkoutSummaryData): CanvasVariant {
@@ -139,21 +158,36 @@ function canvasSetup(
   return ctx;
 }
 
-function drawCanvasHeader(ctx: CanvasRenderingContext2D, W: number, accent: string) {
-  ctx.fillStyle = accent;
-  ctx.font = `bold 18px ${FONT}`;
-  ctx.textAlign = "left";
-  ctx.fillText("LINKA", 28, 44);
+function drawCanvasHeader(
+  ctx: CanvasRenderingContext2D, W: number, accent: string,
+  logo: HTMLImageElement | null,
+) {
+  // Logo oficial branco (ou fallback ao wordmark em texto se não carregar)
+  if (logo && logo.width > 0 && logo.height > 0) {
+    const h = 26;
+    const w = (logo.width / logo.height) * h;
+    ctx.drawImage(logo, 28, 24, w, h);
+  } else {
+    ctx.fillStyle = "#ffffff";
+    ctx.font = `800 18px ${FONT}`;
+    ctx.textAlign = "left";
+    ctx.fillText("LinKa", 28, 44);
+  }
 
   const today = new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" });
-  ctx.fillStyle = "rgba(255,255,255,0.28)";
+  ctx.fillStyle = "rgba(255,255,255,0.32)";
   ctx.font = `500 11px ${FONT}`;
   ctx.textAlign = "right";
-  ctx.fillText(today, W - 28, 44);
+  ctx.fillText(today, W - 28, 41);
 }
 
 function drawCanvasDivider(ctx: CanvasRenderingContext2D, W: number, y: number) {
-  ctx.strokeStyle = "rgba(255,255,255,0.08)";
+  // Linha que esmaece nas pontas — mais elegante que um traço chapado.
+  const grad = ctx.createLinearGradient(28, 0, W - 28, 0);
+  grad.addColorStop(0, "rgba(255,255,255,0)");
+  grad.addColorStop(0.5, "rgba(255,255,255,0.14)");
+  grad.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.strokeStyle = grad;
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(28, y); ctx.lineTo(W - 28, y);
@@ -162,6 +196,7 @@ function drawCanvasDivider(ctx: CanvasRenderingContext2D, W: number, y: number) 
 
 function drawCanvasStats(
   ctx: CanvasRenderingContext2D, W: number, y: number, data: WorkoutSummaryData,
+  accent: string,
 ): number {
   const items: { l: string; v: string }[] = [
     { l: "DURACAO", v: formatSummaryDuration(data.durationSecs) },
@@ -169,20 +204,29 @@ function drawCanvasStats(
     ...(data.totalVolume > 0 ? [{ l: "VOLUME", v: `${data.totalVolume}kg` }] : []),
   ];
   const cols = items.length;
-  const colW = (W - 40 - (cols - 1) * 6) / cols;
-  const h = 54;
+  const colW = (W - 40 - (cols - 1) * 8) / cols;
+  const h = 58;
+  const [ar, ag, ab] = hexToRgb(accent);
   items.forEach(({ l, v }, i) => {
-    const x = 20 + i * (colW + 6), xC = x + colW / 2;
-    roundRectPath(ctx, x, y, colW, h, 12);
-    ctx.fillStyle = "rgba(255,255,255,0.06)";
+    const x = 20 + i * (colW + 8), xC = x + colW / 2;
+    // Painel de "vidro" com leve realce superior + borda translúcida
+    const fill = ctx.createLinearGradient(0, y, 0, y + h);
+    fill.addColorStop(0, "rgba(255,255,255,0.09)");
+    fill.addColorStop(1, "rgba(255,255,255,0.04)");
+    roundRectPath(ctx, x, y, colW, h, 14);
+    ctx.fillStyle = fill;
     ctx.fill();
+    roundRectPath(ctx, x + 0.5, y + 0.5, colW - 1, h - 1, 13.5);
+    ctx.strokeStyle = "rgba(255,255,255,0.10)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
     ctx.fillStyle = "#ffffff";
-    ctx.font = `800 18px ${FONT}`;
+    ctx.font = `800 19px ${FONT}`;
     ctx.textAlign = "center";
-    ctx.fillText(v, xC, y + 24);
-    ctx.fillStyle = "rgba(255,255,255,0.30)";
-    ctx.font = `600 9px ${FONT}`;
-    ctx.fillText(l, xC, y + 40);
+    ctx.fillText(v, xC, y + 26);
+    ctx.fillStyle = `rgba(${ar},${ag},${ab},0.65)`;
+    ctx.font = `700 9px ${FONT}`;
+    ctx.fillText(l, xC, y + 43);
   });
   return y + h;
 }
@@ -237,24 +281,33 @@ function drawCanvasFooter(ctx: CanvasRenderingContext2D, W: number, H: number) {
 
 // ─── Canvas: Standard (green accent) ────────────────────────────────────────
 
-function drawStandardCanvas(canvas: HTMLCanvasElement, data: WorkoutSummaryData) {
-  const ctx = canvasSetup(canvas, "#0f172a", "#1e293b", "#22c55e", 0.15);
+function drawStandardCanvas(
+  canvas: HTMLCanvasElement, data: WorkoutSummaryData, logo: HTMLImageElement | null,
+) {
+  const ctx = canvasSetup(canvas, "#1a1726", "#0c0a12", "#22c55e", 0.16);
   if (!ctx) return;
   const W = canvas.width, H = canvas.height;
   const ACCENT = "#22c55e";
 
   ctx.save();
-  drawCanvasHeader(ctx, W, ACCENT);
+  drawCanvasHeader(ctx, W, ACCENT, logo);
 
   let y = 62;
   drawCanvasDivider(ctx, W, y);
   y += 24;
 
-  // Check circle
+  // Check circle — com halo de acento ao redor
   const R = 28;
+  const halo = ctx.createRadialGradient(W / 2, y + R, R, W / 2, y + R, R + 26);
+  halo.addColorStop(0, "rgba(34,197,94,0.22)");
+  halo.addColorStop(1, "rgba(34,197,94,0)");
+  ctx.fillStyle = halo;
+  ctx.beginPath();
+  ctx.arc(W / 2, y + R, R + 26, 0, Math.PI * 2);
+  ctx.fill();
   ctx.beginPath();
   ctx.arc(W / 2, y + R, R, 0, Math.PI * 2);
-  ctx.fillStyle = "rgba(34,197,94,0.14)";
+  ctx.fillStyle = "rgba(34,197,94,0.16)";
   ctx.fill();
   ctx.strokeStyle = ACCENT;
   ctx.lineWidth = 2;
@@ -283,7 +336,7 @@ function drawStandardCanvas(canvas: HTMLCanvasElement, data: WorkoutSummaryData)
   ctx.fillText(label, W / 2, y);
   y += 28;
 
-  y = drawCanvasStats(ctx, W, y, data) + 18;
+  y = drawCanvasStats(ctx, W, y, data, ACCENT) + 18;
   drawCanvasDivider(ctx, W, y);
   y += 14;
   drawCanvasExercises(ctx, W, y, data, ACCENT);
@@ -293,14 +346,16 @@ function drawStandardCanvas(canvas: HTMLCanvasElement, data: WorkoutSummaryData)
 
 // ─── Canvas: PR (orange accent) ─────────────────────────────────────────────
 
-function drawPRCanvas(canvas: HTMLCanvasElement, data: WorkoutSummaryData) {
-  const ctx = canvasSetup(canvas, "#0d0d0d", "#0a0a0a", "#f97316", 0.22);
+function drawPRCanvas(
+  canvas: HTMLCanvasElement, data: WorkoutSummaryData, logo: HTMLImageElement | null,
+) {
+  const ctx = canvasSetup(canvas, "#1a1109", "#0a0603", "#f97316", 0.24);
   if (!ctx) return;
   const W = canvas.width, H = canvas.height;
   const ACCENT = "#f97316";
 
   ctx.save();
-  drawCanvasHeader(ctx, W, ACCENT);
+  drawCanvasHeader(ctx, W, ACCENT, logo);
 
   let y = 62;
   drawCanvasDivider(ctx, W, y);
@@ -382,7 +437,7 @@ function drawPRCanvas(canvas: HTMLCanvasElement, data: WorkoutSummaryData) {
   }
   y += 8;
 
-  y = drawCanvasStats(ctx, W, y, data) + 16;
+  y = drawCanvasStats(ctx, W, y, data, ACCENT) + 16;
   drawCanvasDivider(ctx, W, y);
   y += 14;
   drawCanvasExercises(ctx, W, y, data, ACCENT);
@@ -392,8 +447,10 @@ function drawPRCanvas(canvas: HTMLCanvasElement, data: WorkoutSummaryData) {
 
 // ─── Canvas: Machine Max (gold accent) ──────────────────────────────────────
 
-function drawMachineMaxCanvas(canvas: HTMLCanvasElement, data: WorkoutSummaryData) {
-  const ctx = canvasSetup(canvas, "#0c0900", "#1a1200", "#eab308", 0.25);
+function drawMachineMaxCanvas(
+  canvas: HTMLCanvasElement, data: WorkoutSummaryData, logo: HTMLImageElement | null,
+) {
+  const ctx = canvasSetup(canvas, "#1a1200", "#0c0900", "#eab308", 0.26);
   if (!ctx) return;
   const W = canvas.width, H = canvas.height;
   const ACCENT = "#eab308";
@@ -406,7 +463,7 @@ function drawMachineMaxCanvas(canvas: HTMLCanvasElement, data: WorkoutSummaryDat
   ctx.fillRect(0, 0, W, H);
 
   ctx.save();
-  drawCanvasHeader(ctx, W, ACCENT);
+  drawCanvasHeader(ctx, W, ACCENT, logo);
 
   let y = 62;
   drawCanvasDivider(ctx, W, y);
@@ -460,7 +517,7 @@ function drawMachineMaxCanvas(canvas: HTMLCanvasElement, data: WorkoutSummaryDat
   }
   y += 8;
 
-  y = drawCanvasStats(ctx, W, y, data) + 16;
+  y = drawCanvasStats(ctx, W, y, data, ACCENT) + 16;
   drawCanvasDivider(ctx, W, y);
   y += 14;
   drawCanvasExercises(ctx, W, y, data, ACCENT);
@@ -468,11 +525,13 @@ function drawMachineMaxCanvas(canvas: HTMLCanvasElement, data: WorkoutSummaryDat
   ctx.restore();
 }
 
-function drawCanvas(canvas: HTMLCanvasElement, data: WorkoutSummaryData) {
+function drawCanvas(
+  canvas: HTMLCanvasElement, data: WorkoutSummaryData, logo: HTMLImageElement | null,
+) {
   const v = getCanvasVariant(data);
-  if (v === "machine") return drawMachineMaxCanvas(canvas, data);
-  if (v === "pr") return drawPRCanvas(canvas, data);
-  return drawStandardCanvas(canvas, data);
+  if (v === "machine") return drawMachineMaxCanvas(canvas, data, logo);
+  if (v === "pr") return drawPRCanvas(canvas, data, logo);
+  return drawStandardCanvas(canvas, data, logo);
 }
 
 // ─── Component ──────────────────────────────────────────────────────────────
@@ -480,9 +539,11 @@ function drawCanvas(canvas: HTMLCanvasElement, data: WorkoutSummaryData) {
 interface WorkoutSummaryOverlayProps {
   data: WorkoutSummaryData;
   onClose: () => void;
+  /** Chamado após publicar no feed com sucesso — usado para navegar até o feed. */
+  onSharedToFeed?: () => void;
 }
 
-export function WorkoutSummaryOverlay({ data, onClose }: WorkoutSummaryOverlayProps) {
+export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: WorkoutSummaryOverlayProps) {
   const { t } = useLanguage();
 
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
@@ -504,14 +565,13 @@ export function WorkoutSummaryOverlay({ data, onClose }: WorkoutSummaryOverlayPr
   const hasMachined = data.machinedExercises.length > 0;
   const totalSlides = userPhotoPreview ? 2 : 1;
 
-  // Design tokens (CSS vars resolved at runtime in JS)
-  const BG     = "hsl(var(--background))";
-  const CARD   = "hsl(var(--card))";
-  const FG     = "hsl(var(--foreground))";
-  const MUTED  = "hsl(var(--muted-foreground))";
-  const ORANGE = "hsl(var(--brand-2))";
-  const BORDER = "hsl(var(--border))";
-  const SURFACE = "hsl(var(--muted))";
+  // Tokens "liquid glass" — tons brancos translúcidos sobre o shell escuro
+  const CARD    = "rgba(255,255,255,0.06)";   // painel de vidro
+  const FG      = "#fff";
+  const MUTED   = "rgba(255,255,255,0.55)";
+  const ORANGE  = "hsl(var(--brand-2))";
+  const BORDER  = "rgba(255,255,255,0.12)";
+  const SURFACE = "rgba(255,255,255,0.10)";
 
   // Accent colors per variant (non-CSS-var, for inline button styles)
   const accentHex = variant === "machine" ? "#eab308" : variant === "pr" ? "#f97316" : "#22c55e";
@@ -527,8 +587,9 @@ export function WorkoutSummaryOverlay({ data, onClose }: WorkoutSummaryOverlayPr
     canvas.width = CANVAS_W;
     canvas.height = CANVAS_H;
     canvasRef.current = canvas;
-    document.fonts.ready.then(() => {
-      drawCanvas(canvas, data);
+    // Aguarda as fontes E o logo antes de desenhar, para o card sair completo.
+    Promise.all([document.fonts.ready, loadLogo()]).then(([, logo]) => {
+      drawCanvas(canvas, data, logo);
       setCanvasPreviewUrl(canvas.toDataURL("image/png"));
     });
   }, [data]);
@@ -598,7 +659,9 @@ export function WorkoutSummaryOverlay({ data, onClose }: WorkoutSummaryOverlayPr
 
       await createPostDb(urls, description.trim() || t("goals_summary_share_default_desc"));
       toast({ title: t("goals_summary_shared_feed"), description: t("goals_summary_shared_feed_desc") });
-      onClose();
+      // Leva o usuário ao feed para ver a publicação recém-criada (fallback: só fecha).
+      if (onSharedToFeed) onSharedToFeed();
+      else onClose();
     } catch (err: any) {
       toast({ title: t("goals_summary_share_error"), description: err?.message, variant: "destructive" });
     } finally {
@@ -688,17 +751,41 @@ export function WorkoutSummaryOverlay({ data, onClose }: WorkoutSummaryOverlayPr
     <div
       style={{
         position: "fixed", inset: 0, zIndex: 9500,
-        background: BG,
+        background: GLASS_ROOT_BG,
         display: "flex", flexDirection: "column",
         overflowY: "auto",
+        // Mantém o resumo interativo mesmo se um modal Radix tiver deixado
+        // pointer-events:none no body — este overlay é a camada de topo.
+        pointerEvents: "auto",
         paddingTop: "max(0px, env(safe-area-inset-top))",
         fontFamily: "'Inter', system-ui, sans-serif",
       }}
     >
+      {/* ── Auras de fundo (liquid glass) — fixas para não rolarem ── */}
+      <div style={{
+        pointerEvents: "none", position: "fixed", zIndex: -1,
+        width: 340, height: 340, left: -60, top: 30, borderRadius: "50%",
+        background: "radial-gradient(circle,#ff7a3c,transparent 70%)",
+        filter: "blur(80px)", opacity: 0.26,
+      }} />
+      <div style={{
+        pointerEvents: "none", position: "fixed", zIndex: -1,
+        width: 320, height: 320, right: -80, top: "42%", borderRadius: "50%",
+        background: "radial-gradient(circle,#3f7fe6,transparent 70%)",
+        filter: "blur(80px)", opacity: 0.24,
+      }} />
+      <div style={{
+        pointerEvents: "none", position: "fixed", zIndex: -1,
+        width: 300, height: 300, left: "25%", bottom: -130, borderRadius: "50%",
+        background: "radial-gradient(circle,#9d6bff,transparent 70%)",
+        filter: "blur(80px)", opacity: 0.2,
+      }} />
+
       {/* ── Header ── */}
       <div style={{
         position: "sticky", top: 0, zIndex: 10,
-        background: BG,
+        background: GLASS_BAR_BG,
+        backdropFilter: GLASS_BLUR, WebkitBackdropFilter: GLASS_BLUR,
         paddingTop: "max(12px, env(safe-area-inset-top))",
         paddingLeft: "max(16px, env(safe-area-inset-left))",
         paddingRight: "max(16px, env(safe-area-inset-right))",
@@ -850,14 +937,21 @@ export function WorkoutSummaryOverlay({ data, onClose }: WorkoutSummaryOverlayPr
                 key={m.name}
                 style={{
                   display: "flex", alignItems: "center", justifyContent: "space-between",
+                  gap: 10,
                   paddingTop: 6, borderTop: "1px solid rgba(234,179,8,0.18)",
                 }}
               >
-                <div style={{ fontSize: 14, fontWeight: 600, color: FG }}>{m.name}</div>
+                <div style={{
+                  fontSize: 14, fontWeight: 600, color: FG,
+                  flex: 1, minWidth: 0,
+                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                }}>
+                  {m.name}
+                </div>
                 <span style={{
                   background: "#eab308", color: "#000",
                   borderRadius: 20, padding: "2px 12px",
-                  fontSize: 14, fontWeight: 900,
+                  fontSize: 14, fontWeight: 900, whiteSpace: "nowrap", flexShrink: 0,
                 }}>
                   {m.kg}kg
                 </span>
@@ -883,26 +977,34 @@ export function WorkoutSummaryOverlay({ data, onClose }: WorkoutSummaryOverlayPr
                 key={pr.name}
                 style={{
                   display: "flex", alignItems: "center", justifyContent: "space-between",
+                  gap: 10,
                   paddingTop: 6, borderTop: `1px solid ${ORANGE}22`,
                 }}
               >
-                <div style={{ fontSize: 14, fontWeight: 600, color: FG }}>{pr.name}</div>
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <div style={{
+                  fontSize: 14, fontWeight: 600, color: FG,
+                  flex: 1, minWidth: 0,
+                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                }}>
+                  {pr.name}
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
                   {pr.previousBestKg > 0 && (
-                    <span style={{ fontSize: 12, color: MUTED, textDecoration: "line-through" }}>
+                    <span style={{ fontSize: 12, color: MUTED, textDecoration: "line-through", whiteSpace: "nowrap" }}>
                       {pr.previousBestKg}kg
                     </span>
                   )}
                   <span style={{
                     background: ORANGE, color: "#fff",
                     borderRadius: 20, padding: "2px 10px",
-                    fontSize: 13, fontWeight: 800,
+                    fontSize: 13, fontWeight: 800, whiteSpace: "nowrap",
                   }}>
                     {pr.newBestKg}kg
                   </span>
                   <span style={{
                     background: `${ORANGE}33`, color: ORANGE,
                     borderRadius: 20, padding: "2px 8px", fontSize: 11, fontWeight: 700,
+                    whiteSpace: "nowrap",
                   }}>
                     {t("goals_summary_pr_badge")}
                   </span>
@@ -921,7 +1023,10 @@ export function WorkoutSummaryOverlay({ data, onClose }: WorkoutSummaryOverlayPr
           ...(data.totalVolume > 0 ? [{ label: t("goals_summary_volume"), value: `${data.totalVolume} kg` }] : []),
         ].map(({ label, value }) => (
           <div key={label} style={{
-            flex: 1, background: CARD, borderRadius: 14, padding: "12px 8px", textAlign: "center",
+            flex: 1, background: CARD, borderRadius: 16, padding: "12px 8px", textAlign: "center",
+            border: `1px solid ${BORDER}`,
+            backdropFilter: GLASS_BLUR, WebkitBackdropFilter: GLASS_BLUR,
+            boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08)",
           }}>
             <div style={{ fontSize: 20, fontWeight: 800, color: FG }}>{value}</div>
             <div style={{
@@ -966,7 +1071,12 @@ export function WorkoutSummaryOverlay({ data, onClose }: WorkoutSummaryOverlayPr
           }}>
             {t("goals_summary_exercises_done")}
           </div>
-          <div style={{ background: CARD, borderRadius: 16, overflow: "hidden" }}>
+          <div style={{
+            background: CARD, borderRadius: 18, overflow: "hidden",
+            border: `1px solid ${BORDER}`,
+            backdropFilter: GLASS_BLUR, WebkitBackdropFilter: GLASS_BLUR,
+            boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06)",
+          }}>
             {displayedExercises.map((ex, idx) => (
               <div
                 key={ex.name + idx}
@@ -1041,7 +1151,8 @@ export function WorkoutSummaryOverlay({ data, onClose }: WorkoutSummaryOverlayPr
           style={{
             width: "100%", background: CARD,
             border: `1px solid ${BORDER}`,
-            borderRadius: 14, padding: "12px 14px",
+            backdropFilter: GLASS_BLUR, WebkitBackdropFilter: GLASS_BLUR,
+            borderRadius: 16, padding: "12px 14px",
             fontSize: 14, color: FG, lineHeight: 1.5,
             resize: "none", fontFamily: "'Inter', system-ui, sans-serif",
             outline: "none", boxSizing: "border-box",
@@ -1102,6 +1213,8 @@ export function WorkoutSummaryOverlay({ data, onClose }: WorkoutSummaryOverlayPr
             style={{
               height: 52, borderRadius: 16,
               background: CARD, border: `1px solid ${BORDER}`,
+              backdropFilter: GLASS_BLUR, WebkitBackdropFilter: GLASS_BLUR,
+              boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08)",
               color: FG, fontSize: 15, fontWeight: 700,
               cursor: isSharing ? "not-allowed" : "pointer",
               display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
@@ -1153,10 +1266,14 @@ export function WorkoutSummaryOverlay({ data, onClose }: WorkoutSummaryOverlayPr
           <div
             onClick={(e) => e.stopPropagation()}
             style={{
-              width: "100%", background: CARD,
-              borderRadius: "20px 20px 0 0",
+              width: "100%",
+              background: "linear-gradient(rgba(40,38,54,0.92),rgba(18,16,28,0.96))",
+              backdropFilter: GLASS_BLUR, WebkitBackdropFilter: GLASS_BLUR,
+              borderTop: `1px solid ${BORDER}`,
+              borderRadius: "28px 28px 0 0",
               padding: "20px 16px",
               paddingBottom: "max(24px, env(safe-area-inset-bottom))",
+              boxShadow: "0 -8px 40px rgba(0,0,0,0.4)",
             }}
           >
             <div style={{ fontSize: 16, fontWeight: 800, color: FG, marginBottom: 16, textAlign: "center" }}>
@@ -1226,7 +1343,7 @@ export function WorkoutSummaryOverlay({ data, onClose }: WorkoutSummaryOverlayPr
                 fontSize: 14, fontWeight: 600, color: MUTED,
               }}
             >
-              Cancelar
+              {t("goals_cancel")}
             </button>
           </div>
         </div>

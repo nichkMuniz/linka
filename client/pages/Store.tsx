@@ -94,6 +94,14 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { ImageCropperDrawer } from "@/components/shared/image-cropper-drawer";
 import { Browser } from "@capacitor/browser";
+import {
+  GLASS_SHEET_STYLE,
+  GLASS_FIELD_STYLE,
+  GLASS_PRIMARY_BTN_STYLE,
+  GLASS_SHEET_PROPS,
+  GLASS_LABEL_CLASS,
+  GLASS_FIELD_CLASS,
+} from "@/lib/glass-styles";
 
 // ─── Clipboard helper (fallback for iOS WebView) ─────────────────────────────
 
@@ -124,6 +132,7 @@ const GLASS_CARD_STYLE = {
   border: "1px solid rgba(255,255,255,.10)",
   boxShadow: "inset 0 1px 0 rgba(255,255,255,.18)",
 } as const;
+
 
 function PromotionSkeleton() {
   return (
@@ -215,18 +224,22 @@ function PromotionDetailDrawer({
   })();
 
   return (
-    <Drawer open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
-      <DrawerContent onOpenAutoFocus={(e) => e.preventDefault()}>
+    <Drawer open={open} onOpenChange={(v) => { if (!v) onClose(); }} noBodyStyles shouldScaleBackground={false}>
+      <DrawerContent
+        {...GLASS_SHEET_PROPS}
+        onOpenAutoFocus={(e) => e.preventDefault()}
+        style={GLASS_SHEET_STYLE}
+      >
         <DrawerHeader className="pb-2">
-          <DrawerTitle className="text-base font-semibold leading-snug pr-4">
+          <DrawerTitle className="text-base font-semibold leading-snug pr-4 text-white">
             {promo.title}
           </DrawerTitle>
         </DrawerHeader>
 
-        <div className="overflow-y-auto max-h-[70vh] px-4 pb-4 space-y-4">
+        <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4 space-y-4" onPointerDown={(e) => e.stopPropagation()}>
           {/* Imagem ampliada */}
           {promo.photo_url && (
-            <div className="relative w-full aspect-square bg-muted rounded-xl overflow-hidden">
+            <div className="relative w-full aspect-square rounded-2xl overflow-hidden" style={{ background: "rgba(255,255,255,.04)" }}>
               <ImageWithFallback
                 src={promo.photo_url}
                 alt={promo.title}
@@ -240,7 +253,7 @@ function PromotionDetailDrawer({
               )}
               {majorityExpired && (
                 <div className="absolute inset-0 flex items-center justify-center">
-                  <span className="bg-background/80 text-destructive text-sm font-bold px-3 py-1.5 rounded-full flex items-center gap-1.5 border border-destructive/30">
+                  <span className="text-destructive text-sm font-bold px-3 py-1.5 rounded-full flex items-center gap-1.5 border border-destructive/30" style={{ background: "rgba(14,13,20,.8)" }}>
                     <AlertTriangle className="h-4 w-4" />
                     Pode ter expirado
                   </span>
@@ -266,12 +279,12 @@ function PromotionDetailDrawer({
                 </span>
               )}
               {promo.original_price != null && promo.promo_price != null && (
-                <span className="text-sm text-muted-foreground line-through">
+                <span className="text-sm line-through" style={{ color: "rgba(255,255,255,.4)" }}>
                   R$ {promo.original_price.toFixed(2).replace(".", ",")}
                 </span>
               )}
               {promo.original_price != null && promo.promo_price == null && (
-                <span className="text-2xl font-bold">
+                <span className="text-2xl font-bold text-white">
                   R$ {promo.original_price.toFixed(2).replace(".", ",")}
                 </span>
               )}
@@ -280,12 +293,12 @@ function PromotionDetailDrawer({
 
           {/* Descrição completa */}
           {promo.description && (
-            <p className="text-sm text-muted-foreground leading-relaxed">{promo.description}</p>
+            <p className="text-sm leading-relaxed" style={{ color: "rgba(255,255,255,.7)" }}>{promo.description}</p>
           )}
 
           {/* Validade */}
           {promo.expires_at && (
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>
               Válido até {new Date(promo.expires_at).toLocaleDateString("pt-BR")}
             </p>
           )}
@@ -299,7 +312,8 @@ function PromotionDetailDrawer({
                 setCouponCopied(true);
                 setTimeout(() => setCouponCopied(false), 2000);
               }}
-              className="flex items-center gap-2 w-full rounded-xl border border-dashed border-brand/50 bg-brand/5 px-4 py-3 hover:bg-brand/10 transition-colors"
+              className="flex items-center gap-2 w-full rounded-2xl border border-dashed border-brand/50 px-4 py-3 transition-colors"
+              style={{ background: "rgba(91,140,255,.08)" }}
             >
               <Ticket className="h-4 w-4 text-brand flex-shrink-0" />
               <span className="font-mono text-sm font-bold text-brand tracking-wider flex-1 text-left">
@@ -315,15 +329,15 @@ function PromotionDetailDrawer({
 
           {/* Votos de status */}
           {!isOwner && isLoggedIn && (
-            <div className="flex items-center gap-2 pt-1 border-t border-border/40">
-              <span className="text-xs text-muted-foreground flex-shrink-0">Ainda ativo?</span>
+            <div className="flex items-center gap-2 pt-3" style={{ borderTop: "1px solid rgba(255,255,255,.1)" }}>
+              <span className="text-xs flex-shrink-0" style={{ color: "rgba(255,255,255,.5)" }}>Ainda ativo?</span>
               <button
                 onClick={() => onStatusVote(promo.id, "active")}
                 aria-label="Marcar como ativo"
                 className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
                   promo.user_status_vote === "active"
                     ? "bg-green-500/20 text-green-500"
-                    : "text-muted-foreground hover:text-green-500 hover:bg-green-500/10"
+                    : "text-white/50 hover:text-green-500 hover:bg-green-500/10"
                 }`}
               >
                 <ThumbsUp className="h-3.5 w-3.5" />
@@ -335,7 +349,7 @@ function PromotionDetailDrawer({
                 className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
                   promo.user_status_vote === "expired"
                     ? "bg-destructive/20 text-destructive"
-                    : "text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                    : "text-white/50 hover:text-destructive hover:bg-destructive/10"
                 }`}
               >
                 <ThumbsDown className="h-3.5 w-3.5" />
@@ -347,7 +361,8 @@ function PromotionDetailDrawer({
           {/* Botão principal */}
           {promo.external_link && (
             <Button
-              className="w-full gap-2 h-12 text-base"
+              className="w-full gap-2 h-12 text-base border-0"
+              style={GLASS_PRIMARY_BTN_STYLE}
               onClick={() => Browser.open({ url: promo.external_link! })}
             >
               <ExternalLink className="h-5 w-5" />
@@ -361,7 +376,7 @@ function PromotionDetailDrawer({
             className={`flex items-center gap-2 w-full justify-center py-2 rounded-lg text-sm transition-colors ${
               promo.user_liked
                 ? "text-red-500"
-                : "text-muted-foreground hover:text-red-500"
+                : "text-white/50 hover:text-red-500"
             }`}
           >
             <Heart className={`h-4 w-4 ${promo.user_liked ? "fill-red-500" : ""}`} />
@@ -765,23 +780,32 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
 
   return (
     <>
-    <Drawer open={open} onOpenChange={(v) => { if (!v) { reset(); onClose(); } }}>
-      <DrawerContent onOpenAutoFocus={(e) => e.preventDefault()}>
+    <Drawer open={open} onOpenChange={(v) => { if (!v) { reset(); onClose(); } }} noBodyStyles shouldScaleBackground={false}>
+      <DrawerContent
+        {...GLASS_SHEET_PROPS}
+        onOpenAutoFocus={(e) => e.preventDefault()}
+        style={GLASS_SHEET_STYLE}
+      >
         <DrawerHeader>
-          <DrawerTitle className="flex items-center gap-2">
+          <DrawerTitle className="flex items-center gap-2 text-white">
             <Tag className="h-5 w-5 text-brand" />
             Nova Promoção
           </DrawerTitle>
         </DrawerHeader>
 
-        <div className="overflow-y-auto max-h-[65vh] px-4 space-y-4 pb-2">
+        <div className="flex-1 min-h-0 overflow-y-auto px-4 space-y-4 pb-2" onPointerDown={(e) => e.stopPropagation()}>
           {/* ── Step 1: Link ── */}
-          <div className={`space-y-3 rounded-xl p-3 border transition-colors ${prefilled ? "border-border/40 bg-muted/30" : "border-brand/40 bg-brand/5"}`}>
+          <div
+            className="space-y-3 rounded-2xl p-3 transition-colors"
+            style={prefilled
+              ? { background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.1)" }
+              : { background: "rgba(91,140,255,.1)", border: "1px solid rgba(91,140,255,.4)" }}
+          >
             <div className="flex items-center gap-2">
-              <span className={`h-5 w-5 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${prefilled ? "bg-green-500 text-white" : "bg-brand text-white"}`}>
+              <span className={`h-5 w-5 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 text-white ${prefilled ? "bg-green-500" : "bg-brand"}`}>
                 {prefilled ? "✓" : "1"}
               </span>
-              <span className="text-sm font-medium">Cole o link do produto</span>
+              <span className="text-sm font-medium text-white/90">Cole o link do produto</span>
             </div>
             <div className="flex gap-2">
               <Input
@@ -789,13 +813,15 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
                 value={linkInput}
                 onChange={(e) => { setLinkInput(e.target.value); if (prefilled) setPrefilled(false); }}
                 onKeyDown={(e) => e.key === "Enter" && !fetching && handleFetchPreview()}
-                className="flex-1"
+                className={`flex-1 ${GLASS_FIELD_CLASS}`}
+                style={GLASS_FIELD_STYLE}
               />
               <Button
                 type="button"
                 onClick={handleFetchPreview}
                 disabled={fetching || !linkInput.trim()}
-                className="flex-shrink-0 gap-1.5"
+                className="flex-shrink-0 gap-1.5 border-0"
+                style={GLASS_PRIMARY_BTN_STYLE}
               >
                 {fetching ? (
                   <LoadingSpinner className="h-4 w-4" />
@@ -808,12 +834,12 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
               </Button>
             </div>
             {!prefilled && (
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>
                 Funciona com Amazon, Mercado Livre, iHerb e outros.
               </p>
             )}
             {prefilled && (
-              <p className="text-xs text-green-500">
+              <p className="text-xs text-green-400">
                 Informações importadas — revise abaixo antes de publicar.
               </p>
             )}
@@ -824,37 +850,41 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
             <>
               <div className="flex items-center gap-2">
                 <span className="h-5 w-5 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 bg-brand text-white">2</span>
-                <span className="text-sm font-medium">Revise e complete</span>
+                <span className="text-sm font-medium text-white/90">Revise e complete</span>
               </div>
 
               {/* Title */}
               <div className="space-y-1.5">
-                <label className="text-sm font-medium">Título *</label>
+                <label className={GLASS_LABEL_CLASS}>Título *</label>
                 <Input
                   placeholder="Ex: Whey Protein 25% OFF"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   maxLength={120}
+                  className={GLASS_FIELD_CLASS}
+                  style={GLASS_FIELD_STYLE}
                 />
               </div>
 
               {/* Description */}
               <div className="space-y-1.5">
-                <label className="text-sm font-medium">Descrição</label>
+                <label className={GLASS_LABEL_CLASS}>Descrição</label>
                 <Textarea
                   placeholder="Descreva a promoção, condições, detalhes..."
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   rows={3}
                   maxLength={500}
+                  className={GLASS_FIELD_CLASS}
+                  style={GLASS_FIELD_STYLE}
                 />
               </div>
 
               {/* Category */}
               <div className="space-y-1.5">
-                <label className="text-sm font-medium">Categoria *</label>
+                <label className={GLASS_LABEL_CLASS}>Categoria *</label>
                 <Select value={category} onValueChange={(v) => setCategory(v as PromotionCategory)}>
-                  <SelectTrigger>
+                  <SelectTrigger className={GLASS_FIELD_CLASS} style={GLASS_FIELD_STYLE}>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent className="z-[9999]">
@@ -870,7 +900,7 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
               {/* Prices */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <label className="text-sm font-medium">Preço original (R$)</label>
+                  <label className={GLASS_LABEL_CLASS}>Preço original (R$)</label>
                   <Input
                     type="number"
                     min="0"
@@ -878,10 +908,12 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
                     placeholder="99,90"
                     value={originalPrice}
                     onChange={(e) => setOriginalPrice(e.target.value)}
+                    className={GLASS_FIELD_CLASS}
+                    style={GLASS_FIELD_STYLE}
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-sm font-medium">Preço promo (R$)</label>
+                  <label className={GLASS_LABEL_CLASS}>Preço promo (R$)</label>
                   <Input
                     type="number"
                     min="0"
@@ -889,6 +921,8 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
                     placeholder="74,90"
                     value={promoPrice}
                     onChange={(e) => setPromoPrice(e.target.value)}
+                    className={GLASS_FIELD_CLASS}
+                    style={GLASS_FIELD_STYLE}
                   />
                 </div>
               </div>
@@ -896,19 +930,19 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
               {/* Photo — URL or upload */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <label className="text-sm font-medium">Imagem do produto</label>
-                  <div className="flex rounded-lg border border-border overflow-hidden text-xs">
+                  <label className={GLASS_LABEL_CLASS}>Imagem do produto</label>
+                  <div className="flex rounded-lg overflow-hidden text-xs" style={{ border: "1px solid rgba(255,255,255,.12)" }}>
                     <button
                       type="button"
                       onClick={() => setImageMode("url")}
-                      className={`flex items-center gap-1 px-2.5 py-1 transition-colors ${imageMode === "url" ? "bg-brand text-white" : "text-muted-foreground hover:text-foreground"}`}
+                      className={`flex items-center gap-1 px-2.5 py-1 transition-colors ${imageMode === "url" ? "bg-brand text-white" : "text-white/50 hover:text-white"}`}
                     >
                       <Link className="h-3 w-3" /> URL
                     </button>
                     <button
                       type="button"
                       onClick={() => setImageMode("upload")}
-                      className={`flex items-center gap-1 px-2.5 py-1 transition-colors ${imageMode === "upload" ? "bg-brand text-white" : "text-muted-foreground hover:text-foreground"}`}
+                      className={`flex items-center gap-1 px-2.5 py-1 transition-colors ${imageMode === "upload" ? "bg-brand text-white" : "text-white/50 hover:text-white"}`}
                     >
                       <ImageIcon className="h-3 w-3" /> Galeria
                     </button>
@@ -920,6 +954,8 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
                     placeholder="https://..."
                     value={photoUrl}
                     onChange={(e) => setPhotoUrl(e.target.value)}
+                    className={GLASS_FIELD_CLASS}
+                    style={GLASS_FIELD_STYLE}
                   />
                 ) : (
                   <>
@@ -933,14 +969,15 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
                     <button
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
-                      className="w-full rounded-lg border-2 border-dashed border-border hover:border-brand/50 transition-colors p-4 flex flex-col items-center gap-2"
+                      className="w-full rounded-lg border-2 border-dashed transition-colors p-4 flex flex-col items-center gap-2"
+                      style={{ borderColor: "rgba(255,255,255,.18)" }}
                     >
                       {uploadFile ? (
-                        <span className="text-xs text-green-500 font-medium">{uploadFile.name}</span>
+                        <span className="text-xs text-green-400 font-medium">{uploadFile.name}</span>
                       ) : (
                         <>
-                          <Upload className="h-5 w-5 text-muted-foreground" />
-                          <span className="text-xs text-muted-foreground">Toque para escolher da galeria</span>
+                          <Upload className="h-5 w-5 text-white/50" />
+                          <span className="text-xs text-white/50">Toque para escolher da galeria</span>
                         </>
                       )}
                     </button>
@@ -949,7 +986,7 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
 
                 {/* Preview */}
                 {photoUrl && (
-                  <div className="rounded-lg overflow-hidden aspect-video bg-muted">
+                  <div className="rounded-lg overflow-hidden aspect-video" style={{ background: "rgba(255,255,255,.04)" }}>
                     <ImageWithFallback
                       src={photoUrl}
                       alt="preview"
@@ -962,28 +999,31 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
 
               {/* Coupon code */}
               <div className="space-y-1.5">
-                <label className="text-sm font-medium flex items-center gap-1.5">
+                <label className={`${GLASS_LABEL_CLASS} flex items-center gap-1.5`}>
                   <Ticket className="h-3.5 w-3.5 text-brand" />
                   Cupom de desconto
-                  <span className="text-xs text-muted-foreground font-normal">(opcional)</span>
+                  <span className="text-xs font-normal" style={{ color: "rgba(255,255,255,.5)" }}>(opcional)</span>
                 </label>
                 <Input
                   placeholder="Ex: PROMO10"
                   value={couponCode}
                   onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
                   maxLength={30}
-                  className="font-mono tracking-wider"
+                  className={`font-mono tracking-wider ${GLASS_FIELD_CLASS}`}
+                  style={GLASS_FIELD_STYLE}
                 />
               </div>
 
               {/* Expires at */}
               <div className="space-y-1.5">
-                <label className="text-sm font-medium">Válido até</label>
+                <label className={GLASS_LABEL_CLASS}>Válido até</label>
                 <Input
                   type="date"
                   value={expiresAt}
                   min={new Date().toISOString().split("T")[0]}
                   onChange={(e) => setExpiresAt(e.target.value)}
+                  className={GLASS_FIELD_CLASS}
+                  style={GLASS_FIELD_STYLE}
                 />
               </div>
             </>
@@ -992,7 +1032,7 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
 
         <DrawerFooter className="pt-2">
           {prefilled && (
-            <Button onClick={handleSubmit} disabled={saving || uploading} className="w-full">
+            <Button onClick={handleSubmit} disabled={saving || uploading} className="w-full border-0" style={GLASS_PRIMARY_BTN_STYLE}>
               {uploading ? (
                 <><LoadingSpinner className="h-4 w-4" /><span className="ml-2">Enviando imagem...</span></>
               ) : saving ? (
@@ -1000,7 +1040,7 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
               ) : "Publicar Promoção"}
             </Button>
           )}
-          <Button variant="ghost" onClick={() => { reset(); onClose(); }} disabled={saving}>
+          <Button variant="ghost" onClick={() => { reset(); onClose(); }} disabled={saving} className="text-white/70 hover:text-white hover:bg-white/10">
             Cancelar
           </Button>
         </DrawerFooter>
@@ -1153,44 +1193,52 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
 
   return (
     <>
-    <Drawer open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
-      <DrawerContent onOpenAutoFocus={(e) => e.preventDefault()}>
+    <Drawer open={open} onOpenChange={(v) => { if (!v) onClose(); }} noBodyStyles shouldScaleBackground={false}>
+      <DrawerContent
+        {...GLASS_SHEET_PROPS}
+        onOpenAutoFocus={(e) => e.preventDefault()}
+        style={GLASS_SHEET_STYLE}
+      >
         <DrawerHeader>
-          <DrawerTitle className="flex items-center gap-2">
+          <DrawerTitle className="flex items-center gap-2 text-white">
             <Pencil className="h-5 w-5 text-brand" />
             Editar Promoção
           </DrawerTitle>
         </DrawerHeader>
 
-        <div className="overflow-y-auto max-h-[65vh] px-4 space-y-4 pb-6">
+        <div className="flex-1 min-h-0 overflow-y-auto px-4 space-y-4 pb-6" onPointerDown={(e) => e.stopPropagation()}>
           {/* Title */}
           <div className="space-y-1.5">
-            <label className="text-sm font-medium">Título *</label>
+            <label className={GLASS_LABEL_CLASS}>Título *</label>
             <Input
               placeholder="Ex: Whey Protein 25% OFF"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               maxLength={120}
+              className={GLASS_FIELD_CLASS}
+              style={GLASS_FIELD_STYLE}
             />
           </div>
 
           {/* Description */}
           <div className="space-y-1.5">
-            <label className="text-sm font-medium">Descrição</label>
+            <label className={GLASS_LABEL_CLASS}>Descrição</label>
             <Textarea
               placeholder="Descreva a promoção..."
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={3}
               maxLength={500}
+              className={GLASS_FIELD_CLASS}
+              style={GLASS_FIELD_STYLE}
             />
           </div>
 
           {/* Category */}
           <div className="space-y-1.5">
-            <label className="text-sm font-medium">Categoria *</label>
+            <label className={GLASS_LABEL_CLASS}>Categoria *</label>
             <Select value={category} onValueChange={(v) => setCategory(v as PromotionCategory)}>
-              <SelectTrigger>
+              <SelectTrigger className={GLASS_FIELD_CLASS} style={GLASS_FIELD_STYLE}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className="z-[9999]">
@@ -1206,7 +1254,7 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
           {/* Prices */}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <label className="text-sm font-medium">Preço original (R$)</label>
+              <label className={GLASS_LABEL_CLASS}>Preço original (R$)</label>
               <Input
                 type="number"
                 min="0"
@@ -1214,10 +1262,12 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
                 placeholder="99,90"
                 value={originalPrice}
                 onChange={(e) => setOriginalPrice(e.target.value)}
+                className={GLASS_FIELD_CLASS}
+                style={GLASS_FIELD_STYLE}
               />
             </div>
             <div className="space-y-1.5">
-              <label className="text-sm font-medium">Preço promo (R$)</label>
+              <label className={GLASS_LABEL_CLASS}>Preço promo (R$)</label>
               <Input
                 type="number"
                 min="0"
@@ -1225,6 +1275,8 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
                 placeholder="74,90"
                 value={promoPrice}
                 onChange={(e) => setPromoPrice(e.target.value)}
+                className={GLASS_FIELD_CLASS}
+                style={GLASS_FIELD_STYLE}
               />
             </div>
           </div>
@@ -1232,19 +1284,19 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
           {/* Photo — URL or upload */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <label className="text-sm font-medium">Imagem do produto</label>
-              <div className="flex rounded-lg border border-border overflow-hidden text-xs">
+              <label className={GLASS_LABEL_CLASS}>Imagem do produto</label>
+              <div className="flex rounded-lg overflow-hidden text-xs" style={{ border: "1px solid rgba(255,255,255,.12)" }}>
                 <button
                   type="button"
                   onClick={() => setImageMode("url")}
-                  className={`flex items-center gap-1 px-2.5 py-1 transition-colors ${imageMode === "url" ? "bg-brand text-white" : "text-muted-foreground hover:text-foreground"}`}
+                  className={`flex items-center gap-1 px-2.5 py-1 transition-colors ${imageMode === "url" ? "bg-brand text-white" : "text-white/50 hover:text-white"}`}
                 >
                   <Link className="h-3 w-3" /> URL
                 </button>
                 <button
                   type="button"
                   onClick={() => setImageMode("upload")}
-                  className={`flex items-center gap-1 px-2.5 py-1 transition-colors ${imageMode === "upload" ? "bg-brand text-white" : "text-muted-foreground hover:text-foreground"}`}
+                  className={`flex items-center gap-1 px-2.5 py-1 transition-colors ${imageMode === "upload" ? "bg-brand text-white" : "text-white/50 hover:text-white"}`}
                 >
                   <ImageIcon className="h-3 w-3" /> Galeria
                 </button>
@@ -1256,6 +1308,8 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
                 placeholder="https://..."
                 value={photoUrl}
                 onChange={(e) => setPhotoUrl(e.target.value)}
+                className={GLASS_FIELD_CLASS}
+                style={GLASS_FIELD_STYLE}
               />
             ) : (
               <>
@@ -1269,14 +1323,15 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className="w-full rounded-lg border-2 border-dashed border-border hover:border-brand/50 transition-colors p-4 flex flex-col items-center gap-2"
+                  className="w-full rounded-lg border-2 border-dashed transition-colors p-4 flex flex-col items-center gap-2"
+                  style={{ borderColor: "rgba(255,255,255,.18)" }}
                 >
                   {uploadFile ? (
-                    <span className="text-xs text-green-500 font-medium">{uploadFile.name}</span>
+                    <span className="text-xs text-green-400 font-medium">{uploadFile.name}</span>
                   ) : (
                     <>
-                      <Upload className="h-5 w-5 text-muted-foreground" />
-                      <span className="text-xs text-muted-foreground">Toque para escolher da galeria</span>
+                      <Upload className="h-5 w-5 text-white/50" />
+                      <span className="text-xs text-white/50">Toque para escolher da galeria</span>
                     </>
                   )}
                 </button>
@@ -1284,7 +1339,7 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
             )}
 
             {photoUrl && imageMode === "url" && (
-              <div className="rounded-lg overflow-hidden aspect-video bg-muted">
+              <div className="rounded-lg overflow-hidden aspect-video" style={{ background: "rgba(255,255,255,.04)" }}>
                 <ImageWithFallback
                   src={photoUrl}
                   alt="preview"
@@ -1297,41 +1352,44 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
 
           {/* Coupon */}
           <div className="space-y-1.5">
-            <label className="text-sm font-medium flex items-center gap-1.5">
+            <label className={`${GLASS_LABEL_CLASS} flex items-center gap-1.5`}>
               <Ticket className="h-3.5 w-3.5 text-brand" />
               Cupom de desconto
-              <span className="text-xs text-muted-foreground font-normal">(opcional)</span>
+              <span className="text-xs font-normal" style={{ color: "rgba(255,255,255,.5)" }}>(opcional)</span>
             </label>
             <Input
               placeholder="Ex: NOVO10"
               value={couponCode}
               onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
               maxLength={30}
-              className="font-mono tracking-wider"
+              className={`font-mono tracking-wider ${GLASS_FIELD_CLASS}`}
+              style={GLASS_FIELD_STYLE}
             />
           </div>
 
           {/* Expires at */}
           <div className="space-y-1.5">
-            <label className="text-sm font-medium">Válido até</label>
+            <label className={GLASS_LABEL_CLASS}>Válido até</label>
             <Input
               type="date"
               value={expiresAt}
               min={todayStr}
               onChange={(e) => setExpiresAt(e.target.value)}
+              className={GLASS_FIELD_CLASS}
+              style={GLASS_FIELD_STYLE}
             />
           </div>
         </div>
 
         <DrawerFooter className="pt-2">
-          <Button onClick={handleSubmit} disabled={saving || uploading} className="w-full">
+          <Button onClick={handleSubmit} disabled={saving || uploading} className="w-full border-0" style={GLASS_PRIMARY_BTN_STYLE}>
             {uploading ? (
               <><LoadingSpinner className="h-4 w-4" /><span className="ml-2">Enviando imagem...</span></>
             ) : saving ? (
               <><LoadingSpinner className="h-4 w-4" /><span className="ml-2">Salvando...</span></>
             ) : "Salvar Alterações"}
           </Button>
-          <Button variant="ghost" onClick={onClose} disabled={saving || uploading}>
+          <Button variant="ghost" onClick={onClose} disabled={saving || uploading} className="text-white/70 hover:text-white hover:bg-white/10">
             Cancelar
           </Button>
         </DrawerFooter>

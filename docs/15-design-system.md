@@ -40,9 +40,9 @@ As cores são definidas via **CSS Custom Properties (HSL)** no `index.css` e con
 | `card-foreground` | Texto dentro de cards | igual a `foreground` | igual a `foreground` |
 | `primary` | Ação principal, azul da marca | `hsl(214, 100%, 61%)` | `hsl(214, 100%, 65%)` |
 | `primary-foreground` | Texto sobre `primary` | branco | branco |
-| `secondary` | Fundo de elementos secundários | | |
-| `muted` | Fundos desativados, divisores | | |
-| `muted-foreground` | Texto de suporte, metadados | | |
+| `secondary` | **Accent roxo da marca** (`--brand-3`) — NÃO é superfície neutra | `hsl(263, 30%, 94%)` | `hsl(263, 70%, 65%)` |
+| `muted` | Superfície neutra de chips/badges/botões secundários e divisores | `hsl(220, 16%, 95%)` | `hsl(232, 25%, 9%)` |
+| `muted-foreground` | Texto de suporte, metadados | `hsl(220, 10%, 42%)` | `hsl(0, 0%, 54%)` |
 | `accent` | Hover de elementos interativos | | |
 | `destructive` | Ações perigosas, erros | vermelho | vermelho |
 | `border` | Bordas padrão | | |
@@ -208,7 +208,7 @@ Sem borda:            border-0 ou remover a classe border
 | `default` | Ação principal (CTA) | Fundo azul, texto branco |
 | `outline` | Ação secundária | Borda com fundo transparente |
 | `ghost` | Ação terciária, ícones | Apenas hover visível |
-| `secondary` | Ação alternativa neutra | Fundo cinza |
+| `secondary` | Botão com accent roxo da marca (use com `secondary-foreground`, nunca com `muted-foreground`) | Fundo roxo |
 | `destructive` | Ações perigosas | Fundo vermelho |
 | `link` | Navegação em texto | Texto azul sublinhado |
 
@@ -420,6 +420,46 @@ Botão de submit: w-full rounded-full (no final do form)
   </DrawerContent>
 </Drawer>
 ```
+
+### 9.4 Drawer Glass (Novo Design — Padrão Atual)
+
+O padrão visual atual para drawers de conteúdo rico (promoções, duelos, comentários) é o **vidro escuro (glassmorphism)**: shell com gradiente escuro + blur, handle branco, cantos `!rounded-t-[32px]`, texto branco e campos/cards translúcidos. Independe do tema (sempre escuro).
+
+**Fonte única de verdade:** `client/lib/glass-styles.ts`. Nunca redefina esses estilos inline — importe os tokens.
+
+| Token | Uso |
+|---|---|
+| `GLASS_SHEET_PROPS` | Spread no `DrawerContent` (handle branco + `!rounded-t-[32px] !border-0`) |
+| `GLASS_SHEET_STYLE` | `style` do `DrawerContent` (gradiente escuro + blur + `maxHeight: 90dvh`) |
+| `GLASS_FIELD_STYLE` + `GLASS_FIELD_CLASS` | Inputs / Textareas / SelectTrigger |
+| `GLASS_PRIMARY_BTN_STYLE` | Botão de ação principal (gradiente azul → roxo) |
+| `GLASS_PANEL_STYLE` | Cards / containers translúcidos internos |
+| `GLASS_LABEL_CLASS` | Labels de formulário |
+
+```tsx
+import {
+  GLASS_SHEET_PROPS, GLASS_SHEET_STYLE, GLASS_FIELD_STYLE,
+  GLASS_FIELD_CLASS, GLASS_PRIMARY_BTN_STYLE, GLASS_LABEL_CLASS,
+} from "@/lib/glass-styles";
+
+<Drawer open={open} onOpenChange={setOpen} noBodyStyles shouldScaleBackground={false}>
+  <DrawerContent {...GLASS_SHEET_PROPS} style={GLASS_SHEET_STYLE} onOpenAutoFocus={(e) => e.preventDefault()}>
+    <DrawerHeader>
+      <DrawerTitle className="text-white">Título</DrawerTitle>
+    </DrawerHeader>
+    {/* área scrollável precisa de flex-1 min-h-0 dentro do shell flex-col */}
+    <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4">
+      <label className={GLASS_LABEL_CLASS}>Campo</label>
+      <Input className={GLASS_FIELD_CLASS} style={GLASS_FIELD_STYLE} />
+      <Button className="w-full rounded-full border-0" style={GLASS_PRIMARY_BTN_STYLE}>Salvar</Button>
+    </div>
+  </DrawerContent>
+</Drawer>
+```
+
+**Convenções de cor sobre o vidro:** texto principal `text-white`; secundário `rgba(255,255,255,.5)`; bordas/divisores `rgba(255,255,255,.1)`; botões `outline` ficam `bg-transparent border-white/20 text-white hover:bg-white/10`. Badges de categoria/estado (ex.: `bg-blue-500/15 text-blue-400`) já funcionam sobre o escuro.
+
+> **Regra:** O `DrawerContent` base já eleva o sheet acima do teclado iOS — não recrie esse comportamento. A área scrollável deve usar `flex-1 min-h-0` (o shell é `flex flex-col`).
 
 ---
 

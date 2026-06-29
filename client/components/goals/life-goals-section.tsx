@@ -1,6 +1,5 @@
 import * as React from "react";
-import { CheckCircle2, Plus, Target } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Plus, Target } from "lucide-react";
 import { useLanguage } from "@/lib/language-context";
 import type { Routine, UserGoal } from "@/lib/ritmofit-db";
 
@@ -110,10 +109,25 @@ export function LifeGoalsSection({
             <p className="text-sm font-semibold text-white">{t("goals_onboarding_title")}</p>
             <p className="text-xs max-w-xs" style={{ color: "rgba(255,255,255,.5)" }}>{t("goals_onboarding_desc")}</p>
           </div>
-          <Button size="sm" className="rounded-full px-5" onClick={onCreateGoal}>
-            <Plus className="h-4 w-4 mr-1.5" />
+          <button
+            onClick={onCreateGoal}
+            className="inline-flex items-center gap-2 active:scale-[0.97] transition-transform"
+            style={{
+              padding: "12px 22px",
+              borderRadius: "16px",
+              background: "linear-gradient(135deg,rgba(91,140,255,.95),rgba(157,107,255,.95))",
+              border: "1px solid rgba(255,255,255,.18)",
+              color: "#fff",
+              fontSize: "14px",
+              fontWeight: 680,
+              backdropFilter: "blur(12px)",
+              WebkitBackdropFilter: "blur(12px)",
+              boxShadow: "0 10px 28px rgba(120,90,240,.34), inset 0 1px 0 rgba(255,255,255,.28)",
+            }}
+          >
+            <Plus className="h-4 w-4" strokeWidth={2.5} />
             {t("goals_add")}
-          </Button>
+          </button>
         </div>
       ) : (
         <>
@@ -128,13 +142,24 @@ export function LifeGoalsSection({
             </>
           )}
 
-          {/* Dashed CTA to create new goal */}
+          {/* Glass CTA to create new goal */}
           <button
             onClick={onCreateGoal}
             className="w-full flex items-center justify-center gap-2 active:scale-[0.99] transition-all"
-            style={{ borderRadius: "18px", padding: "14px", border: "1px dashed rgba(255,255,255,.18)", color: "rgba(255,255,255,.6)", fontSize: "13.5px", fontWeight: 600 }}
+            style={{
+              borderRadius: "18px",
+              padding: "15px",
+              background: "rgba(157,107,255,.1)",
+              border: "1px solid rgba(157,107,255,.24)",
+              color: "#b89bff",
+              fontSize: "13.5px",
+              fontWeight: 640,
+              backdropFilter: "blur(12px)",
+              WebkitBackdropFilter: "blur(12px)",
+              boxShadow: "inset 0 1px 0 rgba(255,255,255,.08)",
+            }}
           >
-            <Plus className="h-4 w-4" />
+            <Plus className="h-4 w-4" strokeWidth={2.4} />
             {t("goals_add")}
           </button>
         </>

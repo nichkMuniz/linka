@@ -869,6 +869,7 @@ Dietas ativas associadas a um usuário.
 | `is_completed` | boolean | — | `false` | Meta concluída |
 | `name` | text | — | — | Nome customizado (denormalizado) |
 | `scheduled_time` | time | — | — | Horário diário de lembrete (ex: `07:30:00`) |
+| `scheduled_days` | text | — | — | Dias da semana do lembrete: índices seg→dom (0–6) separados por vírgula (ex: `0,2,4`). NULL/vazio = todos os dias |
 | `routine_id` | bigint | FK → `routines.id` ON DELETE SET NULL | — | Rotina à qual esta dieta pertence |
 
 ---
@@ -979,6 +980,7 @@ Hábitos ativos associados a um usuário.
 | `is_completed` | boolean | — | `false` | Concluído hoje |
 | `name` | text | — | — | Nome customizado (denormalizado) |
 | `scheduled_time` | time | — | — | Horário diário de lembrete (ex: `07:30:00`) |
+| `scheduled_days` | text | — | — | Dias da semana do lembrete: índices seg→dom (0–6) separados por vírgula (ex: `0,2,4`). NULL/vazio = todos os dias |
 | `routine_id` | bigint | FK → `routines.id` ON DELETE SET NULL | — | Rotina à qual este hábito pertence |
 
 ---
@@ -1047,6 +1049,7 @@ Treinos salvos / atribuídos a um usuário.
 | `updated_at` | timestamp | — | `now()` | Data de atualização |
 | `name` | text | — | — | Nome customizado (denormalizado) |
 | `scheduled_time` | time | — | — | Horário diário de lembrete (ex: `07:30:00`) |
+| `scheduled_days` | text | — | — | Dias da semana do lembrete: índices seg→dom (0–6) separados por vírgula (ex: `0,2,4`). NULL/vazio = todos os dias |
 | `routine_id` | bigint | FK → `routines.id` ON DELETE SET NULL | — | Rotina à qual este exercício pertence |
 | `notes` | text | — | — | Notas livres do usuário para este exercício |
 | `time_to_rest` | integer | — | — | Tempo de descanso entre séries (em segundos) escolhido pelo usuário para este exercício |

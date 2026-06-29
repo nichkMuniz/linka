@@ -51,10 +51,12 @@ Cada conversa exibe:
 | Timestamp | Hora/data da última mensagem |
 | Badge não lida | Ponto/contagem de mensagens não lidas |
 | Status lida | `Check` (enviada) / `CheckCheck` (lida) |
-| Botão excluir | Ícone `Trash2` — aparece ao hover, abre AlertDialog de confirmação |
+| Botão excluir | Ícone `Trash2` sobre fundo vermelho — **revelado por swipe** da direita para a esquerda na linha (padrão iOS); abre AlertDialog de confirmação |
+
+> **Swipe-to-delete (2026-06-27):** Cada linha de conversa é envolvida pelo componente `SwipeableConversationRow` (`client/components/community/`). Arrastar a linha da direita para a esquerda desliza o conteúdo e revela um botão de lixeira com fundo vermelho (`#ef4444`, largura 76px). O gesto tem trava de direção (ignora rolagem vertical), resistência ao passar do limite e animação de snap (abre/fecha) ao soltar. Tocar na linha enquanto aberta apenas fecha o swipe; tocar na lixeira abre o AlertDialog de confirmação. Substitui o antigo botão baseado em `hover`, que não funcionava no toque (alvo iOS).
 
 Ao clicar na linha → entra na conversa (viewMode: `conversation`)
-Ao clicar no botão excluir → soft-delete do histórico apenas para o usuário logado (`deleteConversationForMeDb`); o outro participante continua vendo as mensagens normalmente
+Ao tocar no botão excluir revelado → soft-delete do histórico apenas para o usuário logado (`deleteConversationForMeDb`); o outro participante continua vendo as mensagens normalmente
 
 ---
 
@@ -125,8 +127,8 @@ Exibe:
 - Quando com texto: botão `Send` azul à direita substitui os ícones de mídia
 - Enter também envia a mensagem
 - Fotos enviadas fazem upload para Supabase Storage (`posts/message-images/`) e são exibidas como imagem na bolha da conversa
-- Mensagens de imagem: prefixo `[image]:url` → renderizadas como `<img>` clicável
-- Mensagens de áudio: prefixo `[audio]:url` → renderizadas como player `<audio controls>`; gravação usa MediaRecorder API; upload para `posts/message-audio/` no Supabase Storage
+- Mensagens de imagem: prefixo `[image]:url` → renderizadas como `<img>` clicável. Ao tocar, abre um **visualizador fullscreen in-app** (overlay preto via portal, botão de fechar e fechar ao tocar fora) — a URL do Supabase Storage **não** é exposta ao usuário (não usa mais o `Browser` do Capacitor)
+- Mensagens de áudio: prefixo `[audio]:url` → renderizadas como player `<audio controls>` com `preload="auto"` (pré-carrega o arquivo assim que a bolha monta, para que a reprodução comece instantaneamente ao tocar play, sem o atraso de buffering do `preload="metadata"`); gravação usa MediaRecorder API priorizando **MP4/AAC** (`audio/mp4;codecs=mp4a.40.2` → `audio/mp4` → `audio/aac`), com WebM/Opus apenas como fallback — MP4/AAC é reproduzível nativamente no WebView do iOS (alvo do app), evitando atraso/falha que o WebM causa no iOS; upload para `posts/message-audio/` no Supabase Storage (extensão `.mp4`/`.webm` conforme o tipo do blob)
 - Permissão de microfone já declarada no `Info.plist` iOS (`NSMicrophoneUsageDescription`)
 
 **Realtime:**
@@ -166,7 +168,7 @@ Layout em **lista vertical** (anteriormente: grid de 2 colunas). Segue o design 
 1. **CTA "Criar um duelo"** — card de destaque com gradiente azul/roxo no topo da lista; clique abre o wizard de criação de grupo
 
 2. **Meus grupos ativos** — grupos criados pelo usuário ou em que participa:
-   - **Card hero** (primeiro grupo) — banner de foto/cor no topo (110px), badge de papel ("Seu grupo" / "Participante"), badge de dias restantes, nome, contagem de participantes + cidade, botão branco "Fazer check-in de hoje" (ação: abre `openGroupView` + modal de check-in simultaneamente)
+   - **Card hero** (primeiro grupo) — banner de foto/cor no topo (110px), badge de papel ("Seu grupo" / "Participante"), badge de dias restantes, nome, contagem de participantes + cidade, botão branco "Ver Grupo" (ação: abre a tela do grupo via `openGroupView`)
    - **Cards compactos** (demais grupos) — ícone/foto quadrado (50×50, border-radius 16px), nome, participantes, cidade, dias restantes, chevron para navegar
 
 3. **Da comunidade** — grupos disponíveis para entrar (lista simples):
@@ -174,6 +176,22 @@ Layout em **lista vertical** (anteriormente: grid de 2 colunas). Segue o design 
    - Ao clicar "Entrar" → `addMembersToGroupDb` + notificação ao criador; estado muda para "Pendente"
 
 4. **Empty state** — ícone `Swords` com mensagem central quando não há grupos
+
+---
+
+### Tela do Grupo (LinKa Glass — refatorado 2026-06-27)
+
+Aberta via `openGroupView` (botão "Ver Grupo" da lista). Renderizada em portal fullscreen sobre fundo de gradiente escuro (`linear-gradient(rgba(20,19,28,1),rgba(10,10,16,1))`), seguindo o design system LinKa Glass. Toda string usa `t()` (chaves `duels_group_*`).
+
+**Estrutura:**
+- **Header** — barra de vidro com blur (`backdrop-filter blur(24px)`) e borda translúcida; botão `ArrowLeft` branco com hover de vidro. Respeita `env(safe-area-inset-top)`.
+- **Hero banner** (h-48) — foto de capa do grupo ou, sem foto, gradiente azul→roxo da marca. Overlay escuro na base com o nome do grupo. Botão de editar capa (só criador) é um círculo de vidro com blur no canto superior direito.
+- **Cards de estatísticas** (Líder / Você / Dias) — 3 cartões frosted-glass (`rgba(255,255,255,.04)` + borda `rgba(255,255,255,.08)`, `rounded-[18px]`), números em roxo (`#9d6bff`), labels em branco translúcido. Clicáveis (ver tabela abaixo).
+- **Tab "Histórico (n)"** — sublinhado roxo (`#9d6bff`).
+- **Lista de check-ins** — agrupados por dia (Hoje/Ontem/data); cada item é um cartão de vidro `rounded-[18px]` com avatar, descrição, nome, tag de grupo muscular (roxa), thumbnail e horário. Skeleton de loading e empty state também em estilo glass.
+- **Bottom nav** — barra de vidro com blur e `env(safe-area-inset-bottom)`; 3 itens com **ícones Lucide** (`FileText` Detalhes, `Users` Participantes, `Trophy` Classificações) substituindo os emojis antigos.
+- **FAB de check-in** — círculo flutuante com gradiente azul→roxo e glow; desabilitado (vidro acinzentado) quando o grupo está encerrado. Posição respeita a safe area inferior.
+- **Overlay de reação (long-press)** — sheet de vidro escuro (`rounded-[28px]`, blur 40px) com preview do check-in, 6 emojis rápidos e botão Cancelar.
 
 ---
 
@@ -332,3 +350,12 @@ Dados carregados via `getRankingDb()`
 - Tab ativa pode ser controlada via `searchParams` (ex: `?tab=duelos`)
 - `useLayoutMode()` detecta mobile/desktop para ajustes de layout
 - Grupos têm notificações enviadas ao criador quando alguém pede para entrar (`sendGroupJoinRequestNotificationDb`)
+
+## Design dos Drawers de Duelos (Glass)
+
+Todos os drawers da tela de Duelos seguem o padrão **glass escuro** do novo design (ver `docs/15-design-system.md` §9.4), importando os tokens de `client/lib/glass-styles.ts`:
+
+- **Inline em `Community.tsx`:** Criar Grupo, Adicionar Check-in, Detalhe de Check-in, Visualizador de Reações, Detalhes do Grupo, Participantes e Detalhe do Participante.
+- **Componentes dedicados (já no padrão):** `ClassificationsDrawer`, `AddMembersDrawer` e `EditCheckInDrawer`.
+
+Convenções: shell via `GLASS_SHEET_PROPS` + `GLASS_SHEET_STYLE`; títulos `text-white`; campos com `GLASS_FIELD_CLASS`/`GLASS_FIELD_STYLE`; botões principais com `GLASS_PRIMARY_BTN_STYLE`; cards internos com `GLASS_PANEL_STYLE`; botões `outline` ficam `bg-transparent border-white/20 text-white`.

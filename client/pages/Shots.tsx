@@ -113,6 +113,12 @@ export default function Shots() {
   const [burstMap, setBurstMap] = React.useState<Record<string, PostIncentiveType | null>>({});
   const lastTapRef = React.useRef<{ shotId: string; time: number } | null>(null);
   const singleTapTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Pressionar e segurar para pausar (mesmo sistema do FlowViewer)
+  const holdTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const holdPointerStartRef = React.useRef<{ x: number; y: number } | null>(null);
+  const isHoldPausingRef = React.useRef(false);
+  const holdFiredRef = React.useRef(false);
+  const visibleShotIdRef = React.useRef<string | null>(null);
   const [shotLikesModalOpen, setShotLikesModalOpen] = React.useState(false);
   const [shotLikes, setShotLikes] = React.useState<Array<{ userId: string; userNickname: string; userPhoto: string | null; type: number }>>([]);
   const [shotLikesLoading, setShotLikesLoading] = React.useState(false);
@@ -164,6 +170,69 @@ export default function Shots() {
       pauseIconTimerRef.current = setTimeout(() => setShowPauseIcon(false), 800);
     }, 300);
   }, []);
+
+  // Keep a ref of the currently visible shot so hold-to-pause can resume safely
+  React.useEffect(() => {
+    visibleShotIdRef.current = visibleShotId;
+  }, [visibleShotId]);
+
+  // Press-and-hold to pause the video while held; release to resume
+  const handleShotPointerDown = React.useCallback((e: React.PointerEvent, shotId: string) => {
+    holdPointerStartRef.current = { x: e.clientX, y: e.clientY };
+    if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
+    holdTimerRef.current = setTimeout(() => {
+      const video = videoRefsMap.current[shotId];
+      if (!video) return;
+      isHoldPausingRef.current = true;
+      holdFiredRef.current = true;
+      video.pause();
+      setIsPaused(true);
+      setShowPauseIcon(true);
+      if (pauseIconTimerRef.current) clearTimeout(pauseIconTimerRef.current);
+    }, 200);
+  }, []);
+
+  const handleShotPointerMove = React.useCallback((e: React.PointerEvent) => {
+    if (!holdPointerStartRef.current || !holdTimerRef.current) return;
+    const dx = e.clientX - holdPointerStartRef.current.x;
+    const dy = e.clientY - holdPointerStartRef.current.y;
+    // Movimento = scroll/swipe; cancela o hold antes de pausar
+    if (Math.sqrt(dx * dx + dy * dy) > 10) {
+      clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+  }, []);
+
+  const resumeFromHold = React.useCallback((shotId: string) => {
+    if (holdTimerRef.current) {
+      clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+    holdPointerStartRef.current = null;
+    if (isHoldPausingRef.current) {
+      isHoldPausingRef.current = false;
+      // Só retoma se o shot ainda estiver visível (evita áudio sobreposto após swipe)
+      if (shotId === visibleShotIdRef.current) {
+        const video = videoRefsMap.current[shotId];
+        if (video) video.play().catch(() => {});
+        setIsPaused(false);
+      }
+      setShowPauseIcon(false);
+      return true;
+    }
+    return false;
+  }, []);
+
+  const handleShotPointerUp = React.useCallback((shotId: string) => {
+    // Mantém holdFiredRef para o onClick subsequente ignorar o tap
+    resumeFromHold(shotId);
+  }, [resumeFromHold]);
+
+  const handleShotPointerCancel = React.useCallback((shotId: string) => {
+    resumeFromHold(shotId);
+    // pointercancel não dispara click, então libera o flag aqui
+    holdFiredRef.current = false;
+  }, [resumeFromHold]);
 
   // Load current user avatar once when the comments drawer opens
   React.useEffect(() => {
@@ -637,6 +706,14 @@ export default function Shots() {
     );
   }
 
+  // Only preload videos near the visible shot. Mounting 50 <video> elements all
+  // with preload="metadata" saturates the iOS WebView network on first paint and
+  // delays the first video. Visible shot buffers ("auto"), neighbours fetch just
+  // metadata, the rest load lazily when scrolled into view.
+  const visibleIndex = visibleShotId
+    ? Math.max(0, shots.findIndex((s) => s.id === visibleShotId))
+    : 0;
+
   return (
     <div
       className="bg-black w-full flex flex-col overflow-hidden relative h-[calc(100dvh-4.25rem-env(safe-area-inset-bottom))] md:h-dvh"
@@ -658,7 +735,9 @@ export default function Shots() {
         }}
       >
 
-        {shots.map((shot) => {
+        {shots.map((shot, index) => {
+          const distance = Math.abs(index - visibleIndex);
+          const videoPreload = distance === 0 ? "auto" : distance === 1 ? "metadata" : "none";
           return (
             <div
               key={shot.id}
@@ -678,7 +757,17 @@ export default function Shots() {
                   className="h-full w-full relative cursor-pointer"
                   role="button"
                   tabIndex={0}
-                  onClick={() => handleVideoTap(shot.id)}
+                  onPointerDown={(e) => handleShotPointerDown(e, shot.id)}
+                  onPointerMove={handleShotPointerMove}
+                  onPointerUp={() => handleShotPointerUp(shot.id)}
+                  onPointerCancel={() => handleShotPointerCancel(shot.id)}
+                  onClick={() => {
+                    if (holdFiredRef.current) {
+                      holdFiredRef.current = false;
+                      return;
+                    }
+                    handleVideoTap(shot.id);
+                  }}
                   style={{ WebkitTapHighlightColor: "transparent" }}
                 >
                   <QuickIncentiveOverlay
@@ -707,7 +796,7 @@ export default function Shots() {
                     // webkit-playsinline garante reprodução inline no WKWebView iOS
                     // x-webkit-airplay="deny" evita que o iOS sequestre o player nativo
                     {...({ "webkit-playsinline": "true", "x-webkit-airplay": "deny" } as React.VideoHTMLAttributes<HTMLVideoElement>)}
-                    preload="metadata"
+                    preload={videoPreload}
                     className="h-full w-full object-cover"
                     style={{ pointerEvents: "none" }}
                     onError={() => { delete videoRefsMap.current[shot.id]; }}
@@ -1156,7 +1245,6 @@ export default function Shots() {
                 paddingTop: "12px",
                 paddingBottom: "max(28px, env(safe-area-inset-bottom))",
                 borderTop: "1px solid rgba(255,255,255,.08)",
-                marginBottom: "var(--keyboard-offset, 0px)",
               }}
             >
               {/* User avatar */}

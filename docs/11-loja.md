@@ -287,3 +287,9 @@ Diretório de profissionais fitness com perfil comercial ativo.
 - **Importação de link:** a rota `/api/link-preview` não existe em produção iOS (Capacitor WebView). O catch da `fetchLinkPreview` trata isso graciosamente, exibindo o formulário manual com mensagem explicativa
 - **Clipboard:** `copyToClipboard()` usa `navigator.clipboard.writeText` com fallback para `document.execCommand('copy')` para compatibilidade com iOS WebView
 - **Storage de imagens:** bucket Supabase `promotions`, path `{user_id}/{timestamp}.{ext}`, upload com `upsert: false`
+
+---
+
+## Design dos Drawers (Glass)
+
+Os drawers de promoção — **Visualizar** (`PromotionDetailDrawer`), **Nova** (`NewPromoDrawer`) e **Editar** (`EditPromoDrawer`) — seguem o padrão **glass escuro** do novo design, importando os tokens de `client/lib/glass-styles.ts` (`GLASS_SHEET_PROPS`, `GLASS_SHEET_STYLE`, `GLASS_FIELD_*`, `GLASS_PRIMARY_BTN_STYLE`, `GLASS_LABEL_CLASS`). Ver `docs/15-design-system.md` §9.4 para o padrão completo. A área scrollável usa `flex-1 min-h-0` dentro do shell `flex flex-col`.

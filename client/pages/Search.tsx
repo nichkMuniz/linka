@@ -1,5 +1,5 @@
 import React from "react";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -320,11 +320,38 @@ export default function Search() {
       />
 
       <Tabs defaultValue="people" value={activeTab} onValueChange={handleTabChange} className="w-full">
-        <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="people">{t("search_people")}</TabsTrigger>
-          <TabsTrigger value="workouts">{t("search_workouts")}</TabsTrigger>
-          <TabsTrigger value="diets">{t("search_diets")}</TabsTrigger>
-        </TabsList>
+        {/* Tabs — segmented control style (igual à tela de Comunidade) */}
+        <div
+          className="flex rounded-xl overflow-hidden py-1 px-1 gap-1 mb-4"
+          style={{
+            background: "linear-gradient(rgba(255,255,255,.07),rgba(255,255,255,.02))",
+            backdropFilter: "blur(20px) saturate(160%)",
+            WebkitBackdropFilter: "blur(20px) saturate(160%)",
+            border: "1px solid rgba(255,255,255,.10)",
+          }}
+        >
+          <button
+            onClick={() => handleTabChange("people")}
+            className={`flex-1 flex items-center justify-center gap-1.5 text-sm font-medium py-2 rounded-lg transition-colors ${activeTab === "people" ? "bg-brand text-white" : "text-white/50 hover:text-white/80"}`}
+          >
+            <Users className="h-4 w-4" />
+            {t("search_people")}
+          </button>
+          <button
+            onClick={() => handleTabChange("workouts")}
+            className={`flex-1 flex items-center justify-center gap-1.5 text-sm font-medium py-2 rounded-lg transition-colors ${activeTab === "workouts" ? "bg-brand text-white" : "text-white/50 hover:text-white/80"}`}
+          >
+            <Dumbbell className="h-4 w-4" />
+            {t("search_workouts")}
+          </button>
+          <button
+            onClick={() => handleTabChange("diets")}
+            className={`flex-1 flex items-center justify-center gap-1.5 text-sm font-medium py-2 rounded-lg transition-colors ${activeTab === "diets" ? "bg-brand text-white" : "text-white/50 hover:text-white/80"}`}
+          >
+            <Salad className="h-4 w-4" />
+            {t("search_diets")}
+          </button>
+        </div>
 
         {/* People */}
         <TabsContent value="people" className="space-y-3">

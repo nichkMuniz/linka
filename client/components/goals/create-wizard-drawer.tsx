@@ -23,6 +23,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/components/ui/use-toast";
 import { ExerciseImage } from "@/components/shared/exercise-image";
+import { DietImage } from "@/components/shared/diet-image";
+import { ItemDetailDrawer, type ItemDetailData } from "@/components/goals/item-detail-drawer";
 import { useLanguage } from "@/lib/language-context";
 import type { TranslationKey } from "@/lib/i18n";
 import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
@@ -44,6 +46,7 @@ import {
   getWorkoutsDb,
   updateRoutineGoalDb,
   updateRoutineItemsScheduledTimeDb,
+  updateRoutineItemsScheduledDaysDb,
   type Diet,
   type Habit,
   type ProgrammedGoal,
@@ -63,10 +66,23 @@ type WizardStep =
   | "suggested"
   | "suggested-program"
   | "suggested-goal"
+  | "build-name"
   | "build"
+  | "build-schedule"
   | "goal-origin"
   | "goal-catalog"
   | "goal-custom";
+
+// Dias da semana (seg→dom), índices 0–6 — convenção Monday-first do app.
+const WEEKDAY_KEYS: TranslationKey[] = [
+  "goals_weekday_mon",
+  "goals_weekday_tue",
+  "goals_weekday_wed",
+  "goals_weekday_thu",
+  "goals_weekday_fri",
+  "goals_weekday_sat",
+  "goals_weekday_sun",
+];
 
 interface CreateWizardDrawerProps {
   open: boolean;
@@ -75,6 +91,8 @@ interface CreateWizardDrawerProps {
   userGoals: UserGoal[];
   /** opens directly on a given step (e.g. empty states) */
   initialStep?: WizardStep;
+  /** pre-selects the routine type when opening at the "build" step */
+  initialRoutineType?: RoutineTypeCode;
   onCreated: (kind: "routine" | "goal") => void;
 }
 
@@ -103,6 +121,7 @@ export function CreateWizardDrawer({
   userId,
   userGoals,
   initialStep = "what",
+  initialRoutineType = 1,
   onCreated,
 }: CreateWizardDrawerProps) {
   const { t, language } = useLanguage();
@@ -117,9 +136,14 @@ export function CreateWizardDrawer({
   const [routineName, setRoutineName] = React.useState("");
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
   const [scheduledTime, setScheduledTime] = React.useState("");
+  const [scheduledDays, setScheduledDays] = React.useState<Set<number>>(new Set());
   const [linkGoalId, setLinkGoalId] = React.useState<string | null>(null);
   const [searchQuery, setSearchQuery] = React.useState("");
   const [muscleFilter, setMuscleFilter] = React.useState<string | null>(null);
+  // "list" = todos os itens; "group" = navegar por músculo/categoria
+  const [browseMode, setBrowseMode] = React.useState<"list" | "group">("list");
+  // item aberto no drawer de detalhe (imagem ampliada + descrição)
+  const [detailItem, setDetailItem] = React.useState<ItemDetailData | null>(null);
   const [showCustomForm, setShowCustomForm] = React.useState(false);
   const [customName, setCustomName] = React.useState("");
   const [customExtra, setCustomExtra] = React.useState("");
@@ -156,9 +180,11 @@ export function CreateWizardDrawer({
       setRoutineName("");
       setSelectedIds(new Set());
       setScheduledTime("");
+      setScheduledDays(new Set());
       setLinkGoalId(null);
       setSearchQuery("");
       setMuscleFilter(null);
+      setBrowseMode("list");
       setShowCustomForm(false);
       setCustomName("");
       setCustomExtra("");
@@ -171,8 +197,9 @@ export function CreateWizardDrawer({
       setUseCustomDuration(false);
     } else {
       setStep(initialStep);
+      setRoutineType(initialRoutineType);
     }
-  }, [open, initialStep]);
+  }, [open, initialStep, initialRoutineType]);
 
   const goTo = (next: WizardStep) => {
     setHistory((prev) => [...prev, step]);
@@ -295,6 +322,11 @@ export function CreateWizardDrawer({
 
       if (scheduledTime) {
         await updateRoutineItemsScheduledTimeDb(userId, routineType, name, scheduledTime).catch(() => {});
+      }
+
+      const daysStr = Array.from(scheduledDays).sort((a, b) => a - b).join(",");
+      if (daysStr) {
+        await updateRoutineItemsScheduledDaysDb(userId, routineType, name, daysStr).catch(() => {});
       }
 
       if (linkGoalId) {
@@ -482,7 +514,9 @@ export function CreateWizardDrawer({
     "suggested": t("goals_suggest_level_title"),
     "suggested-program": t("goals_program_your_week"),
     "suggested-goal": t("goals_link_step_title"),
-    "build": t("goals_wizard_build_title"),
+    "build-name": t("goals_wizard_name_title"),
+    "build": t("goals_wizard_items_title"),
+    "build-schedule": t("goals_wizard_schedule_title"),
     "goal-origin": t("goals_onboarding_title"),
     "goal-catalog": t("goals_available"),
     "goal-custom": t("goals_create_title"),
@@ -511,6 +545,7 @@ export function CreateWizardDrawer({
   );
 
   return (
+    <>
     <Drawer open={open} onOpenChange={onOpenChange}>
       <DrawerContent
         handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
@@ -569,7 +604,7 @@ export function CreateWizardDrawer({
                 t("goals_wizard_suggested_desc"),
               )}
               {optionCard(
-                () => goTo("build"),
+                () => goTo("build-name"),
                 <Pencil className="h-5 w-5" />,
                 t("goals_wizard_scratch"),
                 t("goals_wizard_scratch_desc"),
@@ -713,7 +748,7 @@ export function CreateWizardDrawer({
                     <Button
                       variant="ghost"
                       className="w-full rounded-full h-11 text-muted-foreground"
-                      onClick={() => goTo("build")}
+                      onClick={() => goTo("build-name")}
                     >
                       <Pencil className="h-4 w-4 mr-1.5" />
                       {t("goals_wizard_scratch")}
@@ -788,7 +823,8 @@ export function CreateWizardDrawer({
           )}
 
           {/* ── Step: build routine ──────────────────────────────── */}
-          {step === "build" && (
+          {/* ── Step 1: routine name ─────────────────────────────── */}
+          {step === "build-name" && (
             <>
               <div className="space-y-2">
                 <Label className="text-sm font-semibold" style={{ color: "#fff" }}>{t("goals_routine_name_label")}</Label>
@@ -805,92 +841,184 @@ export function CreateWizardDrawer({
                   maxLength={60}
                   style={{ fontSize: "16px", background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }}
                 />
+                <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>{t("goals_wizard_name_hint")}</p>
               </div>
 
-              <div className="space-y-2">
-                <Label className="text-sm font-semibold" style={{ color: "#fff" }}>{t("goals_select_items_hint")}</Label>
-                <Input
-                  placeholder={
-                    routineType === 1
-                      ? t("goals_search_exercise")
-                      : routineType === 2
-                        ? t("goals_search_diet")
-                        : t("goals_search_habit")
-                  }
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  style={{ fontSize: "16px", background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }}
-                />
-                {(routineType === 1 ? muscleGroups : routineType === 2 ? dietCategories : []).length > 0 && (
-                  <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
+              <Button
+                className="w-full rounded-full h-12"
+                style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}
+                onClick={() => goTo("build")}
+              >
+                {t("goals_continue")}
+              </Button>
+            </>
+          )}
+
+          {/* ── Step 2: select items ─────────────────────────────── */}
+          {step === "build" && (
+            <>
+              <Label className="text-sm font-semibold" style={{ color: "#fff" }}>{t("goals_select_items_hint")}</Label>
+
+              {/* alternância: Lista vs Músculo/Categoria */}
+              {(routineType === 1 ? muscleGroups.length : routineType === 2 ? dietCategories.length : 0) > 0 && (
+                <div className="flex gap-1 p-1 rounded-2xl" style={{ background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.08)" }}>
+                  {([["list", t("goals_browse_list")], ["group", routineType === 1 ? t("goals_browse_muscle") : t("goals_browse_category")]] as const).map(([mode, label]) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => { setBrowseMode(mode); setMuscleFilter(null); setSearchQuery(""); }}
+                      className="flex-1 h-9 rounded-xl text-[13px] font-semibold transition-all active:scale-95"
+                      style={browseMode === mode
+                        ? { background: "linear-gradient(rgba(255,255,255,.95),rgba(255,255,255,.84))", color: "#0a0b12" }
+                        : { color: "rgba(255,255,255,.6)" }}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {browseMode === "group" && !muscleFilter ? (
+                catalogLoading ? (
+                  <div className="flex justify-center py-8">
+                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {(routineType === 1 ? muscleGroups : dietCategories).map((g) => {
+                      const count = (routineType === 1
+                        ? workouts.filter((w) => w.muscle_group === g)
+                        : diets.filter((d) => d.category === g)).length;
+                      return (
+                        <button
+                          key={g}
+                          onClick={() => setMuscleFilter(g)}
+                          className="w-full flex items-center gap-3 rounded-2xl p-3 text-left transition-all active:scale-[0.99]"
+                          style={{ border: "1px solid rgba(255,255,255,.1)", background: "rgba(255,255,255,.04)" }}
+                        >
+                          <div
+                            className="h-12 w-12 rounded-xl flex items-center justify-center shrink-0 text-white"
+                            style={{ background: routineType === 1 ? "linear-gradient(135deg,#ff9d6c,#d8567a)" : "linear-gradient(135deg,#5fd6a0,#1f8a5b)" }}
+                          >
+                            {routineType === 1 ? <Dumbbell className="h-5 w-5" /> : <span className="text-xl">🥗</span>}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[15px] font-semibold capitalize truncate" style={{ color: "#fff" }}>{g}</p>
+                            <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>
+                              {t("goals_browse_count").replace("{n}", String(count))}
+                            </p>
+                          </div>
+                          <ChevronRight className="h-5 w-5 shrink-0" style={{ color: "rgba(255,255,255,.4)" }} />
+                        </button>
+                      );
+                    })}
+                  </div>
+                )
+              ) : (
+                <>
+                  {browseMode === "group" && muscleFilter && (
                     <button
                       onClick={() => setMuscleFilter(null)}
-                      className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap shrink-0 ${
-                        muscleFilter === null ? "bg-primary text-primary-foreground" : "bg-muted/50 text-muted-foreground"
-                      }`}
+                      className="flex items-center gap-1.5 text-sm font-semibold"
+                      style={{ color: "#9d6bff" }}
                     >
-                      {t("goals_all")}
+                      <ArrowLeft className="h-4 w-4" />
+                      <span className="capitalize">{muscleFilter}</span>
                     </button>
-                    {(routineType === 1 ? muscleGroups : dietCategories).map((g) => (
-                      <button
-                        key={g}
-                        onClick={() => setMuscleFilter(muscleFilter === g ? null : g)}
-                        className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap shrink-0 ${
-                          muscleFilter === g ? "bg-primary text-primary-foreground" : "bg-muted/50 text-muted-foreground"
-                        }`}
-                      >
-                        {g}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
+                  )}
+
+                  <Input
+                    placeholder={
+                      routineType === 1
+                        ? t("goals_search_exercise")
+                        : routineType === 2
+                          ? t("goals_search_diet")
+                          : t("goals_search_habit")
+                    }
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    style={{ fontSize: "16px", background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }}
+                  />
 
               {catalogLoading ? (
                 <div className="flex justify-center py-8">
                   <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                 </div>
               ) : (
-                <div className="space-y-1.5">
+                <div className="space-y-2">
                   {filteredItems.map((item: any) => {
                     const selected = selectedIds.has(item.id);
                     return (
-                      <button
+                      <div
                         key={item.id}
-                        onClick={() => toggleItem(item.id)}
-                        className="w-full flex items-center gap-3 rounded-xl p-2.5 text-left transition-all active:scale-[0.99]"
+                        className="w-full flex items-center gap-3 rounded-2xl p-3 transition-all"
                         style={selected ? { border: "1px solid #5b8cff", background: "rgba(91,140,255,.1)" } : { border: "1px solid rgba(255,255,255,.1)", background: "rgba(255,255,255,.04)" }}
                       >
-                        {routineType === 1 ? (
-                          <ExerciseImage
-                            photo={item.photo}
-                            name={item.name}
-                            muscleGroup={item.muscle_group}
-                            className="h-10 w-10 rounded-lg"
-                          />
-                        ) : (
-                          <div className="h-10 w-10 rounded-lg bg-muted/50 flex items-center justify-center text-base shrink-0">
-                            {routineType === 2 ? "🥗" : "✅"}
+                        {routineType === 3 ? (
+                          <div className="h-16 w-16 rounded-xl bg-muted/50 flex items-center justify-center text-2xl shrink-0">
+                            ✅
                           </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setDetailItem({
+                                type: routineType === 1 ? 1 : 2,
+                                name: item.name,
+                                photo: item.photo ?? null,
+                                description: item.description,
+                                meta:
+                                  routineType === 1
+                                    ? item.muscle_group || null
+                                    : [item.category, item.calories ? `${item.calories} kcal` : null]
+                                        .filter(Boolean)
+                                        .join(" · ") || null,
+                              })
+                            }
+                            className="shrink-0 active:scale-95 transition-transform"
+                            aria-label={t("goals_item_view_detail")}
+                          >
+                            {routineType === 1 ? (
+                              <ExerciseImage
+                                photo={item.photo}
+                                name={item.name}
+                                muscleGroup={item.muscle_group}
+                                className="h-16 w-16 rounded-xl"
+                              />
+                            ) : (
+                              <DietImage
+                                photo={item.photo}
+                                name={item.name}
+                                category={item.category}
+                                className="h-16 w-16 rounded-xl"
+                              />
+                            )}
+                          </button>
                         )}
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium truncate" style={{ color: "#fff" }}>{item.name}</p>
-                          <p className="text-xs truncate" style={{ color: "rgba(255,255,255,.5)" }}>
-                            {routineType === 1
-                              ? item.muscle_group || ""
-                              : routineType === 2
-                                ? [item.category, item.calories ? `${item.calories} kcal` : null].filter(Boolean).join(" · ")
-                                : item.description || ""}
-                          </p>
-                        </div>
-                        <div
-                          className={`h-6 w-6 rounded-full flex items-center justify-center shrink-0 ${
-                            selected ? "bg-primary text-primary-foreground" : "bg-muted/50"
-                          }`}
+                        <button
+                          type="button"
+                          onClick={() => toggleItem(item.id)}
+                          className="flex-1 min-w-0 flex items-center gap-3 text-left"
                         >
-                          {selected && <Check className="h-3.5 w-3.5" />}
-                        </div>
-                      </button>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[15px] font-semibold truncate" style={{ color: "#fff" }}>{item.name}</p>
+                            <p className="text-xs truncate" style={{ color: "rgba(255,255,255,.5)" }}>
+                              {routineType === 1
+                                ? item.muscle_group || ""
+                                : routineType === 2
+                                  ? [item.category, item.calories ? `${item.calories} kcal` : null].filter(Boolean).join(" · ")
+                                  : item.description || ""}
+                            </p>
+                          </div>
+                          <div
+                            className={`h-7 w-7 rounded-full flex items-center justify-center shrink-0 ${
+                              selected ? "bg-primary text-primary-foreground" : "bg-muted/50"
+                            }`}
+                          >
+                            {selected && <Check className="h-4 w-4" />}
+                          </div>
+                        </button>
+                      </div>
                     );
                   })}
 
@@ -961,9 +1089,16 @@ export function CreateWizardDrawer({
                   )}
                 </div>
               )}
+                </>
+              )}
 
-              {/* schedule + goal link */}
-              <div className="space-y-2 pt-2" style={{ borderTop: "1px solid rgba(255,255,255,.08)" }}>
+            </>
+          )}
+
+          {/* ── Step 3: schedule (time + weekdays + goal) ─────────── */}
+          {step === "build-schedule" && (
+            <>
+              <div className="space-y-2">
                 <Label className="text-sm font-semibold" style={{ color: "#fff" }}>{t("goals_edit_routine_time_label")}</Label>
                 <input
                   type="time"
@@ -972,6 +1107,38 @@ export function CreateWizardDrawer({
                   className="w-full h-11 rounded-xl px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                   style={{ fontSize: "16px", background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }}
                 />
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-sm font-semibold" style={{ color: "#fff" }}>{t("goals_wizard_days_label")}</Label>
+                <div className="flex gap-1.5">
+                  {WEEKDAY_KEYS.map((key, idx) => {
+                    const active = scheduledDays.has(idx);
+                    return (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() =>
+                          setScheduledDays((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(idx)) next.delete(idx);
+                            else next.add(idx);
+                            return next;
+                          })
+                        }
+                        className="flex-1 h-10 rounded-xl text-xs font-semibold transition-all active:scale-95"
+                        style={active
+                          ? { background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff", border: "1px solid transparent" }
+                          : { background: "rgba(255,255,255,.05)", color: "rgba(255,255,255,.6)", border: "1px solid rgba(255,255,255,.1)" }}
+                      >
+                        {t(key)}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>
+                  {scheduledDays.size === 0 ? t("goals_wizard_days_all") : t("goals_wizard_days_hint")}
+                </p>
               </div>
 
               {userGoals.filter((g) => g.perc < 100).length > 0 && (
@@ -1148,7 +1315,32 @@ export function CreateWizardDrawer({
             </>
           )}
         </div>
+
+        {/* Rodapé fixo: aparece assim que há item selecionado, sem precisar rolar */}
+        {step === "build" && selectedIds.size > 0 && (
+          <div
+            className="shrink-0 px-4 pt-3"
+            style={{
+              paddingBottom: "max(1rem, env(safe-area-inset-bottom))",
+              borderTop: "1px solid rgba(255,255,255,.1)",
+              background: "linear-gradient(rgba(20,19,28,.2),rgba(14,13,20,.92))",
+              backdropFilter: "blur(12px)",
+              WebkitBackdropFilter: "blur(12px)",
+            }}
+          >
+            <Button
+              className="w-full rounded-full h-12"
+              style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}
+              onClick={() => goTo("build-schedule")}
+            >
+              {t("goals_continue")} · {selectedIds.size}
+            </Button>
+          </div>
+        )}
       </DrawerContent>
     </Drawer>
+
+    <ItemDetailDrawer item={detailItem} onClose={() => setDetailItem(null)} />
+    </>
   );
 }

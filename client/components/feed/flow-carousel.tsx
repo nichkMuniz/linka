@@ -17,6 +17,7 @@ interface FlowCarouselProps {
   currentUserPhoto?: string | null;
   currentUserNickname?: string | null;
   viewedStoryIds?: Set<string>;
+  onStoryView?: (storyId: string) => void;
 }
 
 export function FlowCarousel({
@@ -26,6 +27,7 @@ export function FlowCarousel({
   currentUserPhoto,
   currentUserNickname,
   viewedStoryIds,
+  onStoryView,
 }: FlowCarouselProps) {
   const navigate = useNavigate();
   // Group stories by user — always overwrite so the last entry (oldest, since array is newest-first) is stored.
@@ -134,7 +136,7 @@ export function FlowCarousel({
           return (
             <button
               key={story.id}
-              onClick={() => { hapticLight(); navigate(`/flows/${story.id}`); }}
+              onClick={() => { hapticLight(); onStoryView?.(story.id); navigate(`/flows/${story.id}`); }}
               className="shrink-0 flex flex-col items-center gap-1.5 active:scale-95 transition-transform"
             >
               <div

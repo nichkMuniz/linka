@@ -55,24 +55,66 @@ import { supabase } from "@/lib/supabase";
 import { useLanguage } from "@/lib/language-context";
 import { hapticLight } from "@/lib/haptics";
 
+// ─────────────────────────────────────────────────────────────────────────
+// Cache persistente do feed (singleton em nível de módulo).
+// Mantém a tela de feed "estática" entre navegações: ao sair do feed e voltar,
+// o estado anterior (posts, stories, rings, aba e scroll) é restaurado na hora,
+// sem refetch — eliminando o flash de rings desatualizados que acontecia no
+// remount. Um refresh real só ocorre na primeira carga, ao tocar no ícone home
+// (evento `ritmofit-refresh-feed`) ou no gesto de pull-to-refresh.
+// ─────────────────────────────────────────────────────────────────────────
+interface FeedCache {
+  hydrated: boolean;
+  userId: string | null;
+  posts: PostWithStats[];
+  discoverPosts: PostWithStats[];
+  stories: StoryWithUser[];
+  viewedStoryIds: Set<string>;
+  currentUserPhoto: string | null;
+  currentUserNickname: string | null;
+  feedTab: "following" | "discover";
+  discoverLoaded: boolean;
+  hasMoreFeed: boolean;
+  scrollY: number;
+}
+
+const feedCache: FeedCache = {
+  hydrated: false,
+  userId: null,
+  posts: [],
+  discoverPosts: [],
+  stories: [],
+  viewedStoryIds: new Set<string>(),
+  currentUserPhoto: null,
+  currentUserNickname: null,
+  feedTab: "following",
+  discoverLoaded: false,
+  hasMoreFeed: true,
+  scrollY: 0,
+};
+
 export default function Index() {
   const { user } = useAuth();
   const { t } = useLanguage();
   const navigate = useNavigate();
   const location = useLocation();
-  const [posts, setPosts] = React.useState<PostWithStats[]>([]);
-  const [discoverPosts, setDiscoverPosts] = React.useState<PostWithStats[]>([]);
+
+  // O cache só é válido se já foi hidratado pelo mesmo usuário logado.
+  const cacheValid = feedCache.hydrated && feedCache.userId === (user?.id ?? null);
+
+  const [posts, setPosts] = React.useState<PostWithStats[]>(() => (cacheValid ? feedCache.posts : []));
+  const [discoverPosts, setDiscoverPosts] = React.useState<PostWithStats[]>(() => (cacheValid ? feedCache.discoverPosts : []));
   const postsRef = React.useRef<PostWithStats[]>([]);
   const discoverPostsRef = React.useRef<PostWithStats[]>([]);
   postsRef.current = posts;
   discoverPostsRef.current = discoverPosts;
-  const [stories, setStories] = React.useState<StoryWithUser[]>([]);
-  const [loading, setLoading] = React.useState(true);
+  const [stories, setStories] = React.useState<StoryWithUser[]>(() => (cacheValid ? feedCache.stories : []));
+  const [loading, setLoading] = React.useState(() => !cacheValid);
   const [discoverLoading, setDiscoverLoading] = React.useState(false);
-  const [discoverLoaded, setDiscoverLoaded] = React.useState(false);
-  const [hasMoreFeed, setHasMoreFeed] = React.useState(true);
+  const [discoverLoaded, setDiscoverLoaded] = React.useState(() => (cacheValid ? feedCache.discoverLoaded : false));
+  const [hasMoreFeed, setHasMoreFeed] = React.useState(() => (cacheValid ? feedCache.hasMoreFeed : true));
   const [loadingMoreFeed, setLoadingMoreFeed] = React.useState(false);
-  const [feedTab, setFeedTab] = React.useState<"following" | "discover">("following");
+  const [feedTab, setFeedTab] = React.useState<"following" | "discover">(() => (cacheValid ? feedCache.feedTab : "following"));
 
   const togglingIncentivesRef = React.useRef<Set<string>>(new Set());
   const [togglingIncentives, setTogglingIncentives] = React.useState<Set<string>>(new Set());
@@ -87,9 +129,9 @@ export default function Index() {
 
   const [storyCreationOpen, setStoryCreationOpen] = React.useState(false);
   const [isCreatingStory, setIsCreatingStory] = React.useState(false);
-  const [currentUserPhoto, setCurrentUserPhoto] = React.useState<string | null>(null);
-  const [currentUserNickname, setCurrentUserNickname] = React.useState<string | null>(null);
-  const [viewedStoryIds, setViewedStoryIds] = React.useState<Set<string>>(new Set());
+  const [currentUserPhoto, setCurrentUserPhoto] = React.useState<string | null>(() => (cacheValid ? feedCache.currentUserPhoto : null));
+  const [currentUserNickname, setCurrentUserNickname] = React.useState<string | null>(() => (cacheValid ? feedCache.currentUserNickname : null));
+  const [viewedStoryIds, setViewedStoryIds] = React.useState<Set<string>>(() => (cacheValid ? feedCache.viewedStoryIds : new Set()));
 
   const [shareDrawerOpen, setShareDrawerOpen] = React.useState(false);
   const [shareDrawerText, setShareDrawerText] = React.useState("");
@@ -144,6 +186,8 @@ export default function Index() {
       setHasMoreFeed(postsData.length >= FEED_PAGE_SIZE);
       setLoadingMoreFeed(false);
       setLoading(false);
+      feedCache.hydrated = true;
+      feedCache.userId = user?.id ?? null;
 
       const userStory = storiesData.find((s: StoryWithUser) => s.user_id === user?.id);
       if (userStory?.userPhoto) setCurrentUserPhoto((prev) => prev || userStory.userPhoto);
@@ -165,9 +209,44 @@ export default function Index() {
     }
   }, [user?.id, t]);
 
+  // Carga inicial apenas — pulada quando o cache do feed já está hidratado para
+  // o usuário atual, para que voltar ao feed restaure o estado anterior na hora,
+  // sem reload de rede (sem flash de rings desatualizados).
   React.useEffect(() => {
+    if (feedCache.hydrated && feedCache.userId === (user?.id ?? null)) return;
     loadFeed();
-  }, [loadFeed]);
+  }, [loadFeed, user?.id]);
+
+  // Persiste o estado vivo do feed no cache de módulo para sobreviver ao unmount.
+  React.useEffect(() => {
+    feedCache.posts = posts;
+    feedCache.discoverPosts = discoverPosts;
+    feedCache.stories = stories;
+    feedCache.viewedStoryIds = viewedStoryIds;
+    feedCache.currentUserPhoto = currentUserPhoto;
+    feedCache.currentUserNickname = currentUserNickname;
+    feedCache.feedTab = feedTab;
+    feedCache.discoverLoaded = discoverLoaded;
+    feedCache.hasMoreFeed = hasMoreFeed;
+  }, [posts, discoverPosts, stories, viewedStoryIds, currentUserPhoto, currentUserNickname, feedTab, discoverLoaded, hasMoreFeed]);
+
+  // Restaura (no mount) e salva (no unmount) a posição de scroll entre navegações.
+  React.useEffect(() => {
+    if (cacheValid && feedCache.scrollY > 0) {
+      const y = feedCache.scrollY;
+      requestAnimationFrame(() => requestAnimationFrame(() => window.scrollTo(0, y)));
+    }
+    return () => {
+      feedCache.scrollY = window.scrollY;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Marca um flow como visto otimisticamente ao abri-lo pelo carrossel, para
+  // que o ring acinzente imediatamente sem precisar recarregar o feed.
+  const handleStoryViewed = React.useCallback((storyId: string) => {
+    setViewedStoryIds((prev) => (prev.has(storyId) ? prev : new Set(prev).add(storyId)));
+  }, []);
 
   // Open a specific flow when navigating from a notification
   React.useEffect(() => {
@@ -183,6 +262,7 @@ export default function Index() {
   React.useEffect(() => {
     const handler = () => {
       window.scrollTo({ top: 0, behavior: "smooth" });
+      feedCache.scrollY = 0;
       setDiscoverLoaded(false);
       loadFeed(false);
     };
@@ -768,6 +848,7 @@ export default function Index() {
           currentUserPhoto={currentUserPhoto}
           currentUserNickname={currentUserNickname}
           viewedStoryIds={viewedStoryIds}
+          onStoryView={handleStoryViewed}
         />
       </div>
 

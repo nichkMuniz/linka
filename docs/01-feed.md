@@ -59,13 +59,21 @@ Componente: `FlowCarousel`
 - **Enquadramento da mídia (tela de compartilhar):** na etapa final, imagem **e vídeo** podem ser **redimensionados (pinça)** e **movidos (arraste)** estilo story do Instagram. A camada de gestos cobre a mídia (inclusive o vídeo — isso também impede gestos nativos do iOS sobre o `<video>`)
   - **Imagem:** o enquadramento é **composto num canvas** (`bakeTransformedImage`) com fundo desfocado, para que o resultado salvo seja exatamente o que o usuário vê
   - **Vídeo:** como não pode ser recomposto no cliente, o enquadramento é **persistido** em `flow.media_transform` (`{ scale, x%, y% }`) e reaplicado via CSS `transform` no `FlowViewer`. Requer a coluna `media_transform` (ver `docs/14`); sem ela, o vídeo é salvo sem enquadramento (degradação graciosa)
+- **Legenda posicionada sobre a foto/vídeo (etapa de compartilhar):** além da descrição no rodapé, o usuário pode tocar em **"+ Aa"** para adicionar **frases livres em qualquer lugar da mídia** (mesma experiência do modo de texto do flow): arrastar para reposicionar, tocar para reeditar, e escolher **cor, fonte e alinhamento**. As frases são salvas em `flow.text_elements` (x/y em %, com `style`) — **não são "queimadas" na imagem**: ficam nítidas e são renderizadas ao vivo por cima da mídia no `FlowViewer`/`FlowViewerModal`. Os controles de estilo (`textStyleControls`) e as frases posicionadas (`committedTextItems`) são compartilhados entre o modo de texto e a legenda sobre a foto
 - Botão confirmar publicação
 
-**FlowViewerModal:**
+**FlowViewerModal / tela `/flows/:storyId` (`FlowViewer.tsx`):**
 - Visualização em tela cheia do story
-- Progresso automático entre stories
+- Progresso automático entre stories — barras com leve glow no estado ativo/concluído
+  - **Flows de imagem/texto:** duração fixa de 8s por story (timer interno).
+  - **Flows de vídeo:** a barra de progresso é sincronizada com a duração real do vídeo (eventos `timeupdate`/`ended` do elemento `<video>`) — preenche conforme o vídeo toca e avança automaticamente quando ele termina, em vez de usar o tempo fixo de 8s. Enquanto o usuário digita um comentário ou o flow está pausado, o vídeo também pausa (a barra congela). Vale para o `FlowViewerModal` e a tela `/flows/:storyId` (`FlowViewer.tsx`).
 - Exibe contagem de visualizações (para o dono)
+- **Zonas de toque (navegação):** a mídia é dividida em 3 zonas invisíveis — **esquerda** (¼): volta para o flow anterior (`handlePrev`); se já estiver no primeiro flow, reinicia o atual; **centro** (½): pausa/retoma; **direita** (¼): avança para o próximo flow (`handleNext`). Segurar (>150ms) em qualquer zona pausa enquanto pressionado.
 - Botão fechar
+- **Mídia full-bleed:** a foto/vídeo ocupa 100% da tela (object-cover). A doca, a legenda e os balões de comentário **flutuam sobre a mídia** (sem faixa preta sólida embaixo) — só um leve gradiente garante legibilidade.
+- **Frases sobre a mídia:** quando o flow tem `media_url` **e** `text_elements`, as frases posicionadas são renderizadas ao vivo por cima da foto/vídeo (posição em %, com `style` de cor/fonte/alinhamento) — antes só apareciam em flows de texto puro (`background_color`).
+- **Controles do rodapé — "doca de vidro" (Direção B do design):** reações e campo de resposta ficam reunidos num único bloco de vidro (glass) translúcido no rodapé, por cima da imagem. A linha de 6 reações fica acima do campo; a reação selecionada "acende" (fundo tonalizado na cor da reação + ícone preenchido). Abaixo, um campo de resposta com botão de envio em gradiente azul→roxo. A legenda do flow e os balões de comentário ciclados aparecem logo acima da doca.
+- **Drawer de comentários (ao tocar num balão):** segue o tema padrão dos demais drawers de comentários (`PostCommentsDialog`, `PromotionCommentsDrawer`) — fundo glass escuro `linear-gradient(rgba(30,28,40,.88),rgba(14,13,20,.96))` com `backdrop-blur`, cantos `rounded-t-[32px]` sem borda, título branco e textos em tons de branco translúcido. Edição de comentário usa textarea glass + botão "Salvar" em gradiente azul→roxo.
 
 ---
 
@@ -162,7 +170,9 @@ Cada post exibe:
 
 ## Fluxo de Dados em Tempo Real
 
-- Feed não tem realtime — recarrega ao entrar na tela
+- Feed não tem realtime
+- **Feed estático entre navegações (cache de módulo):** o feed **não recarrega** ao voltar de outra tela. Um cache singleton em nível de módulo (`feedCache` em `Index.tsx`) persiste o estado completo entre montagens — posts, posts de Descobrir, stories, rings (`viewedStoryIds`), aba ativa (Seguindo/Descobrir), `hasMoreFeed` e a posição de scroll. Ao remontar, os estados do React são inicializados a partir do cache (sem skeleton, sem refetch), de modo que a tela aparece exatamente como o usuário a deixou — sem o flash de rings desatualizados que ocorria no reload. Um **refresh real de rede** só acontece em 3 situações: (1) primeira carga, (2) toque no ícone **home**/logo (evento `ritmofit-refresh-feed`), (3) gesto de **pull-to-refresh**. O cache é invalidado quando o `user.id` logado muda (login de outro usuário força recarga).
+- **Rings otimistas:** ao abrir um flow pelo carrossel, o `story.id` é marcado como visto na hora (`onStoryView` → `viewedStoryIds`), acinzentando o ring imediatamente sem precisar recarregar o feed.
 - Clicar no logo **LinKa** no header (quando já está na tela `/`) faz scroll para o topo e recarrega o feed silenciosamente (sem skeleton de loading) via evento `ritmofit-refresh-feed`
 - Notificações de novos posts aparecem via badge no ícone de notificações (AppLayout)
 

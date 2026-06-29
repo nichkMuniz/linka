@@ -475,7 +475,6 @@ export function PostCommentsDialog({
           paddingTop: "12px",
           paddingBottom: "max(28px, env(safe-area-inset-bottom))",
           borderTop: "1px solid rgba(255,255,255,.08)",
-          marginBottom: "var(--keyboard-offset, 0px)",
         }}
       >
         {/* User avatar */}

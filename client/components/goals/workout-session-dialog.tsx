@@ -1,8 +1,8 @@
 import * as React from "react";
 import { createPortal } from "react-dom";
-import { toast } from "@/components/ui/use-toast";
 import { useWorkout } from "@/lib/workout-context";
 import { useLanguage } from "@/lib/language-context";
+import { ExerciseImage } from "@/components/shared/exercise-image";
 import {
   saveWorkoutHistoryDb,
   getPreviousBestKgDb,
@@ -42,16 +42,22 @@ interface WorkoutSessionDialogProps {
 const REST_PRESETS = [0, 30, 60, 90, 120];
 const SWIPE_REVEAL = 72; // px revelados ao deslizar para a esquerda
 
-// Tokens do design system
-const PRIMARY    = "hsl(var(--primary))";
-const PRIMARY_FG = "hsl(var(--primary-foreground))";
-const ORANGE     = "hsl(var(--brand-2))";
-const BG         = "hsl(var(--background))";
-const CARD       = "hsl(var(--card))";
-const SURFACE    = "hsl(var(--muted))";
-const FG         = "hsl(var(--foreground))";
-const MUTED_FG   = "hsl(var(--muted-foreground))";
-const BORDER     = "hsl(var(--border))";
+// ── Tokens — design "liquid glass" (vidro escuro translúcido) ──────────────
+// Mesma linguagem visual dos drawers glass (ver client/lib/glass-styles.ts):
+// shell escuro com auras borradas, painéis translúcidos brancos e blur.
+const PRIMARY    = "#5b8cff";                  // azul glass (acento)
+const PRIMARY_FG = "#fff";
+const ORANGE     = "hsl(var(--brand-2))";      // laranja de destaque (pausar/finalizar/PR)
+const FG         = "#fff";
+const MUTED_FG   = "rgba(255,255,255,0.55)";
+const BORDER     = "rgba(255,255,255,0.12)";
+const CARD       = "rgba(255,255,255,0.06)";   // painel de vidro
+const SURFACE    = "rgba(255,255,255,0.10)";   // campo / realce translúcido
+// Shell escuro do overlay + barras flutuantes (recebem blur quando aplicável)
+const GLASS_ROOT_BG  = "linear-gradient(165deg,#1b1828 0%,#100e18 55%,#0a0910 100%)";
+const GLASS_BAR_BG   = "rgba(14,13,20,0.72)";
+const GLASS_GRADIENT = "linear-gradient(135deg,#5b8cff,#9d6bff)";
+const GLASS_BLUR     = "blur(24px) saturate(180%)";
 
 function fmtDur(totalSecs: number): string {
   const h = Math.floor(totalSecs / 3600);
@@ -105,6 +111,21 @@ export function WorkoutSessionDialog({
   const [pickerSearch, setPickerSearch] = React.useState("");
   const [catalog, setCatalog] = React.useState<Workout[]>([]);
   const [catalogLoading, setCatalogLoading] = React.useState(false);
+  // Navegação do picker: lista x grupo muscular + seleção múltipla
+  const [pickerBrowseMode, setPickerBrowseMode] = React.useState<"list" | "group">("list");
+  const [pickerMuscleFilter, setPickerMuscleFilter] = React.useState<string | null>(null);
+  const [pickerSelected, setPickerSelected] = React.useState<Set<string>>(new Set());
+  // Detalhe (foto ampliada + "como executar") de um exercício do catálogo
+  const [pickerInfo, setPickerInfo] = React.useState<Workout | null>(null);
+
+  const resetPicker = React.useCallback(() => {
+    setPickerOpen(false);
+    setPickerSearch("");
+    setPickerBrowseMode("list");
+    setPickerMuscleFilter(null);
+    setPickerSelected(new Set());
+    setPickerInfo(null);
+  }, []);
 
   // Lista completa de itens da sessão
   const allItems = React.useMemo(
@@ -143,6 +164,17 @@ export function WorkoutSessionDialog({
     });
   }, [open, items, setWorkoutSeries]);
 
+  // Melhor peso "anterior" por exercício — referência para avisar em tempo real
+  // quando o usuário bate um recorde ao concluir uma série. O baseline inicial
+  // vem do campo "anterior" (prevKg da última sessão, já carregado e visível);
+  // depois é elevado ao maior peso concluído nesta sessão, para não repetir o
+  // aviso em séries iguais/menores. Mapa: workout_id → melhor kg conhecido.
+  const prevBestRef = React.useRef<Map<string, number>>(new Map());
+
+  React.useEffect(() => {
+    if (!open) prevBestRef.current = new Map();
+  }, [open]);
+
   // Carrega catálogo quando picker é aberto
   React.useEffect(() => {
     if (!pickerOpen || catalog.length > 0) return;
@@ -179,6 +211,21 @@ export function WorkoutSessionDialog({
     });
     return { volume: Math.round(volume), totalDone, doneEx };
   }, [workoutSeries, allItems]);
+
+  // Avisos da sessão (PR/recorde e validações) — renderizados DENTRO do overlay
+  // porque o overlay é `position:fixed z-9999` portado ao body; um toast global
+  // (mesmo z-index, porém antes no DOM) ficaria atrás desta tela e nunca apareceria.
+  type SessionNotice =
+    | { kind: "pr"; title: string; desc: string }
+    | { kind: "warn"; title: string; desc: string };
+  const [notice, setNotice] = React.useState<SessionNotice | null>(null);
+  const noticeTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showNotice = (n: SessionNotice, ms = 3800) => {
+    if (noticeTimer.current) clearTimeout(noticeTimer.current);
+    setNotice(n);
+    noticeTimer.current = setTimeout(() => setNotice(null), ms);
+  };
+  React.useEffect(() => () => { if (noticeTimer.current) clearTimeout(noticeTimer.current); }, []);
 
   // Modal de descanso (contador regressivo em destaque ao concluir uma série)
   const [restModalOpen, setRestModalOpen] = React.useState(false);
@@ -254,14 +301,22 @@ export function WorkoutSessionDialog({
     });
   };
 
+  // Toca num exercício do picker → alterna a seleção (itens já na sessão ficam travados)
   const handlePickExercise = (workout: Workout) => {
-    // Se já está na lista, só expande
-    if (allItems.some((i) => i.workout_id === workout.id)) {
-      setPickerOpen(false);
-      setExpandedId(workout.id);
-      return;
-    }
-    const newItem: UserWorkoutWithDetails = {
+    if (allItems.some((i) => i.workout_id === workout.id)) return;
+    setPickerSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(workout.id)) next.delete(workout.id);
+      else next.add(workout.id);
+      return next;
+    });
+  };
+
+  // Confirmar → adiciona todos os exercícios selecionados de uma vez
+  const handleConfirmPicker = () => {
+    const chosen = catalog.filter((w) => pickerSelected.has(w.id));
+    if (chosen.length === 0) return;
+    const newItems: UserWorkoutWithDetails[] = chosen.map((workout) => ({
       id: `session_${workout.id}`,
       workout_id: workout.id,
       user_id: userId,
@@ -271,17 +326,19 @@ export function WorkoutSessionDialog({
       muscle_group: workout.muscle_group ?? null,
       workoutPhoto: workout.photo ?? null,
       routine_id: null,
-    };
-    setExtraItems((prev) => [...prev, newItem]);
-    setWorkoutSeries((prev) => ({
-      ...prev,
-      [workout.id]: (prev[workout.id]?.length ?? 0) > 0
-        ? prev[workout.id]
-        : [{ series: 1, kg: 0, reps: 0, completed: false }],
     }));
-    setPickerOpen(false);
-    setPickerSearch("");
-    setExpandedId(workout.id);
+    setExtraItems((prev) => [...prev, ...newItems]);
+    setWorkoutSeries((prev) => {
+      const next = { ...prev };
+      for (const workout of chosen) {
+        if ((next[workout.id]?.length ?? 0) === 0) {
+          next[workout.id] = [{ series: 1, kg: 0, reps: 0, completed: false }];
+        }
+      }
+      return next;
+    });
+    setExpandedId(chosen[chosen.length - 1].id);
+    resetPicker();
   };
 
   // ── Operações de séries ─────────────────────────────────────
@@ -376,12 +433,12 @@ export function WorkoutSessionDialog({
     // Trava: ao tentar concluir, exige kg/reps preenchidos
     if (!wasCompleted && row && !canCompleteSeries(row, isCardio)) {
       setInvalidSeries((prev) => new Set(prev).add(seriesKey(workoutId, index)));
-      toast({
+      showNotice({
+        kind: "warn",
         title: t("goals_series_incomplete_title"),
-        description: isCardio
+        desc: isCardio
           ? t("goals_series_incomplete_cardio")
           : t("goals_series_incomplete_desc"),
-        variant: "destructive",
       });
       return;
     }
@@ -392,7 +449,40 @@ export function WorkoutSessionDialog({
         i === index ? { ...s, completed: !s.completed } : s,
       ),
     }));
-    if (!wasCompleted) startRestTimer(workoutId);
+    if (!wasCompleted) {
+      startRestTimer(workoutId);
+
+      // PR em tempo real — ao concluir uma série de força com peso acima do
+      // melhor peso anterior, avisa que o usuário bateu o recorde.
+      const kg = row?.kg || 0;
+      if (!isCardio && kg > 0) {
+        // Baseline: na primeira série concluída do exercício, parte do maior
+        // "anterior" (prevKg da última sessão, o mesmo valor exibido na coluna
+        // ANTERIOR). Nas próximas, usa o recorde corrente já elevado.
+        let best = prevBestRef.current.get(workoutId);
+        if (best == null) {
+          best = (workoutSeries[workoutId] ?? []).reduce(
+            (m, s) => Math.max(m, (s as any).prevKg || 0),
+            0,
+          );
+          prevBestRef.current.set(workoutId, best);
+        }
+        if (best > 0 && kg > best) {
+          const name = allItems.find((i) => i.workout_id === workoutId)?.workoutName ?? "";
+          showNotice({
+            kind: "pr",
+            title: t("goals_pr_toast_title"),
+            desc: t("goals_pr_toast_desc")
+              .replace("{exercise}", name)
+              .replace("{kg}", String(kg))
+              .replace("{prev}", String(best)),
+          });
+        }
+        // Sobe o recorde corrente para não repetir o aviso em séries
+        // iguais/menores; só dispara de novo se superar este novo valor.
+        if (kg > best) prevBestRef.current.set(workoutId, kg);
+      }
+    }
   };
 
   // ── Finalizar ───────────────────────────────────────────────
@@ -421,6 +511,14 @@ export function WorkoutSessionDialog({
       const exerciseEntries = Object.entries(workoutSeries).filter(
         ([, series]) => series.some((s) => s.completed),
       );
+
+      // Carimbo desta finalização: todas as séries gravadas agora recebem um
+      // date_completed na mesma rajada (base + índice em ms), formando UMA
+      // sessão bem agrupada. Mantém a ordem das séries (timestamps crescentes)
+      // e permite que getLastWorkoutSessionSeriesDb isole exatamente a contagem
+      // de séries desta execução — nunca a soma de execuções anteriores.
+      const sessionBaseMs = Date.now();
+      let seriesSaveIndex = 0;
 
       // Query previous bests before saving (so we compare against pre-session records)
       const prevBests = new Map<string, number>();
@@ -458,6 +556,7 @@ export function WorkoutSessionDialog({
               ? (serie.reps ? String(serie.reps) : null)
               : (serie.reps ? `${serie.reps} reps` : null),
             row?.routine_id ?? null,
+            new Date(sessionBaseMs + seriesSaveIndex++).toISOString(),
           );
         }
 
@@ -501,20 +600,100 @@ export function WorkoutSessionDialog({
   if (!open) return null;
 
   // ── Catálogo filtrado para o picker ────────────────────────
-  const catalogFiltered = catalog.filter((w) =>
-    !pickerSearch || w.name.toLowerCase().includes(pickerSearch.toLowerCase()),
-  );
+  // Grupos musculares do catálogo (para a aba "Músculo")
+  const pickerMuscleGroups = [
+    ...new Set(catalog.map((w) => w.muscle_group).filter(Boolean) as string[]),
+  ].sort((a, b) => a.localeCompare(b));
+  const catalogFiltered = catalog.filter((w) => {
+    if (pickerBrowseMode === "group" && pickerMuscleFilter && w.muscle_group !== pickerMuscleFilter) return false;
+    if (pickerSearch && !w.name.toLowerCase().includes(pickerSearch.toLowerCase())) return false;
+    return true;
+  });
 
   const content = (
     <div
       style={{
         position: "fixed", inset: 0, zIndex: 9999,
         display: "flex", flexDirection: "column",
-        background: BG, fontFamily: "'Inter', system-ui, sans-serif",
-        color: FG,
+        background: GLASS_ROOT_BG, fontFamily: "'Inter', system-ui, sans-serif",
+        color: FG, overflow: "hidden",
       }}
       onClick={() => { if (menuId) setMenuId(null); }}
     >
+
+      {/* ── AURAS DE FUNDO (liquid glass) ────────────────────── */}
+      <div style={{
+        pointerEvents: "none", position: "absolute", zIndex: -1,
+        width: 340, height: 340, left: -60, top: 40, borderRadius: "50%",
+        background: "radial-gradient(circle,#ff7a3c,transparent 70%)",
+        filter: "blur(80px)", opacity: 0.28,
+      }} />
+      <div style={{
+        pointerEvents: "none", position: "absolute", zIndex: -1,
+        width: 320, height: 320, right: -80, top: 360, borderRadius: "50%",
+        background: "radial-gradient(circle,#3f7fe6,transparent 70%)",
+        filter: "blur(80px)", opacity: 0.26,
+      }} />
+      <div style={{
+        pointerEvents: "none", position: "absolute", zIndex: -1,
+        width: 300, height: 300, left: "30%", bottom: -120, borderRadius: "50%",
+        background: "radial-gradient(circle,#9d6bff,transparent 70%)",
+        filter: "blur(80px)", opacity: 0.22,
+      }} />
+
+      <style>{`@keyframes prToastIn{from{opacity:0;transform:translateY(-12px) scale(0.96)}to{opacity:1;transform:translateY(0) scale(1)}}`}</style>
+
+      {/* ── AVISO DA SESSÃO (PR/recorde ou validação) ────────── */}
+      {notice && (() => {
+        const isPr = notice.kind === "pr";
+        const accent = isPr ? ORANGE : "hsl(var(--destructive))";
+        const tintBg = isPr ? "rgba(30,22,14,0.82)" : "rgba(34,16,16,0.82)";
+        return (
+          <div
+            style={{
+              position: "absolute", zIndex: 60,
+              top: "max(56px, calc(env(safe-area-inset-top) + 8px))",
+              left: 12, right: 12,
+              display: "flex", justifyContent: "center",
+              pointerEvents: "none",
+            }}
+          >
+            <div
+              onClick={() => setNotice(null)}
+              style={{
+                pointerEvents: "auto", cursor: "pointer",
+                maxWidth: 420, width: "100%",
+                display: "flex", alignItems: "center", gap: 12,
+                padding: "12px 16px", borderRadius: 18,
+                background: tintBg,
+                border: `1px solid ${accent}66`,
+                backdropFilter: GLASS_BLUR, WebkitBackdropFilter: GLASS_BLUR,
+                boxShadow: `0 12px 36px rgba(0,0,0,0.45), 0 0 0 1px ${accent}22, inset 0 1px 0 rgba(255,255,255,0.08)`,
+                animation: "prToastIn 0.3s cubic-bezier(0.2,0.8,0.2,1)",
+              }}
+            >
+              <div style={{
+                width: 38, height: 38, borderRadius: "50%", flexShrink: 0,
+                background: `${accent}26`, display: "flex",
+                alignItems: "center", justifyContent: "center", fontSize: 20,
+              }}>
+                {isPr ? "🏆" : "⚠️"}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 800, color: accent, lineHeight: 1.2 }}>
+                  {notice.title}
+                </div>
+                <div style={{
+                  fontSize: 12, fontWeight: 600, color: "rgba(255,255,255,0.82)",
+                  marginTop: 2, lineHeight: 1.3,
+                }}>
+                  {notice.desc}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── HEADER ───────────────────────────────────────────── */}
       <div style={{
@@ -530,7 +709,7 @@ export function WorkoutSessionDialog({
           aria-label={t("goals_minimize")}
           style={{
             width: 36, height: 36, borderRadius: "50%",
-            background: "hsl(var(--secondary))",
+            background: SURFACE,
             border: "none", cursor: "pointer", flexShrink: 0,
             display: "flex", alignItems: "center", justifyContent: "center",
           }}
@@ -614,7 +793,7 @@ export function WorkoutSessionDialog({
           <button
             onClick={() => setMuscleFilter(null)}
             style={{
-              background: muscleFilter === null ? PRIMARY : "hsl(var(--secondary))",
+              background: muscleFilter === null ? PRIMARY : SURFACE,
               border: "none", borderRadius: 20,
               padding: "6px 14px", fontSize: 13, fontWeight: 600,
               color: muscleFilter === null ? PRIMARY_FG : MUTED_FG,
@@ -629,7 +808,7 @@ export function WorkoutSessionDialog({
               key={group}
               onClick={() => setMuscleFilter(group)}
               style={{
-                background: muscleFilter === group ? PRIMARY : "hsl(var(--secondary))",
+                background: muscleFilter === group ? PRIMARY : SURFACE,
                 border: "none", borderRadius: 20,
                 padding: "6px 14px", fontSize: 13, fontWeight: 600,
                 color: muscleFilter === group ? PRIMARY_FG : MUTED_FG,
@@ -660,10 +839,11 @@ export function WorkoutSessionDialog({
             <div
               key={item.id}
               style={{
-                background: CARD, borderRadius: 20, overflow: "hidden",
+                background: CARD, borderRadius: 24, overflow: "hidden",
                 marginBottom: 20, position: "relative",
                 border: `1px solid ${BORDER}`,
-                boxShadow: "0 2px 12px rgba(0,0,0,0.18)",
+                backdropFilter: GLASS_BLUR, WebkitBackdropFilter: GLASS_BLUR,
+                boxShadow: "0 8px 32px rgba(0,0,0,0.32), inset 0 1px 0 rgba(255,255,255,0.08)",
               }}
             >
               {/* ── EXERCISE HEADER ─────────────────────────── */}
@@ -680,7 +860,7 @@ export function WorkoutSessionDialog({
                 {item.muscle_group && (
                   <span style={{
                     fontSize: 11, fontWeight: 600, color: MUTED_FG,
-                    background: "hsl(var(--secondary))", borderRadius: 20,
+                    background: SURFACE, borderRadius: 20,
                     padding: "2px 10px", flexShrink: 0,
                   }}>
                     {item.muscle_group}
@@ -693,7 +873,9 @@ export function WorkoutSessionDialog({
                 onClick={() => { setMenuId(null); setExpandedId(isExpanded ? null : item.workout_id); }}
                 style={{
                   position: "relative", width: "100%", height: 150,
-                  background: "hsl(var(--secondary))", overflow: "hidden",
+                  // Fundo branco quando há foto — as ilustrações em linha escura
+                  // (wger) ficam invisíveis sobre superfície escura.
+                  background: item.workoutPhoto ? "#fff" : SURFACE, overflow: "hidden",
                   flexShrink: 0, marginTop: 10, cursor: "pointer",
                 }}
               >
@@ -701,7 +883,7 @@ export function WorkoutSessionDialog({
                   <img
                     src={item.workoutPhoto}
                     alt={item.workoutName || ""}
-                    style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
+                    style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain" }}
                   />
                 ) : (
                   <>
@@ -857,9 +1039,10 @@ export function WorkoutSessionDialog({
                         onClick={(e) => e.stopPropagation()}
                         style={{
                           position: "absolute", top: "100%", right: 12,
-                          background: CARD, borderRadius: 12,
+                          background: "rgba(30,28,42,0.82)", borderRadius: 16,
                           border: `1px solid ${BORDER}`,
-                          boxShadow: "0 8px 24px rgba(0,0,0,0.25)",
+                          backdropFilter: GLASS_BLUR, WebkitBackdropFilter: GLASS_BLUR,
+                          boxShadow: "0 12px 32px rgba(0,0,0,0.4)",
                           zIndex: 20, minWidth: 180, overflow: "hidden",
                         }}
                       >
@@ -957,12 +1140,17 @@ export function WorkoutSessionDialog({
                           key={idx}
                           style={{ position: "relative", overflow: "hidden", marginBottom: 7 }}
                         >
-                          {/* Botão de apagar — revelado pelo swipe */}
+                          {/* Botão de apagar — só visível durante o swipe, para que
+                              a linha possa ter fundo translúcido (vidro) sem o
+                              vermelho vazar no estado normal. */}
                           <div style={{
                             position: "absolute", right: 0, top: 0, bottom: 0, width: SWIPE_REVEAL,
                             background: "hsl(var(--destructive))",
                             display: "flex", alignItems: "center", justifyContent: "center",
                             borderRadius: 10,
+                            opacity: isSwipeOpen ? 1 : 0,
+                            pointerEvents: isSwipeOpen ? "auto" : "none",
+                            transition: "opacity 0.18s ease",
                           }}>
                             <button
                               onClick={() => deleteSeries(item.workout_id, idx)}
@@ -990,7 +1178,9 @@ export function WorkoutSessionDialog({
                             display: "grid",
                             gridTemplateColumns: "40px 1fr 68px 68px 44px",
                             alignItems: "center", gap: 4,
-                            background: CARD,
+                            // Vidro translúcido — o botão de apagar atrás só aparece
+                            // durante o swipe (opacity gated), então nada vaza aqui.
+                            background: "rgba(255,255,255,0.04)",
                             transform: isSwipeOpen ? `translateX(-${SWIPE_REVEAL}px)` : "translateX(0)",
                             transition: "transform 0.22s cubic-bezier(0.25, 0.46, 0.45, 0.94)",
                           }}
@@ -999,7 +1189,7 @@ export function WorkoutSessionDialog({
                           <div style={{ display: "flex", justifyContent: "center" }}>
                             <div style={{
                               width: 30, height: 30, borderRadius: "50%",
-                              background: row.completed ? PRIMARY : "hsl(var(--secondary))",
+                              background: row.completed ? PRIMARY : SURFACE,
                               display: "flex", alignItems: "center", justifyContent: "center",
                               fontSize: 12, fontWeight: 800,
                               color: row.completed ? PRIMARY_FG : MUTED_FG,
@@ -1067,11 +1257,14 @@ export function WorkoutSessionDialog({
                               aria-disabled={locked}
                               style={{
                                 width: 34, height: 34, borderRadius: "50%",
-                                background: row.completed ? PRIMARY : "transparent",
-                                border: row.completed ? "none" : `2px solid ${BORDER}`,
+                                // Não concluída: preenchimento muted + anel visível —
+                                // azul quando pronta para marcar, cinza quando travada.
+                                background: row.completed ? PRIMARY : SURFACE,
+                                border: row.completed ? "none" : `2px solid ${locked ? MUTED_FG : PRIMARY}`,
                                 cursor: locked ? "not-allowed" : "pointer",
-                                opacity: locked ? 0.4 : 1,
+                                opacity: locked ? 0.45 : 1,
                                 display: "flex", alignItems: "center", justifyContent: "center",
+                                transition: "background 0.15s, border-color 0.15s",
                               }}
                             >
                               {row.completed && (
@@ -1129,7 +1322,9 @@ export function WorkoutSessionDialog({
           flexShrink: 0,
           padding: "8px 20px",
           display: "flex", alignItems: "center", gap: 12,
-          background: BG, borderTop: `1px solid ${BORDER}`,
+          background: GLASS_BAR_BG,
+          backdropFilter: GLASS_BLUR, WebkitBackdropFilter: GLASS_BLUR,
+          borderTop: `1px solid ${BORDER}`,
         }}>
           <span style={{ fontSize: 12, fontWeight: 600, color: MUTED_FG, whiteSpace: "nowrap" }}>
             {t("goals_rest_time")}
@@ -1152,7 +1347,7 @@ export function WorkoutSessionDialog({
           <button
             onClick={skipRest}
             style={{
-              background: "hsl(var(--secondary))", border: "none", cursor: "pointer",
+              background: SURFACE, border: "none", cursor: "pointer",
               color: FG, fontSize: 12, fontWeight: 700,
               padding: "8px 14px", whiteSpace: "nowrap",
               borderRadius: 20, minHeight: 36,
@@ -1168,15 +1363,19 @@ export function WorkoutSessionDialog({
         flexShrink: 0,
         padding: "12px 16px",
         paddingBottom: "max(16px, env(safe-area-inset-bottom))",
-        background: BG, borderTop: `1px solid ${BORDER}`,
+        background: GLASS_BAR_BG,
+        backdropFilter: GLASS_BLUR, WebkitBackdropFilter: GLASS_BLUR,
+        borderTop: `1px solid ${BORDER}`,
         display: "flex", alignItems: "center", justifyContent: "center",
       }}>
         <button
           onClick={() => setPickerOpen(true)}
           style={{
-            background: "none", border: "none", cursor: "pointer",
-            fontWeight: 600, fontSize: 14, color: PRIMARY,
+            background: SURFACE, border: `1px solid ${BORDER}`, cursor: "pointer",
+            fontWeight: 700, fontSize: 14, color: "#fff",
             display: "flex", alignItems: "center", gap: 6,
+            padding: "11px 22px", borderRadius: 999,
+            boxShadow: "inset 0 1px 0 rgba(255,255,255,0.12)",
           }}
         >
           <span style={{ fontSize: 18, lineHeight: 1 }}>+</span>
@@ -1188,7 +1387,7 @@ export function WorkoutSessionDialog({
       {pickerOpen && (
         <div style={{
           position: "absolute", inset: 0,
-          background: BG, display: "flex", flexDirection: "column",
+          background: GLASS_ROOT_BG, display: "flex", flexDirection: "column",
           zIndex: 10,
         }}>
           {/* Picker header */}
@@ -1202,9 +1401,9 @@ export function WorkoutSessionDialog({
             borderBottom: `1px solid ${BORDER}`,
           }}>
             <button
-              onClick={() => { setPickerOpen(false); setPickerSearch(""); }}
+              onClick={resetPicker}
               style={{
-                background: "hsl(var(--secondary))", border: "none",
+                background: SURFACE, border: "none",
                 borderRadius: "50%", width: 36, height: 36, cursor: "pointer",
                 display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
               }}
@@ -1213,124 +1412,358 @@ export function WorkoutSessionDialog({
                 <path d="M10 3L5 8l5 5" stroke={FG} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
             </button>
-            <span style={{ flex: 1, fontWeight: 700, fontSize: 17 }}>Adicionar Exercício</span>
+            <span style={{ flex: 1, fontWeight: 700, fontSize: 17 }}>{t("goals_add_exercise")}</span>
           </div>
 
-          {/* Search input */}
-          <div style={{
-            flexShrink: 0, padding: "12px 16px",
-            borderBottom: `1px solid ${BORDER}`,
-          }}>
-            <div style={{
-              display: "flex", alignItems: "center", gap: 10,
-              background: SURFACE, borderRadius: 12, padding: "10px 14px",
-            }}>
-              <svg width="14" height="14" viewBox="0 0 13 13" fill="none" style={{ flexShrink: 0 }}>
-                <circle cx="5.5" cy="5.5" r="4" stroke={MUTED_FG} strokeWidth="1.5"/>
-                <path d="m8.5 8.5 2.5 2.5" stroke={MUTED_FG} strokeWidth="1.5" strokeLinecap="round"/>
-              </svg>
-              <input
-                autoFocus
-                type="text"
-                value={pickerSearch}
-                onChange={(e) => setPickerSearch(e.target.value)}
-                placeholder="Buscar exercício..."
-                style={{
-                  background: "transparent", border: "none", outline: "none",
-                  fontSize: 15, color: FG, flex: 1,
-                  fontFamily: "'Inter', system-ui",
-                }}
-              />
-              {pickerSearch && (
-                <button
-                  onClick={() => setPickerSearch("")}
-                  style={{ background: "none", border: "none", cursor: "pointer", padding: 0, color: MUTED_FG }}
-                >
-                  ✕
-                </button>
+          {/* Toggle: Lista x Músculo (mesma alternância do drawer "selecionar itens") */}
+          {pickerMuscleGroups.length > 0 && (
+            <div style={{ flexShrink: 0, padding: "12px 16px 0" }}>
+              <div style={{
+                display: "flex", gap: 4, padding: 4, borderRadius: 16,
+                background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.08)",
+              }}>
+                {([["list", t("goals_browse_list")], ["group", t("goals_browse_muscle")]] as const).map(([mode, label]) => {
+                  const active = pickerBrowseMode === mode;
+                  return (
+                    <button
+                      key={mode}
+                      onClick={() => { setPickerBrowseMode(mode); setPickerMuscleFilter(null); setPickerSearch(""); }}
+                      style={{
+                        flex: 1, height: 36, borderRadius: 12, border: "none", cursor: "pointer",
+                        fontSize: 13, fontWeight: 600, transition: "all .15s",
+                        background: active ? "linear-gradient(rgba(255,255,255,.95),rgba(255,255,255,.84))" : "transparent",
+                        color: active ? "#0a0b12" : "rgba(255,255,255,.6)",
+                      }}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {pickerBrowseMode === "group" && !pickerMuscleFilter ? (
+            /* ── Lista de grupos musculares ─────────────────────── */
+            <div style={{ flex: 1, overflowY: "auto", padding: "12px 16px 32px", display: "flex", flexDirection: "column", gap: 8 }}>
+              {catalogLoading ? (
+                <div style={{ textAlign: "center", padding: "48px 16px", color: MUTED_FG }}>
+                  {t("goals_picker_loading")}
+                </div>
+              ) : (
+                pickerMuscleGroups.map((g) => {
+                  const count = catalog.filter((w) => w.muscle_group === g).length;
+                  const selectedInGroup = catalog.filter((w) => w.muscle_group === g && pickerSelected.has(w.id)).length;
+                  return (
+                    <button
+                      key={g}
+                      onClick={() => setPickerMuscleFilter(g)}
+                      style={{
+                        width: "100%", cursor: "pointer", textAlign: "left",
+                        display: "flex", alignItems: "center", gap: 12,
+                        padding: 12, borderRadius: 16,
+                        border: "1px solid rgba(255,255,255,.1)", background: "rgba(255,255,255,.04)",
+                      }}
+                    >
+                      <div style={{
+                        width: 48, height: 48, borderRadius: 12, flexShrink: 0,
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        background: "linear-gradient(135deg,#ff9d6c,#d8567a)",
+                      }}>
+                        <svg width="22" height="14" viewBox="0 0 36 20" fill="none">
+                          <rect x="0.5" y="7" width="7" height="6" rx="2" fill="#fff"/>
+                          <rect x="3" y="4.5" width="3" height="11" rx="1.5" fill="#fff"/>
+                          <rect x="6.5" y="9" width="23" height="2" rx="1" fill="#fff"/>
+                          <rect x="28.5" y="7" width="7" height="6" rx="2" fill="#fff"/>
+                          <rect x="30" y="4.5" width="3" height="11" rx="1.5" fill="#fff"/>
+                        </svg>
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 600, fontSize: 15, color: FG, textTransform: "capitalize", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{g}</div>
+                        <div style={{ fontSize: 12, color: "rgba(255,255,255,.5)", marginTop: 2 }}>
+                          {t("goals_browse_count").replace("{n}", String(count))}
+                          {selectedInGroup > 0 && ` · ${selectedInGroup} ✓`}
+                        </div>
+                      </div>
+                      <svg width="8" height="14" viewBox="0 0 8 14" fill="none" style={{ flexShrink: 0 }}>
+                        <path d="M1 1l5.5 6L1 13" stroke="rgba(255,255,255,.4)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    </button>
+                  );
+                })
               )}
             </div>
-          </div>
-
-          {/* Exercise list */}
-          <div style={{ flex: 1, overflowY: "auto", padding: "8px 12px 32px" }}>
-            {catalogLoading ? (
-              <div style={{ textAlign: "center", padding: "48px 16px", color: MUTED_FG }}>
-                Carregando...
-              </div>
-            ) : catalogFiltered.length === 0 ? (
-              <div style={{ textAlign: "center", padding: "48px 16px", color: MUTED_FG }}>
-                Nenhum exercício encontrado
-              </div>
-            ) : (
-              catalogFiltered.map((w) => {
-                const alreadyAdded = allItems.some((i) => i.workout_id === w.id);
-                return (
+          ) : (
+            <>
+              {/* Search input (+ voltar quando há grupo selecionado) */}
+              <div style={{ flexShrink: 0, padding: "12px 16px", borderBottom: `1px solid ${BORDER}` }}>
+                {pickerBrowseMode === "group" && pickerMuscleFilter && (
                   <button
-                    key={w.id}
-                    onClick={() => handlePickExercise(w)}
+                    onClick={() => { setPickerMuscleFilter(null); setPickerSearch(""); }}
                     style={{
-                      width: "100%", background: "none", border: "none",
-                      cursor: "pointer", textAlign: "left",
-                      display: "flex", alignItems: "center", gap: 12,
-                      padding: "10px 4px",
-                      borderBottom: `1px solid ${BORDER}`,
+                      display: "flex", alignItems: "center", gap: 6, marginBottom: 10,
+                      background: "none", border: "none", cursor: "pointer", padding: 0,
+                      color: "#9d6bff", fontSize: 14, fontWeight: 600, textTransform: "capitalize",
                     }}
                   >
-                    {/* Thumbnail */}
-                    <div style={{
-                      width: 52, height: 52, borderRadius: 10, flexShrink: 0,
-                      background: SURFACE, overflow: "hidden",
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                    }}>
-                      {w.photo ? (
-                        <img src={w.photo} alt={w.name} style={{ width: "100%", height: "100%", objectFit: "cover" }}/>
-                      ) : (
-                        <svg width="20" height="12" viewBox="0 0 36 20" fill="none" opacity={0.3}>
-                          <rect x="0.5" y="7" width="7" height="6" rx="2" fill={MUTED_FG}/>
-                          <rect x="3" y="4.5" width="3" height="11" rx="1.5" fill={MUTED_FG}/>
-                          <rect x="6.5" y="9" width="23" height="2" rx="1" fill={MUTED_FG}/>
-                          <rect x="28.5" y="7" width="7" height="6" rx="2" fill={MUTED_FG}/>
-                          <rect x="30" y="4.5" width="3" height="11" rx="1.5" fill={MUTED_FG}/>
-                        </svg>
-                      )}
-                    </div>
-
-                    {/* Info */}
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{
-                        fontWeight: 600, fontSize: 14, color: FG,
-                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                      }}>
-                        {w.name}
-                      </div>
-                      {w.muscle_group && (
-                        <div style={{ fontSize: 12, color: MUTED_FG, marginTop: 2 }}>
-                          {w.muscle_group}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* + ou checkmark */}
-                    <div style={{
-                      width: 30, height: 30, borderRadius: "50%", flexShrink: 0,
-                      background: alreadyAdded ? "hsl(var(--secondary))" : PRIMARY,
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                    }}>
-                      {alreadyAdded ? (
-                        <svg width="12" height="10" viewBox="0 0 13 10" fill="none">
-                          <path d="M1.5 5L5 8.5L11.5 1.5" stroke={MUTED_FG} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                        </svg>
-                      ) : (
-                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                          <path d="M6 1v10M1 6h10" stroke={PRIMARY_FG} strokeWidth="2" strokeLinecap="round"/>
-                        </svg>
-                      )}
-                    </div>
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                      <path d="M10 3L5 8l5 5" stroke="#9d6bff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                    {pickerMuscleFilter}
                   </button>
-                );
-              })
-            )}
+                )}
+                <div style={{
+                  display: "flex", alignItems: "center", gap: 10,
+                  background: SURFACE, borderRadius: 12, padding: "10px 14px",
+                }}>
+                  <svg width="14" height="14" viewBox="0 0 13 13" fill="none" style={{ flexShrink: 0 }}>
+                    <circle cx="5.5" cy="5.5" r="4" stroke={MUTED_FG} strokeWidth="1.5"/>
+                    <path d="m8.5 8.5 2.5 2.5" stroke={MUTED_FG} strokeWidth="1.5" strokeLinecap="round"/>
+                  </svg>
+                  <input
+                    type="text"
+                    value={pickerSearch}
+                    onChange={(e) => setPickerSearch(e.target.value)}
+                    placeholder={t("goals_search_exercise")}
+                    style={{
+                      background: "transparent", border: "none", outline: "none",
+                      fontSize: 15, color: FG, flex: 1,
+                      fontFamily: "'Inter', system-ui",
+                    }}
+                  />
+                  {pickerSearch && (
+                    <button
+                      onClick={() => setPickerSearch("")}
+                      style={{ background: "none", border: "none", cursor: "pointer", padding: 0, color: MUTED_FG }}
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Exercise list — mesmo padrão visual do drawer "selecionar itens" */}
+              <div style={{ flex: 1, overflowY: "auto", padding: "12px 16px 32px", display: "flex", flexDirection: "column", gap: 8 }}>
+                {catalogLoading ? (
+                  <div style={{ textAlign: "center", padding: "48px 16px", color: MUTED_FG }}>
+                    {t("goals_picker_loading")}
+                  </div>
+                ) : catalogFiltered.length === 0 ? (
+                  <div style={{ textAlign: "center", padding: "48px 16px", color: MUTED_FG }}>
+                    {t("goals_picker_empty")}
+                  </div>
+                ) : (
+                  catalogFiltered.map((w) => {
+                    const alreadyAdded = allItems.some((i) => i.workout_id === w.id);
+                    const selected = pickerSelected.has(w.id);
+                    const active = alreadyAdded || selected;
+                    return (
+                      <div
+                        key={w.id}
+                        style={{
+                          width: "100%",
+                          display: "flex", alignItems: "center", gap: 12,
+                          padding: 12, borderRadius: 16,
+                          transition: "all .15s",
+                          opacity: alreadyAdded ? 0.6 : 1,
+                          border: active ? "1px solid #5b8cff" : "1px solid rgba(255,255,255,.1)",
+                          background: active ? "rgba(91,140,255,.1)" : "rgba(255,255,255,.04)",
+                        }}
+                      >
+                        {/* Thumbnail → abre detalhe (foto + como executar) */}
+                        <button
+                          onClick={() => setPickerInfo(w)}
+                          aria-label={t("goals_item_view_detail")}
+                          style={{
+                            background: "none", border: "none", padding: 0, cursor: "pointer",
+                            flexShrink: 0, lineHeight: 0,
+                          }}
+                        >
+                          <ExerciseImage
+                            photo={w.photo ?? null}
+                            name={w.name}
+                            muscleGroup={w.muscle_group}
+                            className="h-16 w-16 rounded-xl"
+                          />
+                        </button>
+
+                        {/* Info + indicador → alterna a seleção */}
+                        <button
+                          onClick={() => handlePickExercise(w)}
+                          disabled={alreadyAdded}
+                          style={{
+                            flex: 1, minWidth: 0, background: "none", border: "none", padding: 0,
+                            cursor: alreadyAdded ? "default" : "pointer", textAlign: "left",
+                            display: "flex", alignItems: "center", gap: 12,
+                          }}
+                        >
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{
+                              fontWeight: 600, fontSize: 15, color: FG,
+                              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                            }}>
+                              {w.name}
+                            </div>
+                            {w.muscle_group && (
+                              <div style={{
+                                fontSize: 12, color: "rgba(255,255,255,.5)", marginTop: 2,
+                                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                              }}>
+                                {w.muscle_group}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* indicador: selecionado/adicionado (check azul) ou adicionar (+) */}
+                          <div style={{
+                            width: 28, height: 28, borderRadius: "50%", flexShrink: 0,
+                            background: active ? PRIMARY : "rgba(255,255,255,.08)",
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                          }}>
+                            {active ? (
+                              <svg width="13" height="10" viewBox="0 0 13 10" fill="none">
+                                <path d="M1.5 5L5 8.5L11.5 1.5" stroke={PRIMARY_FG} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                              </svg>
+                            ) : (
+                              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                                <path d="M6 1v10M1 6h10" stroke={MUTED_FG} strokeWidth="2" strokeLinecap="round"/>
+                              </svg>
+                            )}
+                          </div>
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </>
+          )}
+
+          {/* Footer: confirmar seleção */}
+          <div style={{
+            flexShrink: 0,
+            padding: "12px 16px",
+            paddingBottom: "max(12px, env(safe-area-inset-bottom))",
+            borderTop: `1px solid ${BORDER}`,
+            background: GLASS_BAR_BG, backdropFilter: GLASS_BLUR, WebkitBackdropFilter: GLASS_BLUR,
+          }}>
+            <button
+              onClick={handleConfirmPicker}
+              disabled={pickerSelected.size === 0}
+              style={{
+                width: "100%", height: 48, borderRadius: 999, border: "none",
+                fontSize: 15, fontWeight: 700, color: "#fff",
+                cursor: pickerSelected.size === 0 ? "default" : "pointer",
+                opacity: pickerSelected.size === 0 ? 0.45 : 1,
+                background: GLASS_GRADIENT,
+              }}
+            >
+              {pickerSelected.size > 0
+                ? t("goals_picker_confirm").replace("{n}", String(pickerSelected.size))
+                : t("goals_picker_confirm_empty")}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── PICKER EXERCISE DETAIL OVERLAY ──────────────────── */}
+      {/* Detalhe (foto ampliada + "como executar") de um item do catálogo no picker */}
+      {pickerInfo && (
+        <div
+          onClick={() => setPickerInfo(null)}
+          style={{
+            position: "absolute", inset: 0, zIndex: 80,
+            background: "rgba(0,0,0,0.92)", backdropFilter: "blur(8px)",
+            display: "flex", flexDirection: "column",
+            paddingTop: "max(48px, env(safe-area-inset-top))",
+            paddingBottom: "max(24px, env(safe-area-inset-bottom))",
+          }}
+        >
+          {/* Close */}
+          <button
+            onClick={() => setPickerInfo(null)}
+            aria-label={t("goals_cancel")}
+            style={{
+              position: "absolute", top: "max(14px, env(safe-area-inset-top))", right: 16,
+              width: 36, height: 36, borderRadius: "50%",
+              background: "rgba(255,255,255,0.12)", border: "none", cursor: "pointer",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              zIndex: 1,
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <path d="M2 2l10 10M12 2L2 12" stroke="rgba(255,255,255,0.85)" strokeWidth="2" strokeLinecap="round"/>
+            </svg>
+          </button>
+
+          {/* Conteúdo rolável: foto + nome + descrição */}
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              flex: 1, overflowY: "auto",
+              padding: "8px 20px 0",
+              display: "flex", flexDirection: "column", alignItems: "center",
+            }}
+          >
+            {/* Foto — fundo claro para que ilustrações em linha escura fiquem visíveis */}
+            <div style={{
+              width: "100%",
+              background: "#fff", borderRadius: 16,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              overflow: "hidden", flexShrink: 0,
+              minHeight: 220,
+            }}>
+              {pickerInfo.photo ? (
+                <img
+                  src={pickerInfo.photo}
+                  alt={pickerInfo.name}
+                  style={{ width: "100%", maxHeight: "44vh", objectFit: "contain" }}
+                />
+              ) : (
+                <svg width="64" height="36" viewBox="0 0 36 20" fill="none" opacity={0.18}>
+                  <rect x="0.5" y="7" width="7" height="6" rx="2" fill="#000"/>
+                  <rect x="3" y="4.5" width="3" height="11" rx="1.5" fill="#000"/>
+                  <rect x="6.5" y="9" width="23" height="2" rx="1" fill="#000"/>
+                  <rect x="28.5" y="7" width="7" height="6" rx="2" fill="#000"/>
+                  <rect x="30" y="4.5" width="3" height="11" rx="1.5" fill="#000"/>
+                </svg>
+              )}
+            </div>
+
+            {/* Nome + grupo muscular */}
+            <div style={{ padding: "20px 4px 4px", textAlign: "center" }}>
+              <div style={{ fontSize: 22, fontWeight: 800, color: "#fff", marginBottom: 10 }}>
+                {pickerInfo.name}
+              </div>
+              {pickerInfo.muscle_group && (
+                <span style={{
+                  display: "inline-block",
+                  background: "rgba(255,255,255,0.15)", borderRadius: 20,
+                  padding: "4px 16px", fontSize: 13, fontWeight: 600, color: "rgba(255,255,255,0.85)",
+                }}>
+                  {pickerInfo.muscle_group}
+                </span>
+              )}
+            </div>
+
+            {/* Descrição / como executar */}
+            <div style={{ width: "100%", padding: "20px 0 8px" }}>
+              <div style={{
+                fontSize: 11, fontWeight: 700, letterSpacing: 0.7,
+                textTransform: "uppercase", color: "rgba(255,255,255,0.5)",
+                marginBottom: 8,
+              }}>
+                {t("goals_exercise_how_to")}
+              </div>
+              <p style={{
+                fontSize: 14, lineHeight: 1.6, margin: 0,
+                color: pickerInfo.description ? "rgba(255,255,255,0.82)" : "rgba(255,255,255,0.45)",
+                fontStyle: pickerInfo.description ? "normal" : "italic",
+                whiteSpace: "pre-wrap",
+              }}>
+                {pickerInfo.description || t("goals_exercise_no_description")}
+              </p>
+            </div>
           </div>
         </div>
       )}
@@ -1367,54 +1800,78 @@ export function WorkoutSessionDialog({
               </svg>
             </button>
 
-            {/* Foto grande */}
+            {/* Conteúdo rolável: foto + nome + descrição */}
             <div
               onClick={(e) => e.stopPropagation()}
-              style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 16px" }}
+              style={{
+                flex: 1, overflowY: "auto",
+                padding: "8px 20px 0",
+                display: "flex", flexDirection: "column", alignItems: "center",
+              }}
             >
-              {infoItem.workoutPhoto ? (
-                <img
-                  src={infoItem.workoutPhoto}
-                  alt={infoItem.workoutName || ""}
-                  style={{
-                    width: "100%", maxHeight: "60vh", objectFit: "contain",
-                    borderRadius: 16,
-                  }}
-                />
-              ) : (
-                <div style={{
-                  width: "100%", height: 240,
-                  background: "rgba(255,255,255,0.06)", borderRadius: 16,
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                }}>
-                  <svg width="64" height="36" viewBox="0 0 36 20" fill="none" opacity={0.3}>
-                    <rect x="0.5" y="7" width="7" height="6" rx="2" fill="white"/>
-                    <rect x="3" y="4.5" width="3" height="11" rx="1.5" fill="white"/>
-                    <rect x="6.5" y="9" width="23" height="2" rx="1" fill="white"/>
-                    <rect x="28.5" y="7" width="7" height="6" rx="2" fill="white"/>
-                    <rect x="30" y="4.5" width="3" height="11" rx="1.5" fill="white"/>
+              {/* Foto — fundo claro para que ilustrações em linha escura fiquem visíveis */}
+              <div style={{
+                width: "100%",
+                background: "#fff", borderRadius: 16,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                overflow: "hidden", flexShrink: 0,
+                minHeight: 220,
+              }}>
+                {infoItem.workoutPhoto ? (
+                  <img
+                    src={infoItem.workoutPhoto}
+                    alt={infoItem.workoutName || ""}
+                    style={{
+                      width: "100%", maxHeight: "44vh", objectFit: "contain",
+                    }}
+                  />
+                ) : (
+                  <svg width="64" height="36" viewBox="0 0 36 20" fill="none" opacity={0.18}>
+                    <rect x="0.5" y="7" width="7" height="6" rx="2" fill="#000"/>
+                    <rect x="3" y="4.5" width="3" height="11" rx="1.5" fill="#000"/>
+                    <rect x="6.5" y="9" width="23" height="2" rx="1" fill="#000"/>
+                    <rect x="28.5" y="7" width="7" height="6" rx="2" fill="#000"/>
+                    <rect x="30" y="4.5" width="3" height="11" rx="1.5" fill="#000"/>
                   </svg>
-                </div>
-              )}
-            </div>
-
-            {/* Nome + grupo muscular */}
-            <div
-              onClick={(e) => e.stopPropagation()}
-              style={{ padding: "20px 24px", textAlign: "center" }}
-            >
-              <div style={{ fontSize: 22, fontWeight: 800, color: "#fff", marginBottom: 10 }}>
-                {infoItem.workoutName}
+                )}
               </div>
-              {infoItem.muscle_group && (
-                <span style={{
-                  display: "inline-block",
-                  background: "rgba(255,255,255,0.15)", borderRadius: 20,
-                  padding: "4px 16px", fontSize: 13, fontWeight: 600, color: "rgba(255,255,255,0.85)",
+
+              {/* Nome + grupo muscular */}
+              <div style={{ padding: "20px 4px 4px", textAlign: "center" }}>
+                <div style={{ fontSize: 22, fontWeight: 800, color: "#fff", marginBottom: 10 }}>
+                  {infoItem.workoutName}
+                </div>
+                {infoItem.muscle_group && (
+                  <span style={{
+                    display: "inline-block",
+                    background: "rgba(255,255,255,0.15)", borderRadius: 20,
+                    padding: "4px 16px", fontSize: 13, fontWeight: 600, color: "rgba(255,255,255,0.85)",
+                  }}>
+                    {infoItem.muscle_group}
+                  </span>
+                )}
+              </div>
+
+              {/* Descrição / como executar */}
+              <div style={{ width: "100%", padding: "20px 0 8px" }}>
+                <div style={{
+                  fontSize: 11, fontWeight: 700, letterSpacing: 0.7,
+                  textTransform: "uppercase", color: "rgba(255,255,255,0.5)",
+                  marginBottom: 8,
                 }}>
-                  {infoItem.muscle_group}
-                </span>
-              )}
+                  {t("goals_exercise_how_to")}
+                </div>
+                <p style={{
+                  fontSize: 14, lineHeight: 1.6, margin: 0,
+                  color: infoItem.workoutDescription
+                    ? "rgba(255,255,255,0.82)"
+                    : "rgba(255,255,255,0.45)",
+                  fontStyle: infoItem.workoutDescription ? "normal" : "italic",
+                  whiteSpace: "pre-wrap",
+                }}>
+                  {infoItem.workoutDescription || t("goals_exercise_no_description")}
+                </p>
+              </div>
             </div>
           </div>
         );
@@ -1448,10 +1905,13 @@ export function WorkoutSessionDialog({
               style={{
                 position: "relative",
                 width: "100%", maxWidth: 340,
-                background: CARD, borderRadius: 28,
+                background: "linear-gradient(rgba(40,38,54,0.92),rgba(18,16,28,0.96))",
+                backdropFilter: GLASS_BLUR, WebkitBackdropFilter: GLASS_BLUR,
+                border: `1px solid ${BORDER}`,
+                borderRadius: 28,
                 padding: "28px 24px 24px",
                 display: "flex", flexDirection: "column", alignItems: "center",
-                boxShadow: "0 20px 60px rgba(0,0,0,0.4)",
+                boxShadow: "0 24px 64px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.1)",
               }}
             >
               {/* Fechar (mantém o timer ativo na barra inferior) */}
@@ -1461,7 +1921,7 @@ export function WorkoutSessionDialog({
                 style={{
                   position: "absolute", top: 14, right: 14,
                   width: 32, height: 32, borderRadius: "50%",
-                  background: "hsl(var(--secondary))", border: "none", cursor: "pointer",
+                  background: SURFACE, border: "none", cursor: "pointer",
                   display: "flex", alignItems: "center", justifyContent: "center",
                 }}
               >
@@ -1503,10 +1963,11 @@ export function WorkoutSessionDialog({
                 <button
                   onClick={() => setGlobalRestTimerPaused((p) => !p)}
                   style={{
-                    flex: 1, background: PRIMARY, color: PRIMARY_FG,
-                    border: "none", borderRadius: 14, height: 50,
+                    flex: 1, background: GLASS_GRADIENT, color: "#fff",
+                    border: "none", borderRadius: 16, height: 50,
                     fontSize: 14, fontWeight: 700, cursor: "pointer",
                     display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                    boxShadow: "0 6px 18px rgba(91,140,255,0.35)",
                   }}
                 >
                   {globalRestTimerPaused ? (
@@ -1525,7 +1986,7 @@ export function WorkoutSessionDialog({
                 <button
                   onClick={() => { setRestModalOpen(false); onMinimize(); }}
                   style={{
-                    flex: 1, background: "hsl(var(--secondary))", color: FG,
+                    flex: 1, background: SURFACE, color: FG,
                     border: "none", borderRadius: 14, height: 50,
                     fontSize: 14, fontWeight: 700, cursor: "pointer",
                     display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
@@ -1571,9 +2032,12 @@ export function WorkoutSessionDialog({
         >
           <div style={{
             width: "100%", maxWidth: 320,
-            background: CARD, borderRadius: 20,
+            background: "linear-gradient(rgba(40,38,54,0.92),rgba(18,16,28,0.96))",
+            backdropFilter: GLASS_BLUR, WebkitBackdropFilter: GLASS_BLUR,
+            border: `1px solid ${BORDER}`,
+            borderRadius: 24,
             padding: "24px 20px 20px",
-            boxShadow: "0 20px 60px rgba(0,0,0,0.4)",
+            boxShadow: "0 24px 64px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.1)",
           }}>
             <div style={{ fontSize: 17, fontWeight: 800, color: FG, marginBottom: 8 }}>
               {t("goals_confirm_end_workout")}
@@ -1609,7 +2073,7 @@ export function WorkoutSessionDialog({
                 onClick={() => { setSaveError(null); setConfirmOpen(false); }}
                 style={{
                   flex: 1, height: 46, borderRadius: 12,
-                  background: "hsl(var(--secondary))", border: "none",
+                  background: SURFACE, border: "none",
                   fontSize: 14, fontWeight: 700, color: FG, cursor: "pointer",
                 }}
               >

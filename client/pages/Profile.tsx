@@ -1212,7 +1212,7 @@ export default function Profile() {
               const ring = (
                 <div style={{ width: 88, height: 88, borderRadius: "50%", padding: "3px", background: "conic-gradient(from 200deg,#ff8a2a,#d8567a,#7b3ff2,#3a8dff,#ff8a2a)" }}>
                   <div className="w-full h-full rounded-full overflow-hidden" style={{ border: "3px solid #06070c" }}>
-                    <UserAvatar photo={profile.photo} nickname={profile.nickname} className="!h-full !w-full" />
+                    <UserAvatar photo={profile.photo} nickname={profile.nickname} size="2xl" quality={90} className="!h-full !w-full" />
                   </div>
                 </div>
               );

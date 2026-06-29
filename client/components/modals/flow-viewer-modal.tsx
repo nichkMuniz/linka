@@ -110,6 +110,11 @@ export function FlowViewerModal({
   const timerIntervalRef = React.useRef<NodeJS.Timeout | null>(null);
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
 
+  const isVideo = React.useMemo(() => {
+    if (!story?.media_url) return false;
+    return story.media_url.includes(".mp4") || story.media_url.includes(".webm") || story.media_url.includes(".mov") || (story.media_url.startsWith("data:") && story.media_url.includes("video"));
+  }, [story?.media_url]);
+
   // Track visual viewport so the fullscreen dialog stays within the visible area
   // on iOS when the software keyboard opens (layout viewport doesn't shrink, visual does).
   const [vp, setVp] = React.useState<{ height: number; offsetTop: number }>(() => ({
@@ -216,7 +221,14 @@ export function FlowViewerModal({
 
   React.useEffect(() => {
     isTypingRef.current = isTyping;
-  }, [isTyping]);
+    if (isVideo && videoRef.current) {
+      if (isTyping) {
+        videoRef.current.pause();
+      } else if (!isPausedRef.current) {
+        videoRef.current.play().catch(() => {});
+      }
+    }
+  }, [isTyping, isVideo]);
 
   React.useEffect(() => {
     isPausedRef.current = isPaused;
@@ -284,6 +296,11 @@ export function FlowViewerModal({
 
     if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
 
+    // Vídeos dirigem o próprio progresso e o avanço automático pelos eventos
+    // timeupdate/ended do elemento <video>, de modo que a barra de progresso
+    // corresponde exatamente à duração real do vídeo.
+    if (isVideo) return;
+
     const STORY_DURATION = 8000;
     const TIMER_INTERVAL = 50;
     let elapsedTime = 0;
@@ -306,10 +323,24 @@ export function FlowViewerModal({
     return () => {
       if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
     };
-  }, [open, story?.id, user]);
+  }, [open, story?.id, user, isVideo]);
 
   const handleTogglePause = React.useCallback(() => {
     setIsPaused((prev) => !prev);
+  }, []);
+
+  // Mantém a barra de progresso sincronizada com a posição real do vídeo.
+  const handleVideoTimeUpdate = React.useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
+    const video = e.currentTarget;
+    if (!video.duration || !isFinite(video.duration)) return;
+    const remaining = Math.max(0, 100 - (video.currentTime / video.duration) * 100);
+    setTimerProgress(remaining);
+  }, []);
+
+  // Quando o vídeo termina, avança para o próximo flow.
+  const handleVideoEnded = React.useCallback(() => {
+    setTimerProgress(0);
+    onNextStoryRef.current();
   }, []);
 
   const handleOpenViewers = React.useCallback(async () => {
@@ -422,11 +453,6 @@ export function FlowViewerModal({
     }
   }, [story, onOpenChange, onDeleted]);
 
-  const isVideo = React.useMemo(() => {
-    if (!story?.media_url) return false;
-    return story.media_url.includes(".mp4") || story.media_url.includes(".webm") || story.media_url.includes(".mov") || (story.media_url.startsWith("data:") && story.media_url.includes("video"));
-  }, [story?.media_url]);
-
   const sortedStories = React.useMemo(() => {
     const groups: Record<string, StoryWithUser[]> = {};
     stories.forEach((s) => {
@@ -497,7 +523,7 @@ export function FlowViewerModal({
                 {prevStory.background_color && !prevStory.media_url ? (
                   <div className="w-full h-full" style={{ background: prevStory.background_color }} />
                 ) : prevStory.media_url?.includes(".mp4") || prevStory.media_url?.includes(".webm") ? (
-                  <video src={prevStory.media_url} muted loop playsInline className="w-full h-full object-cover" />
+                  <video src={prevStory.media_url} muted loop playsInline preload="metadata" className="w-full h-full object-cover" />
                 ) : (
                   <img src={cdnImg(prevStory.media_url, { width: 800, quality: 70 }) ?? prevStory.media_url} className="w-full h-full object-cover" alt="" />
                 )}
@@ -681,10 +707,38 @@ export function FlowViewerModal({
                             )}
                           </div>
                         ) : isVideo ? (
-                          <video ref={videoRef} src={story.media_url} className="w-full h-full object-cover" autoPlay loop muted playsInline preload="auto" />
+                          <video ref={videoRef} src={story.media_url} className="w-full h-full object-cover" autoPlay muted playsInline preload="auto" onTimeUpdate={handleVideoTimeUpdate} onEnded={handleVideoEnded} />
                         ) : (
                           <img src={cdnImg(story.media_url, { width: 1080, quality: 75 }) ?? story.media_url} alt="Flow" className="w-full h-full object-cover" />
                         )}
+
+                        {/* Frases posicionadas sobre a mídia (renderizadas ao vivo) */}
+                        {story.media_url &&
+                          Array.isArray(story.text_elements) &&
+                          story.text_elements.length > 0 && (
+                            <div className="absolute inset-0 pointer-events-none z-[5]">
+                              {story.text_elements.map((el, idx) => (
+                                <div
+                                  key={idx}
+                                  className="absolute px-6 max-w-[90%]"
+                                  style={{ left: `${el.x}%`, top: `${el.y}%`, transform: "translate(-50%, -50%)" }}
+                                >
+                                  <p
+                                    className="text-3xl leading-tight break-words whitespace-pre-wrap"
+                                    style={{
+                                      textShadow: "0 1px 6px rgba(0,0,0,0.5)",
+                                      fontFamily: el.style?.fontFamily ?? "system-ui, sans-serif",
+                                      fontWeight: el.style?.fontWeight ?? 800,
+                                      textAlign: el.style?.align ?? "center",
+                                      color: el.style?.color ?? "#ffffff",
+                                    }}
+                                  >
+                                    {el.text}
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                       </motion.div>
                     </AnimatePresence>
 
@@ -801,7 +855,7 @@ export function FlowViewerModal({
                 {nextStory.background_color && !nextStory.media_url ? (
                   <div className="w-full h-full" style={{ background: nextStory.background_color }} />
                 ) : nextStory.media_url?.includes(".mp4") || nextStory.media_url?.includes(".webm") ? (
-                  <video src={nextStory.media_url} muted loop playsInline className="w-full h-full object-cover" />
+                  <video src={nextStory.media_url} muted loop playsInline preload="metadata" className="w-full h-full object-cover" />
                 ) : (
                   <img src={nextStory.media_url} className="w-full h-full object-cover" alt="" />
                 )}
@@ -823,24 +877,32 @@ export function FlowViewerModal({
       {/* Comments Drawer */}
       <Drawer open={commentsDrawerOpen} onOpenChange={(o) => { setCommentsDrawerOpen(o); if (!o) { setIsPaused(false); isPausedRef.current = false; } }} noBodyStyles shouldScaleBackground={false}>
         <DrawerContent
-          className="flex flex-col"
-          style={{ maxHeight: Math.min(vp.height * 0.88, vp.height - 80) }}
+          handleClassName="mt-[10px] h-1 w-[38px] bg-white/25"
+          className="flex flex-col !rounded-t-[32px] !border-0"
+          style={{
+            maxHeight: Math.min(vp.height * 0.88, vp.height - 80),
+            background: "linear-gradient(rgba(30,28,40,.88),rgba(14,13,20,.96))",
+            backdropFilter: "blur(40px) saturate(180%)",
+            WebkitBackdropFilter: "blur(40px) saturate(180%)",
+            borderTop: "1px solid rgba(255,255,255,.14)",
+          }}
           onOpenAutoFocus={(e) => e.preventDefault()}
           onPointerDown={(e) => e.stopPropagation()}
         >
-          <DrawerHeader>
-            <DrawerTitle className="flex items-center gap-2 pt-2">
-              Comentários ({comments.length})
-            </DrawerTitle>
-            <DrawerDescription className="sr-only">Lista de comentários do flow</DrawerDescription>
-          </DrawerHeader>
+          <DrawerTitle
+            className="flex-shrink-0 px-[18px] pb-[14px] pt-2 text-[18px] leading-none"
+            style={{ fontWeight: 740, color: "#fff" }}
+          >
+            Comentários · {comments.length}
+          </DrawerTitle>
+          <DrawerDescription className="sr-only">Lista de comentários do flow</DrawerDescription>
           <div
-            className="flex-1 overflow-y-auto overscroll-contain px-4 space-y-4"
+            className="flex-1 overflow-y-auto overscroll-contain px-[18px] space-y-4"
             style={{ paddingBottom: "max(3rem, env(safe-area-inset-bottom))" }}
             onTouchMove={(e) => e.stopPropagation()}
           >
             {comments.length === 0 ? (
-              <p className="text-center text-muted-foreground py-10">Nenhum comentário ainda</p>
+              <p className="text-center py-10 text-sm" style={{ color: "rgba(255,255,255,.5)" }}>Nenhum comentário ainda</p>
             ) : (
               comments.map((comment) => (
                 <div key={comment.id} className="flex flex-col gap-1.5">
@@ -854,10 +916,10 @@ export function FlowViewerModal({
                         />
                       </div>
                       <div className="flex flex-col min-w-0 flex-1">
-                        <span className="text-sm font-bold leading-tight">
+                        <span className="text-sm font-bold leading-tight" style={{ color: "#fff" }}>
                           {comment.userName}
                           {comment.userHandle && (
-                            <span className="font-normal text-muted-foreground"> @{comment.userHandle.replace(/^@/, "")}</span>
+                            <span className="font-normal" style={{ color: "rgba(255,255,255,.5)" }}> @{comment.userHandle.replace(/^@/, "")}</span>
                           )}
                         </span>
                         {editingCommentId === comment.id ? (
@@ -865,7 +927,12 @@ export function FlowViewerModal({
                             <textarea
                               value={editCommentDraft}
                               onChange={(e) => setEditCommentDraft(e.target.value)}
-                              className="w-full resize-none rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring min-h-16"
+                              className="w-full resize-none rounded-2xl px-3 py-2 text-sm focus:outline-none min-h-16"
+                              style={{
+                                background: "rgba(255,255,255,.07)",
+                                border: "1px solid rgba(255,255,255,.12)",
+                                color: "#fff",
+                              }}
                               disabled={savingEditCommentId === comment.id}
                               autoFocus
                               onKeyDown={(e) => {
@@ -881,7 +948,8 @@ export function FlowViewerModal({
                                 type="button"
                                 onClick={() => handleSaveEditComment(comment.id)}
                                 disabled={!editCommentDraft.trim() || savingEditCommentId === comment.id}
-                                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}
                               >
                                 <Check className="h-3 w-3" />
                                 Salvar
@@ -890,7 +958,8 @@ export function FlowViewerModal({
                                 type="button"
                                 onClick={handleCancelEditComment}
                                 disabled={savingEditCommentId === comment.id}
-                                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium bg-muted text-muted-foreground hover:bg-muted/80 disabled:opacity-50 transition-colors"
+                                className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium disabled:opacity-50 transition-colors"
+                                style={{ background: "rgba(255,255,255,.08)", color: "rgba(255,255,255,.7)" }}
                               >
                                 <X className="h-3 w-3" />
                                 Cancelar
@@ -898,7 +967,7 @@ export function FlowViewerModal({
                             </div>
                           </div>
                         ) : (
-                          <span className="text-sm leading-normal break-words">{comment.text}</span>
+                          <span className="text-sm leading-normal break-words" style={{ color: "rgba(255,255,255,.82)" }}>{comment.text}</span>
                         )}
                       </div>
                     </div>
@@ -906,13 +975,15 @@ export function FlowViewerModal({
                       <div className="flex shrink-0 gap-0.5 ml-2">
                         <button
                           onClick={() => handleStartEditComment(comment)}
-                          className="text-muted-foreground hover:text-foreground p-1"
+                          className="rounded-lg p-1.5 transition-colors active:opacity-70"
+                          style={{ color: "rgba(255,255,255,.4)" }}
                         >
                           <Pencil className="h-4 w-4" />
                         </button>
                         <button
                           onClick={() => setCommentToDelete(comment.id)}
-                          className="text-muted-foreground hover:text-red-400 p-1"
+                          className="rounded-lg p-1.5 transition-colors active:opacity-70 hover:text-red-400"
+                          style={{ color: "rgba(255,255,255,.4)" }}
                         >
                           <Trash2 className="h-4 w-4" />
                         </button>

@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Bell, Check, Pencil, Play, Target, Trash2 } from "lucide-react";
+import { Bell, Check, ChevronDown, Pencil, Play, Target, Trash2 } from "lucide-react";
 import {
   Drawer,
   DrawerContent,
@@ -22,6 +22,7 @@ import { ExerciseImage } from "@/components/shared/exercise-image";
 import { useLanguage } from "@/lib/language-context";
 import { formatScheduledTime } from "@/hooks/use-routine-notifications";
 import { isCompletedToday, type RoutineCard, type RoutineItem } from "@/components/goals/goals-helpers";
+import { getSuggestedSetsForRoutine } from "@/components/goals/suggested-routines-data";
 import type { UserGoal } from "@/lib/ritmofit-db";
 
 type EditorMode = null | "rename" | "time" | "goal";
@@ -57,6 +58,14 @@ export function RoutineDetailDrawer({
   const [timeValue, setTimeValue] = React.useState("");
   const [isBusy, setIsBusy] = React.useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = React.useState(false);
+  const [expandedItem, setExpandedItem] = React.useState<string | null>(null);
+
+  // Séries × reps sugeridos pelo programa (casado pelo nome da rotina), os
+  // mesmos exibidos no momento da criação. Rotina custom → mapa vazio.
+  const suggestedSets = React.useMemo(
+    () => getSuggestedSetsForRoutine(card?.name ?? ""),
+    [card?.name],
+  );
 
   React.useEffect(() => {
     if (card) {
@@ -64,6 +73,7 @@ export function RoutineDetailDrawer({
       setRenameValue(card.name ?? "");
       setTimeValue(card.scheduledTime ? card.scheduledTime.slice(0, 5) : "");
       setDeleteConfirmOpen(false);
+      setExpandedItem(null);
     }
   }, [card?.key]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -134,49 +144,100 @@ export function RoutineDetailDrawer({
                     ? item.dietName
                     : item.habitName;
               const completed = card.type !== 1 && isCompletedToday(item as any);
+              const isWorkout = item.kind === "workout";
+              const sug = isWorkout
+                ? suggestedSets.get((item.workoutName || "").trim().toLowerCase())
+                : undefined;
+              const expanded = isWorkout && expandedItem === item.id;
+              const subtitle =
+                item.kind === "workout"
+                  ? item.muscle_group || ""
+                  : item.kind === "diet"
+                    ? [item.dietCategory, item.dietCalories ? `${item.dietCalories} kcal` : null].filter(Boolean).join(" · ")
+                    : item.habitDescription || "";
               return (
                 <div
                   key={item.id}
-                  className="flex items-center gap-3 rounded-2xl p-2.5"
+                  className="rounded-2xl overflow-hidden"
                   style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}
                 >
-                  {item.kind === "workout" ? (
-                    <ExerciseImage
-                      photo={item.workoutPhoto ?? null}
-                      name={item.workoutName || ""}
-                      muscleGroup={item.muscle_group}
-                      className="h-10 w-10 rounded-lg"
-                    />
-                  ) : (
+                  <div className="flex items-center gap-3 p-2.5">
+                    {isWorkout ? (
+                      <button
+                        onClick={() => setExpandedItem(expanded ? null : item.id)}
+                        className="flex items-center gap-3 flex-1 min-w-0 text-left"
+                        aria-expanded={expanded}
+                      >
+                        <ExerciseImage
+                          photo={item.workoutPhoto ?? null}
+                          name={item.workoutName || ""}
+                          muscleGroup={item.muscle_group}
+                          className="h-10 w-10 rounded-lg shrink-0"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate" style={{ color: "#fff" }}>
+                            {itemName}
+                          </p>
+                          <p className="text-xs truncate" style={{ color: "rgba(255,255,255,.5)" }}>
+                            {subtitle}
+                          </p>
+                        </div>
+                        <ChevronDown
+                          className={`h-4 w-4 shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`}
+                          style={{ color: "rgba(255,255,255,.5)" }}
+                        />
+                      </button>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => onToggleItem(card, item, !completed)}
+                          className={`h-10 w-10 rounded-lg flex items-center justify-center shrink-0 transition-all active:scale-95 ${
+                            completed ? "bg-emerald-500 text-white" : "bg-muted/50 text-muted-foreground"
+                          }`}
+                          aria-label={itemName}
+                        >
+                          <Check className="h-5 w-5" />
+                        </button>
+                        <div className="flex-1 min-w-0">
+                          <p className={`text-sm font-medium truncate ${completed ? "line-through" : ""}`} style={{ color: completed ? "rgba(255,255,255,.4)" : "#fff" }}>
+                            {itemName}
+                          </p>
+                          <p className="text-xs truncate" style={{ color: "rgba(255,255,255,.5)" }}>
+                            {subtitle}
+                          </p>
+                        </div>
+                      </>
+                    )}
                     <button
-                      onClick={() => onToggleItem(card, item, !completed)}
-                      className={`h-10 w-10 rounded-lg flex items-center justify-center shrink-0 transition-all active:scale-95 ${
-                        completed ? "bg-emerald-500 text-white" : "bg-muted/50 text-muted-foreground"
-                      }`}
-                      aria-label={itemName}
+                      onClick={() => onDeleteItem(card, item)}
+                      className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground/60 shrink-0"
+                      aria-label={t("goals_remove_from_routine")}
                     >
-                      <Check className="h-5 w-5" />
+                      <Trash2 className="h-3.5 w-3.5" />
                     </button>
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <p className={`text-sm font-medium truncate ${completed ? "line-through" : ""}`} style={{ color: completed ? "rgba(255,255,255,.4)" : "#fff" }}>
-                      {itemName}
-                    </p>
-                    <p className="text-xs truncate" style={{ color: "rgba(255,255,255,.5)" }}>
-                      {item.kind === "workout"
-                        ? item.muscle_group || ""
-                        : item.kind === "diet"
-                          ? [item.dietCategory, item.dietCalories ? `${item.dietCalories} kcal` : null].filter(Boolean).join(" · ")
-                          : item.habitDescription || ""}
-                    </p>
                   </div>
-                  <button
-                    onClick={() => onDeleteItem(card, item)}
-                    className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground/60 shrink-0"
-                    aria-label={t("goals_remove_from_routine")}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
+
+                  {expanded && (
+                    <div className="px-2.5 pb-2.5">
+                      <div
+                        className="flex items-center justify-between rounded-xl px-3 py-2.5"
+                        style={{ background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.08)" }}
+                      >
+                        <span className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>
+                          {t("goals_detail_series_reps_caption")}
+                        </span>
+                        {sug ? (
+                          <span className="text-sm font-bold tabular-nums" style={{ color: "#fff" }}>
+                            {sug.series} × {sug.reps}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-right max-w-[55%]" style={{ color: "rgba(255,255,255,.5)" }}>
+                            {t("goals_detail_no_suggested_sets")}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}

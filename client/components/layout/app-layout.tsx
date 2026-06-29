@@ -786,7 +786,14 @@ export function AppLayout() {
                   resetWorkoutState();
                 }
               }}
-              className="flex items-center justify-center bg-destructive text-white rounded-full shadow-lg w-10 h-10 transition-all active:scale-95"
+              className="flex items-center justify-center text-white rounded-full w-10 h-10 transition-all active:scale-95"
+              style={{
+                background: "linear-gradient(rgba(255,90,90,.26),rgba(220,40,40,.14))",
+                backdropFilter: "blur(26px) saturate(180%)",
+                WebkitBackdropFilter: "blur(26px) saturate(180%)",
+                border: "1px solid rgba(255,130,130,.32)",
+                boxShadow: "inset 0 1px 0 rgba(255,255,255,.28), 0 12px 30px -10px rgba(0,0,0,.55)",
+              }}
               title={t("goals_workout_end_confirm")}
               aria-label={t("goals_workout_end_confirm")}
             >
@@ -799,8 +806,14 @@ export function AppLayout() {
                   navigate("/metas");
                 }
               }}
-              className="flex items-center gap-2 bg-brand text-white rounded-full shadow-lg px-4 py-3 font-semibold text-sm transition-all active:scale-95 animate-pulse relative overflow-hidden"
-              style={{ boxShadow: "0 4px 24px rgba(0,0,0,0.3)" }}
+              className="flex items-center gap-2 text-white rounded-full px-4 py-3 font-semibold text-sm transition-all active:scale-95 animate-pulse relative overflow-hidden"
+              style={{
+                background: "linear-gradient(rgba(255,255,255,.16),rgba(255,255,255,.06))",
+                backdropFilter: "blur(26px) saturate(180%)",
+                WebkitBackdropFilter: "blur(26px) saturate(180%)",
+                border: "1px solid rgba(255,255,255,.18)",
+                boxShadow: "inset 0 1px 0 rgba(255,255,255,.3), 0 16px 36px -12px rgba(0,0,0,.6)",
+              }}
             >
               {showTimer ? (
                 <>

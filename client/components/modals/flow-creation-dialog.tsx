@@ -210,6 +210,7 @@ export function FlowCreationDialog({
   const [cameraReady, setCameraReady] = React.useState(false);
   const [isRecording, setIsRecording] = React.useState(false);
   const [recordSeconds, setRecordSeconds] = React.useState(0);
+  const [zoom, setZoom] = React.useState(1);
   const [mediaTransform, setMediaTransformState] = React.useState<MediaTransform>(IDENTITY_TRANSFORM);
 
   type TextItem = { id: string; text: string; x: number; y: number; style: TextStyle };
@@ -232,6 +233,12 @@ export function FlowCreationDialog({
   const wantRecordingRef = React.useRef(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
+  // Zoom da câmera: usa zoom nativo do sensor quando suportado; senão, zoom
+  // digital via CSS (com recorte equivalente na captura de foto).
+  const zoomRef = React.useRef(1);
+  const nativeZoomRef = React.useRef<{ min: number; max: number; step: number } | null>(null);
+  const pinchRef = React.useRef<{ startDist: number; startZoom: number } | null>(null);
+  const MAX_DIGITAL_ZOOM = 5;
   const captionFrameRef = React.useRef<HTMLDivElement>(null);
   const transformRef = React.useRef<MediaTransform>(IDENTITY_TRANSFORM);
   const pointersRef = React.useRef<Map<number, { x: number; y: number }>>(new Map());
@@ -308,6 +315,20 @@ export function FlowCreationDialog({
         audio: false,
       });
       streamRef.current = stream;
+      // Reseta o zoom e detecta suporte a zoom nativo do sensor (quando houver)
+      zoomRef.current = 1;
+      pinchRef.current = null;
+      setZoom(1);
+      nativeZoomRef.current = null;
+      const track = stream.getVideoTracks()[0];
+      const caps: any = track?.getCapabilities?.();
+      if (caps && typeof caps.zoom === "object" && "max" in caps.zoom) {
+        nativeZoomRef.current = {
+          min: caps.zoom.min ?? 1,
+          max: caps.zoom.max ?? 1,
+          step: caps.zoom.step ?? 0.1,
+        };
+      }
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         await videoRef.current.play().catch(() => {});
@@ -384,6 +405,59 @@ export function FlowCreationDialog({
     setFacingMode((m) => (m === "user" ? "environment" : "user"));
   };
 
+  // Detecção de duplo toque na pré-visualização para virar a câmera
+  const lastTapRef = React.useRef(0);
+  const handlePreviewTap = () => {
+    if (cameraError) return;
+    const now = Date.now();
+    if (now - lastTapRef.current < 300) {
+      lastTapRef.current = 0;
+      handleFlipCamera();
+    } else {
+      lastTapRef.current = now;
+    }
+  };
+
+  // Aplica o nível de zoom: usa o sensor (nativo) quando disponível, caso
+  // contrário recorre ao zoom digital via CSS (refletido na captura de foto).
+  const applyZoom = React.useCallback((value: number) => {
+    const native = nativeZoomRef.current;
+    if (native) {
+      const clamped = Math.min(native.max, Math.max(native.min, value));
+      zoomRef.current = clamped;
+      setZoom(clamped);
+      const track = streamRef.current?.getVideoTracks()[0];
+      track?.applyConstraints({ advanced: [{ zoom: clamped } as any] }).catch(() => {});
+    } else {
+      const clamped = Math.min(MAX_DIGITAL_ZOOM, Math.max(1, value));
+      zoomRef.current = clamped;
+      setZoom(clamped);
+    }
+  }, []);
+
+  const dist2 = (a: React.Touch, b: React.Touch) =>
+    Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+
+  const handlePreviewTouchStart = (e: React.TouchEvent) => {
+    if (cameraError || e.touches.length < 2) return;
+    pinchRef.current = {
+      startDist: dist2(e.touches[0], e.touches[1]),
+      startZoom: zoomRef.current,
+    };
+  };
+
+  const handlePreviewTouchMove = (e: React.TouchEvent) => {
+    const pinch = pinchRef.current;
+    if (!pinch || e.touches.length < 2) return;
+    e.preventDefault();
+    const ratio = dist2(e.touches[0], e.touches[1]) / pinch.startDist;
+    applyZoom(pinch.startZoom * ratio);
+  };
+
+  const handlePreviewTouchEnd = (e: React.TouchEvent) => {
+    if (e.touches.length < 2) pinchRef.current = null;
+  };
+
   const handleCapture = () => {
     const video = videoRef.current;
     if (!video || !cameraReady) return;
@@ -396,7 +470,18 @@ export function FlowCreationDialog({
       ctx.translate(canvas.width, 0);
       ctx.scale(-1, 1);
     }
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    // Zoom digital (fallback sem suporte nativo): recorta a região central
+    // equivalente ao nível de zoom para que a foto reflita a pré-visualização.
+    const digitalZoom = !nativeZoomRef.current ? zoomRef.current : 1;
+    if (digitalZoom > 1) {
+      const sw = video.videoWidth / digitalZoom;
+      const sh = video.videoHeight / digitalZoom;
+      const sx = (video.videoWidth - sw) / 2;
+      const sy = (video.videoHeight - sh) / 2;
+      ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+    } else {
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    }
     const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
     setMediaIsVideo(false);
     setMediaPreview(dataUrl);
@@ -691,6 +776,9 @@ export function FlowCreationDialog({
     });
     setMediaIsVideo(false);
     setDescription("");
+    setTexts([]);
+    setEditingId(null);
+    setEditingValue("");
     setStep("camera");
   };
 
@@ -725,7 +813,18 @@ export function FlowCreationDialog({
           }
         }
       }
-      await onCreateStory(mediaToShare, description, null, null, null, mediaTransformPayload);
+      // Frases posicionadas sobre a foto (renderizadas ao vivo no FlowViewer,
+      // mantendo o texto nítido — não são "queimadas" na imagem)
+      const elementsPercent =
+        texts.length > 0
+          ? texts.map((t) => ({
+              text: t.text,
+              x: Math.round((t.x / window.innerWidth) * 1000) / 10,
+              y: Math.round((t.y / window.innerHeight) * 1000) / 10,
+              style: t.style,
+            }))
+          : null;
+      await onCreateStory(mediaToShare, description, null, null, elementsPercent, mediaTransformPayload);
       resetForm();
       onOpenChange(false);
       toast({
@@ -888,6 +987,106 @@ export function FlowCreationDialog({
     onOpenChange(false);
   };
 
+  // Controles de estilo de texto (cor, fonte, alinhamento) — compartilhados
+  // entre o modo de texto ("create") e a legenda sobre a foto ("caption")
+  const textStyleControls = (
+    <>
+      {/* Cores da fonte */}
+      <div className="flex gap-2 justify-center">
+        {TEXT_COLORS.map((color) => (
+          <button
+            key={color}
+            onClick={() => setEditingStyle((s) => ({ ...s, color }))}
+            className="h-7 w-7 rounded-full border-2 shrink-0 transition-transform"
+            style={{
+              background: color,
+              borderColor: editingStyle.color === color ? "white" : "rgba(255,255,255,0.25)",
+              transform: editingStyle.color === color ? "scale(1.25)" : "scale(1)",
+              boxShadow: color === "#ffffff" ? "inset 0 0 0 1px rgba(0,0,0,0.2)" : undefined,
+            }}
+            aria-label={`Cor ${color}`}
+          />
+        ))}
+      </div>
+
+      {/* Fontes */}
+      <div className="flex gap-1.5 justify-center">
+        {FONT_OPTIONS.map((font) => {
+          const isActive = editingStyle.fontFamily === font.family && editingStyle.fontWeight === font.weight;
+          return (
+            <button
+              key={font.id}
+              onClick={() => setEditingStyle((s) => ({ ...s, fontFamily: font.family, fontWeight: font.weight }))}
+              className="px-3 py-0.5 rounded-full text-sm transition-all"
+              style={{
+                fontFamily: font.family,
+                fontWeight: font.weight,
+                background: isActive ? "rgba(255,255,255,0.92)" : "rgba(0,0,0,0.45)",
+                color: isActive ? "#000" : "#fff",
+              }}
+            >
+              {font.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Alinhamento */}
+      <div className="flex gap-2 justify-center">
+        {(["left", "center", "right"] as const).map((align) => {
+          const Icon = align === "left" ? AlignLeft : align === "center" ? AlignCenter : AlignRight;
+          const isActive = editingStyle.align === align;
+          return (
+            <button
+              key={align}
+              onClick={() => setEditingStyle((s) => ({ ...s, align }))}
+              className="h-8 w-8 rounded-full flex items-center justify-center transition-all"
+              style={{ background: isActive ? "rgba(255,255,255,0.92)" : "rgba(0,0,0,0.45)" }}
+              aria-label={`Alinhar ${align}`}
+            >
+              <Icon className="h-4 w-4" style={{ color: isActive ? "#000" : "#fff" }} />
+            </button>
+          );
+        })}
+      </div>
+    </>
+  );
+
+  // Frases já posicionadas (arrastáveis, toque para reeditar) — compartilhadas
+  // entre o modo de texto e a legenda sobre a foto
+  const committedTextItems = texts.map((item) => (
+    <div
+      key={item.id}
+      className="absolute z-[6] select-none touch-none"
+      style={{
+        left: item.x,
+        top: item.y,
+        transform: "translate(-50%, -50%)",
+        cursor: "move",
+        width: "max-content",
+        maxWidth: "80vw",
+        padding: "0 0.5rem",
+      }}
+      onPointerDown={(e) => handleTextPointerDown(e, item)}
+      onPointerMove={handleTextPointerMove}
+      onPointerUp={(e) => handleTextPointerUp(e, item)}
+      onPointerCancel={(e) => handleTextPointerUp(e, item)}
+    >
+      <p
+        className="text-3xl leading-tight break-words whitespace-pre-wrap"
+        style={{
+          textShadow: "0 1px 6px rgba(0,0,0,0.45)",
+          fontFamily: item.style.fontFamily,
+          fontWeight: item.style.fontWeight,
+          textAlign: item.style.align,
+          color: item.style.color,
+        }}
+      >
+        {item.text}
+      </p>
+    </div>
+  ));
+
   if (!open) return null;
 
   const overlay = (
@@ -903,7 +1102,14 @@ export function FlowCreationDialog({
         {/* Camera step */}
         {step === "camera" && (
           <>
-            <div className="absolute inset-0">
+            <div
+              className="absolute inset-0 touch-none"
+              onClick={handlePreviewTap}
+              onTouchStart={handlePreviewTouchStart}
+              onTouchMove={handlePreviewTouchMove}
+              onTouchEnd={handlePreviewTouchEnd}
+              role="presentation"
+            >
               {cameraError ? (
                 <div className="h-full w-full flex flex-col items-center justify-center text-white text-center px-6 gap-4">
                   <CameraIcon className="h-12 w-12 text-white/60" />
@@ -924,7 +1130,10 @@ export function FlowCreationDialog({
                   playsInline
                   muted
                   className="h-full w-full object-cover"
-                  style={{ transform: facingMode === "user" ? "scaleX(-1)" : undefined }}
+                  style={{
+                    transform: `scaleX(${(facingMode === "user" ? -1 : 1) * (nativeZoomRef.current ? 1 : zoom)}) scaleY(${nativeZoomRef.current ? 1 : zoom})`,
+                    transformOrigin: "center",
+                  }}
                 />
               )}
             </div>
@@ -969,6 +1178,17 @@ export function FlowCreationDialog({
                   <span className="text-white text-sm font-semibold tabular-nums">
                     {Math.floor(recordSeconds / 60)}:
                     {String(recordSeconds % 60).padStart(2, "0")}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Zoom indicator */}
+            {!cameraError && zoom > 1.05 && (
+              <div className="relative z-10 flex items-center justify-center pb-3 pointer-events-none">
+                <div className="rounded-full bg-black/40 backdrop-blur px-3 py-1">
+                  <span className="text-white text-sm font-semibold tabular-nums">
+                    {zoom.toFixed(1)}x
                   </span>
                 </div>
               </div>
@@ -1055,39 +1275,7 @@ export function FlowCreationDialog({
             )}
 
             {/* Committed text items (draggable, tappable to re-edit) */}
-            {!isEditingText &&
-              texts.map((item) => (
-                <div
-                  key={item.id}
-                  className="absolute z-[5] select-none touch-none"
-                  style={{
-                    left: item.x,
-                    top: item.y,
-                    transform: "translate(-50%, -50%)",
-                    cursor: "move",
-                    width: "max-content",
-                    maxWidth: "80vw",
-                    padding: "0 0.5rem",
-                  }}
-                  onPointerDown={(e) => handleTextPointerDown(e, item)}
-                  onPointerMove={handleTextPointerMove}
-                  onPointerUp={(e) => handleTextPointerUp(e, item)}
-                  onPointerCancel={(e) => handleTextPointerUp(e, item)}
-                >
-                  <p
-                    className="text-3xl leading-tight break-words whitespace-pre-wrap"
-                    style={{
-                      textShadow: "0 1px 6px rgba(0,0,0,0.45)",
-                      fontFamily: item.style.fontFamily,
-                      fontWeight: item.style.fontWeight,
-                      textAlign: item.style.align,
-                      color: item.style.color,
-                    }}
-                  >
-                    {item.text}
-                  </p>
-                </div>
-              ))}
+            {!isEditingText && committedTextItems}
 
             {/* Hint when there is no text yet */}
             {!isEditingText && texts.length === 0 && (
@@ -1175,64 +1363,7 @@ export function FlowCreationDialog({
                 className="relative z-[10] px-4 pt-2 pb-1 space-y-2"
                 onClick={(e) => e.stopPropagation()}
               >
-                {/* Cores da fonte */}
-                <div className="flex gap-2 justify-center">
-                  {TEXT_COLORS.map((color) => (
-                    <button
-                      key={color}
-                      onClick={() => setEditingStyle((s) => ({ ...s, color }))}
-                      className="h-7 w-7 rounded-full border-2 shrink-0 transition-transform"
-                      style={{
-                        background: color,
-                        borderColor: editingStyle.color === color ? "white" : "rgba(255,255,255,0.25)",
-                        transform: editingStyle.color === color ? "scale(1.25)" : "scale(1)",
-                        boxShadow: color === "#ffffff" ? "inset 0 0 0 1px rgba(0,0,0,0.2)" : undefined,
-                      }}
-                      aria-label={`Cor ${color}`}
-                    />
-                  ))}
-                </div>
-
-                {/* Fontes */}
-                <div className="flex gap-1.5 justify-center">
-                  {FONT_OPTIONS.map((font) => {
-                    const isActive = editingStyle.fontFamily === font.family && editingStyle.fontWeight === font.weight;
-                    return (
-                      <button
-                        key={font.id}
-                        onClick={() => setEditingStyle((s) => ({ ...s, fontFamily: font.family, fontWeight: font.weight }))}
-                        className="px-3 py-0.5 rounded-full text-sm transition-all"
-                        style={{
-                          fontFamily: font.family,
-                          fontWeight: font.weight,
-                          background: isActive ? "rgba(255,255,255,0.92)" : "rgba(0,0,0,0.45)",
-                          color: isActive ? "#000" : "#fff",
-                        }}
-                      >
-                        {font.label}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* Alinhamento */}
-                <div className="flex gap-2 justify-center">
-                  {(["left", "center", "right"] as const).map((align) => {
-                    const Icon = align === "left" ? AlignLeft : align === "center" ? AlignCenter : AlignRight;
-                    const isActive = editingStyle.align === align;
-                    return (
-                      <button
-                        key={align}
-                        onClick={() => setEditingStyle((s) => ({ ...s, align }))}
-                        className="h-8 w-8 rounded-full flex items-center justify-center transition-all"
-                        style={{ background: isActive ? "rgba(255,255,255,0.92)" : "rgba(0,0,0,0.45)" }}
-                        aria-label={`Alinhar ${align}`}
-                      >
-                        <Icon className="h-4 w-4" style={{ color: isActive ? "#000" : "#fff" }} />
-                      </button>
-                    );
-                  })}
-                </div>
+                {textStyleControls}
               </div>
             )}
 
@@ -1365,51 +1496,114 @@ export function FlowCreationDialog({
                 onPointerCancel={handleMediaPointerUp}
               />
               <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/40 pointer-events-none z-[5]" />
+
+              {/* Frases posicionadas sobre a foto (arrastáveis, toque para reeditar) */}
+              {!isEditingText && committedTextItems}
             </div>
 
-            <div
-              className="relative z-10 flex items-center justify-between px-4"
-              style={{ paddingTop: "max(0.5rem, env(safe-area-inset-top))" }}
-            >
-              <button
-                onClick={handleRetake}
-                className="h-10 w-10 rounded-full bg-black/50 backdrop-blur flex items-center justify-center text-white"
-                aria-label="Refazer"
+            {/* Camada de edição de texto (sobre a foto) */}
+            {isEditingText && (
+              <>
+                <div className="absolute inset-0 z-[20] bg-black/40" onClick={commitEditing} />
+                <div
+                  className="absolute inset-x-0 z-[22] flex items-center justify-end px-4"
+                  style={{ top: 0, paddingTop: "max(0.5rem, env(safe-area-inset-top))" }}
+                >
+                  <button
+                    onClick={commitEditing}
+                    className="h-10 px-4 rounded-full bg-white text-black text-sm font-semibold"
+                  >
+                    Pronto
+                  </button>
+                </div>
+                <div
+                  className="absolute inset-x-0 z-[22] px-4 space-y-2"
+                  style={{ top: "calc(max(0.5rem, env(safe-area-inset-top)) + 3.25rem)" }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {textStyleControls}
+                </div>
+                <div
+                  className="absolute inset-x-0 z-[22] flex items-center justify-center px-6 pointer-events-none"
+                  style={{ top: "52%", transform: "translateY(-50%)" }}
+                >
+                  <textarea
+                    ref={textareaRef}
+                    value={editingValue}
+                    onChange={(e) => setEditingValue(e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
+                    maxLength={200}
+                    placeholder="Digite aqui..."
+                    className="w-full bg-transparent text-3xl leading-tight placeholder:text-white/60 resize-none outline-none border-0 pointer-events-auto"
+                    style={{
+                      textShadow: "0 1px 6px rgba(0,0,0,0.45)",
+                      fontFamily: editingStyle.fontFamily,
+                      fontWeight: editingStyle.fontWeight,
+                      textAlign: editingStyle.align,
+                      color: editingStyle.color,
+                    }}
+                    rows={3}
+                    autoFocus
+                  />
+                </div>
+              </>
+            )}
+
+            {!isEditingText && (
+              <div
+                className="relative z-10 flex items-center justify-between px-4"
+                style={{ paddingTop: "max(0.5rem, env(safe-area-inset-top))" }}
               >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
+                <button
+                  onClick={handleRetake}
+                  className="h-10 w-10 rounded-full bg-black/50 backdrop-blur flex items-center justify-center text-white"
+                  aria-label="Refazer"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+                <button
+                  onClick={beginNewText}
+                  className="h-10 px-3 rounded-full bg-black/40 backdrop-blur flex items-center text-white text-sm font-semibold gap-1"
+                  aria-label="Adicionar texto"
+                >
+                  <Type className="h-4 w-4" />
+                  + Aa
+                </button>
+              </div>
+            )}
 
             {/* Dica de manipulação (some assim que o usuário ajusta) */}
-            {!isMediaTransformed(mediaTransform) && (
+            {!isEditingText && !isMediaTransformed(mediaTransform) && texts.length === 0 && (
               <div className="relative z-10 flex justify-center pt-2 pointer-events-none">
                 <span className="text-white/80 text-xs bg-black/35 backdrop-blur rounded-full px-3 py-1">
-                  Belisque para redimensionar • arraste para mover
+                  Belisque para ajustar • toque em “+ Aa” para escrever
                 </span>
               </div>
             )}
 
             <div className="flex-1" />
 
-            <div
-              className="relative z-10 px-4 space-y-3"
-              style={{ paddingBottom: "max(1.5rem, env(safe-area-inset-bottom))" }}
-            >
-              <Textarea
-                placeholder="Adicione uma descrição..."
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                maxLength={200}
-                className="resize-none h-20 bg-black/40 backdrop-blur border-white/20 text-white placeholder:text-white/60"
-              />
-              <Button
-                onClick={handleSubmitMedia}
-                disabled={isSubmitting || isLoading}
-                className="w-full rounded-full"
+            {!isEditingText && (
+              <div
+                className="relative z-10 px-4 space-y-3"
+                style={{ paddingBottom: "max(1.5rem, env(safe-area-inset-bottom))" }}
               >
-                {isSubmitting || isLoading ? "Enviando..." : "Compartilhar flow"}
-              </Button>
-            </div>
+                <Textarea
+                  placeholder="Adicione uma descrição..."
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  maxLength={200}
+                  className="resize-none h-20 bg-black/40 backdrop-blur border-white/20 text-white placeholder:text-white/60"
+                />
+                <Button
+                  onClick={handleSubmitMedia}
+                  disabled={isSubmitting || isLoading}
+                  className="w-full rounded-full"
+                >
+                  {isSubmitting || isLoading ? "Enviando..." : "Compartilhar flow"}
+                </Button>
+              </div>
+            )}
           </>
         )}
       </div>

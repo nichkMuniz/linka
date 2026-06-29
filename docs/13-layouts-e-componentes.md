@@ -341,3 +341,31 @@ Monitora conectividade:
 Sistema de internacionalização:
 - Hook `useLanguage()` → retorna função `t(key)` para traduções
 - Suporte a múltiplos idiomas (configurável)
+
+---
+
+### DrawerContent (comportamento com teclado iOS)
+**Arquivo:** `client/components/ui/drawer.tsx`
+
+Todos os drawers (bottom sheets) do app são renderizados por `DrawerContent`, que trata o teclado do iOS de forma centralizada:
+- Hook `useKeyboardInsets()` lê o `visualViewport` e calcula a altura do teclado (`offset`) e a área visível acima dele (`availableHeight`)
+- Quando o teclado abre, o drawer **inteiro** é levantado acima dele (`bottom: offset`) e o `max-height` é limitado à área visível (`availableHeight - 8px`) — isso sobrescreve o `max-height` do consumidor **apenas enquanto o input está focado** e volta ao normal quando o teclado fecha
+- Resultado: o conteúdo (ex: lista de comentários) mantém o mesmo tamanho e apenas desliza para cima, sem "estourar" nem subir demais
+- **Consumidores não precisam mais** empurrar a própria barra de input com `marginBottom: var(--keyboard-offset)`. A variável CSS `--keyboard-offset` continua exposta por retrocompatibilidade, mas não é mais necessária
+
+---
+
+## Estilos de Drawer Glass (`client/lib/glass-styles.ts`)
+
+Fonte única de verdade para o **padrão glass escuro** dos drawers (promoções, duelos, comentários). Em vez de repetir estilos inline, importe os tokens:
+
+| Export | Tipo | Uso |
+|---|---|---|
+| `GLASS_SHEET_PROPS` | props | Spread no `DrawerContent` — handle branco + `!rounded-t-[32px] !border-0` |
+| `GLASS_SHEET_STYLE` | `CSSProperties` | `style` do `DrawerContent` — gradiente escuro + blur + `maxHeight: 90dvh` |
+| `GLASS_FIELD_STYLE` / `GLASS_FIELD_CLASS` | style/classe | Inputs, Textareas e SelectTrigger |
+| `GLASS_PRIMARY_BTN_STYLE` | `CSSProperties` | Botão principal (gradiente azul → roxo) |
+| `GLASS_PANEL_STYLE` | `CSSProperties` | Cards / containers translúcidos internos |
+| `GLASS_LABEL_CLASS` | classe | Labels de formulário |
+
+Detalhes e exemplo completo: `docs/15-design-system.md` §9.4. Consumidores atuais: `Store.tsx` (drawers de promoção), `Community.tsx` (drawers de duelos) e os componentes `ClassificationsDrawer` / `AddMembersDrawer` / `EditCheckInDrawer`.

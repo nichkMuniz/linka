@@ -1,10 +1,21 @@
 import * as React from "react";
-import { Bell, ChevronRight, Dumbbell, Play, Shield, Sparkles, Target } from "lucide-react";
+import { Bell, CalendarDays, ChevronRight, Dumbbell, Play, Shield, Sparkles, Target } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/lib/language-context";
 import { formatScheduledTime } from "@/hooks/use-routine-notifications";
-import type { RoutineCard } from "@/components/goals/goals-helpers";
-import type { UserGoal } from "@/lib/ritmofit-db";
+import { isRoutineCompleted, type RoutineCard } from "@/components/goals/goals-helpers";
+import { buildRoutineWeekdayMap } from "@/components/goals/suggested-routines-data";
+import type { RoutineTypeCode, UserGoal } from "@/lib/ritmofit-db";
+
+const WEEKDAY_KEYS = [
+  "goals_weekday_mon",
+  "goals_weekday_tue",
+  "goals_weekday_wed",
+  "goals_weekday_thu",
+  "goals_weekday_fri",
+  "goals_weekday_sat",
+  "goals_weekday_sun",
+] as const;
 
 interface RoutinesTabProps {
   cards: RoutineCard[];
@@ -16,6 +27,8 @@ interface RoutinesTabProps {
   onOpenCard: (card: RoutineCard) => void;
   onCreateRoutine: () => void;
   onOpenSuggestions: () => void;
+  /** tipo de rotina a listar (1=treino, 2=dieta, 3=hábito). Default 1. */
+  filterType?: RoutineTypeCode;
 }
 
 function formatLastDate(iso: string, locale: string): string {
@@ -103,6 +116,7 @@ export function RoutinesTab({
   onOpenCard,
   onCreateRoutine,
   onOpenSuggestions,
+  filterType = 1,
 }: RoutinesTabProps) {
   const { t, language } = useLanguage();
 
@@ -112,7 +126,39 @@ export function RoutinesTab({
     return map;
   }, [userGoals]);
 
-  const workoutCards = cards.filter((c) => c.type === 1);
+  const weekdayMap = React.useMemo(() => buildRoutineWeekdayMap(), []);
+
+  // Dias da semana em que a rotina deve ser executada (seg=0…dom=6).
+  // Prioriza os dias escolhidos pelo usuário (scheduledDays); para treino sem
+  // dias explícitos, cai no calendário do programa sugerido. null = todo dia.
+  const cardWeekdays = React.useCallback(
+    (card: RoutineCard): number[] | null => {
+      const sd = (card.scheduledDays ?? "").trim();
+      if (sd) {
+        const parsed = sd
+          .split(",")
+          .map((p) => Number(p.trim()))
+          .filter((n) => Number.isInteger(n) && n >= 0 && n <= 6);
+        return parsed.length > 0 ? Array.from(new Set(parsed)).sort((a, b) => a - b) : null;
+      }
+      if (card.type === 1) {
+        const mapped = weekdayMap.get((card.name ?? "").trim().toLowerCase());
+        if (mapped && mapped.length > 0) return Array.from(new Set(mapped)).sort((a, b) => a - b);
+      }
+      return null;
+    },
+    [weekdayMap],
+  );
+
+  const formatWeekdays = React.useCallback(
+    (days: number[] | null): string =>
+      days === null
+        ? t("goals_rt_days_every")
+        : days.map((d) => t(WEEKDAY_KEYS[d])).join(" · "),
+    [t],
+  );
+
+  const workoutCards = cards.filter((c) => c.type === filterType);
 
   if (workoutCards.length === 0) {
     return (
@@ -150,7 +196,8 @@ export function RoutinesTab({
               ? t("goals_rt_diets")
               : t("goals_rt_habits"));
         const linkedGoal = card.goalId ? goalById.get(card.goalId) : null;
-        const goalPerc = linkedGoal ? Math.round(Math.min(100, linkedGoal.perc ?? 0)) : 0;
+        // Anel = conclusão da rotina: 100% se concluída, senão 0% (binário).
+        const completionPerc = isRoutineCompleted(card, routineLastDates) ? 100 : 0;
         const isActive =
           card.type === 1 &&
           activeWorkoutName !== null &&
@@ -212,8 +259,11 @@ export function RoutinesTab({
                   {lastDate ? ` · ${t("goals_last_done")} ${formatLastDate(lastDate, language)}` : ""}
                 </p>
                 {/* chips */}
-                {(linkedGoal || card.scheduledTime) && (
-                  <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
+                <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
+                    <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-violet-500/10 text-violet-300 text-[11px] font-medium">
+                      <CalendarDays className="h-3 w-3 shrink-0" />
+                      {formatWeekdays(cardWeekdays(card))}
+                    </span>
                     {card.scheduledTime && (
                       <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 text-[11px] font-medium">
                         <Bell className="h-3 w-3" />
@@ -226,11 +276,10 @@ export function RoutinesTab({
                         <span className="truncate">{linkedGoal.description}</span>
                       </span>
                     )}
-                  </div>
-                )}
+                </div>
               </div>
 
-              <CircularProgress perc={goalPerc} type={routineType} />
+              <CircularProgress perc={completionPerc} type={routineType} />
             </button>
 
             {card.type === 1 && (

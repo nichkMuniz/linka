@@ -87,6 +87,11 @@ Feed de vídeos curtos no estilo TikTok/Reels. O usuário rola verticalmente ent
 - Ícone `Volume2` (com som) / `VolumeX` (mutado)
 - Estado global para todos os vídeos da sessão
 
+### Gestos no Vídeo
+- **Toque simples** → pausa / retoma o vídeo (ícone `Play`/`Pause` de feedback por 800ms)
+- **Toque duplo** → abre o overlay de incentivo rápido (`QuickIncentiveOverlay`)
+- **Pressionar e segurar** → pausa o vídeo enquanto o dedo permanece pressionado; ao soltar, retoma (mesmo sistema do FlowViewer). Movimento > 10px cancela o hold para não conflitar com o scroll/swipe; só retoma se o shot ainda estiver visível
+
 ---
 
 ## Drawer de Comentários
@@ -107,6 +112,7 @@ Feed de vídeos curtos no estilo TikTok/Reels. O usuário rola verticalmente ent
 
 - Mesmo layout visual do drawer de comentários do feed (`PostCommentsDialog`): fundo glassmorphism escuro (gradiente + `backdrop-blur`), cantos `rounded-t-[32px]`, título `Comentários · N`, tempo relativo (`agora`/`m`/`h`/`d`), avatar do usuário atual na barra de input e botão de enviar circular com gradiente azul/roxo
 - Altura controlada por `useKeyboardAwareHeight` (não encolhe com o teclado iOS)
+- Ao focar o input, quem trata o teclado é o `DrawerContent` compartilhado: ele levanta o drawer inteiro acima do teclado e limita o `max-height` à área visível, mantendo a lista de comentários do mesmo tamanho (sem "estourar" nem subir demais). Esse comportamento vale para todos os drawers do app — nenhum consumidor precisa mais empurrar a própria barra de input com `marginBottom: var(--keyboard-offset)`
 - Carrega comentários via `getShotCommentsDb`
 - Adiciona via `addShotCommentDb`
 - Edita via `updateShotCommentDb`
@@ -150,6 +156,7 @@ Feed de vídeos curtos no estilo TikTok/Reels. O usuário rola verticalmente ent
 
 - Referências de vídeo armazenadas em `videoRefsMap` (ref map por shotId)
 - `IntersectionObserver` detecta qual vídeo está visível e controla play/pause
+- **Preload sob demanda (performance):** o atributo `preload` de cada `<video>` é dinâmico conforme a distância para o shot visível — visível = `auto` (buffer), vizinhos imediatos = `metadata`, demais = `none`. Evita que os 50 vídeos baixem metadata ao mesmo tempo no WebView do iOS, acelerando o primeiro frame
 - O hint de swipe é persistido em `localStorage` para não aparecer novamente
 - O componente aceita props `footerHeight` e `isDesktop` para ajuste de layout no ShotsLayout
 - Ao navegar de uma notificação com `location.state = { openComments: true, shotId }`, o drawer de comentários abre automaticamente para o shot correto

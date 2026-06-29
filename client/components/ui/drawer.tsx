@@ -3,15 +3,18 @@ import { Drawer as DrawerPrimitive } from "vaul";
 
 import { cn } from "@/lib/utils";
 
-// Tracks the keyboard height on iOS via visualViewport API.
-// Returns the number of pixels the keyboard is occupying above the bottom of the window.
+// Tracks the iOS software keyboard via the visualViewport API.
+// Returns both the keyboard height (`offset`) and the height of the visible area
+// above the keyboard (`availableHeight`, only meaningful while the keyboard is open).
 // Uses a threshold to ignore tiny residual offsets that iOS sometimes leaves after the
 // keyboard dismisses, and re-checks on focusout so the drawer reliably returns to its
 // full size when an input loses focus (e.g. after submitting a comment).
 const KEYBOARD_OPEN_THRESHOLD = 80;
 
-function useKeyboardOffset() {
-  const [offset, setOffset] = React.useState(0);
+type KeyboardInsets = { offset: number; availableHeight: number };
+
+function useKeyboardInsets(): KeyboardInsets {
+  const [insets, setInsets] = React.useState<KeyboardInsets>({ offset: 0, availableHeight: 0 });
 
   React.useEffect(() => {
     const vv = window.visualViewport;
@@ -21,8 +24,14 @@ function useKeyboardOffset() {
 
     const compute = () => {
       const raw = window.innerHeight - vv.height - vv.offsetTop;
-      const next = raw > KEYBOARD_OPEN_THRESHOLD ? Math.max(0, raw) : 0;
-      setOffset((prev) => (prev === next ? prev : next));
+      const offset = raw > KEYBOARD_OPEN_THRESHOLD ? Math.max(0, raw) : 0;
+      // Visible height above the keyboard; 0 when the keyboard is closed.
+      const availableHeight = offset > 0 ? vv.height : 0;
+      setInsets((prev) =>
+        prev.offset === offset && prev.availableHeight === availableHeight
+          ? prev
+          : { offset, availableHeight },
+      );
     };
 
     const scheduleRecheck = () => {
@@ -46,7 +55,7 @@ function useKeyboardOffset() {
     };
   }, []);
 
-  return offset;
+  return insets;
 }
 
 const Drawer = ({
@@ -82,10 +91,20 @@ const DrawerContent = React.forwardRef<
   React.ElementRef<typeof DrawerPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DrawerPrimitive.Content> & { overlayClassName?: string; handleClassName?: string }
 >(({ className, children, overlayClassName, handleClassName, style, ...props }, ref) => {
-  const keyboardOffset = useKeyboardOffset();
+  const { offset: keyboardOffset, availableHeight } = useKeyboardInsets();
   const innerRef = React.useRef<HTMLDivElement | null>(null);
 
   React.useImperativeHandle(ref, () => innerRef.current as HTMLDivElement);
+
+  // While the iOS keyboard is open, lift the whole bottom-anchored sheet above it
+  // and cap its height to the visible area. This keeps the sheet (and its scrollable
+  // content) the same size and just slides it up, instead of consumers growing the
+  // sheet from the bottom via margins (which made content balloon and jump upward).
+  // Overrides any consumer max-height only while typing; reverts when the keyboard closes.
+  const keyboardStyle: React.CSSProperties | undefined =
+    keyboardOffset > 0
+      ? { bottom: `${keyboardOffset}px`, maxHeight: `${Math.max(0, availableHeight - 8)}px` }
+      : undefined;
 
   return (
     <DrawerPortal>
@@ -101,12 +120,11 @@ const DrawerContent = React.forwardRef<
           paddingBottom: "env(safe-area-inset-bottom)",
           paddingLeft: "env(safe-area-inset-left)",
           paddingRight: "env(safe-area-inset-right)",
-          // Expose the keyboard height as a CSS var so consumers can lift fixed
-          // input bars above the keyboard (e.g. `marginBottom: var(--keyboard-offset)`)
-          // without resizing the drawer itself — matching native iOS behavior where
-          // the keyboard overlays the sheet instead of shrinking it.
+          // Still exposed for backwards compatibility, but consumers no longer need to
+          // lift their own input bars: DrawerContent now lifts the entire sheet (above).
           ["--keyboard-offset" as any]: `${keyboardOffset}px`,
           ...style,
+          ...keyboardStyle,
         }}
         {...props}
       >
