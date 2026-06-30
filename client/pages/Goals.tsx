@@ -27,6 +27,7 @@ import {
   deleteRoutineItemDb,
   updateRoutineNameDb,
   updateRoutineItemsScheduledTimeDb,
+  updateRoutineItemsScheduledDaysDb,
   updateRoutineGoalDb,
   updateUserGoalDb,
   deleteUserGoalDb,
@@ -71,6 +72,7 @@ import { getSuggestedSetsForRoutine } from "@/components/goals/suggested-routine
 import { BadgeUnlockedDialog } from "@/components/goals/badge-unlocked-dialog";
 import { GoalCompletedDialog } from "@/components/shared/goal-completed-dialog";
 import { InsigniasDrawer } from "@/components/profile/insignias-drawer";
+import { CheckInCalendarModal } from "@/components/goals/check-in-calendar-modal";
 
 /**
  * Converte a faixa de repetições sugerida (texto) em um número para
@@ -175,6 +177,8 @@ export default function Goals() {
   // tipo cuja lista de rotinas está aberta (null = fechado)
   const [listType, setListType] = React.useState<RoutineTypeCode | null>(null);
   const [badgesOpen, setBadgesOpen] = React.useState(false);
+  const [calendarOpen, setCalendarOpen] = React.useState(false);
+  const [checkInDates, setCheckInDates] = React.useState<string[]>([]);
   const [summaryData, setSummaryData] = React.useState<WorkoutSummaryData | null>(null);
   const [unlockedBadges, setUnlockedBadges] = React.useState<Badge[]>([]);
   const [completedGoalDesc, setCompletedGoalDesc] = React.useState<string | null>(null);
@@ -208,6 +212,7 @@ export default function Goals() {
       setStreak(computeStreak(hist));
       setRecordStreak(Math.max(computeRecordStreak(hist), computeStreak(hist)));
       setWeek(computeWeekCheckins(hist));
+      setCheckInDates(Array.from(new Set(hist.map((h) => h.check_in_date))));
       setUserBadges(badges);
       setAllBadges(allB);
       setTotalCheckIns(totalCi);
@@ -360,37 +365,11 @@ export default function Goals() {
   );
 
   const handleWorkoutFinished = async (summary: WorkoutSessionSummary) => {
-    setWorkoutModalOpen(false);
     const card = activeWorkoutCard;
-    let awarded: Badge[] = [];
-    let userGroups: Array<{ id: string; name: string }> = [];
-    if (user) {
-      try {
-        await createCheckInDb(user.id);
-        awarded = await awardBadgesForCheckInsDb(user.id, new Date());
-      } catch {
-        /* segue mesmo se badges falharem */
-      }
-      // Duelos em que o usuário participa — habilitam o botão "Compartilhar no Duelo".
-      try {
-        const { myGroups } = await getEnrichedDuelGroupsDb(user.id);
-        userGroups = myGroups.map((g) => ({ id: g.id, name: g.name }));
-      } catch {
-        /* sem duelos — botão simplesmente não aparece */
-      }
-      if (card?.goalId) {
-        const ug = userGoals.find((g) => g.goal_id === card.goalId);
-        if (ug) {
-          try {
-            const updated = await incrementGoalProgressDb(ug.id);
-            // Adiado: só mostra o diálogo de meta após o resumo fechar.
-            if (updated && updated.perc >= 100) setPendingGoalDesc(updated.description);
-          } catch {
-            /* ignore */
-          }
-        }
-      }
-    }
+    // Mostra o resumo IMEDIATAMENTE com os dados síncronos que já temos, sem
+    // esperar nenhuma chamada de rede — assim não há piscar da tela de baixo
+    // (feed/metas) entre fechar o modal e abrir o resumo.
+    setWorkoutModalOpen(false);
     resetWorkoutState();
     setSessionCardKey(null);
     setSummaryData({
@@ -398,16 +377,56 @@ export default function Goals() {
       totalSeries: summary.totalSeries,
       totalVolume: summary.totalVolume,
       durationSecs: summary.durationSecs,
-      badges: awarded.map((b) => b.name),
+      badges: [],
       userId: user?.id ?? "",
       completedExercises: summary.completedExercises,
       prExercises: summary.prExercises,
       machinedExercises: summary.machinedExercises,
-      userGroups,
+      userGroups: [],
     });
-    // Adiado: as insígnias são Radix Dialog e ficariam atrás do resumo; só
-    // exibimos quando o resumo for fechado (ver onClose do WorkoutSummaryOverlay).
-    if (awarded.length > 0) setPendingBadges(awarded);
+
+    if (!user) return;
+
+    // Enriquecimento em segundo plano: check-in, badges e duelos. Quando
+    // chegarem, atualizamos o resumo já aberto (badges + botão de duelo).
+    try {
+      await createCheckInDb(user.id);
+      const awarded = await awardBadgesForCheckInsDb(user.id, new Date());
+      if (awarded.length > 0) {
+        setSummaryData((prev) =>
+          prev ? { ...prev, badges: awarded.map((b) => b.name) } : prev,
+        );
+        // Adiado: as insígnias são Radix Dialog e ficariam atrás do resumo; só
+        // exibimos quando o resumo for fechado (ver onClose do overlay).
+        setPendingBadges(awarded);
+      }
+    } catch {
+      /* segue mesmo se badges falharem */
+    }
+
+    // Duelos em que o usuário participa — habilitam o botão "Compartilhar no Duelo".
+    try {
+      const { myGroups } = await getEnrichedDuelGroupsDb(user.id);
+      const userGroups = myGroups.map((g) => ({ id: g.id, name: g.name }));
+      if (userGroups.length > 0) {
+        setSummaryData((prev) => (prev ? { ...prev, userGroups } : prev));
+      }
+    } catch {
+      /* sem duelos — botão simplesmente não aparece */
+    }
+
+    if (card?.goalId) {
+      const ug = userGoals.find((g) => g.goal_id === card.goalId);
+      if (ug) {
+        try {
+          const updated = await incrementGoalProgressDb(ug.id);
+          // Adiado: só mostra o diálogo de meta após o resumo fechar.
+          if (updated && updated.perc >= 100) setPendingGoalDesc(updated.description);
+        } catch {
+          /* ignore */
+        }
+      }
+    }
     loadData();
   };
 
@@ -459,12 +478,26 @@ export default function Goals() {
   const handleSetTime = async (card: RoutineCard, time: string | null) => {
     if (!user) return;
     await updateRoutineItemsScheduledTimeDb(user.id, card.type, card.name, time);
+    window.dispatchEvent(new CustomEvent("ritmofit-routines-changed"));
+    await loadData();
+  };
+
+  const handleSetDays = async (card: RoutineCard, days: string | null) => {
+    if (!user) return;
+    await updateRoutineItemsScheduledDaysDb(user.id, card.type, card.name, days);
+    window.dispatchEvent(new CustomEvent("ritmofit-routines-changed"));
     await loadData();
   };
 
   const handleLinkGoal = async (card: RoutineCard, goal: UserGoal | null) => {
     if (!card.routineId) return;
     await updateRoutineGoalDb(card.routineId, goal ? goal.goal_id : null);
+    await loadData();
+  };
+
+  // Vincula/desvincula uma rotina à meta a partir do drawer de detalhe da meta.
+  const handleToggleRoutineLink = async (routineId: string, goalId: string | null) => {
+    await updateRoutineGoalDb(routineId, goalId);
     await loadData();
   };
 
@@ -517,33 +550,35 @@ export default function Goals() {
 
   return (
     <div className="relative min-h-[60vh]">
-      {/* auras de fundo */}
-      <div
-        className="pointer-events-none absolute"
-        style={{
-          width: "320px",
-          height: "320px",
-          left: "-40px",
-          top: "60px",
-          borderRadius: "50%",
-          background: "radial-gradient(circle,#ff7a3c,transparent 70%)",
-          filter: "blur(70px)",
-          opacity: 0.32,
-        }}
-      />
-      <div
-        className="pointer-events-none absolute"
-        style={{
-          width: "300px",
-          height: "300px",
-          right: "-70px",
-          top: "520px",
-          borderRadius: "50%",
-          background: "radial-gradient(circle,#3f7fe6,transparent 70%)",
-          filter: "blur(70px)",
-          opacity: 0.32,
-        }}
-      />
+      {/* auras de fundo — container clipped para evitar scroll horizontal */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div
+          className="absolute"
+          style={{
+            width: "320px",
+            height: "320px",
+            left: "-40px",
+            top: "60px",
+            borderRadius: "50%",
+            background: "radial-gradient(circle,#ff7a3c,transparent 70%)",
+            filter: "blur(70px)",
+            opacity: 0.32,
+          }}
+        />
+        <div
+          className="absolute"
+          style={{
+            width: "300px",
+            height: "300px",
+            right: "-70px",
+            top: "520px",
+            borderRadius: "50%",
+            background: "radial-gradient(circle,#3f7fe6,transparent 70%)",
+            filter: "blur(70px)",
+            opacity: 0.32,
+          }}
+        />
+      </div>
 
       <div className="relative px-4 pb-4 space-y-5">
         <StreakBadgesCard
@@ -552,6 +587,7 @@ export default function Goals() {
           recordStreak={recordStreak}
           earnedCount={userBadges.length}
           lockedCount={Math.max(0, allBadges.length - userBadges.length)}
+          onOpenCalendar={() => setCalendarOpen(true)}
           onOpenBadges={() => setBadgesOpen(true)}
         />
 
@@ -624,6 +660,7 @@ export default function Goals() {
         onDeleteItem={handleDeleteItem}
         onRename={handleRename}
         onSetTime={handleSetTime}
+        onSetDays={handleSetDays}
         onLinkGoal={handleLinkGoal}
         onDeleteCard={handleDeleteCard}
       />
@@ -634,6 +671,7 @@ export default function Goals() {
         onClose={() => setSelectedGoalId(null)}
         onEditGoal={handleEditGoal}
         onDeleteGoal={handleDeleteGoal}
+        onToggleRoutineLink={handleToggleRoutineLink}
       />
 
       <InsigniasDrawer
@@ -645,12 +683,21 @@ export default function Goals() {
         profileUserId={user?.id}
       />
 
+      <CheckInCalendarModal
+        open={calendarOpen}
+        onClose={() => setCalendarOpen(false)}
+        checkInDates={checkInDates}
+        streakCount={streak}
+      />
+
       {user && activeWorkoutCard && (
         <WorkoutSessionDialog
           open={workoutModalOpen}
           userId={user.id}
           routineLabel={activeWorkoutCard.name ?? t("goals_rt_exercises")}
           items={activeWorkoutCard.items as UserWorkoutWithDetails[]}
+          routineId={activeWorkoutCard.routineId}
+          routineName={activeWorkoutCard.name}
           onMinimize={() => {
             setWorkoutModalOpen(false);
             setWorkoutMinimized(true);
@@ -664,10 +711,12 @@ export default function Goals() {
           data={summaryData}
           onSharedToFeed={() => {
             // Publicou no feed → fecha o resumo e leva direto ao feed para ver o post.
+            // O flag refreshFeed faz o Index recarregar ao montar, ignorando o cache,
+            // para que a publicação recém-criada já apareça no topo.
             setSummaryData(null);
             setPendingBadges([]);
             setPendingGoalDesc(null);
-            navigate("/");
+            navigate("/", { state: { refreshFeed: true } });
           }}
           onClose={() => {
             setSummaryData(null);

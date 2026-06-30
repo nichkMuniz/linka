@@ -1,5 +1,5 @@
 import * as React from "react";
-import { CheckCircle2, Pencil, Trash2, X } from "lucide-react";
+import { Check, CheckCircle2, Pencil, Plus, Trash2, X } from "lucide-react";
 import {
   Drawer,
   DrawerContent,
@@ -29,6 +29,10 @@ interface GoalDetailDrawerProps {
   onClose: () => void;
   onEditGoal: (goal: UserGoal, updates: { duration: number; quantity: number }) => Promise<void>;
   onDeleteGoal: (goal: UserGoal) => Promise<void>;
+  /** Vincula (goalId) ou desvincula (null) uma rotina da meta. */
+  onToggleRoutineLink: (routineId: string, goalId: string | null) => Promise<void>;
+  /** Quando true, oculta ações de editar/excluir e vinculação de rotinas (ex: perfil de outro usuário) */
+  readOnly?: boolean;
 }
 
 export function GoalDetailDrawer({
@@ -37,6 +41,8 @@ export function GoalDetailDrawer({
   onClose,
   onEditGoal,
   onDeleteGoal,
+  onToggleRoutineLink,
+  readOnly = false,
 }: GoalDetailDrawerProps) {
   const { t } = useLanguage();
   const [editing, setEditing] = React.useState(false);
@@ -45,6 +51,20 @@ export function GoalDetailDrawer({
   const [isSaving, setIsSaving] = React.useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = React.useState(false);
   const [isDeleting, setIsDeleting] = React.useState(false);
+  const [togglingId, setTogglingId] = React.useState<string | null>(null);
+
+  const routineTypeLabel = (type: number) =>
+    type === 2 ? t("goals_rt_diets") : type === 3 ? t("goals_rt_habits") : t("goals_rt_exercises");
+
+  const handleToggleRoutine = async (routine: Routine, link: boolean) => {
+    if (!goal) return;
+    setTogglingId(routine.id);
+    try {
+      await onToggleRoutineLink(routine.id, link ? goal.goal_id : null);
+    } finally {
+      setTogglingId(null);
+    }
+  };
 
   // Reset state when a different goal is opened
   React.useEffect(() => {
@@ -61,7 +81,6 @@ export function GoalDetailDrawer({
   const isCompleted = goal.perc >= 100;
   const perc = Math.min(100, Math.round(goal.perc));
   const daysRemaining = Math.max(0, goal.duration - goal.days_completed);
-  const linkedRoutines = routines.filter((r) => r.goal_id === goal.goal_id);
 
   const handleSave = async () => {
     const duration = parseInt(durationValue, 10);
@@ -190,47 +209,69 @@ export function GoalDetailDrawer({
                   </div>
                 </div>
 
-                {/* Linked routines */}
-                <div className="space-y-2.5">
-                  <p className="text-sm font-semibold" style={{ color: "#fff" }}>{t("goals_gd_linked_routines")}</p>
-                  {linkedRoutines.length === 0 ? (
-                    <p className="text-sm" style={{ color: "rgba(255,255,255,.5)" }}>{t("goals_gd_no_routines")}</p>
-                  ) : (
-                    <div className="flex flex-wrap gap-2">
-                      {linkedRoutines.map((r) => (
-                        <span
-                          key={r.id}
-                          className="inline-flex items-center px-3 py-1.5 rounded-full bg-primary/10 text-primary text-xs font-medium"
-                        >
-                          {r.name ?? t("goals_rt_exercises")}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                {/* Linked routines — selecionáveis (oculto em modo readOnly) */}
+                {!readOnly && (
+                  <div className="space-y-2.5">
+                    <p className="text-sm font-semibold" style={{ color: "#fff" }}>{t("goals_gd_linked_routines")}</p>
+                    {routines.length === 0 ? (
+                      <p className="text-sm" style={{ color: "rgba(255,255,255,.5)" }}>{t("goals_gd_no_routines_available")}</p>
+                    ) : (
+                      <>
+                        <p className="text-xs" style={{ color: "rgba(255,255,255,.45)" }}>
+                          {t("goals_gd_link_routines_hint")}
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          {routines.map((r) => {
+                            const linkedHere = r.goal_id === goal.goal_id;
+                            const label = r.name?.trim() || routineTypeLabel(r.type);
+                            return (
+                              <button
+                                key={r.id}
+                                type="button"
+                                disabled={togglingId === r.id}
+                                onClick={() => handleToggleRoutine(r, !linkedHere)}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all active:scale-95 disabled:opacity-50"
+                                style={
+                                  linkedHere
+                                    ? { background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff", border: "1px solid transparent" }
+                                    : { background: "rgba(255,255,255,.07)", color: "rgba(255,255,255,.7)", border: "1px solid rgba(255,255,255,.14)" }
+                                }
+                              >
+                                {linkedHere ? <Check className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
+                                {label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
 
-                {/* Actions */}
-                <div className="space-y-2.5 pt-1">
-                  {!isCompleted && (
+                {/* Actions (ocultos em modo readOnly) */}
+                {!readOnly && (
+                  <div className="space-y-2.5 pt-1">
+                    {!isCompleted && (
+                      <Button
+                        variant="outline"
+                        className="w-full rounded-full gap-2"
+                        style={{ background: "rgba(255,255,255,.08)", color: "rgba(255,255,255,.7)", border: "1px solid rgba(255,255,255,.12)" }}
+                        onClick={() => setEditing(true)}
+                      >
+                        <Pencil className="h-4 w-4" />
+                        {t("goals_gd_edit")}
+                      </Button>
+                    )}
                     <Button
-                      variant="outline"
-                      className="w-full rounded-full gap-2"
-                      style={{ background: "rgba(255,255,255,.08)", color: "rgba(255,255,255,.7)", border: "1px solid rgba(255,255,255,.12)" }}
-                      onClick={() => setEditing(true)}
+                      variant="ghost"
+                      className="w-full rounded-full text-destructive hover:text-destructive hover:bg-destructive/10 gap-2"
+                      onClick={() => setDeleteConfirmOpen(true)}
                     >
-                      <Pencil className="h-4 w-4" />
-                      {t("goals_gd_edit")}
+                      <Trash2 className="h-4 w-4" />
+                      {t("goals_gd_delete")}
                     </Button>
-                  )}
-                  <Button
-                    variant="ghost"
-                    className="w-full rounded-full text-destructive hover:text-destructive hover:bg-destructive/10 gap-2"
-                    onClick={() => setDeleteConfirmOpen(true)}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                    {t("goals_gd_delete")}
-                  </Button>
-                </div>
+                  </div>
+                )}
               </>
             )}
           </div>

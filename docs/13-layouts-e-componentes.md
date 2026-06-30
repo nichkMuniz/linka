@@ -347,11 +347,11 @@ Sistema de internacionalização:
 ### DrawerContent (comportamento com teclado iOS)
 **Arquivo:** `client/components/ui/drawer.tsx`
 
-Todos os drawers (bottom sheets) do app são renderizados por `DrawerContent`, que trata o teclado do iOS de forma centralizada:
-- Hook `useKeyboardInsets()` lê o `visualViewport` e calcula a altura do teclado (`offset`) e a área visível acima dele (`availableHeight`)
-- Quando o teclado abre, o drawer **inteiro** é levantado acima dele (`bottom: offset`) e o `max-height` é limitado à área visível (`availableHeight - 8px`) — isso sobrescreve o `max-height` do consumidor **apenas enquanto o input está focado** e volta ao normal quando o teclado fecha
-- Resultado: o conteúdo (ex: lista de comentários) mantém o mesmo tamanho e apenas desliza para cima, sem "estourar" nem subir demais
-- **Consumidores não precisam mais** empurrar a própria barra de input com `marginBottom: var(--keyboard-offset)`. A variável CSS `--keyboard-offset` continua exposta por retrocompatibilidade, mas não é mais necessária
+Todos os drawers (bottom sheets) do app são renderizados por `DrawerContent`, que trata o teclado do iOS **delegando ao comportamento nativo do vaul** (`repositionInputs`, ligado por padrão):
+- Quando o teclado abre, o vaul reduz a altura do sheet para a área visível acima do teclado e levanta seu `bottom`, mantendo o conteúdo scrollável
+- O input focado é trazido à vista automaticamente — funciona tanto para inputs fixos no rodapé (ex: barra de comentários) quanto para inputs no meio de conteúdo scrollável (ex: textarea de editar legenda)
+- **Importante:** `DrawerContent` **não** deve rodar um handler próprio de `visualViewport` em paralelo. Dois handlers mutando `bottom`/`height` do mesmo elemento brigam entre si — era o que fazia o sheet "subir inteiro" e os inputs sobreporem/sumirem. Por isso o antigo `useKeyboardInsets()` e a variável `--keyboard-offset` foram removidos
+- Consumidores só precisam definir um `max-height` estável (via `useKeyboardAwareHeight`, que ignora o teclado) e usar `flex-1 min-h-0` na área scrollável; o vaul cuida do resto
 
 ---
 

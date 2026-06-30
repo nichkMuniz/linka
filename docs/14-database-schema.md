@@ -1088,10 +1088,10 @@ Catálogo de treinos disponíveis na plataforma.
 | `name` | text | ✓ | — | Nome do treino |
 | `description` | text | ✓ | — | Descrição do treino |
 | `photo` | text | — | — | URL da foto |
-| `muscle_group` | text | — | — | Grupo muscular principal |
-| `equipment` | text | — | — | Equipamentos necessários |
+| `muscle_group` | text | — | — | Grupo muscular principal. Para exercícios criados pelo usuário é **obrigatório** (escolhido num select com os grupos existentes). |
+| `equipment` | text | — | — | Equipamentos necessários / tipo de máquina. Preenchido pelo formulário "Criar novo exercício" (`createCustomWorkoutDb`). |
 | `wger_id` | integer | — | — | ID de referência no wger |
-| `created_by_user` | boolean | — | `false` | `true` quando o exercício foi criado manualmente pelo usuário via "Criar Exercício Personalizado" |
+| `created_by_user` | boolean | — | `false` | `true` quando o exercício foi criado manualmente pelo usuário via "Criar novo exercício" (modo treino) ou "Criar Exercício Personalizado". A foto sobe para o bucket `posts` (`uploadCustomExercisePhotoDb`) e fica em `photo` como URL pública; `description` guarda o "como executar". |
 
 ---
 

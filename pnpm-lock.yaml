@@ -38,6 +38,9 @@ importers:
       '@capacitor/status-bar':
         specifier: ^7.0.0
         version: 7.0.6(@capacitor/core@7.6.2)
+      '@capgo/capacitor-native-biometric':
+        specifier: ^7.6.0
+        version: 7.6.0(@capacitor/core@7.6.2)
       '@capgo/capacitor-photo-library':
         specifier: ^7.2.11
         version: 7.2.11(@capacitor/core@7.6.2)
@@ -739,6 +742,11 @@ packages:
 
   '@capacitor/status-bar@7.0.6':
     resolution: {integrity: sha512-7AVqj46b26QikImQzWfsJmzG8NUJZBGkrVSuoeTo+SX/YH3hXH0MqwwFgMqMGHfa/BICDgSvTjM9miVFlq0+RQ==}
+    peerDependencies:
+      '@capacitor/core': '>=7.0.0'
+
+  '@capgo/capacitor-native-biometric@7.6.0':
+    resolution: {integrity: sha512-ZQ+Nc+uS2sT8TED/REYlmGV34ASFsBe30YdABBQIRL+A2iVbWtdiL0FbX+1sKKXzrS2DGf+mD657Qwl1jGSDLg==}
     peerDependencies:
       '@capacitor/core': '>=7.0.0'
 
@@ -4270,6 +4278,10 @@ snapshots:
       '@capacitor/core': 7.6.2
 
   '@capacitor/status-bar@7.0.6(@capacitor/core@7.6.2)':
+    dependencies:
+      '@capacitor/core': 7.6.2
+
+  '@capgo/capacitor-native-biometric@7.6.0(@capacitor/core@7.6.2)':
     dependencies:
       '@capacitor/core': 7.6.2
 

@@ -167,12 +167,22 @@ export function useRoutineNotifications(userId: string | null) {
   // Tracks last sync to avoid redundant calls
   const lastSyncRef = useRef<number>(0);
 
-  const syncAll = useCallback(async () => {
+  const syncAll = useCallback(async (force = false) => {
     if (!userId) return;
-    // Debounce: skip if synced less than 5 seconds ago
+    // Debounce: skip if synced less than 5 seconds ago (unless forced, e.g.
+    // right after the user creates/edits a routine schedule).
     const now = Date.now();
-    if (now - lastSyncRef.current < 5_000) return;
+    if (!force && now - lastSyncRef.current < 5_000) return;
     lastSyncRef.current = now;
+
+    // Respect user preference stored by settings-drawer
+    try {
+      const stored = localStorage.getItem("linka_notif_prefs");
+      if (stored) {
+        const prefs = JSON.parse(stored);
+        if (prefs.workoutReminders === false) return;
+      }
+    } catch {}
 
     try {
       const permission = await requestNotificationPermission();
@@ -184,15 +194,21 @@ export function useRoutineNotifications(userId: string | null) {
     }
   }, [userId]);
 
-  // Sync on mount and when returning to the app (visibilitychange)
+  // Sync on mount, when returning to the app (visibilitychange) and whenever a
+  // routine schedule is created/edited (custom "ritmofit-routines-changed" event).
   useEffect(() => {
     syncAll();
 
     const handleVisibility = () => {
       if (document.visibilityState === "visible") syncAll();
     };
+    const handleRoutinesChanged = () => syncAll(true);
     document.addEventListener("visibilitychange", handleVisibility);
-    return () => document.removeEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("ritmofit-routines-changed", handleRoutinesChanged);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("ritmofit-routines-changed", handleRoutinesChanged);
+    };
   }, [syncAll]);
 
   // Handle notification tap → navigate to /metas

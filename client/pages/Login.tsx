@@ -23,9 +23,27 @@ import {
   getNetworkStatus,
   withNetworkRetry,
 } from "@/lib/network-status";
-import { Upload, X, Check, ArrowLeft, Eye, EyeOff, Plus, Trash2 } from "lucide-react";
+import { Upload, X, Check, ArrowLeft, Eye, EyeOff, Plus, Trash2, ScanFace } from "lucide-react";
 import { createOrUpdateCommercialProfileDb, saveCommercialPlansDb, type ServicePlan, checkEmailExistsDb } from "@/lib/ritmofit-db";
 import { ImageCropperDrawer } from "@/components/shared/image-cropper-drawer";
+import {
+  isBiometricSupported,
+  isBiometricEnabled,
+  enableBiometric,
+  disableBiometric,
+  authenticateWithBiometric,
+  type BiometricSupport,
+} from "@/lib/biometric-auth";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogFooter,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogAction,
+  AlertDialogCancel,
+} from "@/components/ui/alert-dialog";
 
 function isValidEmail(email: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -142,6 +160,14 @@ export default function Login() {
   const [servicePlans, setServicePlans] = React.useState<ServicePlan[]>([{ name: "", price: null, description: "" }]);
   const [isCompletingSignup, setIsCompletingSignup] = React.useState(false);
 
+  // Biometric login (Face ID / Touch ID)
+  const [biometricSupport, setBiometricSupport] = React.useState<BiometricSupport>({ available: false, label: "Biometria" });
+  const [biometricEnabled, setBiometricEnabled] = React.useState(false);
+  const [pendingBiometricCreds, setPendingBiometricCreds] = React.useState<{ email: string; password: string } | null>(null);
+  const [showEnableBiometricPrompt, setShowEnableBiometricPrompt] = React.useState(false);
+  const [biometricBusy, setBiometricBusy] = React.useState(false);
+  const biometricAutoAttempted = React.useRef(false);
+
   const canSubmit =
     !busy &&
     email.trim().length > 0 &&
@@ -191,6 +217,8 @@ export default function Login() {
     if (!user) return;
     if (isCompletingSignup) return;
     if (showNewPassword) return;
+    // Keep the user on the login screen until they answer the "enable biometric?" prompt.
+    if (showEnableBiometricPrompt) return;
 
     const deeplink = sessionStorage.getItem("deeplink_redirect");
     if (deeplink) {
@@ -199,7 +227,112 @@ export default function Login() {
     } else {
       navigate("/", { replace: true });
     }
-  }, [authLoading, user, navigate, isCompletingSignup, showNewPassword]);
+  }, [authLoading, user, navigate, isCompletingSignup, showNewPassword, showEnableBiometricPrompt]);
+
+  // Detect biometric hardware + opt-in status once on mount.
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const support = await isBiometricSupported();
+      if (cancelled) return;
+      setBiometricSupport(support);
+      setBiometricEnabled(support.available && isBiometricEnabled());
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Biometric sign-in: gate with Face ID/Touch ID, then sign in with stored credentials.
+  const handleBiometricLogin = React.useCallback(async () => {
+    if (!supabase) return;
+    setBiometricBusy(true);
+    try {
+      const creds = await authenticateWithBiometric();
+
+      if (!networkStatus.isSupabaseReachable) {
+        await checkSupabaseReachability();
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+
+      const { error } = await withNetworkRetry(() =>
+        supabase!.auth.signInWithPassword({ email: creds.email, password: creds.password }),
+      );
+
+      if (error) {
+        const msg = error.message.toLowerCase();
+        const invalidCredentials =
+          msg.includes("invalid login credentials") || msg.includes("invalid credentials");
+        if (invalidCredentials) {
+          // Stored password is stale (changed elsewhere) — drop biometric and ask for manual login.
+          await disableBiometric();
+          setBiometricEnabled(false);
+          toast({
+            title: "Biometria desativada",
+            description: "Sua senha mudou. Entre com email e senha e reative a biometria.",
+            variant: "destructive",
+          });
+        }
+        return;
+      }
+
+      navigate("/", { replace: true });
+    } catch {
+      // User cancelled / failed the biometric prompt — silently fall back to manual login.
+    } finally {
+      setBiometricBusy(false);
+    }
+  }, [networkStatus.isSupabaseReachable, navigate]);
+
+  // Auto-trigger biometric login once when the login screen is shown and biometrics are enabled.
+  React.useEffect(() => {
+    if (showSplash || authLoading || user) return;
+    if (isCompletingSignup || showNewPassword || showForgotPassword) return;
+    if (tab !== "login") return;
+    if (!biometricEnabled || !biometricSupport.available) return;
+    if (biometricAutoAttempted.current) return;
+    biometricAutoAttempted.current = true;
+    handleBiometricLogin();
+  }, [
+    showSplash,
+    authLoading,
+    user,
+    isCompletingSignup,
+    showNewPassword,
+    showForgotPassword,
+    tab,
+    biometricEnabled,
+    biometricSupport.available,
+    handleBiometricLogin,
+  ]);
+
+  const confirmEnableBiometric = async () => {
+    if (!pendingBiometricCreds) return;
+    setBiometricBusy(true);
+    try {
+      const ok = await enableBiometric(pendingBiometricCreds.email, pendingBiometricCreds.password);
+      if (ok) {
+        setBiometricEnabled(true);
+        toast({
+          title: `${biometricSupport.label} ativado`,
+          description: `Da próxima vez, entre com ${biometricSupport.label}.`,
+        });
+      }
+    } catch {
+      // User cancelled the biometric confirmation — continue without enabling.
+    } finally {
+      setBiometricBusy(false);
+      setShowEnableBiometricPrompt(false);
+      setPendingBiometricCreds(null);
+      navigate("/", { replace: true });
+    }
+  };
+
+  const dismissEnableBiometric = () => {
+    setShowEnableBiometricPrompt(false);
+    setPendingBiometricCreds(null);
+    navigate("/", { replace: true });
+  };
 
   const submit = async (mode: "login" | "signup") => {
     if (!hasSupabaseConfig || !supabase) {
@@ -263,6 +396,15 @@ export default function Login() {
               : error.message,
             variant: "destructive",
           });
+          return;
+        }
+
+        // First successful login on this device with biometrics available but not yet
+        // enabled → offer to turn on Face ID/Touch ID before entering the app.
+        if (biometricSupport.available && !biometricEnabled) {
+          setPendingBiometricCreds({ email: trimmedEmail, password: trimmedPassword });
+          setShowEnableBiometricPrompt(true);
+          setBusy(false);
           return;
         }
 
@@ -1243,6 +1385,19 @@ export default function Login() {
                       {busy ? "Entrando..." : "Entrar"}
                     </Button>
 
+                    {biometricSupport.available && biometricEnabled && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="rounded-full gap-2"
+                        disabled={biometricBusy || busy}
+                        onClick={handleBiometricLogin}
+                      >
+                        <ScanFace className="h-4 w-4" />
+                        {biometricBusy ? "Autenticando..." : `Entrar com ${biometricSupport.label}`}
+                      </Button>
+                    )}
+
                     <button
                       type="button"
                       className="text-left text-sm font-semibold text-brand hover:underline"
@@ -2113,6 +2268,36 @@ export default function Login() {
         }}
         onCancel={() => setPendingLoginLogoCropSrc(null)}
       />
+
+      <AlertDialog open={showEnableBiometricPrompt}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <div className="mx-auto mb-1 flex h-12 w-12 items-center justify-center rounded-full bg-brand/10 text-brand">
+              <ScanFace className="h-6 w-6" />
+            </div>
+            <AlertDialogTitle className="text-center">
+              Ativar {biometricSupport.label}?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-center">
+              Entre mais rápido nas próximas vezes usando {biometricSupport.label}, sem digitar email e senha.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={biometricBusy} onClick={dismissEnableBiometric}>
+              Agora não
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={biometricBusy}
+              onClick={(e) => {
+                e.preventDefault();
+                confirmEnableBiometric();
+              }}
+            >
+              {biometricBusy ? "Ativando..." : `Ativar ${biometricSupport.label}`}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -8,13 +8,17 @@ interface StreakBadgesCardProps {
   recordStreak: number;
   earnedCount: number;
   lockedCount: number;
+  /** opens the check-in calendar modal */
+  onOpenCalendar: () => void;
+  /** opens the badges/insignias drawer — triggered by tapping badge chips */
   onOpenBadges: () => void;
 }
 
 /**
  * Card de streak no estilo "LinKa Glass" (Direção A): anel conic com 🔥 +
- * contagem, título/recorde e mini-fileira de badges. Tocar abre o sheet de
- * insígnias. Versão fiel ao protótipo (card, não o anel recolhível).
+ * contagem, título/recorde e mini-fileira de badges.
+ * - Tocar no card principal abre o calendário de check-ins.
+ * - Tocar nos ícones de badge abre o sheet de insígnias.
  */
 export function StreakBadgesCard({
   streakCount,
@@ -22,6 +26,7 @@ export function StreakBadgesCard({
   recordStreak,
   earnedCount,
   lockedCount,
+  onOpenCalendar,
   onOpenBadges,
 }: StreakBadgesCardProps) {
   const { t } = useLanguage();
@@ -29,9 +34,11 @@ export function StreakBadgesCard({
   const frac = Math.max(0.05, Math.min(1, weekDone / 7));
   const ringDeg = Math.round(frac * 360);
 
+  const hasBadges = earnedCount > 0 || lockedCount > 0;
+
   return (
     <button
-      onClick={onOpenBadges}
+      onClick={onOpenCalendar}
       className="w-full text-left flex items-center gap-4 active:scale-[0.99] transition-transform"
       style={{
         borderRadius: "26px",
@@ -73,30 +80,49 @@ export function StreakBadgesCard({
         <div style={{ fontSize: "11.5px", color: "rgba(255,255,255,.5)", marginTop: "1px" }}>
           {t("goals_streak_record").replace("{n}", String(recordStreak))}
         </div>
-        <div className="flex gap-1.5" style={{ marginTop: "9px" }}>
-          {earnedCount > 0 && (
-            <span style={chipStyle("linear-gradient(135deg,#ffb15e,#ff7a3c)")}>🏅</span>
-          )}
-          {earnedCount > 1 && (
-            <span style={chipStyle("linear-gradient(135deg,#9d6bff,#5b8cff)")}>⚡</span>
-          )}
-          {lockedCount > 0 && (
-            <span
-              className="flex items-center justify-center"
-              style={{
-                width: "26px",
-                height: "26px",
-                borderRadius: "9px",
-                background: "rgba(255,255,255,.06)",
-                border: "1px dashed rgba(255,255,255,.18)",
-                fontSize: "11px",
-                color: "rgba(255,255,255,.4)",
-              }}
-            >
-              +{lockedCount}
-            </span>
-          )}
-        </div>
+
+        {/* badges — toque abre o drawer de insígnias, não o calendário */}
+        {hasBadges && (
+          <div
+            role="button"
+            tabIndex={0}
+            className="flex gap-1.5"
+            style={{ marginTop: "9px" }}
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenBadges();
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.stopPropagation();
+                onOpenBadges();
+              }
+            }}
+          >
+            {earnedCount > 0 && (
+              <span style={chipStyle("linear-gradient(135deg,#ffb15e,#ff7a3c)")}>🏅</span>
+            )}
+            {earnedCount > 1 && (
+              <span style={chipStyle("linear-gradient(135deg,#9d6bff,#5b8cff)")}>⚡</span>
+            )}
+            {lockedCount > 0 && (
+              <span
+                className="flex items-center justify-center"
+                style={{
+                  width: "26px",
+                  height: "26px",
+                  borderRadius: "9px",
+                  background: "rgba(255,255,255,.06)",
+                  border: "1px dashed rgba(255,255,255,.18)",
+                  fontSize: "11px",
+                  color: "rgba(255,255,255,.4)",
+                }}
+              >
+                +{lockedCount}
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       <ChevronRight className="h-5 w-5 self-start shrink-0" style={{ color: "rgba(255,255,255,.4)" }} />

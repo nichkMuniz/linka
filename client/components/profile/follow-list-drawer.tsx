@@ -81,7 +81,7 @@ export function FollowListDrawer({
                     onOpenChange(false);
                     navigate(`/usuario/${u.id}`);
                   }}
-                  className="flex items-center gap-3 flex-1 text-left hover:opacity-80 transition-opacity"
+                  className="flex items-center gap-3 flex-1 min-w-0 text-left hover:opacity-80 transition-opacity"
                 >
                   <UserAvatar
                     photo={u.photo}
@@ -94,10 +94,12 @@ export function FollowListDrawer({
                   </div>
                 </button>
                 {u.id !== user?.id && (
-                  <FollowButton
-                    targetUserId={u.id}
-                    initialIsFollowing={followStatus[u.id] ?? false}
-                  />
+                  <div className="shrink-0">
+                    <FollowButton
+                      targetUserId={u.id}
+                      initialIsFollowing={followStatus[u.id] ?? false}
+                    />
+                  </div>
                 )}
               </div>
             ))

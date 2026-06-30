@@ -1590,11 +1590,13 @@ export async function createCustomWorkoutDb(
   description: string,
   muscleGroup: string,
   photo?: string | null,
+  equipment?: string | null,
 ): Promise<Workout> {
   if (!hasSupabaseConfig || !supabase) throw new Error("Supabase não configurado");
 
   const insertData: Record<string, any> = { name, description, muscle_group: muscleGroup || null, created_by_user: true };
   if (photo) insertData.photo = photo;
+  if (equipment) insertData.equipment = equipment;
 
   const { data, error } = await supabase
     .from("workouts")
@@ -1612,9 +1614,24 @@ export async function createCustomWorkoutDb(
     id: String(data.id),
     name: String(data.name),
     description: String(data.description ?? ""),
-    photo: data.photo ? String(data.photo) : null,
+    photo: data.photo ? resolveWorkoutPhotoUrl(data.photo) : null,
     muscle_group: data.muscle_group ? String(data.muscle_group) : null,
   };
+}
+
+// Upload da foto de um exercício criado pelo usuário → retorna URL pública.
+export async function uploadCustomExercisePhotoDb(file: File): Promise<string> {
+  if (!supabase) throw new Error("Supabase não configurado");
+  const viewer = await getViewer();
+  if (!viewer) throw new Error("Usuário não autenticado");
+  const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
+  const path = `exercise-photos/${viewer.id}/${Date.now()}.${ext}`;
+  const { error } = await supabase.storage
+    .from("posts")
+    .upload(path, file, { upsert: false, contentType: file.type || "image/jpeg" });
+  if (error) throw error;
+  const { data } = supabase.storage.from("posts").getPublicUrl(path);
+  return data.publicUrl;
 }
 
 export async function getUserStatsDb(userId: string): Promise<UserStats> {
@@ -1935,6 +1952,8 @@ export async function createRoutineDb(
     throw new Error(`Erro ao criar rotina: ${errorMsg}`);
   }
 
+  invalidateQueryCache("userRoutines");
+
   if (!data) return null;
 
   return {
@@ -1944,8 +1963,6 @@ export async function createRoutineDb(
     goal_id: data.goal_id ? String(data.goal_id) : null,
     name: data.name ? String(data.name) : undefined,
   };
-
-  invalidateQueryCache("userRoutines");
 }
 
 export async function updateRoutineGoalDb(
@@ -1970,6 +1987,8 @@ export async function updateRoutineGoalDb(
     throw new Error(`Erro ao atualizar meta da rotina: ${errorMsg}`);
   }
 
+  invalidateQueryCache("userRoutines");
+
   if (!data) return null;
 
   return {
@@ -1979,8 +1998,6 @@ export async function updateRoutineGoalDb(
     goal_id: data.goal_id ? String(data.goal_id) : null,
     name: data.name ? String(data.name) : undefined,
   };
-
-  invalidateQueryCache("userRoutines");
 }
 
 export async function updateRoutineNameDb(
@@ -2372,6 +2389,30 @@ export async function createUserWorkoutsDb(
     user_id: String(row.user_id ?? ""),
     name: row.name ? String(row.name) : null,
   }));
+}
+
+// Salva a nota de um exercício na rotina (coluna user_workouts.notes).
+// Casa por user_id + workout_id (+ routine_id quando houver), assim funciona
+// tanto para itens da rotina quanto para exercícios criados na sessão.
+export async function updateUserWorkoutNotesDb(
+  userId: string,
+  workoutId: string,
+  routineId: string | null,
+  notes: string | null,
+): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+  let query = supabase
+    .from("user_workouts")
+    .update({ notes })
+    .eq("user_id", userId)
+    .eq("workout_id", workoutId);
+  if (routineId != null) query = query.eq("routine_id", Number(routineId));
+  const { error } = await query;
+  if (error) {
+    console.error("Error updating workout note:", error);
+    throw error;
+  }
+  invalidateQueryCache("userWorkouts:");
 }
 
 export type UserWorkoutWithDetails = {

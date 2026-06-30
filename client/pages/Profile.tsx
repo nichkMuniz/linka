@@ -52,9 +52,8 @@ import {
   getCommercialPlansDb,
   type StoryWithUser,
   type PostIncentiveType,
-  getRoutinesByGoalIdDb,
-  getRoutineItemsForViewDb,
-  copyRoutineToUserDb,
+  updateUserGoalDb,
+  deleteUserGoalDb,
 } from "@/lib/ritmofit-db";
 import { formatTimeAgo } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
@@ -85,6 +84,7 @@ import { FollowListDrawer } from "@/components/profile/follow-list-drawer";
 import { SettingsDrawer } from "@/components/profile/settings-drawer";
 import { ShotEditorDrawer } from "@/components/profile/shot-editor-drawer";
 import { WorkoutHistoryDrawer } from "@/components/profile/workout-history-drawer";
+import { GoalDetailDrawer } from "@/components/goals/goal-detail-drawer";
 import { togglePostLike } from "../services/post.service";
 import { ExerciseImage } from "@/components/shared/exercise-image";
 import { fetchExerciseCatalog, type CatalogExercise } from "@/lib/exercise-catalog";
@@ -269,11 +269,7 @@ export default function Profile() {
   const [followingFollowStatus, setFollowingFollowStatus] = React.useState<Record<string, boolean>>({});
 
   // Goal detail drawer state
-  const [goalDrawerOpen, setGoalDrawerOpen] = React.useState(false);
   const [selectedGoalForDrawer, setSelectedGoalForDrawer] = React.useState<UserGoal | null>(null);
-  const [goalDrawerRoutines, setGoalDrawerRoutines] = React.useState<Array<{ routine: Routine; items: Array<{ id: string; workoutName?: string; dietName?: string; habitName?: string }> }>>([]);
-  const [isLoadingGoalDrawer, setIsLoadingGoalDrawer] = React.useState(false);
-  const [copyingRoutineId, setCopyingRoutineId] = React.useState<string | null>(null);
 
   // Edit form state
 
@@ -286,6 +282,7 @@ export default function Profile() {
 
   // Settings drawer (controlled externally so the trigger can be styled per design)
   const [settingsOpen, setSettingsOpen] = React.useState(false);
+  const [settingsOpenToProfile, setSettingsOpenToProfile] = React.useState(false);
 
   // Cover photo (banner) — own profile can replace the gradient with a photo
   const coverFileInputRef = React.useRef<HTMLInputElement>(null);
@@ -685,38 +682,26 @@ export default function Profile() {
     }
   };
 
-  const handleOpenGoalDrawer = async (goal: UserGoal) => {
-    setSelectedGoalForDrawer(goal);
-    setGoalDrawerOpen(true);
-    setGoalDrawerRoutines([]);
-    setIsLoadingGoalDrawer(true);
-    try {
-      const routines = await getRoutinesByGoalIdDb(goal.goal_id);
-      const withItems = await Promise.all(
-        routines.map(async (routine) => {
-          const items = await getRoutineItemsForViewDb(routine.user_id, routine.type, routine.name, routine.id);
-          return { routine, items };
-        })
-      );
-      setGoalDrawerRoutines(withItems.filter((r) => r.items.length > 0));
-    } catch (err) {
-      console.error("Error loading goal routines:", err);
-    } finally {
-      setIsLoadingGoalDrawer(false);
-    }
+  const handleProfileEditGoal = async (goal: UserGoal, updates: { duration: number; quantity: number }) => {
+    await updateUserGoalDb(goal.id, updates);
+    const updated = await getUserGoalsByUserIdDb(profileUserId!);
+    setUserGoals(updated);
   };
 
-  const handleCopyRoutine = async (routine: Routine) => {
-    if (!user || !profileUserId) return;
-    setCopyingRoutineId(routine.id);
-    try {
-      await copyRoutineToUserDb(profileUserId, user.id, routine.type as 1 | 2 | 3, routine.name ?? null);
-      toast({ title: t("profile_toast_routine_copied"), description: t("profile_toast_routine_copied_desc") });
-    } catch (err: any) {
-      toast({ title: t("profile_toast_routine_copy_error"), description: err.message || t("retry"), variant: "destructive" });
-    } finally {
-      setCopyingRoutineId(null);
-    }
+  const handleProfileDeleteGoal = async (goal: UserGoal) => {
+    await deleteUserGoalDb(goal.id);
+    setUserGoals((prev) => prev.filter((g) => g.id !== goal.id));
+    setSelectedGoalForDrawer(null);
+  };
+
+  const handleProfileToggleRoutineLink = async (routineId: string, goalId: string | null) => {
+    await updateRoutineGoalDb(routineId, goalId);
+    const [updatedRoutines, updatedGoals] = await Promise.all([
+      getUserRoutinesDb(profileUserId!),
+      getUserGoalsByUserIdDb(profileUserId!),
+    ]);
+    setRoutines(updatedRoutines);
+    setUserGoals(updatedGoals);
   };
 
   const handleOpenWorkoutHistory = async (workout: Workout) => {
@@ -1241,7 +1226,7 @@ export default function Profile() {
                   <Settings className="h-[19px] w-[19px]" />
                 </button>
                 <button
-                  onClick={() => setSettingsOpen(true)}
+                  onClick={() => { setSettingsOpenToProfile(true); setSettingsOpen(true); }}
                   className="active:scale-95 transition-transform"
                   style={{ height: 42, padding: "0 18px", borderRadius: "21px", display: "flex", alignItems: "center", fontSize: "13.5px", fontWeight: 640, color: "#0a0b12", background: "linear-gradient(rgba(255,255,255,.95),rgba(255,255,255,.82))" }}
                 >
@@ -1290,8 +1275,9 @@ export default function Profile() {
               onProfileUpdated={(updated) => setProfile(updated)}
               onRequestDeleteAccount={() => setIsDeleteAccountOpen(true)}
               open={settingsOpen}
-              onOpenChange={setSettingsOpen}
+              onOpenChange={(open) => { setSettingsOpen(open); if (!open) setSettingsOpenToProfile(false); }}
               hideTrigger
+              directToProfileEdit={settingsOpenToProfile}
             />
           )}
 
@@ -1464,18 +1450,18 @@ export default function Profile() {
 
       {/* Public Goals Strip */}
       {userGoals.length > 0 && (
-        <div className="space-y-2">
-          <div className="flex items-center gap-1.5 px-1">
+        <div className="space-y-2 px-4">
+          <div className="flex items-center gap-1.5">
             <Target className="h-3.5 w-3.5 text-brand" />
             <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
               {t("profile_goals_section")}
             </span>
           </div>
-          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
+          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none -mx-4 px-4">
             {userGoals.map((goal) => (
               <button
                 key={goal.id}
-                onClick={() => handleOpenGoalDrawer(goal)}
+                onClick={() => setSelectedGoalForDrawer(goal)}
                 className="flex-shrink-0 w-44 rounded-xl p-3 space-y-2 text-left active:scale-95 transition-transform"
                 style={{
                   background: "linear-gradient(rgba(255,255,255,.09),rgba(255,255,255,.03))",
@@ -1506,84 +1492,15 @@ export default function Profile() {
       )}
 
       {/* Goal Detail Drawer */}
-      <Drawer open={goalDrawerOpen} onOpenChange={setGoalDrawerOpen}>
-        <DrawerContent className="max-h-[85vh]">
-          <DrawerHeader className="pb-2">
-            <div className="flex items-center gap-2">
-              <Target className="h-4 w-4 text-brand shrink-0" />
-              <DrawerTitle className="text-base leading-snug text-left">
-                {selectedGoalForDrawer?.description}
-              </DrawerTitle>
-            </div>
-            {selectedGoalForDrawer && (
-              <DrawerDescription className="text-left">
-                <div className="flex items-center gap-2 mt-1">
-                  <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
-                    <div
-                      className="h-full rounded-full bg-brand"
-                      style={{ width: `${Math.min(selectedGoalForDrawer.perc, 100)}%` }}
-                    />
-                  </div>
-                  <span className="text-xs font-semibold text-brand shrink-0">
-                    {selectedGoalForDrawer.perc}%
-                  </span>
-                </div>
-              </DrawerDescription>
-            )}
-          </DrawerHeader>
-
-          <div className="px-4 pb-6 overflow-y-auto space-y-4" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
-            {isLoadingGoalDrawer ? (
-              <div className="space-y-3 pt-2">
-                {[1, 2].map((i) => (
-                  <div key={i} className="h-16 rounded-xl bg-muted/40 animate-pulse" />
-                ))}
-              </div>
-            ) : goalDrawerRoutines.length === 0 ? (
-              <div className="flex flex-col items-center gap-2 py-8 text-center">
-                <span className="text-2xl">📋</span>
-                <p className="text-sm text-muted-foreground">{t("goals_no_linked_routines")}</p>
-              </div>
-            ) : (
-              <div className="space-y-3 pt-1">
-                {goalDrawerRoutines.map(({ routine, items }) => (
-                  <div key={routine.id} className="rounded-xl p-4 space-y-3" style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.10)" }}>
-                    <div className="flex items-center justify-between gap-2">
-                      <div>
-                        <p className="text-sm font-semibold">
-                          {routine.name || (routine.type === 1 ? t("profile_routine_workout") : routine.type === 2 ? t("profile_routine_diet") : t("profile_routine_habit"))}
-                        </p>
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          {routine.type === 1 ? t("profile_routine_workout") : routine.type === 2 ? t("profile_routine_diet") : t("profile_routine_habit")} · {items.length} {items.length === 1 ? t("profile_item_singular") : t("profile_items_plural")}
-                        </p>
-                      </div>
-                      {isViewingOtherProfile && routine.type !== 3 && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="rounded-full shrink-0 text-xs h-8 gap-1.5"
-                          disabled={copyingRoutineId === routine.id}
-                          onClick={() => handleCopyRoutine(routine)}
-                        >
-                          {copyingRoutineId === routine.id ? t("profile_copying_routine") : t("profile_copy_routine")}
-                        </Button>
-                      )}
-                    </div>
-                    <div className="space-y-1.5">
-                      {items.map((item) => (
-                        <div key={item.id} className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <div className="h-1.5 w-1.5 rounded-full bg-brand/60 shrink-0" />
-                          <span>{item.workoutName || item.dietName || item.habitName || "Item"}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </DrawerContent>
-      </Drawer>
+      <GoalDetailDrawer
+        goal={selectedGoalForDrawer}
+        routines={routines}
+        onClose={() => setSelectedGoalForDrawer(null)}
+        onEditGoal={handleProfileEditGoal}
+        onDeleteGoal={handleProfileDeleteGoal}
+        onToggleRoutineLink={handleProfileToggleRoutineLink}
+        readOnly={isViewingOtherProfile}
+      />
 
       {/* Posts, Shots, Routines and Store Tabs */}
       <Tabs defaultValue="posts" className="w-full px-4">
@@ -2650,11 +2567,21 @@ export default function Profile() {
           }
         }}
       >
-        <DrawerContent className="max-h-[95dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
+        <DrawerContent
+          handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
+          className="max-h-[95dvh] flex flex-col modal-enter !rounded-t-[32px] !border-0"
+          style={{
+            background: "linear-gradient(rgba(20,18,30,.96),rgba(10,9,18,.98))",
+            backdropFilter: "blur(40px) saturate(180%)",
+            WebkitBackdropFilter: "blur(40px) saturate(180%)",
+            borderTop: "1px solid rgba(255,255,255,.14)",
+          }}
+          onOpenAutoFocus={(e) => e.preventDefault()}
+        >
           {/* Header compacto com autor inline */}
           <DrawerHeader className="shrink-0 pb-2">
             <div className="flex items-center justify-between">
-              <DrawerTitle className="text-base">
+              <DrawerTitle className="text-base" style={{ color: "#fff" }}>
                 {isEditingPost ? t("profile_edit_post") : t("profile_post_label")}
               </DrawerTitle>
               {selectedPost && (
@@ -2663,9 +2590,9 @@ export default function Profile() {
                     photo={selectedPost.userPhoto}
                     nickname={selectedPost.userNickname}
                     size="sm"
-                    className="h-7 w-7 border border-border/60"
+                    className="h-7 w-7 ring-1 ring-white/15"
                   />
-                  <span className="text-sm font-medium">{selectedPost.userNickname}</span>
+                  <span className="text-sm font-medium" style={{ color: "#fff" }}>{selectedPost.userNickname}</span>
                   <UserInsignias userId={selectedPost.user_id} />
                 </div>
               )}
@@ -2674,10 +2601,9 @@ export default function Profile() {
 
           {selectedPost && (
             <>
-              {/* Layout: imagem + conteúdo lado a lado no md, empilhado no mobile */}
               <div className="flex-1 overflow-y-auto">
                 <div className="md:flex md:gap-0 md:h-full">
-                  {/* Imagem — no mobile ocupa altura limitada, no desktop fica à esquerda */}
+                  {/* Imagem */}
                   <div className="md:w-[55%] md:shrink-0 md:sticky md:top-0">
                     {selectedPost.photos && selectedPost.photos.length > 0 ? (
                       <div className="md:h-full">
@@ -2691,7 +2617,7 @@ export default function Profile() {
                         />
                       </div>
                     ) : (
-                      <div className="w-full bg-black rounded-lg overflow-hidden border-b border-border/40 md:border-b-0">
+                      <div className="w-full bg-black overflow-hidden">
                         <img
                           src={selectedPost.photo}
                           alt={selectedPost.description}
@@ -2701,17 +2627,18 @@ export default function Profile() {
                     )}
                   </div>
 
-                  {/* Conteúdo — scroll apenas nesta área no desktop */}
+                  {/* Conteúdo */}
                   <div className="md:flex-1 md:overflow-y-auto px-4 pb-4 pt-3 space-y-3">
-                    {/* Description (com timestamp à direita) */}
+                    {/* Description */}
                     {isEditingPost ? (
                       <div className="space-y-1.5">
-                        <label className="text-sm font-medium">{t("profile_description_label")}</label>
+                        <label className="text-sm font-medium" style={{ color: "#fff" }}>{t("profile_description_label")}</label>
                         <Textarea
                           value={editPostDescription}
                           onChange={(e) => setEditPostDescription(e.target.value)}
                           className="resize-none"
                           rows={3}
+                          style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }}
                         />
                       </div>
                     ) : (
@@ -2725,38 +2652,38 @@ export default function Profile() {
                           : firstLine;
                         return (
                           <div className="flex items-start justify-between gap-2">
-                          <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap flex-1 min-w-0">
-                            {!truncatable || postDescExpanded ? (
-                              <>
-                                {desc}
-                                {truncatable && postDescExpanded && (
-                                  <>
-                                    {" "}
-                                    <button
-                                      type="button"
-                                      onClick={() => setPostDescExpanded(false)}
-                                      className="text-muted-foreground hover:text-foreground transition-colors"
-                                    >
-                                      {t("feed_description_less")}
-                                    </button>
-                                  </>
-                                )}
-                              </>
-                            ) : (
-                              <>
-                                {truncated}
-                                {"... "}
-                                <button
-                                  type="button"
-                                  onClick={() => setPostDescExpanded(true)}
-                                  className="text-muted-foreground hover:text-foreground transition-colors"
-                                >
-                                  {t("feed_description_more")}
-                                </button>
-                              </>
-                            )}
-                          </p>
-                            <span className="text-xs text-muted-foreground font-mono shrink-0">
+                            <p className="text-sm leading-relaxed whitespace-pre-wrap flex-1 min-w-0" style={{ color: "rgba(255,255,255,.85)" }}>
+                              {!truncatable || postDescExpanded ? (
+                                <>
+                                  {desc}
+                                  {truncatable && postDescExpanded && (
+                                    <>
+                                      {" "}
+                                      <button
+                                        type="button"
+                                        onClick={() => setPostDescExpanded(false)}
+                                        style={{ color: "rgba(255,255,255,.45)" }}
+                                      >
+                                        {t("feed_description_less")}
+                                      </button>
+                                    </>
+                                  )}
+                                </>
+                              ) : (
+                                <>
+                                  {truncated}
+                                  {"... "}
+                                  <button
+                                    type="button"
+                                    onClick={() => setPostDescExpanded(true)}
+                                    style={{ color: "rgba(255,255,255,.45)" }}
+                                  >
+                                    {t("feed_description_more")}
+                                  </button>
+                                </>
+                              )}
+                            </p>
+                            <span className="text-xs font-mono shrink-0" style={{ color: "rgba(255,255,255,.35)" }}>
                               {formatTimeAgo(selectedPost.created_at)}
                             </span>
                           </div>
@@ -2767,40 +2694,37 @@ export default function Profile() {
                     {/* Goal */}
                     {isEditingPost ? (
                       <div className="space-y-1.5">
-                        <label className="text-sm font-medium">{t("profile_linked_goal_label")}</label>
+                        <label className="text-sm font-medium" style={{ color: "#fff" }}>{t("profile_linked_goal_label")}</label>
                         {userGoals.length > 0 ? (
-                          <div className="space-y-2">
-                            <Select value={editPostGoalId} onValueChange={setEditPostGoalId}>
-                              <SelectTrigger className="rounded-lg">
-                                <SelectValue placeholder={t("profile_select_goal_ph")} />
-                              </SelectTrigger>
-                              <SelectContent className="z-[200]">
-                                {userGoals.map((goal) => (
-                                  <SelectItem key={goal.id} value={goal.id}>
-                                    {goal.description}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            {editPostGoalId && (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => setEditPostGoalId("")}
-                                className="h-8 text-xs"
-                              >
-                                {t("profile_remove_goal_btn")}
-                              </Button>
-                            )}
+                          <div className="rounded-xl overflow-hidden" style={{ border: "1px solid rgba(255,255,255,.12)" }}>
+                            {userGoals.map((goal, idx) => {
+                              const selected = editPostGoalId === goal.id;
+                              return (
+                                <button
+                                  key={goal.id}
+                                  type="button"
+                                  onClick={() => setEditPostGoalId(selected ? "" : goal.id)}
+                                  className="w-full text-left px-3 py-2.5 text-sm flex items-center justify-between gap-2 transition-colors active:scale-[0.99]"
+                                  style={{
+                                    background: selected ? "rgba(91,140,255,.18)" : "rgba(255,255,255,.05)",
+                                    color: selected ? "#fff" : "rgba(255,255,255,.7)",
+                                    borderTop: idx > 0 ? "1px solid rgba(255,255,255,.07)" : undefined,
+                                  }}
+                                >
+                                  <span className="truncate">{goal.description}</span>
+                                  {selected && <Check className="h-4 w-4 shrink-0 text-brand" />}
+                                </button>
+                              );
+                            })}
                           </div>
                         ) : (
-                          <p className="text-sm text-muted-foreground">{t("profile_no_goals_created")}</p>
+                          <p className="text-sm" style={{ color: "rgba(255,255,255,.5)" }}>{t("profile_no_goals_created")}</p>
                         )}
                       </div>
                     ) : selectedPost.user_goal_id ? (
-                      <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/40 border border-border/40">
-                        <span className="text-xs text-muted-foreground">{t("profile_goal_label")}</span>
-                        <span className="text-xs font-medium truncate">
+                      <div className="flex items-center gap-2 px-3 py-2 rounded-xl" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}>
+                        <span className="text-xs" style={{ color: "rgba(255,255,255,.45)" }}>{t("profile_goal_label")}</span>
+                        <span className="text-xs font-medium truncate" style={{ color: "#fff" }}>
                           {userGoals.find((g) => g.id === selectedPost.user_goal_id)?.description || t("profile_goal_removed_label")}
                         </span>
                       </div>
@@ -2810,7 +2734,7 @@ export default function Profile() {
                     {isLoadingPostData && !isEditingPost && (
                       <div className="flex items-center gap-2 pt-1">
                         {[...Array(6)].map((_, i) => (
-                          <div key={i} className="h-8 w-12 rounded-full bg-muted animate-pulse" />
+                          <div key={i} className="h-8 w-12 rounded-full animate-pulse" style={{ background: "rgba(255,255,255,.08)" }} />
                         ))}
                       </div>
                     )}
@@ -2839,7 +2763,8 @@ export default function Profile() {
                         {postLikes.length > 0 && (
                           <button
                             onClick={() => setIsLikesModalOpen(true)}
-                            className="text-xs font-semibold text-foreground hover:text-primary transition-colors px-1"
+                            className="text-xs font-semibold px-1 transition-colors"
+                            style={{ color: "rgba(255,255,255,.7)" }}
                           >
                             {t("profile_incentives_label").replace("{n}", String(postLikes.length))}
                           </button>
@@ -2849,32 +2774,32 @@ export default function Profile() {
 
                     {/* Action Buttons */}
                     {!isViewingOtherProfile && (
-                      <div className="flex gap-2 pt-2">
+                      <div className="flex gap-2 pt-2" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
                         {!isEditingPost ? (
                           <>
                             <Button
-                              variant="outline"
-                              className="flex-1 rounded-full"
+                              className="flex-1 rounded-full gap-2"
+                              style={{ background: "rgba(255,255,255,.09)", color: "rgba(255,255,255,.8)", border: "1px solid rgba(255,255,255,.12)" }}
                               onClick={() => setIsEditingPost(true)}
                             >
-                              <Edit2 className="h-4 w-4 mr-2" />
+                              <Edit2 className="h-4 w-4" />
                               {t("edit")}
                             </Button>
                             <Button
                               variant="destructive"
-                              className="flex-1 rounded-full"
+                              className="flex-1 rounded-full gap-2"
                               onClick={handleDeletePost}
                               disabled={isUpdatingPost}
                             >
-                              <Trash2 className="h-4 w-4 mr-2" />
+                              <Trash2 className="h-4 w-4" />
                               {t("delete")}
                             </Button>
                           </>
                         ) : (
                           <>
                             <Button
-                              variant="outline"
                               className="flex-1 rounded-full"
+                              style={{ background: "rgba(255,255,255,.09)", color: "rgba(255,255,255,.7)", border: "1px solid rgba(255,255,255,.12)" }}
                               onClick={() => setIsEditingPost(false)}
                               disabled={isUpdatingPost}
                             >
@@ -2882,6 +2807,7 @@ export default function Profile() {
                             </Button>
                             <Button
                               className="flex-1 rounded-full"
+                              style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}
                               onClick={handleUpdatePost}
                               disabled={isUpdatingPost}
                             >

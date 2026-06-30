@@ -26,7 +26,7 @@ import {
   type PostIncentiveType,
 } from "@/lib/ritmofit-db";
 import { PostLikesModal } from "@/components/modals/post-likes-modal";
-import { MessageCircle, Send, Trash2, VolumeX, Volume2, MoreVertical, Edit2, AlertTriangle, Pencil, Check, X, Play, Pause, Users } from "lucide-react";
+import { MessageCircle, Send, Trash2, VolumeX, Volume2, MoreVertical, Edit2, AlertTriangle, Pencil, Check, X, Play, Users } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -107,8 +107,6 @@ export default function Shots() {
   const containerRef = React.useRef<HTMLDivElement>(null);
   const videoRefsMap = React.useRef<Record<string, HTMLVideoElement>>({});
   const [isPaused, setIsPaused] = React.useState(false);
-  const [showPauseIcon, setShowPauseIcon] = React.useState(false);
-  const pauseIconTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const [quickOverlayShotId, setQuickOverlayShotId] = React.useState<string | null>(null);
   const [burstMap, setBurstMap] = React.useState<Record<string, PostIncentiveType | null>>({});
   const lastTapRef = React.useRef<{ shotId: string; time: number } | null>(null);
@@ -165,9 +163,6 @@ export default function Shots() {
         video.pause();
         setIsPaused(true);
       }
-      setShowPauseIcon(true);
-      if (pauseIconTimerRef.current) clearTimeout(pauseIconTimerRef.current);
-      pauseIconTimerRef.current = setTimeout(() => setShowPauseIcon(false), 800);
     }, 300);
   }, []);
 
@@ -187,8 +182,6 @@ export default function Shots() {
       holdFiredRef.current = true;
       video.pause();
       setIsPaused(true);
-      setShowPauseIcon(true);
-      if (pauseIconTimerRef.current) clearTimeout(pauseIconTimerRef.current);
     }, 200);
   }, []);
 
@@ -217,7 +210,6 @@ export default function Shots() {
         if (video) video.play().catch(() => {});
         setIsPaused(false);
       }
-      setShowPauseIcon(false);
       return true;
     }
     return false;
@@ -801,14 +793,11 @@ export default function Shots() {
                     style={{ pointerEvents: "none" }}
                     onError={() => { delete videoRefsMap.current[shot.id]; }}
                   />
-                  {/* Tap feedback icon */}
-                  {showPauseIcon && visibleShotId === shot.id && (
+                  {/* Pause state indicator — visível enquanto pausado, igual ao FlowViewer */}
+                  {isPaused && visibleShotId === shot.id && (
                     <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                      <div className="bg-black/50 rounded-full p-4 animate-fade-in">
-                        {isPaused
-                          ? <Pause className="h-10 w-10 text-white" />
-                          : <Play className="h-10 w-10 text-white" />
-                        }
+                      <div className="bg-black/40 rounded-full p-5 backdrop-blur-md border border-white/10 animate-fade-in">
+                        <Play className="h-12 w-12 text-white" style={{ fill: "rgba(255,255,255,0.2)" }} />
                       </div>
                     </div>
                   )}
@@ -922,7 +911,7 @@ export default function Shots() {
               <div
                 className="absolute left-0 right-0 z-10 flex items-end px-4 gap-3"
                 style={{
-                  bottom: "0.75rem",
+                  bottom: "1.75rem",
                 }}
               >
                 {/* Description - Bottom Left */}

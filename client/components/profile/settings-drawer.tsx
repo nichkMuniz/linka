@@ -6,13 +6,6 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -42,6 +35,7 @@ import {
 import { supabase, resetSupabaseAuth } from "@/lib/supabase";
 import { Capacitor } from "@capacitor/core";
 import { PushNotifications } from "@capacitor/push-notifications";
+import { LocalNotifications } from "@capacitor/local-notifications";
 import { useLanguage } from "@/lib/language-context";
 import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
 import {
@@ -63,7 +57,14 @@ import {
   ChevronDown,
   ChevronUp,
   Lock,
+  ScanFace,
 } from "lucide-react";
+import {
+  isBiometricSupported,
+  isBiometricEnabled,
+  disableBiometric,
+  type BiometricSupport,
+} from "@/lib/biometric-auth";
 
 interface SettingsDrawerProps {
   profile: UserProfile;
@@ -78,6 +79,8 @@ interface SettingsDrawerProps {
   onOpenChange?: (open: boolean) => void;
   /** Oculta o botão de trigger padrão (use com open/onOpenChange) */
   hideTrigger?: boolean;
+  /** Quando true, abre diretamente no sub-drawer "Meu Perfil" ao invés da lista de settings */
+  directToProfileEdit?: boolean;
 }
 
 export function SettingsDrawer({
@@ -90,6 +93,7 @@ export function SettingsDrawer({
   open: controlledOpen,
   onOpenChange: controlledOnOpenChange,
   hideTrigger,
+  directToProfileEdit,
 }: SettingsDrawerProps) {
   const navigate = useNavigate();
   const { language, setLanguage, t } = useLanguage();
@@ -102,6 +106,16 @@ export function SettingsDrawer({
   // --- My Profile (unified drawer with tabs) ---
   const [isEditOpen, setIsEditOpen] = React.useState(false);
   const [profileTab, setProfileTab] = React.useState<"public" | "personal">("public");
+
+  // Quando directToProfileEdit=true, pula a lista e vai direto para "Meu Perfil"
+  const directToProfileEditRef = React.useRef(false);
+  directToProfileEditRef.current = !!directToProfileEdit;
+  React.useEffect(() => {
+    if (isOpen && directToProfileEditRef.current) {
+      openEditProfile("public");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
 
   // --- Account & Security ---
   const [isAccountOpen, setIsAccountOpen] = React.useState(false);
@@ -125,6 +139,22 @@ export function SettingsDrawer({
   const [confirmPwd, setConfirmPwd] = React.useState("");
   const [showNewPwdInput, setShowNewPwdInput] = React.useState(false);
   const [showConfirmPwdInput, setShowConfirmPwdInput] = React.useState(false);
+  // --- Biometric login (Face ID / Touch ID) ---
+  const [biometricSupport, setBiometricSupport] = React.useState<BiometricSupport>({ available: false, label: "Biometria" });
+  const [biometricEnabled, setBiometricEnabled] = React.useState(false);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const support = await isBiometricSupported();
+      if (cancelled) return;
+      setBiometricSupport(support);
+      setBiometricEnabled(support.available && isBiometricEnabled());
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const openEditProfile = (tab: "public" | "personal" = "public") => {
     setEditNickname(profile.nickname);
@@ -205,6 +235,7 @@ export function SettingsDrawer({
   const [isSavingCommercial, setIsSavingCommercial] = React.useState(false);
   const [commercialLogoFile, setCommercialLogoFile] = React.useState<File | null>(null);
   const [commercialLogoPreview, setCommercialLogoPreview] = React.useState<string | null>(null);
+  const [logoZoomOpen, setLogoZoomOpen] = React.useState(false);
   const [servicePlans, setServicePlans] = React.useState<ServicePlan[]>([]);
   const [isAddingPlan, setIsAddingPlan] = React.useState(false);
   const [newPlanName, setNewPlanName] = React.useState("");
@@ -293,13 +324,81 @@ export function SettingsDrawer({
 
   // --- Notifications ---
   const [isNotificationsOpen, setIsNotificationsOpen] = React.useState(false);
-  const [notifications, setNotifications] = React.useState({
+
+  const NOTIF_PREFS_KEY = "linka_notif_prefs";
+  const defaultNotifPrefs = {
     workoutReminders: true,
     achievementAlerts: true,
     friendActivity: true,
     messages: true,
     sound: true,
+  };
+
+  const [notifications, setNotifications] = React.useState<typeof defaultNotifPrefs>(() => {
+    try {
+      const stored = localStorage.getItem(NOTIF_PREFS_KEY);
+      if (stored) return { ...defaultNotifPrefs, ...(JSON.parse(stored) as Partial<typeof defaultNotifPrefs>) };
+    } catch {}
+    return defaultNotifPrefs;
   });
+
+  const handleToggleNotification = React.useCallback(
+    async (key: keyof typeof defaultNotifPrefs) => {
+      const newValue = !notifications[key];
+      const newPrefs = { ...notifications, [key]: newValue };
+      setNotifications(newPrefs);
+      try {
+        localStorage.setItem(NOTIF_PREFS_KEY, JSON.stringify(newPrefs));
+      } catch {}
+
+      if (key === "workoutReminders") {
+        if (!newValue) {
+          // Cancelar todas as notificações locais de rotina
+          try {
+            const pending = await LocalNotifications.getPending();
+            if (pending.notifications.length > 0) {
+              await LocalNotifications.cancel({ notifications: pending.notifications });
+            }
+          } catch {}
+        } else {
+          // Re-agendar disparando o evento que o hook escuta
+          window.dispatchEvent(new Event("ritmofit-routines-changed"));
+        }
+      }
+
+      if (key === "messages" || key === "achievementAlerts" || key === "friendActivity") {
+        if (!Capacitor.isNativePlatform()) return;
+        const wasAnyEnabled =
+          notifications.messages || notifications.achievementAlerts || notifications.friendActivity;
+        const isAnyEnabled =
+          newPrefs.messages || newPrefs.achievementAlerts || newPrefs.friendActivity;
+
+        if (wasAnyEnabled && !isAnyEnabled) {
+          // Todas as push desativadas → remover token do servidor e cancelar registro no APNs
+          try {
+            const token = localStorage.getItem("linka_push_token");
+            if (token) {
+              await deletePushTokenDb(token);
+              localStorage.removeItem("linka_push_token");
+            }
+            await PushNotifications.unregister();
+          } catch {}
+        } else if (!wasAnyEnabled && isAnyEnabled) {
+          // Pelo menos uma push ativada → re-registrar com APNs
+          try {
+            let permStatus = await PushNotifications.checkPermissions();
+            if (permStatus.receive === "prompt") {
+              permStatus = await PushNotifications.requestPermissions();
+            }
+            if (permStatus.receive === "granted") {
+              await PushNotifications.register();
+            }
+          } catch {}
+        }
+      }
+    },
+    [notifications]
+  );
 
   // --- Privacy ---
   const [isPrivacyOpen, setIsPrivacyOpen] = React.useState(false);
@@ -494,8 +593,9 @@ export function SettingsDrawer({
 
         <DrawerContent
           handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
-          className="max-h-[80dvh] flex flex-col modal-enter !rounded-t-[32px] !border-0"
+          className="flex flex-col modal-enter !rounded-t-[32px] !border-0"
           style={{
+            maxHeight: `min(80dvh, ${viewportHeight - 8}px)`,
             background: "linear-gradient(rgba(30,28,40,.88),rgba(14,13,20,.96))",
             backdropFilter: "blur(40px) saturate(180%)",
             WebkitBackdropFilter: "blur(40px) saturate(180%)",
@@ -807,6 +907,38 @@ export function SettingsDrawer({
                         </div>
                       )}
                     </div>
+                    {/* Biometric login */}
+                    {biometricSupport.available && (
+                      <div className="flex items-center justify-between p-4 rounded-2xl transition-colors" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}>
+                        <div className="flex items-start gap-3 flex-1 pr-3">
+                          <ScanFace className="h-5 w-5 mt-0.5 shrink-0" style={{ color: "rgba(255,255,255,.7)" }} />
+                          <div>
+                            <div className="text-sm font-medium" style={{ color: "#fff" }}>
+                              {t("settings_biometric_label").replace("{biometric}", biometricSupport.label)}
+                            </div>
+                            <div className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>
+                              {biometricEnabled
+                                ? t("settings_biometric_desc_on")
+                                : t("settings_biometric_desc_off").replace("{biometric}", biometricSupport.label)}
+                            </div>
+                          </div>
+                        </div>
+                        <button
+                          onClick={async () => {
+                            if (biometricEnabled) {
+                              await disableBiometric();
+                              setBiometricEnabled(false);
+                              toast({ title: t("settings_biometric_disabled_toast") });
+                            } else {
+                              toast({ title: t("settings_biometric_enable_hint_title"), description: t("settings_biometric_enable_hint_desc").replace("{biometric}", biometricSupport.label) });
+                            }
+                          }}
+                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${biometricEnabled ? "bg-brand" : "bg-muted"}`}
+                        >
+                          <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${biometricEnabled ? "translate-x-6" : "translate-x-1"}`} />
+                        </button>
+                      </div>
+                    )}
                     {/* Danger Zone */}
                     <div className="pt-4 space-y-3" style={{ borderTop: "1px solid rgba(255,255,255,.08)" }}>
                       <h3 className="text-sm font-semibold" style={{ color: "#f87171" }}>{t("settings_danger_zone")}</h3>
@@ -840,8 +972,9 @@ export function SettingsDrawer({
                 <Drawer open={isCommercialDashboardOpen} onOpenChange={setIsCommercialDashboardOpen}>
                   <DrawerContent
                     handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
-                    className="max-h-[80dvh] flex flex-col modal-enter !rounded-t-[32px] !border-0"
+                    className="flex flex-col modal-enter !rounded-t-[32px] !border-0"
                     style={{
+                      maxHeight: `min(80dvh, ${viewportHeight - 8}px)`,
                       background: "linear-gradient(rgba(30,28,40,.88),rgba(14,13,20,.96))",
                       backdropFilter: "blur(40px) saturate(180%)",
                       WebkitBackdropFilter: "blur(40px) saturate(180%)",
@@ -996,18 +1129,39 @@ export function SettingsDrawer({
                   <div className="space-y-4">
                     <div className="space-y-2">
                       <label className="text-sm font-medium" style={{ color: "#fff" }}>{t("settings_commercial_segment")}</label>
-                      <Select value={commercialFormData.business_segment} onValueChange={(v) => setCommercialFormData({ ...commercialFormData, business_segment: v })}>
-                        <SelectTrigger><SelectValue placeholder={t("settings_commercial_segment_placeholder")} /></SelectTrigger>
-                        <SelectContent position="popper" className="z-[200]">
-                          <SelectItem value="academia">{t("seg_academia")}</SelectItem>
-                          <SelectItem value="personal_trainer">{t("seg_personal_trainer")}</SelectItem>
-                          <SelectItem value="nutricionista">{t("seg_nutricionista")}</SelectItem>
-                          <SelectItem value="psicologo">{t("seg_psicologo")}</SelectItem>
-                          <SelectItem value="fisioterapeuta">{t("seg_fisioterapeuta")}</SelectItem>
-                          <SelectItem value="coach">{t("seg_coach")}</SelectItem>
-                          <SelectItem value="outros">{t("seg_outros")}</SelectItem>
-                        </SelectContent>
-                      </Select>
+                      <div className="rounded-xl overflow-hidden" style={{ border: "1px solid rgba(255,255,255,.12)" }}>
+                        {([
+                          { value: "academia", labelKey: "seg_academia" },
+                          { value: "personal_trainer", labelKey: "seg_personal_trainer" },
+                          { value: "nutricionista", labelKey: "seg_nutricionista" },
+                          { value: "psicologo", labelKey: "seg_psicologo" },
+                          { value: "fisioterapeuta", labelKey: "seg_fisioterapeuta" },
+                          { value: "coach", labelKey: "seg_coach" },
+                          { value: "outros", labelKey: "seg_outros" },
+                        ] as { value: string; labelKey: import("../../lib/i18n").TranslationKey }[]).map((seg, idx) => {
+                          const selected = commercialFormData.business_segment === seg.value;
+                          return (
+                            <button
+                              key={seg.value}
+                              type="button"
+                              onClick={() => setCommercialFormData({ ...commercialFormData, business_segment: seg.value })}
+                              className="w-full text-left px-3 py-2.5 text-sm flex items-center justify-between gap-2 transition-colors active:scale-[0.99]"
+                              style={{
+                                background: selected ? "rgba(91,140,255,.18)" : "rgba(255,255,255,.05)",
+                                color: selected ? "#fff" : "rgba(255,255,255,.7)",
+                                borderTop: idx > 0 ? "1px solid rgba(255,255,255,.07)" : undefined,
+                              }}
+                            >
+                              <span>{t(seg.labelKey)}</span>
+                              {selected && (
+                                <svg className="h-4 w-4 shrink-0 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                </svg>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
                     <div className="space-y-2">
                       <label className="text-sm font-medium" style={{ color: "#fff" }}>{t("settings_commercial_name")}</label>
@@ -1032,29 +1186,82 @@ export function SettingsDrawer({
                     {/* Logo */}
                     <div className="space-y-2">
                       <label className="text-sm font-medium" style={{ color: "#fff" }}>{t("settings_commercial_logo")}</label>
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-4">
+                        {/* Preview */}
                         {commercialLogoPreview ? (
-                          <img src={commercialLogoPreview} alt="Logo" className="h-20 w-20 rounded-lg object-cover border border-border" />
-                        ) : (
-                          <div className="h-16 w-16 rounded-lg text-xs text-center flex items-center justify-center" style={{ border: "1px dashed rgba(255,255,255,.2)", background: "rgba(255,255,255,.06)", color: "rgba(255,255,255,.4)" }}>{t("settings_commercial_logo_none")}</div>
-                        )}
-                        <label className="cursor-pointer">
-                          <span className="inline-flex items-center gap-1 text-sm text-brand font-medium hover:underline">
-                            {commercialLogoPreview ? t("settings_commercial_logo_change") : t("settings_commercial_logo_add")}
-                          </span>
-                          <input type="file" accept="image/*" className="hidden" onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            e.target.value = "";
-                            if (!file) return;
-                            pendingLogoFileRef.current = file;
-                            setPendingLogoCropSrc(URL.createObjectURL(file));
-                          }} />
-                        </label>
-                        {commercialLogoPreview && (
-                          <button type="button" className="text-xs text-destructive hover:underline" onClick={() => { setCommercialLogoFile(null); setCommercialLogoPreview(null); }}>
-                            {t("remove")}
+                          <button
+                            type="button"
+                            onClick={() => setLogoZoomOpen(true)}
+                            className="relative h-20 w-20 rounded-2xl shrink-0 overflow-hidden active:scale-95 transition-transform group"
+                            style={{ border: "1px solid rgba(255,255,255,.12)" }}
+                            aria-label={t("settings_commercial_logo")}
+                          >
+                            <img src={commercialLogoPreview} alt="Logo" className="h-full w-full object-cover" />
+                            <div className="absolute inset-0 flex items-center justify-center opacity-0 group-active:opacity-100 transition-opacity" style={{ background: "rgba(0,0,0,.4)" }}>
+                              <ZoomIn className="h-5 w-5 text-white" />
+                            </div>
                           </button>
+                        ) : (
+                          <div className="h-20 w-20 rounded-2xl shrink-0 flex flex-col items-center justify-center gap-1" style={{ border: "1px dashed rgba(255,255,255,.2)", background: "rgba(255,255,255,.05)" }}>
+                            <Upload className="h-5 w-5" style={{ color: "rgba(255,255,255,.3)" }} />
+                          </div>
                         )}
+
+                        {/* Logo zoom overlay — renderizado inline para evitar conflito com portal do Drawer */}
+                        {logoZoomOpen && commercialLogoPreview && (
+                          <div
+                            className="fixed inset-0 z-[300] flex items-center justify-center"
+                            style={{ background: "rgba(0,0,0,.92)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)" }}
+                            onClick={() => setLogoZoomOpen(false)}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => setLogoZoomOpen(false)}
+                              className="absolute top-4 right-4 flex items-center justify-center rounded-full"
+                              style={{ width: 40, height: 40, background: "rgba(255,255,255,.12)", border: "1px solid rgba(255,255,255,.2)", color: "#fff" }}
+                              aria-label="Fechar"
+                            >
+                              <X className="h-5 w-5" />
+                            </button>
+                            <img
+                              src={commercialLogoPreview}
+                              alt="Logo"
+                              className="max-w-[85vw] max-h-[75vh] rounded-2xl object-contain"
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                          </div>
+                        )}
+
+                        {/* Actions */}
+                        <div className="flex flex-col gap-2 flex-1">
+                          <label className="cursor-pointer">
+                            <div
+                              className="flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-medium transition-colors active:scale-[0.98]"
+                              style={{ background: "rgba(91,140,255,.15)", border: "1px solid rgba(91,140,255,.3)", color: "#7eaaff" }}
+                            >
+                              <Upload className="h-4 w-4" />
+                              {commercialLogoPreview ? t("settings_commercial_logo_change") : t("settings_commercial_logo_add")}
+                            </div>
+                            <input type="file" accept="image/*" className="hidden" onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              e.target.value = "";
+                              if (!file) return;
+                              pendingLogoFileRef.current = file;
+                              setPendingLogoCropSrc(URL.createObjectURL(file));
+                            }} />
+                          </label>
+                          {commercialLogoPreview && (
+                            <button
+                              type="button"
+                              onClick={() => { setCommercialLogoFile(null); setCommercialLogoPreview(null); }}
+                              className="flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-medium transition-colors active:scale-[0.98]"
+                              style={{ background: "rgba(239,68,68,.1)", border: "1px solid rgba(239,68,68,.25)", color: "#f87171" }}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                              {t("remove")}
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
                     {/* Service Plans */}
@@ -1149,8 +1356,9 @@ export function SettingsDrawer({
               </Button>
               <DrawerContent
                 handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
-                className="max-h-[80dvh] flex flex-col modal-enter !rounded-t-[32px] !border-0"
+                className="flex flex-col modal-enter !rounded-t-[32px] !border-0"
                 style={{
+                  maxHeight: `min(80dvh, ${viewportHeight - 8}px)`,
                   background: "linear-gradient(rgba(30,28,40,.88),rgba(14,13,20,.96))",
                   backdropFilter: "blur(40px) saturate(180%)",
                   WebkitBackdropFilter: "blur(40px) saturate(180%)",
@@ -1185,8 +1393,9 @@ export function SettingsDrawer({
               </Button>
               <DrawerContent
                 handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
-                className="max-h-[80dvh] flex flex-col modal-enter !rounded-t-[32px] !border-0"
+                className="flex flex-col modal-enter !rounded-t-[32px] !border-0"
                 style={{
+                  maxHeight: `min(80dvh, ${viewportHeight - 8}px)`,
                   background: "linear-gradient(rgba(30,28,40,.88),rgba(14,13,20,.96))",
                   backdropFilter: "blur(40px) saturate(180%)",
                   WebkitBackdropFilter: "blur(40px) saturate(180%)",
@@ -1203,18 +1412,18 @@ export function SettingsDrawer({
                 <div className="flex-1 overflow-y-auto px-4 pb-4">
                   <div className="space-y-3">
                     {([
-                      { key: "workoutReminders", labelKey: "settings_notif_workout", descKey: "settings_notif_workout_desc" },
-                      { key: "achievementAlerts", labelKey: "settings_notif_achievements", descKey: "settings_notif_achievements_desc" },
-                      { key: "friendActivity", labelKey: "settings_notif_friends", descKey: "settings_notif_friends_desc" },
-                      { key: "messages", labelKey: "settings_notif_messages", descKey: "settings_notif_messages_desc" },
-                    ] as { key: keyof typeof notifications; labelKey: import("../../lib/i18n").TranslationKey; descKey: import("../../lib/i18n").TranslationKey }[]).map(({ key, labelKey, descKey }) => (
-                      <div key={key} className="flex items-center justify-between p-4 rounded-2xl transition-colors" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}>
+                      { notifKey: "workoutReminders", labelKey: "settings_notif_workout", descKey: "settings_notif_workout_desc" },
+                      { notifKey: "achievementAlerts", labelKey: "settings_notif_achievements", descKey: "settings_notif_achievements_desc" },
+                      { notifKey: "friendActivity", labelKey: "settings_notif_friends", descKey: "settings_notif_friends_desc" },
+                      { notifKey: "messages", labelKey: "settings_notif_messages", descKey: "settings_notif_messages_desc" },
+                    ] as { notifKey: keyof typeof notifications; labelKey: import("../../lib/i18n").TranslationKey; descKey: import("../../lib/i18n").TranslationKey }[]).map(({ notifKey, labelKey, descKey }) => (
+                      <div key={notifKey} className="flex items-center justify-between p-4 rounded-2xl transition-colors" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}>
                         <div>
                           <div className="text-sm font-medium" style={{ color: "#fff" }}>{t(labelKey)}</div>
                           <div className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>{t(descKey)}</div>
                         </div>
-                        <button onClick={() => setNotifications({ ...notifications, [key]: !notifications[key] })} className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${notifications[key] ? "bg-brand" : "bg-muted"}`}>
-                          <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${notifications[key] ? "translate-x-6" : "translate-x-1"}`} />
+                        <button onClick={() => handleToggleNotification(notifKey)} className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${notifications[notifKey] ? "bg-brand" : "bg-muted"}`}>
+                          <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${notifications[notifKey] ? "translate-x-6" : "translate-x-1"}`} />
                         </button>
                       </div>
                     ))}
@@ -1224,7 +1433,7 @@ export function SettingsDrawer({
                           <div className="text-sm font-medium" style={{ color: "#fff" }}>{t("settings_notif_sounds")}</div>
                           <div className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>{t("settings_notif_sounds_desc")}</div>
                         </div>
-                        <button onClick={() => setNotifications({ ...notifications, sound: !notifications.sound })} className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${notifications.sound ? "bg-brand" : "bg-muted"}`}>
+                        <button onClick={() => handleToggleNotification("sound")} className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${notifications.sound ? "bg-brand" : "bg-muted"}`}>
                           <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${notifications.sound ? "translate-x-6" : "translate-x-1"}`} />
                         </button>
                       </div>
@@ -1242,8 +1451,9 @@ export function SettingsDrawer({
               </Button>
               <DrawerContent
                 handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
-                className="max-h-[80dvh] flex flex-col modal-enter !rounded-t-[32px] !border-0"
+                className="flex flex-col modal-enter !rounded-t-[32px] !border-0"
                 style={{
+                  maxHeight: `min(80dvh, ${viewportHeight - 8}px)`,
                   background: "linear-gradient(rgba(30,28,40,.88),rgba(14,13,20,.96))",
                   backdropFilter: "blur(40px) saturate(180%)",
                   WebkitBackdropFilter: "blur(40px) saturate(180%)",
@@ -1353,8 +1563,9 @@ export function SettingsDrawer({
               </Button>
               <DrawerContent
                 handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
-                className="max-h-[85dvh] flex flex-col modal-enter !rounded-t-[32px] !border-0"
+                className="flex flex-col modal-enter !rounded-t-[32px] !border-0"
                 style={{
+                  maxHeight: `min(80dvh, ${viewportHeight - 8}px)`,
                   background: "linear-gradient(rgba(30,28,40,.88),rgba(14,13,20,.96))",
                   backdropFilter: "blur(40px) saturate(180%)",
                   WebkitBackdropFilter: "blur(40px) saturate(180%)",
@@ -1379,75 +1590,91 @@ export function SettingsDrawer({
                     </div>
                   ) : (
                     <>
-                      {/* Expanded flow viewer — true fullscreen */}
+                      {/* Expanded flow viewer — story-style fullscreen */}
                       {expandedFlow && (
-                        <div
-                          className="fixed inset-0 z-[9999] bg-black flex flex-col"
-                          style={{
-                            paddingTop: "env(safe-area-inset-top)",
-                            paddingBottom: "env(safe-area-inset-bottom)",
-                          }}
-                        >
-                          {/* Top bar */}
-                          <div className="flex items-center justify-between px-4 py-3">
+                        <div className="fixed inset-0 z-[9999] bg-black">
+                          {/* Media — fullscreen */}
+                          {expandedFlow.media_url?.match(/\.(mp4|mov|webm)/) ? (
+                            <video
+                              src={expandedFlow.media_url}
+                              className="absolute inset-0 w-full h-full object-contain"
+                              controls
+                              playsInline
+                              autoPlay
+                            />
+                          ) : expandedFlow.media_url ? (
+                            <img
+                              src={expandedFlow.media_url}
+                              alt="flow"
+                              className="absolute inset-0 w-full h-full object-contain"
+                            />
+                          ) : (
+                            <div className="absolute inset-0 flex items-center justify-center">
+                              <span className="text-7xl">🌊</span>
+                            </div>
+                          )}
+
+                          {/* Top scrim + controls */}
+                          <div
+                            className="absolute top-0 left-0 right-0 flex items-start justify-between px-4 pt-3 pb-16"
+                            style={{
+                              paddingTop: "max(12px, env(safe-area-inset-top))",
+                              background: "linear-gradient(to bottom, rgba(0,0,0,.6) 0%, transparent 100%)",
+                            }}
+                          >
+                            {/* Close */}
                             <button
                               onClick={() => setExpandedFlow(null)}
-                              className="p-2.5 rounded-full bg-white/15 active:bg-white/30 transition-colors"
+                              className="flex items-center justify-center rounded-full active:scale-95 transition-transform"
+                              style={{ width: 38, height: 38, background: "rgba(0,0,0,.45)", border: "1px solid rgba(255,255,255,.18)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" }}
                               aria-label="Fechar"
                             >
-                              <X className="h-5 w-5 text-white" />
+                              <X className="h-4.5 w-4.5 text-white" />
                             </button>
-                            <p className="text-xs text-white/60 font-medium">
+
+                            {/* Date */}
+                            <p className="text-sm font-semibold text-white/90 self-center" style={{ textShadow: "0 1px 4px rgba(0,0,0,.6)" }}>
                               {new Date(expandedFlow.created_at).toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" })}
                             </p>
+
+                            {/* Actions */}
                             <div className="flex gap-2">
                               <button
                                 onClick={() => handleRepostFlow(expandedFlow)}
                                 disabled={repostingFlowId === expandedFlow.id}
-                                className="p-2.5 rounded-full bg-brand active:bg-brand/70 transition-colors disabled:opacity-40"
+                                className="flex items-center justify-center rounded-full active:scale-95 transition-transform disabled:opacity-40"
+                                style={{ width: 38, height: 38, background: "rgba(91,140,255,.85)", border: "1px solid rgba(255,255,255,.2)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" }}
                                 title="Repostar no feed"
                                 aria-label="Repostar no feed"
                               >
-                                <Share2 className="h-4.5 w-4.5 text-white" />
+                                <Share2 className="h-4 w-4 text-white" />
                               </button>
                               <button
                                 onClick={() => handleDeleteFlow(expandedFlow)}
                                 disabled={deletingFlowId === expandedFlow.id}
-                                className="p-2.5 rounded-full bg-red-500 active:bg-red-600 transition-colors disabled:opacity-40"
+                                className="flex items-center justify-center rounded-full active:scale-95 transition-transform disabled:opacity-40"
+                                style={{ width: 38, height: 38, background: "rgba(239,68,68,.85)", border: "1px solid rgba(255,255,255,.2)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" }}
                                 title="Excluir flow"
                                 aria-label="Excluir flow"
                               >
-                                <Trash2 className="h-4.5 w-4.5 text-white" />
+                                <Trash2 className="h-4 w-4 text-white" />
                               </button>
                             </div>
                           </div>
 
-                          {/* Media — ocupa todo o espaço restante */}
-                          <div className="flex-1 flex items-center justify-center overflow-hidden">
-                            {expandedFlow.media_url?.match(/\.(mp4|mov|webm)/) ? (
-                              <video
-                                src={expandedFlow.media_url}
-                                className="w-full h-full object-contain"
-                                controls
-                                playsInline
-                                autoPlay
-                              />
-                            ) : expandedFlow.media_url ? (
-                              <img
-                                src={expandedFlow.media_url}
-                                alt="flow"
-                                className="w-full h-full object-contain"
-                              />
-                            ) : (
-                              <span className="text-6xl">🌊</span>
-                            )}
-                          </div>
-
-                          {/* Caption */}
+                          {/* Bottom scrim + caption */}
                           {expandedFlow.description && (
-                            <p className="text-sm text-white/70 text-center px-6 py-4">
-                              {expandedFlow.description}
-                            </p>
+                            <div
+                              className="absolute bottom-0 left-0 right-0 px-5 pt-12 pb-6"
+                              style={{
+                                paddingBottom: "max(24px, env(safe-area-inset-bottom))",
+                                background: "linear-gradient(to top, rgba(0,0,0,.7) 0%, transparent 100%)",
+                              }}
+                            >
+                              <p className="text-sm text-white/90 text-center leading-relaxed" style={{ textShadow: "0 1px 4px rgba(0,0,0,.5)" }}>
+                                {expandedFlow.description}
+                              </p>
+                            </div>
                           )}
                         </div>
                       )}

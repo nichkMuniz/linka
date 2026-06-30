@@ -169,6 +169,8 @@ export function CreateWizardDrawer({
   const [goalDuration, setGoalDuration] = React.useState(30);
   const [goalCustomDuration, setGoalCustomDuration] = React.useState("");
   const [useCustomDuration, setUseCustomDuration] = React.useState(false);
+  // Frequência = nº de dias de execução para concluir a meta (quantity / denominador do progresso)
+  const [goalFrequency, setGoalFrequency] = React.useState("");
   const [addingGoalId, setAddingGoalId] = React.useState<string | null>(null);
 
   // reset on close
@@ -195,6 +197,7 @@ export function CreateWizardDrawer({
       setGoalDuration(30);
       setGoalCustomDuration("");
       setUseCustomDuration(false);
+      setGoalFrequency("");
     } else {
       setStep(initialStep);
       setRoutineType(initialRoutineType);
@@ -327,6 +330,11 @@ export function CreateWizardDrawer({
       const daysStr = Array.from(scheduledDays).sort((a, b) => a - b).join(",");
       if (daysStr) {
         await updateRoutineItemsScheduledDaysDb(userId, routineType, name, daysStr).catch(() => {});
+      }
+
+      // Agenda as notificações locais da nova rotina (se tiver horário definido).
+      if (scheduledTime) {
+        window.dispatchEvent(new CustomEvent("ritmofit-routines-changed"));
       }
 
       if (linkGoalId) {
@@ -493,7 +501,8 @@ export function CreateWizardDrawer({
       const duration = useCustomDuration
         ? Math.max(1, Number(goalCustomDuration) || 1)
         : goalDuration;
-      await createCustomGoalAndSelectDb(userId, goalDescription.trim(), goalType, duration, 1);
+      const frequency = Math.max(1, Number(goalFrequency) || 1);
+      await createCustomGoalAndSelectDb(userId, goalDescription.trim(), goalType, duration, frequency);
       toast({ title: t("goals_created_toast"), description: goalDescription.trim() });
       onOpenChange(false);
       onCreated("goal");
@@ -955,8 +964,8 @@ export function CreateWizardDrawer({
                         style={selected ? { border: "1px solid #5b8cff", background: "rgba(91,140,255,.1)" } : { border: "1px solid rgba(255,255,255,.1)", background: "rgba(255,255,255,.04)" }}
                       >
                         {routineType === 3 ? (
-                          <div className="h-16 w-16 rounded-xl bg-muted/50 flex items-center justify-center text-2xl shrink-0">
-                            ✅
+                          <div className="h-16 w-16 rounded-xl bg-muted/50 flex items-center justify-center shrink-0">
+                            <Repeat2 className="h-7 w-7 text-muted-foreground" />
                           </div>
                         ) : (
                           <button
@@ -1011,11 +1020,11 @@ export function CreateWizardDrawer({
                             </p>
                           </div>
                           <div
-                            className={`h-7 w-7 rounded-full flex items-center justify-center shrink-0 ${
-                              selected ? "bg-primary text-primary-foreground" : "bg-muted/50"
+                            className={`h-7 w-7 rounded-full flex items-center justify-center shrink-0 transition-colors ${
+                              selected ? "bg-primary text-primary-foreground" : "bg-muted/50 text-muted-foreground"
                             }`}
                           >
-                            {selected && <Check className="h-4 w-4" />}
+                            <Plus className={`h-4 w-4 transition-transform ${selected ? "rotate-45" : ""}`} />
                           </div>
                         </button>
                       </div>
@@ -1303,6 +1312,25 @@ export function CreateWizardDrawer({
                     style={{ fontSize: "16px", background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }}
                   />
                 )}
+              </div>
+              <div className="space-y-2">
+                <Label className="text-sm font-semibold" style={{ color: "#fff" }}>{t("goals_create_label_frequency")}</Label>
+                <Input
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  max={7}
+                  placeholder={t("goals_create_frequency_placeholder")}
+                  value={goalFrequency}
+                  onChange={(e) => {
+                    const v = Number(e.target.value);
+                    if (e.target.value === "" || (v >= 1 && v <= 7)) setGoalFrequency(e.target.value);
+                  }}
+                  style={{ fontSize: "16px", background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }}
+                />
+                <p className="text-xs" style={{ color: "rgba(255,255,255,.45)" }}>
+                  {t("goals_create_frequency_hint")}
+                </p>
               </div>
               <Button
                 className="w-full rounded-full h-12"

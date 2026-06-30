@@ -1,5 +1,6 @@
 import * as React from "react";
 import { LocalNotifications } from "@capacitor/local-notifications";
+import { type UserWorkoutWithDetails } from "@/lib/ritmofit-db";
 
 type WorkoutSeriesEntry = {
   series: number;
@@ -35,6 +36,14 @@ interface WorkoutContextValue {
   setWorkoutExerciseNotes: React.Dispatch<React.SetStateAction<Record<string, string>>>;
   currentWorkoutIndex: number;
   setCurrentWorkoutIndex: (v: number) => void;
+  // Extra exercises added / removed during the session (persisted so they survive minimize + navigation)
+  workoutExtraItems: UserWorkoutWithDetails[];
+  setWorkoutExtraItems: React.Dispatch<React.SetStateAction<UserWorkoutWithDetails[]>>;
+  workoutRemovedIds: string[];
+  setWorkoutRemovedIds: React.Dispatch<React.SetStateAction<string[]>>;
+  // Currently expanded exercise card (persisted so it survives minimize + navigation)
+  workoutExpandedId: string | null;
+  setWorkoutExpandedId: (v: string | null) => void;
   // Reset all workout state
   resetWorkoutState: () => void;
   // Rest timer (shared so FAB can display it)
@@ -71,6 +80,12 @@ const WorkoutContext = React.createContext<WorkoutContextValue>({
   setWorkoutExerciseNotes: () => {},
   currentWorkoutIndex: 0,
   setCurrentWorkoutIndex: () => {},
+  workoutExtraItems: [],
+  setWorkoutExtraItems: () => {},
+  workoutRemovedIds: [],
+  setWorkoutRemovedIds: () => {},
+  workoutExpandedId: null,
+  setWorkoutExpandedId: () => {},
   resetWorkoutState: () => {},
   globalRestTimerRemaining: 0,
   setGlobalRestTimerRemaining: () => {},
@@ -96,6 +111,9 @@ function loadPersistedWorkout() {
       selectedRoutineName: string | null;
       workoutExerciseRestTimes: Record<string, number>;
       workoutExerciseNotes: Record<string, string>;
+      workoutExtraItems?: UserWorkoutWithDetails[];
+      workoutRemovedIds?: string[];
+      workoutExpandedId?: string | null;
     };
   } catch {
     return null;
@@ -128,6 +146,15 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
     () => persisted?.workoutExerciseNotes ?? {}
   );
   const [currentWorkoutIndex, setCurrentWorkoutIndex] = React.useState(0);
+  const [workoutExtraItems, setWorkoutExtraItems] = React.useState<UserWorkoutWithDetails[]>(
+    () => persisted?.workoutExtraItems ?? []
+  );
+  const [workoutRemovedIds, setWorkoutRemovedIds] = React.useState<string[]>(
+    () => persisted?.workoutRemovedIds ?? []
+  );
+  const [workoutExpandedId, setWorkoutExpandedId] = React.useState<string | null>(
+    () => persisted?.workoutExpandedId ?? null
+  );
   const [globalRestTimerRemaining, setGlobalRestTimerRemaining] = React.useState(0);
   const [globalRestTimerActive, setGlobalRestTimerActive] = React.useState(false);
   const [globalRestTimerPaused, setGlobalRestTimerPaused] = React.useState(false);
@@ -143,9 +170,12 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
         selectedRoutineName,
         workoutExerciseRestTimes,
         workoutExerciseNotes,
+        workoutExtraItems,
+        workoutRemovedIds,
+        workoutExpandedId,
       }));
     }
-  }, [workoutSeries, workoutStartTime, selectedRoutineName, workoutExerciseRestTimes, workoutExerciseNotes, workoutModalOpen, workoutMinimized]);
+  }, [workoutSeries, workoutStartTime, selectedRoutineName, workoutExerciseRestTimes, workoutExerciseNotes, workoutExtraItems, workoutRemovedIds, workoutExpandedId, workoutModalOpen, workoutMinimized]);
 
   // Workout duration timer — calculates from startTime so background/lock doesn't break it
   React.useEffect(() => {
@@ -268,6 +298,9 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
     setWorkoutExerciseRestTimes({});
     setWorkoutExerciseNotes({});
     setCurrentWorkoutIndex(0);
+    setWorkoutExtraItems([]);
+    setWorkoutRemovedIds([]);
+    setWorkoutExpandedId(null);
     setWorkoutMinimized(false);
     setWorkoutModalOpen(false);
     setGlobalRestTimerRemaining(0);
@@ -288,6 +321,9 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
       workoutExerciseRestTimes, setWorkoutExerciseRestTimes,
       workoutExerciseNotes, setWorkoutExerciseNotes,
       currentWorkoutIndex, setCurrentWorkoutIndex,
+      workoutExtraItems, setWorkoutExtraItems,
+      workoutRemovedIds, setWorkoutRemovedIds,
+      workoutExpandedId, setWorkoutExpandedId,
       resetWorkoutState,
       globalRestTimerRemaining, setGlobalRestTimerRemaining,
       globalRestTimerActive, setGlobalRestTimerActive,

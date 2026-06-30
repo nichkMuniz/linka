@@ -129,6 +129,7 @@ export default function FlowViewer() {
   const [restartKey, setRestartKey] = React.useState(0);
 
   const timerIntervalRef = React.useRef<NodeJS.Timeout | null>(null);
+  const videoRafRef = React.useRef<number | null>(null);
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const swipeTouchStartRef = React.useRef<{ x: number; y: number } | null>(null);
   const holdTimerRef = React.useRef<NodeJS.Timeout | null>(null);
@@ -349,13 +350,29 @@ export default function FlowViewer() {
     setIsPaused((prev) => !prev);
   }, []);
 
-  // Mantém a barra de progresso sincronizada com a posição real do vídeo.
-  const handleVideoTimeUpdate = React.useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
-    const video = e.currentTarget;
-    if (!video.duration || !isFinite(video.duration)) return;
-    const remaining = Math.max(0, 100 - (video.currentTime / video.duration) * 100);
-    setTimerProgress(remaining);
-  }, []);
+  // Mantém a barra de progresso fluindo de forma contínua junto com o vídeo.
+  // Em vez de depender do evento `timeupdate` (que dispara só ~4x/s e faz a
+  // barra dar "saltos"), amostramos `currentTime` a cada frame via
+  // requestAnimationFrame, produzindo um preenchimento suave a ~60fps.
+  React.useEffect(() => {
+    if (!isVideo || !story) return;
+
+    const tick = () => {
+      const video = videoRef.current;
+      if (video && video.duration && isFinite(video.duration)) {
+        const remaining = Math.max(0, 100 - (video.currentTime / video.duration) * 100);
+        setTimerProgress(remaining);
+      }
+      videoRafRef.current = requestAnimationFrame(tick);
+    };
+
+    videoRafRef.current = requestAnimationFrame(tick);
+
+    return () => {
+      if (videoRafRef.current) cancelAnimationFrame(videoRafRef.current);
+      videoRafRef.current = null;
+    };
+  }, [isVideo, story?.id, restartKey]);
 
   // Quando o vídeo termina, avança para o próximo flow.
   const handleVideoEnded = React.useCallback(() => {
@@ -802,7 +819,6 @@ export default function FlowViewer() {
                       muted
                       playsInline
                       preload="auto"
-                      onTimeUpdate={handleVideoTimeUpdate}
                       onEnded={handleVideoEnded}
                     />
                   ) : (

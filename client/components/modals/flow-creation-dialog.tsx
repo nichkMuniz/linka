@@ -225,6 +225,10 @@ export function FlowCreationDialog({
   const audioStreamRef = React.useRef<MediaStream | null>(null);
   const mediaRecorderRef = React.useRef<MediaRecorder | null>(null);
   const recordedChunksRef = React.useRef<Blob[]>([]);
+  // Para a câmera frontal, gravamos a partir de um canvas espelhado; este ref
+  // guarda a limpeza (cancelar o rAF e parar a track do canvas) para que ela
+  // rode tanto no fim normal da gravação quanto se o diálogo for fechado antes.
+  const recordCanvasCleanupRef = React.useRef<(() => void) | null>(null);
   const holdTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const maxDurationTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const recordTickRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
@@ -284,6 +288,10 @@ export function FlowCreationDialog({
         /* ignora */
       }
     }
+    // O onstop foi anulado acima, então a limpeza do canvas espelhado não roda
+    // por aquele caminho — executamos aqui para não vazar o loop de rAF.
+    recordCanvasCleanupRef.current?.();
+    recordCanvasCleanupRef.current = null;
     mediaRecorderRef.current = null;
     recordedChunksRef.current = [];
     recordingActiveRef.current = false;
@@ -554,7 +562,54 @@ export function FlowCreationDialog({
     if (!wantRecordingRef.current) return;
 
     const combined = new MediaStream();
-    videoTracks.forEach((t) => combined.addTrack(t));
+
+    // Câmera frontal: a pré-visualização ao vivo é espelhada (efeito selfie),
+    // mas a track bruta da câmera não é. Sem tratamento, o vídeo gravado sai
+    // invertido em relação ao que o usuário viu. Para corrigir, gravamos a
+    // partir de um canvas que desenha cada frame espelhado (mesma lógica do
+    // `handleCapture` para fotos), assim o arquivo final bate com o preview.
+    recordCanvasCleanupRef.current?.();
+    recordCanvasCleanupRef.current = null;
+    if (facingMode === "user" && typeof video.videoWidth === "number" && video.videoWidth > 0) {
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        let rafId = 0;
+        const drawFrame = () => {
+          if (video.readyState >= 2) {
+            const digitalZoom = !nativeZoomRef.current ? zoomRef.current : 1;
+            ctx.save();
+            ctx.translate(canvas.width, 0);
+            ctx.scale(-1, 1);
+            if (digitalZoom > 1) {
+              const sw = video.videoWidth / digitalZoom;
+              const sh = video.videoHeight / digitalZoom;
+              const sx = (video.videoWidth - sw) / 2;
+              const sy = (video.videoHeight - sh) / 2;
+              ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+            } else {
+              ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            }
+            ctx.restore();
+          }
+          rafId = requestAnimationFrame(drawFrame);
+        };
+        drawFrame();
+        const canvasStream = canvas.captureStream(30);
+        canvasStream.getVideoTracks().forEach((t) => combined.addTrack(t));
+        recordCanvasCleanupRef.current = () => {
+          cancelAnimationFrame(rafId);
+          canvasStream.getTracks().forEach((t) => t.stop());
+        };
+      }
+    }
+
+    // Fallback (câmera traseira, ou se o canvas falhar): grava a track bruta.
+    if (combined.getVideoTracks().length === 0) {
+      videoTracks.forEach((t) => combined.addTrack(t));
+    }
     audioStream?.getAudioTracks().forEach((t) => combined.addTrack(t));
 
     const mimeType = pickVideoMimeType();
@@ -567,6 +622,8 @@ export function FlowCreationDialog({
       try {
         recorder = new MediaRecorder(combined);
       } catch {
+        recordCanvasCleanupRef.current?.();
+        recordCanvasCleanupRef.current = null;
         return;
       }
     }
@@ -576,6 +633,8 @@ export function FlowCreationDialog({
       if (e.data && e.data.size > 0) recordedChunksRef.current.push(e.data);
     };
     recorder.onstop = () => {
+      recordCanvasCleanupRef.current?.();
+      recordCanvasCleanupRef.current = null;
       const chunks = recordedChunksRef.current;
       recordedChunksRef.current = [];
       if (chunks.length === 0) return;
@@ -601,6 +660,8 @@ export function FlowCreationDialog({
       // Timeslice garante emissão periódica de dados (evita blob vazio em gravações curtas)
       recorder.start(100);
     } catch {
+      recordCanvasCleanupRef.current?.();
+      recordCanvasCleanupRef.current = null;
       return;
     }
     recordingActiveRef.current = true;
@@ -617,7 +678,7 @@ export function FlowCreationDialog({
     if (!wantRecordingRef.current) {
       stopRecording();
     }
-  }, [cameraReady, ensureAudioStream, stopRecording]);
+  }, [cameraReady, ensureAudioStream, stopRecording, facingMode]);
 
   const handleShutterPointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
     e.preventDefault();

@@ -91,34 +91,34 @@ export function SwipeableConversationRow({
 
   return (
     <div className="relative overflow-hidden rounded-[20px]">
-      {/* Fundo vermelho com lixeira — revelado ao arrastar */}
-      <button
-        type="button"
-        onClick={() => {
-          close();
-          onDelete();
-        }}
-        aria-label={deleteLabel}
-        className="absolute inset-y-0 right-0 flex items-center justify-center text-white active:bg-red-600 transition-colors"
-        style={{ width: REVEAL_WIDTH, background: "#ef4444" }}
-        tabIndex={isOpen ? 0 : -1}
-      >
-        <Trash2 className="h-5 w-5" />
-      </button>
-
-      {/* Conteúdo deslizável */}
+      {/* Flex row mais largo que o container: conteúdo + botão lado a lado.
+          O overflow-hidden do container clipa o botão até ele ser revelado pelo swipe. */}
       <div
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
         onTouchCancel={handleTouchEnd}
         onClickCapture={handleClickCapture}
+        className="flex"
         style={{
+          width: `calc(100% + ${REVEAL_WIDTH}px)`,
           transform: `translateX(${translateX}px)`,
           transition: isDragging ? "none" : "transform 0.25s cubic-bezier(0.22,0.61,0.36,1)",
         }}
       >
-        {children}
+        <div className="flex-1 min-w-0">
+          {children}
+        </div>
+        <button
+          type="button"
+          onClick={() => { close(); onDelete(); }}
+          aria-label={deleteLabel}
+          className="flex shrink-0 items-center justify-center text-white active:bg-red-600 transition-colors"
+          style={{ width: REVEAL_WIDTH, background: "#ef4444" }}
+          tabIndex={isOpen ? 0 : -1}
+        >
+          <Trash2 className="h-5 w-5" />
+        </button>
       </div>
     </div>
   );

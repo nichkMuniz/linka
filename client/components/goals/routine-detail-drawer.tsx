@@ -20,12 +20,18 @@ import {
 } from "@/components/ui/alert-dialog";
 import { ExerciseImage } from "@/components/shared/exercise-image";
 import { useLanguage } from "@/lib/language-context";
+import type { TranslationKey } from "@/lib/i18n";
 import { formatScheduledTime } from "@/hooks/use-routine-notifications";
 import { isCompletedToday, type RoutineCard, type RoutineItem } from "@/components/goals/goals-helpers";
 import { getSuggestedSetsForRoutine } from "@/components/goals/suggested-routines-data";
 import type { UserGoal } from "@/lib/ritmofit-db";
 
 type EditorMode = null | "rename" | "time" | "goal";
+
+const WEEKDAY_KEYS: TranslationKey[] = [
+  "goals_weekday_mon", "goals_weekday_tue", "goals_weekday_wed",
+  "goals_weekday_thu", "goals_weekday_fri", "goals_weekday_sat", "goals_weekday_sun",
+];
 
 interface RoutineDetailDrawerProps {
   card: RoutineCard | null;
@@ -36,6 +42,7 @@ interface RoutineDetailDrawerProps {
   onDeleteItem: (card: RoutineCard, item: RoutineItem) => Promise<void>;
   onRename: (card: RoutineCard, newName: string) => Promise<void>;
   onSetTime: (card: RoutineCard, time: string | null) => Promise<void>;
+  onSetDays: (card: RoutineCard, days: string | null) => Promise<void>;
   onLinkGoal: (card: RoutineCard, goal: UserGoal | null) => Promise<void>;
   onDeleteCard: (card: RoutineCard) => Promise<void>;
 }
@@ -49,6 +56,7 @@ export function RoutineDetailDrawer({
   onDeleteItem,
   onRename,
   onSetTime,
+  onSetDays,
   onLinkGoal,
   onDeleteCard,
 }: RoutineDetailDrawerProps) {
@@ -56,9 +64,18 @@ export function RoutineDetailDrawer({
   const [editor, setEditor] = React.useState<EditorMode>(null);
   const [renameValue, setRenameValue] = React.useState("");
   const [timeValue, setTimeValue] = React.useState("");
+  // Set of Monday-first weekday indices (0=Mon … 6=Sun), empty = every day
+  const [selectedDays, setSelectedDays] = React.useState<Set<number>>(new Set());
   const [isBusy, setIsBusy] = React.useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = React.useState(false);
   const [expandedItem, setExpandedItem] = React.useState<string | null>(null);
+
+  const toggleDay = (idx: number) =>
+    setSelectedDays((prev) => {
+      const next = new Set(prev);
+      next.has(idx) ? next.delete(idx) : next.add(idx);
+      return next;
+    });
 
   // Séries × reps sugeridos pelo programa (casado pelo nome da rotina), os
   // mesmos exibidos no momento da criação. Rotina custom → mapa vazio.
@@ -72,6 +89,11 @@ export function RoutineDetailDrawer({
       setEditor(null);
       setRenameValue(card.name ?? "");
       setTimeValue(card.scheduledTime ? card.scheduledTime.slice(0, 5) : "");
+      const parsed = (card.scheduledDays ?? "")
+        .split(",")
+        .map(Number)
+        .filter((n) => Number.isInteger(n) && n >= 0 && n <= 6);
+      setSelectedDays(new Set(parsed));
       setDeleteConfirmOpen(false);
       setExpandedItem(null);
     }
@@ -271,7 +293,7 @@ export function RoutineDetailDrawer({
           )}
 
           {editor === "time" && (
-            <div className="rounded-2xl p-3 space-y-2" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}>
+            <div className="rounded-2xl p-3 space-y-3" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}>
               <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>
                 {timeValue ? t("goals_edit_routine_time_set").replace("{time}", timeValue) : t("goals_edit_routine_time_empty")}
               </p>
@@ -282,6 +304,37 @@ export function RoutineDetailDrawer({
                 className="w-full h-11 rounded-xl px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 style={{ fontSize: "16px", background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }}
               />
+
+              {/* Seleção de dias da semana */}
+              <div className="space-y-1.5">
+                <p className="text-xs font-semibold" style={{ color: "rgba(255,255,255,.7)" }}>
+                  {t("goals_edit_routine_days_label")}
+                </p>
+                <div className="flex gap-1.5">
+                  {WEEKDAY_KEYS.map((key, idx) => {
+                    const active = selectedDays.has(idx);
+                    return (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => toggleDay(idx)}
+                        className="flex-1 rounded-xl py-2 text-[11px] font-bold transition-all active:scale-95"
+                        style={
+                          active
+                            ? { background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }
+                            : { background: "rgba(255,255,255,.07)", color: "rgba(255,255,255,.45)", border: "1px solid rgba(255,255,255,.1)" }
+                        }
+                      >
+                        {t(key)}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-[11px]" style={{ color: "rgba(255,255,255,.35)" }}>
+                  {t("goals_edit_routine_days_hint")}
+                </p>
+              </div>
+
               <div className="flex gap-2">
                 {card.scheduledTime && (
                   <Button
@@ -290,7 +343,10 @@ export function RoutineDetailDrawer({
                     className="flex-1 rounded-full"
                     style={{ background: "rgba(255,255,255,.08)", color: "rgba(255,255,255,.7)", border: "1px solid rgba(255,255,255,.12)" }}
                     disabled={isBusy}
-                    onClick={() => runAction(() => onSetTime(card, null))}
+                    onClick={() => runAction(async () => {
+                      await onSetTime(card, null);
+                      await onSetDays(card, null);
+                    })}
                   >
                     {t("goals_edit_routine_disable_reminder")}
                   </Button>
@@ -300,7 +356,13 @@ export function RoutineDetailDrawer({
                   className="flex-1 rounded-full"
                   style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}
                   disabled={!timeValue || isBusy}
-                  onClick={() => runAction(() => onSetTime(card, timeValue))}
+                  onClick={() => {
+                    const daysStr = Array.from(selectedDays).sort((a, b) => a - b).join(",");
+                    runAction(async () => {
+                      await onSetTime(card, timeValue);
+                      await onSetDays(card, daysStr || null);
+                    });
+                  }}
                 >
                   {isBusy ? t("goals_saving") : t("goals_edit_routine_save")}
                 </Button>

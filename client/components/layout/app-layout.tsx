@@ -38,6 +38,7 @@ import { IncentiveConfirmToast } from "@/components/shared/incentive-confirm-toa
 import { getUnreadMessageCountDb, getUnreadNotificationsCountDb, getUserProfileDb, subscribeToUnreadNotificationsDb, recordAccessSessionDb, recordScreenTimeDb } from "@/lib/ritmofit-db";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
+import { useRoutineNotifications } from "@/hooks/use-routine-notifications";
 import { useLayoutMode } from "@/hooks/useLayoutMode";
 import { useLanguage } from "@/lib/language-context";
 import { useWorkout } from "@/lib/workout-context";
@@ -60,6 +61,9 @@ export function AppLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const { user } = useAuth();
+  // Agenda as notificações locais das rotinas com horário (treino/dieta/hábito).
+  // Sincroniza no mount, ao voltar pro app e via evento "ritmofit-routines-changed".
+  useRoutineNotifications(user?.id ?? null);
   const { layoutMode } = useLayoutMode();
   const { t } = useLanguage();
   const {

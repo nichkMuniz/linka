@@ -19,6 +19,7 @@
     "@capacitor/push-notifications": "^7.0.0",
     "@capacitor/share": "^7.0.0",
     "@capacitor/status-bar": "^7.0.0",
+    "@capgo/capacitor-native-biometric": "^7.6.0",
     "@capgo/capacitor-photo-library": "^7.2.11",
     "@supabase/supabase-js": "^2.91.0",
     "dotenv": "^17.2.1",

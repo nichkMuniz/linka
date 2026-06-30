@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Check, CheckCircle2, Moon, Play } from "lucide-react";
+import { Check, CheckCircle2, Dumbbell, Moon, Play, Salad, Target } from "lucide-react";
 import { ImageWithFallback } from "@/components/shared/image-with-fallback";
 import { useLanguage } from "@/lib/language-context";
 import { formatScheduledTime } from "@/hooks/use-routine-notifications";
@@ -120,13 +120,46 @@ export function TodayDashboard({
   // ── Carrossel ──
   const total = tasks.length;
   const [active, setActive] = React.useState(0);
+  // Pausa o auto-avanço enquanto o usuário está deslizando o dedo.
+  const [paused, setPaused] = React.useState(false);
   React.useEffect(() => {
-    if (total <= 1) return;
+    if (total <= 1 || paused) return;
     const id = setTimeout(() => setActive((i) => (i + 1) % total), AUTO_ADVANCE_MS);
     return () => clearTimeout(id);
-  }, [active, total]);
+  }, [active, total, paused]);
   const idx = total > 0 ? active % total : 0;
   const activeCard = tasks[idx] ?? null;
+
+  const goNext = React.useCallback(() => {
+    if (total <= 1) return;
+    setActive((i) => (i + 1) % total);
+  }, [total]);
+  const goPrev = React.useCallback(() => {
+    if (total <= 1) return;
+    setActive((i) => (i - 1 + total) % total);
+  }, [total]);
+
+  // ── Swipe (gesto de deslizar) ──
+  const touchStartX = React.useRef<number | null>(null);
+  const touchStartY = React.useRef<number | null>(null);
+  const SWIPE_THRESHOLD = 45; // px mínimos para trocar de slide
+  const onTouchStart = (e: React.TouchEvent) => {
+    setPaused(true);
+    touchStartX.current = e.touches[0].clientX;
+    touchStartY.current = e.touches[0].clientY;
+  };
+  const onTouchEnd = (e: React.TouchEvent) => {
+    setPaused(false);
+    if (touchStartX.current === null || touchStartY.current === null) return;
+    const dx = e.changedTouches[0].clientX - touchStartX.current;
+    const dy = e.changedTouches[0].clientY - touchStartY.current;
+    touchStartX.current = null;
+    touchStartY.current = null;
+    // só conta como swipe horizontal se o movimento lateral dominar o vertical
+    if (Math.abs(dx) < SWIPE_THRESHOLD || Math.abs(dx) < Math.abs(dy)) return;
+    if (dx < 0) goNext();
+    else goPrev();
+  };
 
   const yesterdayCard =
     workoutCards.find((c) => cardLastDate(c, routineLastDates) === yesterday) ?? null;
@@ -224,25 +257,28 @@ export function TodayDashboard({
         onClick={() => onOpenCard(card)}
       >
         {photo ? (
-          <>
-            {/* Base preta — as ilustrações wger são linhas escuras sobre branco;
-                invertendo a foto o fundo branco vira preto e as linhas ficam claras,
-                deixando o texto/botão brancos legíveis sobre o frame. */}
-            <div className="absolute inset-0" style={{ background: "#0a0b12" }} />
-            <ImageWithFallback
-              src={photo}
-              alt={label}
-              cdnWidth={640}
-              className="absolute inset-0 h-full w-full object-cover"
-              style={{ filter: "invert(1)" }}
-              fallbackElement={<div className="absolute inset-0" style={{ background: "radial-gradient(130% 120% at 25% 20%,#ff9d6c,#d8567a 45%,#5b2d8c 80%,#1a1438)" }} />}
-            />
-          </>
+          <ImageWithFallback
+            src={photo}
+            alt={label}
+            cdnWidth={640}
+            className="absolute inset-0 h-full w-full object-cover"
+            fallbackElement={<div className="absolute inset-0" style={{ background: "radial-gradient(130% 120% at 25% 20%,#ff9d6c,#d8567a 45%,#5b2d8c 80%,#1a1438)" }} />}
+          />
         ) : (
           <div
-            className="absolute inset-0"
+            className="absolute inset-0 flex items-center justify-center"
             style={{ background: "radial-gradient(130% 120% at 25% 20%,#ff9d6c,#d8567a 45%,#5b2d8c 80%,#1a1438)" }}
-          />
+          >
+            <div className="text-white/25">
+              {card.type === 1 ? (
+                <Dumbbell className="h-16 w-16" />
+              ) : card.type === 2 ? (
+                <Salad className="h-16 w-16" />
+              ) : (
+                <Target className="h-16 w-16" />
+              )}
+            </div>
+          </div>
         )}
         <div className="absolute inset-0" style={{ background: "linear-gradient(to top,rgba(0,0,0,.6),transparent 55%)" }} />
 
@@ -324,8 +360,17 @@ export function TodayDashboard({
       {/* Tarefa de hoje — única ou carrossel auto-rotativo */}
       {activeCard && (
         <div className="space-y-2.5">
-          <div key={activeCard.key} className="animate-in fade-in-50 slide-in-from-right-2 duration-500">
-            {renderTask(activeCard)}
+          {/* overflow-hidden clipa a animação slide-in que empurra 8px à direita */}
+          <div className="overflow-hidden">
+            <div
+              key={activeCard.key}
+              className="animate-in fade-in-50 slide-in-from-right-2 duration-500"
+              style={{ touchAction: "pan-y" }}
+              onTouchStart={total > 1 ? onTouchStart : undefined}
+              onTouchEnd={total > 1 ? onTouchEnd : undefined}
+            >
+              {renderTask(activeCard)}
+            </div>
           </div>
           {total > 1 && (
             <div className="flex items-center justify-center gap-1.5">

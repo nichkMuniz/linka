@@ -270,6 +270,17 @@ export default function Index() {
     return () => window.removeEventListener("ritmofit-refresh-feed", handler);
   }, [loadFeed]);
 
+  // Recarrega o feed ao chegar com refreshFeed (ex.: após compartilhar um treino),
+  // ignorando o cache para que a publicação recém-criada apareça no topo na hora.
+  React.useEffect(() => {
+    const state = location.state as { refreshFeed?: boolean } | null;
+    if (!state?.refreshFeed) return;
+    navigate(location.pathname, { replace: true, state: {} });
+    window.scrollTo({ top: 0, behavior: "auto" });
+    feedCache.scrollY = 0;
+    loadFeed(false);
+  }, [location.state?.refreshFeed, loadFeed, navigate, location.pathname]);
+
   // Infinite scroll: load more following-feed posts as the user approaches the
   // end of the current page. Cursor is the created_at of the oldest post.
   const feedBottomSentinelRef = React.useRef<HTMLDivElement | null>(null);

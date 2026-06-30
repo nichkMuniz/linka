@@ -3,10 +3,15 @@ import { createPortal } from "react-dom";
 import { useWorkout } from "@/lib/workout-context";
 import { useLanguage } from "@/lib/language-context";
 import { ExerciseImage } from "@/components/shared/exercise-image";
+import { toast } from "@/components/ui/use-toast";
 import {
   saveWorkoutHistoryDb,
   getPreviousBestKgDb,
   getWorkoutsDb,
+  createCustomWorkoutDb,
+  createUserWorkoutsDb,
+  updateUserWorkoutNotesDb,
+  uploadCustomExercisePhotoDb,
   type UserWorkoutWithDetails,
   type Workout,
 } from "@/lib/ritmofit-db";
@@ -35,6 +40,10 @@ interface WorkoutSessionDialogProps {
   userId: string;
   routineLabel: string;
   items: UserWorkoutWithDetails[];
+  /** id da rotina (card.routineId) — autoritativo para vincular exercícios criados */
+  routineId?: string | null;
+  /** nome da rotina (card.name) — usado como `user_workouts.name` para agrupar no card certo */
+  routineName?: string | null;
   onMinimize: () => void;
   onFinished: (summary: WorkoutSessionSummary) => void;
 }
@@ -74,8 +83,127 @@ function fmtRest(secs: number): string {
   return s > 0 ? `${m}m ${s}s` : `${m}m`;
 }
 
+// Overlay de detalhe do exercício (foto ampliada + "como executar"), reusado
+// pelo picker (catálogo) e pelo botão ⓘ da sessão — fonte única de verdade.
+function ExerciseDetailOverlay({
+  photo, name, muscleGroup, description, zIndex, onClose,
+}: {
+  photo: string | null;
+  name: string;
+  muscleGroup: string | null;
+  description: string;
+  zIndex: number;
+  onClose: () => void;
+}) {
+  const { t } = useLanguage();
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "absolute", inset: 0, zIndex,
+        background: "rgba(0,0,0,0.92)",
+        backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)",
+        display: "flex", flexDirection: "column",
+        // Reserva espaço para o botão de fechar no topo (acima do conteúdo).
+        paddingTop: "max(64px, calc(env(safe-area-inset-top) + 44px))",
+        paddingBottom: "max(20px, env(safe-area-inset-bottom))",
+      }}
+    >
+      {/* Fechar — círculo escuro sólido para ficar visível mesmo sobre a foto branca */}
+      <button
+        onClick={onClose}
+        aria-label={t("goals_cancel")}
+        style={{
+          position: "absolute", top: "max(12px, env(safe-area-inset-top))", right: 16,
+          width: 40, height: 40, borderRadius: "50%",
+          background: "rgba(18,17,26,0.78)",
+          border: "1px solid rgba(255,255,255,0.22)",
+          backdropFilter: "blur(6px)", WebkitBackdropFilter: "blur(6px)",
+          boxShadow: "0 2px 12px rgba(0,0,0,0.45)",
+          cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+          zIndex: 2,
+        }}
+      >
+        <svg width="15" height="15" viewBox="0 0 14 14" fill="none">
+          <path d="M2 2l10 10M12 2L2 12" stroke="#fff" strokeWidth="2" strokeLinecap="round"/>
+        </svg>
+      </button>
+
+      {/* Conteúdo rolável: foto + nome + descrição. Só rola se realmente exceder. */}
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          flex: 1, overflowY: "auto", overflowX: "hidden",
+          overscrollBehavior: "contain", WebkitOverflowScrolling: "touch",
+          padding: "0 20px",
+          display: "flex", flexDirection: "column", alignItems: "center",
+        }}
+      >
+        {/* Foto — fundo claro para que ilustrações em linha escura fiquem visíveis */}
+        <div style={{
+          width: "100%",
+          background: "#fff", borderRadius: 16,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          overflow: "hidden", flexShrink: 0,
+        }}>
+          {photo ? (
+            <img
+              src={photo}
+              alt={name}
+              style={{ width: "100%", maxHeight: "38vh", objectFit: "contain", display: "block" }}
+            />
+          ) : (
+            <svg width="64" height="36" viewBox="0 0 36 20" fill="none" opacity={0.18} style={{ margin: "44px 0" }}>
+              <rect x="0.5" y="7" width="7" height="6" rx="2" fill="#000"/>
+              <rect x="3" y="4.5" width="3" height="11" rx="1.5" fill="#000"/>
+              <rect x="6.5" y="9" width="23" height="2" rx="1" fill="#000"/>
+              <rect x="28.5" y="7" width="7" height="6" rx="2" fill="#000"/>
+              <rect x="30" y="4.5" width="3" height="11" rx="1.5" fill="#000"/>
+            </svg>
+          )}
+        </div>
+
+        {/* Nome + grupo muscular */}
+        <div style={{ padding: "16px 4px 0", textAlign: "center" }}>
+          <div style={{ fontSize: 22, fontWeight: 800, color: "#fff", marginBottom: 10 }}>
+            {name}
+          </div>
+          {muscleGroup && (
+            <span style={{
+              display: "inline-block",
+              background: "rgba(255,255,255,0.15)", borderRadius: 20,
+              padding: "4px 16px", fontSize: 13, fontWeight: 600, color: "rgba(255,255,255,0.85)",
+            }}>
+              {muscleGroup}
+            </span>
+          )}
+        </div>
+
+        {/* Descrição / como executar */}
+        <div style={{ width: "100%", padding: "16px 0 8px" }}>
+          <div style={{
+            fontSize: 11, fontWeight: 700, letterSpacing: 0.7,
+            textTransform: "uppercase", color: "rgba(255,255,255,0.5)",
+            marginBottom: 8,
+          }}>
+            {t("goals_exercise_how_to")}
+          </div>
+          <p style={{
+            fontSize: 14, lineHeight: 1.6, margin: 0,
+            color: description ? "rgba(255,255,255,0.82)" : "rgba(255,255,255,0.45)",
+            fontStyle: description ? "normal" : "italic",
+            whiteSpace: "pre-wrap",
+          }}>
+            {description || t("goals_exercise_no_description")}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function WorkoutSessionDialog({
-  open, userId, routineLabel, items, onMinimize, onFinished,
+  open, userId, routineLabel, items, routineId: routineIdProp, routineName, onMinimize, onFinished,
 }: WorkoutSessionDialogProps) {
   const { t } = useLanguage();
   const {
@@ -83,6 +211,9 @@ export function WorkoutSessionDialog({
     workoutDuration,
     workoutExerciseRestTimes, setWorkoutExerciseRestTimes,
     workoutExerciseNotes, setWorkoutExerciseNotes,
+    workoutExtraItems, setWorkoutExtraItems,
+    workoutRemovedIds, setWorkoutRemovedIds,
+    workoutExpandedId: expandedId, setWorkoutExpandedId: setExpandedId,
     globalRestTimerRemaining, setGlobalRestTimerRemaining,
     globalRestTimerActive, setGlobalRestTimerActive,
     globalRestTimerPaused, setGlobalRestTimerPaused,
@@ -94,14 +225,11 @@ export function WorkoutSessionDialog({
   const [confirmOpen, setConfirmOpen] = React.useState(false);
   const [isSaving, setIsSaving] = React.useState(false);
   const [saveError, setSaveError] = React.useState<string | null>(null);
-  const [expandedId, setExpandedId] = React.useState<string | null>(null);
   const [muscleFilter, setMuscleFilter] = React.useState<string | null>(null);
+  const [searchOpen, setSearchOpen] = React.useState(false);
+  const [itemSearch, setItemSearch] = React.useState("");
   const [infoExerciseId, setInfoExerciseId] = React.useState<string | null>(null);
 
-  // Exercícios extras adicionados durante a sessão
-  const [extraItems, setExtraItems] = React.useState<UserWorkoutWithDetails[]>([]);
-  // IDs de exercícios removidos durante a sessão
-  const [removedIds, setRemovedIds] = React.useState<Set<string>>(new Set());
   // Menu de contexto (⋯) — qual exercício está aberto
   const [menuId, setMenuId] = React.useState<string | null>(null);
   // Quais exercícios têm nota aberta (lápis)
@@ -117,6 +245,16 @@ export function WorkoutSessionDialog({
   const [pickerSelected, setPickerSelected] = React.useState<Set<string>>(new Set());
   // Detalhe (foto ampliada + "como executar") de um exercício do catálogo
   const [pickerInfo, setPickerInfo] = React.useState<Workout | null>(null);
+  // Formulário "Criar novo exercício" (quando o usuário não acha na lista)
+  const [createOpen, setCreateOpen] = React.useState(false);
+  const [createName, setCreateName] = React.useState("");
+  const [createMuscle, setCreateMuscle] = React.useState("");
+  const [createEquipment, setCreateEquipment] = React.useState("");
+  const [createHowTo, setCreateHowTo] = React.useState("");
+  const [createPhotoFile, setCreatePhotoFile] = React.useState<File | null>(null);
+  const [createPhotoPreview, setCreatePhotoPreview] = React.useState<string | null>(null);
+  const [createSaving, setCreateSaving] = React.useState(false);
+  const createPhotoInputRef = React.useRef<HTMLInputElement>(null);
 
   const resetPicker = React.useCallback(() => {
     setPickerOpen(false);
@@ -125,24 +263,46 @@ export function WorkoutSessionDialog({
     setPickerMuscleFilter(null);
     setPickerSelected(new Set());
     setPickerInfo(null);
+    setCreateOpen(false);
+    setCreateName("");
+    setCreateMuscle("");
+    setCreateEquipment("");
+    setCreateHowTo("");
+    setCreatePhotoFile(null);
+    setCreatePhotoPreview(null);
   }, []);
 
   // Lista completa de itens da sessão
   const allItems = React.useMemo(
-    () => [...items, ...extraItems].filter((i) => !removedIds.has(i.workout_id)),
-    [items, extraItems, removedIds],
+    () => [...items, ...workoutExtraItems].filter((i) => !workoutRemovedIds.includes(i.workout_id)),
+    [items, workoutExtraItems, workoutRemovedIds],
   );
 
-  // Auto-expand first exercise on open; reset on close
+  // Rotina atual (para vincular exercícios criados/adicionados aos itens persistidos).
+  // O id/nome autoritativos vêm do card (props); os itens podem ter routine_id nulo
+  // (legado), então usamos o prop e só caímos no item como último recurso.
+  const routineId = routineIdProp ?? items.find((i) => i.routine_id)?.routine_id ?? null;
+
+  // O campo de nota só deve abrir por clique no lápis — nunca reaparecer sozinho.
+  // Ao recolher/trocar de exercício, fechamos as notas abertas (a nota digitada
+  // continua salva em workoutExerciseNotes; só a visibilidade é resetada).
+  React.useEffect(() => {
+    setNoteOpenIds((prev) => {
+      if (prev.size === 0) return prev;
+      const next = new Set([...prev].filter((id) => id === expandedId));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [expandedId]);
+
+  // Auto-expand first exercise on open (if nothing is already open); reset UI-only state on close
   React.useEffect(() => {
     if (open && allItems.length > 0) {
       setExpandedId((prev) => prev ?? allItems[0].workout_id);
     }
     if (!open) {
-      setExpandedId(null);
       setMuscleFilter(null);
-      setExtraItems([]);
-      setRemovedIds(new Set());
+      setSearchOpen(false);
+      setItemSearch("");
       setNoteOpenIds(new Set());
       setMenuId(null);
     }
@@ -189,9 +349,15 @@ export function WorkoutSessionDialog({
     () => [...new Set(allItems.map((i) => i.muscle_group).filter(Boolean) as string[])],
     [allItems],
   );
-  const filteredItems = muscleFilter
-    ? allItems.filter((i) => i.muscle_group === muscleFilter)
-    : allItems;
+  // Normaliza para busca: remove acentos e caixa, para "maquina" achar "máquina".
+  const normalize = (s: string) =>
+    s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  const filteredItems = allItems.filter((i) => {
+    if (muscleFilter && i.muscle_group !== muscleFilter) return false;
+    const q = normalize(itemSearch.trim());
+    if (q && !normalize(i.workoutName ?? "").includes(q)) return false;
+    return true;
+  });
 
   // Live stats
   const stats = React.useMemo(() => {
@@ -291,7 +457,7 @@ export function WorkoutSessionDialog({
   };
 
   const removeFromSession = (workoutId: string) => {
-    setRemovedIds((prev) => new Set([...prev, workoutId]));
+    setWorkoutRemovedIds((prev) => [...new Set([...prev, workoutId])]);
     setMenuId(null);
     if (expandedId === workoutId) setExpandedId(null);
     setWorkoutSeries((prev) => {
@@ -312,6 +478,65 @@ export function WorkoutSessionDialog({
     });
   };
 
+  // Lê a foto escolhida (câmera ou galeria no iOS) e gera um preview local.
+  const handleCreatePhotoPick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // permite reescolher o mesmo arquivo
+    if (!file) return;
+    setCreatePhotoFile(file);
+    const reader = new FileReader();
+    reader.onload = () => setCreatePhotoPreview(typeof reader.result === "string" ? reader.result : null);
+    reader.readAsDataURL(file);
+  };
+
+  // Criar um exercício próprio quando o usuário não acha na lista.
+  // Persiste no catálogo (created_by_user), insere na lista do picker e já o seleciona.
+  const handleCreateExercise = async () => {
+    const name = createName.trim();
+    const muscle = createMuscle.trim();
+    if (!name || !muscle || createSaving) return;
+    setCreateSaving(true);
+    try {
+      let photoUrl: string | null = null;
+      if (createPhotoFile) {
+        photoUrl = await uploadCustomExercisePhotoDb(createPhotoFile);
+      }
+      const created = await createCustomWorkoutDb(
+        name,
+        createHowTo.trim(),
+        muscle,
+        photoUrl,
+        createEquipment.trim() || null,
+      );
+      // Vincula à rotina do usuário (user_workouts) para persistir entre sessões —
+      // sem isto o exercício só existiria no estado local e sumiria ao reabrir.
+      // `name` = nome da rotina (mesmo agrupador usado por buildRoutineCards/groupByName),
+      // para o exercício cair no card correto (ex.: rotina "Peitos").
+      await createUserWorkoutsDb(userId, [created.id], {
+        routine_id: routineId,
+        name: routineName ?? undefined,
+      });
+      setCatalog((prev) => [created, ...prev]);
+      setPickerSelected((prev) => new Set(prev).add(created.id));
+      setCreateOpen(false);
+      setCreateName("");
+      setCreateMuscle("");
+      setCreateEquipment("");
+      setCreateHowTo("");
+      setCreatePhotoFile(null);
+      setCreatePhotoPreview(null);
+      setPickerSearch("");
+    } catch (err: any) {
+      toast({
+        title: t("goals_add_exercise_error"),
+        description: err?.message || t("goals_create_error_retry"),
+        variant: "destructive",
+      });
+    } finally {
+      setCreateSaving(false);
+    }
+  };
+
   // Confirmar → adiciona todos os exercícios selecionados de uma vez
   const handleConfirmPicker = () => {
     const chosen = catalog.filter((w) => pickerSelected.has(w.id));
@@ -327,7 +552,7 @@ export function WorkoutSessionDialog({
       workoutPhoto: workout.photo ?? null,
       routine_id: null,
     }));
-    setExtraItems((prev) => [...prev, ...newItems]);
+    setWorkoutExtraItems((prev) => [...prev, ...newItems]);
     setWorkoutSeries((prev) => {
       const next = { ...prev };
       for (const workout of chosen) {
@@ -502,7 +727,7 @@ export function WorkoutSessionDialog({
     try {
       let totalSeries = 0;
       let totalVolume = 0;
-      const allItemsForSave = [...items, ...extraItems];
+      const allItemsForSave = [...items, ...workoutExtraItems];
       const completedExercises: WorkoutSessionSummary["completedExercises"] = [];
       const prExercises: WorkoutSessionSummary["prExercises"] = [];
       const machinedExercises: WorkoutSessionSummary["machinedExercises"] = [];
@@ -538,7 +763,7 @@ export function WorkoutSessionDialog({
 
         const row = allItemsForSave.find((w) => w.workout_id === workoutId);
         const isCardio = (row?.muscle_group || "").toLowerCase() === "cardio";
-        const isExtra = extraItems.some((e) => e.workout_id === workoutId);
+        const isExtra = workoutExtraItems.some((e) => e.workout_id === workoutId);
         const rawId = isExtra ? null : (row?.id ?? null);
         const userWorkoutId: number | null = rawId && !isNaN(Number(rawId)) ? Number(rawId) : null;
 
@@ -579,6 +804,18 @@ export function WorkoutSessionDialog({
           }
         }
       }
+
+      // Persiste as notas dos exercícios (user_workouts.notes) antes de limpar o
+      // estado — sem isto a nota digitada na sessão era perdida ao finalizar.
+      const sessionWorkoutIds = new Set(allItemsForSave.map((w) => w.workout_id));
+      await Promise.all(
+        Object.entries(workoutExerciseNotes)
+          .filter(([workoutId]) => sessionWorkoutIds.has(workoutId))
+          .map(([workoutId, noteVal]) =>
+            updateUserWorkoutNotesDb(userId, workoutId, routineId, (noteVal ?? "").trim() || null)
+              .catch((e) => console.error("note save failed", e)),
+          ),
+      );
 
       setConfirmOpen(false);
       resetWorkoutState();
@@ -776,48 +1013,82 @@ export function WorkoutSessionDialog({
           flexShrink: 0,
           padding: "10px 12px",
           display: "flex", alignItems: "center", gap: 8,
-          overflowX: "auto", borderBottom: `1px solid ${BORDER}`,
+          // Chips quebram para a próxima linha em vez de rolar lateralmente —
+          // a tela só deve ter scroll vertical (no iPhone o scroll horizontal aqui
+          // competia com o scroll vertical da lista de exercícios).
+          flexWrap: "wrap", overflowX: "hidden", borderBottom: `1px solid ${BORDER}`,
         }}>
-          <div style={{
-            width: 32, height: 32, borderRadius: "50%",
-            border: `1.5px solid ${BORDER}`,
-            display: "flex", alignItems: "center", justifyContent: "center",
-            flexShrink: 0,
-          }}>
-            <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-              <circle cx="5.5" cy="5.5" r="4" stroke={MUTED_FG} strokeWidth="1.5"/>
-              <path d="m8.5 8.5 2.5 2.5" stroke={MUTED_FG} strokeWidth="1.5" strokeLinecap="round"/>
-            </svg>
-          </div>
-
           <button
-            onClick={() => setMuscleFilter(null)}
+            onClick={() => {
+              setSearchOpen((v) => {
+                const next = !v;
+                if (!next) setItemSearch("");
+                return next;
+              });
+            }}
+            aria-label={t("goals_search_exercise")}
             style={{
-              background: muscleFilter === null ? PRIMARY : SURFACE,
-              border: "none", borderRadius: 20,
-              padding: "6px 14px", fontSize: 13, fontWeight: 600,
-              color: muscleFilter === null ? PRIMARY_FG : MUTED_FG,
-              cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0,
+              width: 32, height: 32, borderRadius: "50%",
+              border: `1.5px solid ${searchOpen ? PRIMARY : BORDER}`,
+              background: searchOpen ? PRIMARY : "transparent",
+              cursor: "pointer",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              flexShrink: 0,
             }}
           >
-            Todos
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+              <circle cx="5.5" cy="5.5" r="4" stroke={searchOpen ? PRIMARY_FG : MUTED_FG} strokeWidth="1.5"/>
+              <path d="m8.5 8.5 2.5 2.5" stroke={searchOpen ? PRIMARY_FG : MUTED_FG} strokeWidth="1.5" strokeLinecap="round"/>
+            </svg>
           </button>
 
-          {muscleGroups.map((group) => (
-            <button
-              key={group}
-              onClick={() => setMuscleFilter(group)}
+          {searchOpen ? (
+            <input
+              type="text"
+              autoFocus
+              value={itemSearch}
+              onChange={(e) => setItemSearch(e.target.value)}
+              placeholder={t("goals_search_exercise")}
               style={{
-                background: muscleFilter === group ? PRIMARY : SURFACE,
-                border: "none", borderRadius: 20,
-                padding: "6px 14px", fontSize: 13, fontWeight: 600,
-                color: muscleFilter === group ? PRIMARY_FG : MUTED_FG,
-                cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0,
+                flex: 1, minWidth: 0, height: 32,
+                background: SURFACE, border: `1px solid ${BORDER}`,
+                borderRadius: 20, padding: "0 14px",
+                fontSize: 13, fontWeight: 600, color: FG,
+                outline: "none", fontFamily: "'Inter', system-ui",
               }}
-            >
-              {group}
-            </button>
-          ))}
+            />
+          ) : (
+            <>
+              <button
+                onClick={() => setMuscleFilter(null)}
+                style={{
+                  background: muscleFilter === null ? PRIMARY : SURFACE,
+                  border: "none", borderRadius: 20,
+                  padding: "6px 14px", fontSize: 13, fontWeight: 600,
+                  color: muscleFilter === null ? PRIMARY_FG : MUTED_FG,
+                  cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0,
+                }}
+              >
+                Todos
+              </button>
+
+              {muscleGroups.map((group) => (
+                <button
+                  key={group}
+                  onClick={() => setMuscleFilter(group)}
+                  style={{
+                    background: muscleFilter === group ? PRIMARY : SURFACE,
+                    border: "none", borderRadius: 20,
+                    padding: "6px 14px", fontSize: 13, fontWeight: 600,
+                    color: muscleFilter === group ? PRIMARY_FG : MUTED_FG,
+                    cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0,
+                  }}
+                >
+                  {group}
+                </button>
+              ))}
+            </>
+          )}
         </div>
       )}
 
@@ -1059,7 +1330,7 @@ export function WorkoutSessionDialog({
                           <svg width="14" height="14" viewBox="0 0 15 15" fill="none">
                             <path d="M10.5 1.5l3 3-8 8H2.5v-3l8-8z" stroke={FG} strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
                           </svg>
-                          {noteOpen ? "Fechar nota" : "Adicionar nota"}
+                          {noteOpen ? t("goals_note_close") : t("goals_note_add")}
                         </button>
                         <button
                           onClick={() => removeFromSession(item.workout_id)}
@@ -1091,7 +1362,7 @@ export function WorkoutSessionDialog({
                         onChange={(e) =>
                           setWorkoutExerciseNotes((prev) => ({ ...prev, [item.workout_id]: e.target.value }))
                         }
-                        placeholder="Adicionar nota..."
+                        placeholder={t("goals_note_placeholder")}
                         style={{
                           background: "transparent", border: "none",
                           fontSize: 14, color: note ? FG : MUTED_FG,
@@ -1310,7 +1581,7 @@ export function WorkoutSessionDialog({
             alignItems: "center", padding: "48px 16px", textAlign: "center",
           }}>
             <p style={{ color: MUTED_FG, fontSize: 14 }}>
-              {t("goals_no_exercises_added")}
+              {itemSearch.trim() ? t("goals_session_no_search_results") : t("goals_no_exercises_added")}
             </p>
           </div>
         )}
@@ -1549,8 +1820,26 @@ export function WorkoutSessionDialog({
                     {t("goals_picker_loading")}
                   </div>
                 ) : catalogFiltered.length === 0 ? (
-                  <div style={{ textAlign: "center", padding: "48px 16px", color: MUTED_FG }}>
-                    {t("goals_picker_empty")}
+                  <div style={{
+                    display: "flex", flexDirection: "column", alignItems: "center",
+                    gap: 14, padding: "48px 16px", textAlign: "center",
+                  }}>
+                    <span style={{ color: MUTED_FG, fontSize: 14 }}>{t("goals_picker_empty")}</span>
+                    <button
+                      onClick={() => {
+                        setCreateName(pickerSearch.trim());
+                        setCreateMuscle(pickerMuscleFilter ?? "");
+                        setCreateOpen(true);
+                      }}
+                      style={{
+                        display: "flex", alignItems: "center", gap: 6,
+                        padding: "11px 22px", borderRadius: 999, border: "none", cursor: "pointer",
+                        fontSize: 14, fontWeight: 700, color: "#fff", background: GLASS_GRADIENT,
+                      }}
+                    >
+                      <span style={{ fontSize: 17, lineHeight: 1 }}>+</span>
+                      {t("goals_create_exercise")}
+                    </button>
                   </div>
                 ) : (
                   catalogFiltered.map((w) => {
@@ -1635,8 +1924,236 @@ export function WorkoutSessionDialog({
                     );
                   })
                 )}
+
+                {/* Criar exercício próprio — sempre acessível ao fim da lista */}
+                {!catalogLoading && catalogFiltered.length > 0 && (
+                  <button
+                    onClick={() => {
+                      setCreateName(pickerSearch.trim());
+                      setCreateMuscle(pickerMuscleFilter ?? "");
+                      setCreateOpen(true);
+                    }}
+                    style={{
+                      width: "100%", marginTop: 4,
+                      display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                      padding: "12px 0", borderRadius: 16,
+                      border: `2px dashed ${BORDER}`, background: "transparent",
+                      cursor: "pointer", fontSize: 14, fontWeight: 600, color: MUTED_FG,
+                    }}
+                  >
+                    <span style={{ fontSize: 16, lineHeight: 1, opacity: 0.7 }}>+</span>
+                    {t("goals_create_exercise")}
+                  </button>
+                )}
               </div>
             </>
+          )}
+
+          {/* ── CRIAR NOVO EXERCÍCIO (sub-overlay do picker) ─────── */}
+          {createOpen && (
+            <div style={{
+              position: "absolute", inset: 0, zIndex: 20,
+              background: GLASS_ROOT_BG, display: "flex", flexDirection: "column",
+            }}>
+              <div style={{
+                flexShrink: 0,
+                paddingTop: "max(48px, env(safe-area-inset-top))",
+                paddingLeft: "max(16px, env(safe-area-inset-left))",
+                paddingRight: "max(16px, env(safe-area-inset-right))",
+                paddingBottom: 12,
+                display: "flex", alignItems: "center", gap: 12,
+                borderBottom: `1px solid ${BORDER}`,
+              }}>
+                <button
+                  onClick={() => setCreateOpen(false)}
+                  style={{
+                    background: SURFACE, border: "none",
+                    borderRadius: "50%", width: 36, height: 36, cursor: "pointer",
+                    display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+                  }}
+                >
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                    <path d="M10 3L5 8l5 5" stroke={FG} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </button>
+                <span style={{ flex: 1, fontWeight: 700, fontSize: 17 }}>{t("goals_create_exercise")}</span>
+              </div>
+
+              <div style={{ flex: 1, overflowY: "auto", padding: "16px", display: "flex", flexDirection: "column", gap: 16 }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  <label style={{ fontSize: 13, fontWeight: 600, color: MUTED_FG }}>
+                    {t("goals_create_exercise_name")}
+                  </label>
+                  <input
+                    type="text"
+                    autoFocus
+                    value={createName}
+                    onChange={(e) => setCreateName(e.target.value)}
+                    placeholder={t("goals_create_exercise_name")}
+                    style={{
+                      height: 48, background: SURFACE, border: `1px solid ${BORDER}`,
+                      borderRadius: 12, padding: "0 14px", fontSize: 15, color: FG,
+                      outline: "none", fontFamily: "'Inter', system-ui",
+                    }}
+                  />
+                </div>
+                {/* Grupo muscular — obrigatório, select com os grupos do catálogo */}
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  <label style={{ fontSize: 13, fontWeight: 600, color: MUTED_FG }}>
+                    {t("goals_create_exercise_muscle")} <span style={{ color: "#ff6b6b" }}>*</span>
+                  </label>
+                  <div style={{ position: "relative" }}>
+                    <select
+                      value={createMuscle}
+                      onChange={(e) => setCreateMuscle(e.target.value)}
+                      style={{
+                        width: "100%", height: 48, background: SURFACE, border: `1px solid ${BORDER}`,
+                        borderRadius: 12, padding: "0 38px 0 14px", fontSize: 15,
+                        color: createMuscle ? FG : MUTED_FG,
+                        outline: "none", fontFamily: "'Inter', system-ui",
+                        appearance: "none", WebkitAppearance: "none" as any, MozAppearance: "none" as any,
+                      }}
+                    >
+                      <option value="" disabled style={{ color: "#000" }}>
+                        {t("goals_create_exercise_muscle_placeholder")}
+                      </option>
+                      {createMuscle && !pickerMuscleGroups.includes(createMuscle) && (
+                        <option value={createMuscle} style={{ color: "#000" }}>{createMuscle}</option>
+                      )}
+                      {pickerMuscleGroups.map((g) => (
+                        <option key={g} value={g} style={{ color: "#000" }}>{g}</option>
+                      ))}
+                    </select>
+                    <svg
+                      width="12" height="12" viewBox="0 0 12 12" fill="none"
+                      style={{ position: "absolute", right: 14, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}
+                    >
+                      <path d="M2 4l4 4 4-4" stroke={MUTED_FG} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  </div>
+                </div>
+
+                {/* Tipo de máquina / equipamento */}
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  <label style={{ fontSize: 13, fontWeight: 600, color: MUTED_FG }}>
+                    {t("goals_create_exercise_equipment")}
+                  </label>
+                  <input
+                    type="text"
+                    value={createEquipment}
+                    onChange={(e) => setCreateEquipment(e.target.value)}
+                    placeholder={t("goals_create_exercise_equipment_placeholder")}
+                    style={{
+                      height: 48, background: SURFACE, border: `1px solid ${BORDER}`,
+                      borderRadius: 12, padding: "0 14px", fontSize: 15, color: FG,
+                      outline: "none", fontFamily: "'Inter', system-ui",
+                    }}
+                  />
+                </div>
+
+                {/* Como executar */}
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  <label style={{ fontSize: 13, fontWeight: 600, color: MUTED_FG }}>
+                    {t("goals_create_exercise_howto")}
+                  </label>
+                  <textarea
+                    value={createHowTo}
+                    onChange={(e) => setCreateHowTo(e.target.value)}
+                    placeholder={t("goals_create_exercise_howto_placeholder")}
+                    rows={4}
+                    style={{
+                      background: SURFACE, border: `1px solid ${BORDER}`,
+                      borderRadius: 12, padding: "12px 14px", fontSize: 15, color: FG,
+                      outline: "none", fontFamily: "'Inter', system-ui",
+                      resize: "none", lineHeight: 1.5,
+                    }}
+                  />
+                </div>
+
+                {/* Foto do exercício (câmera ou galeria) */}
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  <label style={{ fontSize: 13, fontWeight: 600, color: MUTED_FG }}>
+                    {t("goals_create_exercise_photo")}
+                  </label>
+                  <input
+                    ref={createPhotoInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleCreatePhotoPick}
+                    style={{ display: "none" }}
+                  />
+                  {createPhotoPreview ? (
+                    <div style={{
+                      position: "relative", width: "100%", height: 180, borderRadius: 16,
+                      overflow: "hidden", background: "#fff", border: `1px solid ${BORDER}`,
+                    }}>
+                      <img
+                        src={createPhotoPreview}
+                        alt=""
+                        style={{ width: "100%", height: "100%", objectFit: "contain" }}
+                      />
+                      <button
+                        onClick={() => { setCreatePhotoFile(null); setCreatePhotoPreview(null); }}
+                        aria-label={t("goals_create_exercise_photo_remove")}
+                        style={{
+                          position: "absolute", top: 8, right: 8,
+                          width: 32, height: 32, borderRadius: "50%",
+                          background: "rgba(0,0,0,0.6)", border: "none", cursor: "pointer",
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          color: "#fff", fontSize: 16, fontWeight: 700,
+                        }}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => createPhotoInputRef.current?.click()}
+                      style={{
+                        width: "100%", height: 110, borderRadius: 16,
+                        border: `2px dashed ${BORDER}`, background: "transparent",
+                        cursor: "pointer", display: "flex", flexDirection: "column",
+                        alignItems: "center", justifyContent: "center", gap: 6,
+                        color: MUTED_FG, fontSize: 14, fontWeight: 600,
+                      }}
+                    >
+                      <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
+                        <path d="M3 8.5A1.5 1.5 0 014.5 7h2l1-2h9l1 2h2A1.5 1.5 0 0121 8.5v9A1.5 1.5 0 0119.5 19h-15A1.5 1.5 0 013 17.5v-9z" stroke={MUTED_FG} strokeWidth="1.6" strokeLinejoin="round"/>
+                        <circle cx="12" cy="12.5" r="3.2" stroke={MUTED_FG} strokeWidth="1.6"/>
+                      </svg>
+                      {t("goals_create_exercise_photo_cta")}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div style={{
+                flexShrink: 0,
+                padding: "12px 16px",
+                paddingBottom: "max(12px, env(safe-area-inset-bottom))",
+                borderTop: `1px solid ${BORDER}`,
+                background: GLASS_BAR_BG, backdropFilter: GLASS_BLUR, WebkitBackdropFilter: GLASS_BLUR,
+              }}>
+                {(() => {
+                  const disabled = !createName.trim() || !createMuscle.trim() || createSaving;
+                  return (
+                    <button
+                      onClick={handleCreateExercise}
+                      disabled={disabled}
+                      style={{
+                        width: "100%", height: 48, borderRadius: 999, border: "none",
+                        fontSize: 15, fontWeight: 700, color: "#fff",
+                        cursor: disabled ? "default" : "pointer",
+                        opacity: disabled ? 0.45 : 1,
+                        background: GLASS_GRADIENT,
+                      }}
+                    >
+                      {createSaving ? t("goals_picker_loading") : t("goals_create_exercise_save")}
+                    </button>
+                  );
+                })()}
+              </div>
+            </div>
           )}
 
           {/* Footer: confirmar seleção */}
@@ -1669,103 +2186,14 @@ export function WorkoutSessionDialog({
       {/* ── PICKER EXERCISE DETAIL OVERLAY ──────────────────── */}
       {/* Detalhe (foto ampliada + "como executar") de um item do catálogo no picker */}
       {pickerInfo && (
-        <div
-          onClick={() => setPickerInfo(null)}
-          style={{
-            position: "absolute", inset: 0, zIndex: 80,
-            background: "rgba(0,0,0,0.92)", backdropFilter: "blur(8px)",
-            display: "flex", flexDirection: "column",
-            paddingTop: "max(48px, env(safe-area-inset-top))",
-            paddingBottom: "max(24px, env(safe-area-inset-bottom))",
-          }}
-        >
-          {/* Close */}
-          <button
-            onClick={() => setPickerInfo(null)}
-            aria-label={t("goals_cancel")}
-            style={{
-              position: "absolute", top: "max(14px, env(safe-area-inset-top))", right: 16,
-              width: 36, height: 36, borderRadius: "50%",
-              background: "rgba(255,255,255,0.12)", border: "none", cursor: "pointer",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              zIndex: 1,
-            }}
-          >
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-              <path d="M2 2l10 10M12 2L2 12" stroke="rgba(255,255,255,0.85)" strokeWidth="2" strokeLinecap="round"/>
-            </svg>
-          </button>
-
-          {/* Conteúdo rolável: foto + nome + descrição */}
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              flex: 1, overflowY: "auto",
-              padding: "8px 20px 0",
-              display: "flex", flexDirection: "column", alignItems: "center",
-            }}
-          >
-            {/* Foto — fundo claro para que ilustrações em linha escura fiquem visíveis */}
-            <div style={{
-              width: "100%",
-              background: "#fff", borderRadius: 16,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              overflow: "hidden", flexShrink: 0,
-              minHeight: 220,
-            }}>
-              {pickerInfo.photo ? (
-                <img
-                  src={pickerInfo.photo}
-                  alt={pickerInfo.name}
-                  style={{ width: "100%", maxHeight: "44vh", objectFit: "contain" }}
-                />
-              ) : (
-                <svg width="64" height="36" viewBox="0 0 36 20" fill="none" opacity={0.18}>
-                  <rect x="0.5" y="7" width="7" height="6" rx="2" fill="#000"/>
-                  <rect x="3" y="4.5" width="3" height="11" rx="1.5" fill="#000"/>
-                  <rect x="6.5" y="9" width="23" height="2" rx="1" fill="#000"/>
-                  <rect x="28.5" y="7" width="7" height="6" rx="2" fill="#000"/>
-                  <rect x="30" y="4.5" width="3" height="11" rx="1.5" fill="#000"/>
-                </svg>
-              )}
-            </div>
-
-            {/* Nome + grupo muscular */}
-            <div style={{ padding: "20px 4px 4px", textAlign: "center" }}>
-              <div style={{ fontSize: 22, fontWeight: 800, color: "#fff", marginBottom: 10 }}>
-                {pickerInfo.name}
-              </div>
-              {pickerInfo.muscle_group && (
-                <span style={{
-                  display: "inline-block",
-                  background: "rgba(255,255,255,0.15)", borderRadius: 20,
-                  padding: "4px 16px", fontSize: 13, fontWeight: 600, color: "rgba(255,255,255,0.85)",
-                }}>
-                  {pickerInfo.muscle_group}
-                </span>
-              )}
-            </div>
-
-            {/* Descrição / como executar */}
-            <div style={{ width: "100%", padding: "20px 0 8px" }}>
-              <div style={{
-                fontSize: 11, fontWeight: 700, letterSpacing: 0.7,
-                textTransform: "uppercase", color: "rgba(255,255,255,0.5)",
-                marginBottom: 8,
-              }}>
-                {t("goals_exercise_how_to")}
-              </div>
-              <p style={{
-                fontSize: 14, lineHeight: 1.6, margin: 0,
-                color: pickerInfo.description ? "rgba(255,255,255,0.82)" : "rgba(255,255,255,0.45)",
-                fontStyle: pickerInfo.description ? "normal" : "italic",
-                whiteSpace: "pre-wrap",
-              }}>
-                {pickerInfo.description || t("goals_exercise_no_description")}
-              </p>
-            </div>
-          </div>
-        </div>
+        <ExerciseDetailOverlay
+          photo={pickerInfo.photo ?? null}
+          name={pickerInfo.name}
+          muscleGroup={pickerInfo.muscle_group ?? null}
+          description={pickerInfo.description || ""}
+          zIndex={80}
+          onClose={() => setPickerInfo(null)}
+        />
       )}
 
       {/* ── EXERCISE INFO OVERLAY ───────────────────────────── */}
@@ -1773,107 +2201,14 @@ export function WorkoutSessionDialog({
         const infoItem = allItems.find((i) => i.workout_id === infoExerciseId);
         if (!infoItem) return null;
         return (
-          <div
-            onClick={() => setInfoExerciseId(null)}
-            style={{
-              position: "absolute", inset: 0, zIndex: 70,
-              background: "rgba(0,0,0,0.92)", backdropFilter: "blur(8px)",
-              display: "flex", flexDirection: "column",
-              paddingTop: "max(48px, env(safe-area-inset-top))",
-              paddingBottom: "max(24px, env(safe-area-inset-bottom))",
-            }}
-          >
-            {/* Close */}
-            <button
-              onClick={() => setInfoExerciseId(null)}
-              aria-label={t("goals_cancel")}
-              style={{
-                position: "absolute", top: "max(14px, env(safe-area-inset-top))", right: 16,
-                width: 36, height: 36, borderRadius: "50%",
-                background: "rgba(255,255,255,0.12)", border: "none", cursor: "pointer",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                zIndex: 1,
-              }}
-            >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                <path d="M2 2l10 10M12 2L2 12" stroke="rgba(255,255,255,0.85)" strokeWidth="2" strokeLinecap="round"/>
-              </svg>
-            </button>
-
-            {/* Conteúdo rolável: foto + nome + descrição */}
-            <div
-              onClick={(e) => e.stopPropagation()}
-              style={{
-                flex: 1, overflowY: "auto",
-                padding: "8px 20px 0",
-                display: "flex", flexDirection: "column", alignItems: "center",
-              }}
-            >
-              {/* Foto — fundo claro para que ilustrações em linha escura fiquem visíveis */}
-              <div style={{
-                width: "100%",
-                background: "#fff", borderRadius: 16,
-                display: "flex", alignItems: "center", justifyContent: "center",
-                overflow: "hidden", flexShrink: 0,
-                minHeight: 220,
-              }}>
-                {infoItem.workoutPhoto ? (
-                  <img
-                    src={infoItem.workoutPhoto}
-                    alt={infoItem.workoutName || ""}
-                    style={{
-                      width: "100%", maxHeight: "44vh", objectFit: "contain",
-                    }}
-                  />
-                ) : (
-                  <svg width="64" height="36" viewBox="0 0 36 20" fill="none" opacity={0.18}>
-                    <rect x="0.5" y="7" width="7" height="6" rx="2" fill="#000"/>
-                    <rect x="3" y="4.5" width="3" height="11" rx="1.5" fill="#000"/>
-                    <rect x="6.5" y="9" width="23" height="2" rx="1" fill="#000"/>
-                    <rect x="28.5" y="7" width="7" height="6" rx="2" fill="#000"/>
-                    <rect x="30" y="4.5" width="3" height="11" rx="1.5" fill="#000"/>
-                  </svg>
-                )}
-              </div>
-
-              {/* Nome + grupo muscular */}
-              <div style={{ padding: "20px 4px 4px", textAlign: "center" }}>
-                <div style={{ fontSize: 22, fontWeight: 800, color: "#fff", marginBottom: 10 }}>
-                  {infoItem.workoutName}
-                </div>
-                {infoItem.muscle_group && (
-                  <span style={{
-                    display: "inline-block",
-                    background: "rgba(255,255,255,0.15)", borderRadius: 20,
-                    padding: "4px 16px", fontSize: 13, fontWeight: 600, color: "rgba(255,255,255,0.85)",
-                  }}>
-                    {infoItem.muscle_group}
-                  </span>
-                )}
-              </div>
-
-              {/* Descrição / como executar */}
-              <div style={{ width: "100%", padding: "20px 0 8px" }}>
-                <div style={{
-                  fontSize: 11, fontWeight: 700, letterSpacing: 0.7,
-                  textTransform: "uppercase", color: "rgba(255,255,255,0.5)",
-                  marginBottom: 8,
-                }}>
-                  {t("goals_exercise_how_to")}
-                </div>
-                <p style={{
-                  fontSize: 14, lineHeight: 1.6, margin: 0,
-                  color: infoItem.workoutDescription
-                    ? "rgba(255,255,255,0.82)"
-                    : "rgba(255,255,255,0.45)",
-                  fontStyle: infoItem.workoutDescription ? "normal" : "italic",
-                  whiteSpace: "pre-wrap",
-                }}>
-                  {infoItem.workoutDescription || t("goals_exercise_no_description")}
-                </p>
-              </div>
-            </div>
-          </div>
+          <ExerciseDetailOverlay
+            photo={infoItem.workoutPhoto ?? null}
+            name={infoItem.workoutName || ""}
+            muscleGroup={infoItem.muscle_group ?? null}
+            description={infoItem.workoutDescription || ""}
+            zIndex={70}
+            onClose={() => setInfoExerciseId(null)}
+          />
         );
       })()}
 

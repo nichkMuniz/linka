@@ -783,7 +783,7 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
 
       {/* ── Header ── */}
       <div style={{
-        position: "sticky", top: 0, zIndex: 10,
+        position: "relative", zIndex: 10,
         background: GLASS_BAR_BG,
         backdropFilter: GLASS_BLUR, WebkitBackdropFilter: GLASS_BLUR,
         paddingTop: "max(12px, env(safe-area-inset-top))",

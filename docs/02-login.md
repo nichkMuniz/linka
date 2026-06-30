@@ -47,6 +47,46 @@ Tela de entrada do aplicativo. Permite ao usuário fazer login com email e senha
 
 ---
 
+## Login por Biometria (Face ID / Touch ID)
+
+Login biométrico nativo via plugin Capacitor `@capgo/capacitor-native-biometric` (somente em build iOS/Android; degrada graciosamente na web). A lógica fica isolada em `client/lib/biometric-auth.ts`.
+
+### Premissa de segurança
+- O **primeiro acesso é sempre com email + senha** — não há atalho biométrico até o usuário se autenticar uma vez.
+- As credenciais (email/senha) são gravadas no **Keychain do iOS**, e o acesso a elas é protegido por um gate biométrico (`verifyIdentity`). A flag de opt-in fica em `localStorage` (`linka_biometric_enabled`). **Nada vai para o banco.**
+- `server` do Keychain = `com.linka.meuapp` (appId) → um par de credenciais por device.
+
+### Fluxo
+```
+1º login (email/senha) com sucesso
+  └─ Se há biometria disponível e ainda não ativada
+       └─ Dialog "Ativar {Face ID}?" (AlertDialog)
+            ├─ Ativar  → verifyIdentity → setCredentials no Keychain → flag = 1 → entra
+            └─ Agora não → entra direto
+
+Aberturas seguintes (biometria ativada)
+  └─ Ao sair o splash, sem sessão ativa, na aba "Entrar"
+       └─ Dispara Face ID automaticamente (1x)
+            ├─ Sucesso → getCredentials → signInWithPassword → entra
+            ├─ Cancelar/falhar → fallback: botão "Entrar com {Face ID}" + formulário manual
+            └─ Senha inválida (mudou em outro device) → desativa biometria + toast + login manual
+```
+
+### Ações
+| Ação | Onde | Efeito |
+|---|---|---|
+| Ativar Face ID | AlertDialog pós-login | `enableBiometric()` — grava credenciais no Keychain |
+| Entrar com Face ID | Botão na aba "Entrar" (só se ativado) | `authenticateWithBiometric()` → `signInWithPassword` |
+| Auto-login | Ao abrir a tela de login | Dispara o fluxo acima automaticamente, 1x |
+| Desativar | Configurações → Conta e Segurança (toggle) | `disableBiometric()` — limpa Keychain + flag |
+
+### Observações
+- **Logout manual mantém** a biometria (entra direto na próxima vez). Só o toggle em Conta e Segurança desativa.
+- Religar a biometria a partir das Configurações orienta o usuário a ativar no próximo login (a senha não é mantida em tela de settings).
+- `Info.plist`: requer a chave `NSFaceIDUsageDescription`.
+
+---
+
 ## Tab: Criar Conta (Signup)
 
 Fluxo multi-etapas com 5 passos:
