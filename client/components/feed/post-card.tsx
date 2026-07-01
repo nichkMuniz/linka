@@ -150,10 +150,11 @@ export function PostCard({
             alt="Post"
             objectFit="cover"
             hideDots
+            tall
             onIndexChange={setCarouselIndex}
           />
         ) : (
-          <div className="w-full" style={{ minHeight: "360px", background: getPostGradient(post.id) }} />
+          <div className="w-full rounded-lg" style={{ height: "calc(100dvh - max(14px, env(safe-area-inset-top) + 6px) - 314px - env(safe-area-inset-bottom))", maxHeight: "500px", background: getPostGradient(post.id) }} />
         )}
 
         {/* Dark gradient overlay */}

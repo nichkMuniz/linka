@@ -282,11 +282,14 @@ export function AdminSkeleton({ className = "" }: { className?: string }) {
 }
 
 /** Skeleton that mimics a social feed post card */
-export function PostSkeleton({ className = "" }: { className?: string }) {
+export function PostSkeleton({ className = "", tall = false }: { className?: string; tall?: boolean }) {
   return (
     <div className={`rounded-lg border border-border/40 bg-card overflow-hidden ${className}`}>
       {/* Image placeholder */}
-      <div className="w-full aspect-square bg-gradient-to-br from-muted via-muted/60 to-muted animate-pulse" />
+      <div
+        className={`w-full bg-gradient-to-br from-muted via-muted/60 to-muted animate-pulse ${tall ? "" : "aspect-square"}`}
+        style={tall ? { height: "calc(100dvh - max(14px, env(safe-area-inset-top) + 6px) - 314px - env(safe-area-inset-bottom))", maxHeight: "500px" } : undefined}
+      />
       <div className="p-3 space-y-2">
         {/* User row */}
         <div className="flex items-center gap-2">

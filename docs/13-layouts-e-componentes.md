@@ -116,6 +116,8 @@ Carrossel de imagens de um post:
 - Indicador de posição (dots ou números)
 - Swipe em mobile
 - Imagens com `ImageWithFallback`
+- Prop `tall`: frame alto (`h-[72dvh]`, até `680px`) em vez do padrão `aspect-square` — usado pelo `PostCard` do feed para que cada post ocupe quase a tela inteira ("1 post por vez" ao rolar)
+- Quando `tall`, a foto usa fit adaptativo: `cover` (preenche cortando) por padrão, mas troca para `contain` + fundo desfocado quando a proporção da foto destoa muito da do frame (ex.: canvas quadrado de resumo de treino), para não cortar informação do conteúdo
 
 ---
 

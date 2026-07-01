@@ -80,7 +80,7 @@ function formatPhoneDisplay(value: string): string {
 function BrandHeader() {
   return (
     <div className="flex items-center justify-center">
-      <img src="/logo-horizontal-icone-branco.png" alt="LinKa" className="h-28 w-auto" />
+      <img src="/linka-copa-5a.png" alt="LinKa" className="h-28 w-auto" />
     </div>
   );
 }

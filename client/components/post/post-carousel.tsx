@@ -19,6 +19,8 @@ interface PostCarouselProps {
   onIndexChange?: (index: number) => void;
   /** Oculta os dots internos quando o indicador é renderizado externamente. */
   hideDots?: boolean;
+  /** Frame alto ocupando a maior parte da viewport (usado no feed para "1 post por tela"). */
+  tall?: boolean;
 }
 
 function getPinchDist(touches: React.TouchList | TouchList) {
@@ -36,22 +38,43 @@ function getPinchOrigin(touches: React.TouchList | TouchList, rect: DOMRect) {
   };
 }
 
+// Acima desse desvio entre a proporção da foto e a do frame, "cover" corta
+// demais (ex.: canvas quadrado de treino dentro do frame alto do feed) — nesse
+// caso a foto passa a usar "contain" (inteira, sem corte) com um fundo
+// desfocado da própria imagem preenchendo o frame.
+const ADAPTIVE_FIT_LOG_THRESHOLD = 0.35;
+
 function ZoomableImage({
   src,
   alt,
   className,
   loading,
+  adaptiveFit,
 }: {
   src: string;
   alt: string;
   className: string;
   loading?: "eager" | "lazy";
+  /** Troca para "contain" + fundo desfocado quando a proporção da foto destoa muito do frame. */
+  adaptiveFit?: boolean;
 }) {
   const [scale, setScale] = React.useState(1);
   const [origin, setOrigin] = React.useState({ x: 50, y: 50 });
   const [isPinching, setIsPinching] = React.useState(false);
+  const [fitMode, setFitMode] = React.useState<"cover" | "contain">("cover");
   const pinch = React.useRef({ active: false, startDist: 0, baseScale: 1 });
   const containerRef = React.useRef<HTMLDivElement>(null);
+
+  const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    if (!adaptiveFit) return;
+    const img = e.currentTarget;
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect || !rect.width || !rect.height || !img.naturalWidth || !img.naturalHeight) return;
+    const imageRatio = img.naturalWidth / img.naturalHeight;
+    const frameRatio = rect.width / rect.height;
+    const deviation = Math.abs(Math.log(imageRatio / frameRatio));
+    setFitMode(deviation > ADAPTIVE_FIT_LOG_THRESHOLD ? "contain" : "cover");
+  };
 
   // Non-passive touchmove so we can preventDefault during pinch only
   React.useEffect(() => {
@@ -93,17 +116,31 @@ function ZoomableImage({
     }
   };
 
+  const resolvedSrc = cdnImg(src, { width: POST_PHOTO_WIDTH, quality: POST_PHOTO_QUALITY }) ?? src;
+  const isContain = adaptiveFit && fitMode === "contain";
+
   return (
     <div
       ref={containerRef}
-      className="w-full h-full overflow-hidden"
+      className="relative w-full h-full overflow-hidden"
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
     >
+      {/* Fundo desfocado da própria foto — evita barras vazias quando a imagem usa "contain" */}
+      {isContain && (
+        <img
+          src={resolvedSrc}
+          alt=""
+          aria-hidden="true"
+          draggable={false}
+          className="absolute inset-0 w-full h-full object-cover scale-125 blur-2xl opacity-50"
+        />
+      )}
       <img
-        src={cdnImg(src, { width: POST_PHOTO_WIDTH, quality: POST_PHOTO_QUALITY }) ?? src}
+        src={resolvedSrc}
         alt={alt}
-        className={className}
+        onLoad={handleImageLoad}
+        className={isContain ? `${className.replace("object-cover", "object-contain")} relative block` : `${className} block`}
         loading={loading}
         decoding="async"
         draggable={false}
@@ -130,6 +167,7 @@ export function PostCarousel({
   objectFit = "cover",
   onIndexChange,
   hideDots,
+  tall,
 }: PostCarouselProps) {
   const [currentIndex, setCurrentIndex] = React.useState(0);
 
@@ -142,20 +180,28 @@ export function PostCarousel({
 
   const imgClass = "w-full h-full object-cover";
   const frameBg = "bg-slate-900/10";
-  const coverBox = `relative w-full aspect-square md:aspect-auto md:h-[450px] ${frameBg} overflow-hidden rounded-lg`;
+  // "tall" height fills exactly one viewport, accounting for header, stories, tabs, and bottom nav.
+  // Formula: 100dvh minus header top offset, minus all fixed-height UI above/below the card (314px constant),
+  // minus bottom safe area. maxHeight caps the frame on large screens/iPads.
+  const tallFrameStyle: React.CSSProperties = tall ? {
+    height: "calc(100dvh - max(14px, env(safe-area-inset-top) + 6px) - 314px - env(safe-area-inset-bottom))",
+    maxHeight: "500px",
+  } : {};
+  const sizeClass = tall ? "" : "aspect-square md:aspect-auto md:h-[450px]";
+  const coverBox = `relative w-full ${sizeClass} ${frameBg} overflow-hidden rounded-lg`;
 
   if (!Array.isArray(photos)) {
     return photos ? (
-      <div className={coverBox}>
-        <ZoomableImage src={String(photos)} alt={alt} className={imgClass} loading="eager" />
+      <div className={coverBox} style={tallFrameStyle}>
+        <ZoomableImage src={String(photos)} alt={alt} className={imgClass} loading="eager" adaptiveFit={tall} />
       </div>
     ) : null;
   }
 
   if (photos.length === 1) {
     return (
-      <div className={coverBox}>
-        <ZoomableImage src={photos[0]} alt={alt} className={imgClass} loading="lazy" />
+      <div className={coverBox} style={tallFrameStyle}>
+        <ZoomableImage src={photos[0]} alt={alt} className={imgClass} loading="lazy" adaptiveFit={tall} />
       </div>
     );
   }
@@ -222,7 +268,8 @@ export function PostCarousel({
   return (
     <div
       ref={containerRef}
-      className={`relative group overflow-hidden rounded-lg w-full aspect-square md:aspect-auto md:h-[450px] ${frameBg}`}
+      className={`relative group overflow-hidden rounded-lg w-full ${sizeClass} ${frameBg}`}
+      style={tallFrameStyle}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
     >
@@ -241,6 +288,7 @@ export function PostCarousel({
               alt={`${alt} - ${i + 1}`}
               className={imgClass}
               loading={i === 0 ? "eager" : "lazy"}
+              adaptiveFit={tall}
             />
           </div>
         ))}

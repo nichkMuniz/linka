@@ -802,8 +802,8 @@ export default function Index() {
           </div>
         </div>
         <div className="grid w-full gap-3 py-4">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <PostSkeleton key={i} />
+          {Array.from({ length: 2 }).map((_, i) => (
+            <PostSkeleton key={i} tall />
           ))}
         </div>
       </div>
@@ -937,7 +937,7 @@ export default function Index() {
               <div ref={feedBottomSentinelRef}>
                 {loadingMoreFeed && (
                   <div className="flex flex-col">
-                    {[1, 2].map((i) => <PostSkeleton key={`more-${i}`} />)}
+                    {[1, 2].map((i) => <PostSkeleton key={`more-${i}`} tall />)}
                   </div>
                 )}
               </div>
@@ -948,7 +948,7 @@ export default function Index() {
             {/* Sentinel kept in DOM so IntersectionObserver can trigger on mount */}
             <div ref={discoverSentinelRef} />
             {discoverLoading ? (
-              <>{[1, 2, 3].map((i) => <PostSkeleton key={i} />)}</>
+              <>{[1, 2].map((i) => <PostSkeleton key={i} tall />)}</>
             ) : discoverPosts.length === 0 ? (
               <div className="flex flex-col items-center py-8 gap-3 text-center">
                 <p className="text-sm text-muted-foreground">

@@ -732,7 +732,7 @@ export function FlowCreationDialog({
       if (file.type.startsWith("video/")) {
         setMediaIsVideo(true);
         setMediaPreview(result);
-        setStep("preview");
+        setStep("caption");
       } else {
         setMediaIsVideo(false);
         setPendingCropSrc(result);
@@ -745,7 +745,7 @@ export function FlowCreationDialog({
     setMediaIsVideo(false);
     setMediaPreview(dataUrl);
     setPendingCropSrc(null);
-    setStep("preview");
+    setStep("caption");
   };
 
   const setMediaTransform = React.useCallback((t: MediaTransform) => {

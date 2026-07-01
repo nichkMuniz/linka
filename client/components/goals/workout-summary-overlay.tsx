@@ -114,7 +114,7 @@ function loadLogo(): Promise<HTMLImageElement | null> {
     const img = new Image();
     img.onload = () => resolve(img);
     img.onerror = () => resolve(null);
-    img.src = "/logo-branco.png";
+    img.src = "/linka-copa-5a.png";
   });
   return logoImgPromise;
 }
