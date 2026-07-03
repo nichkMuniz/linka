@@ -132,8 +132,6 @@ async function applySchedulesNative(schedules: RoutineScheduleEntry[]): Promise<
       title,
       body,
       extra: { url: "/metas" },
-      smallIcon: "ic_stat_icon_config_sample",
-      iconColor: "#f97316",
     };
 
     const weekdays = parseWeekdays(g.days);

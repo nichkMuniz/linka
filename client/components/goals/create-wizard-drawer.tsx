@@ -145,7 +145,6 @@ export function CreateWizardDrawer({
 }: CreateWizardDrawerProps) {
   const { t, language } = useLanguage();
   const viewportHeight = useKeyboardAwareHeight();
-  const drawerContentRef = React.useRef<HTMLDivElement | null>(null);
 
   const [step, setStep] = React.useState<WizardStep>(initialStep);
   const [history, setHistory] = React.useState<WizardStep[]>([]);
@@ -258,35 +257,6 @@ export function CreateWizardDrawer({
       return next;
     });
   };
-
-  // vaul's `fixed` mode locks the drawer's DOM height to whatever it measured the
-  // first time the software keyboard opened (e.g. the short "build-name" step) and
-  // keeps re-applying that stale pixel height every time the keyboard closes on any
-  // later step — which stops taller steps (like the items list) from growing. Clear
-  // that inline lock whenever the step changes or the keyboard closes so the layout
-  // sizes itself to the current step's content again.
-  const releaseDrawerHeightLock = React.useCallback(() => {
-    const el = drawerContentRef.current;
-    if (!el) return;
-    const active = document.activeElement;
-    const isTyping =
-      active instanceof HTMLElement &&
-      (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.isContentEditable);
-    if (isTyping) return;
-    el.style.height = "";
-    el.style.bottom = "";
-  }, []);
-
-  React.useEffect(() => {
-    releaseDrawerHeightLock();
-  }, [step, releaseDrawerHeightLock]);
-
-  React.useEffect(() => {
-    if (!open || typeof window === "undefined" || !window.visualViewport) return;
-    const vv = window.visualViewport;
-    vv.addEventListener("resize", releaseDrawerHeightLock);
-    return () => vv.removeEventListener("resize", releaseDrawerHeightLock);
-  }, [open, releaseDrawerHeightLock]);
 
   // lazy-load catalog when entering build step (also needed to search exercises while editing the suggested program)
   React.useEffect(() => {
@@ -768,7 +738,6 @@ export function CreateWizardDrawer({
     <>
     <Drawer open={open} onOpenChange={onOpenChange} fixed>
       <DrawerContent
-        ref={drawerContentRef}
         handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
         className="flex flex-col !rounded-t-[32px] !border-0"
         style={{

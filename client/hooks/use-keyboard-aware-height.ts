@@ -1,12 +1,19 @@
 import * as React from "react";
 
 /**
- * Returns the full window height, ignoring the iOS software keyboard.
+ * Returns the current webview height (`window.innerHeight`).
  *
- * Drawers/modals using this value get a stable max-height that ignores the iOS
- * software keyboard. When the keyboard opens, `DrawerContent` lifts the entire
- * sheet above it and caps its height to the visible area, so the content keeps
- * the same size and just slides up (no need for consumers to lift input bars).
+ * With @capacitor/keyboard configured as `resize: 'native'`
+ * (capacitor.config.ts), the WKWebView frame shrinks when the iOS software
+ * keyboard opens — so this value IS the visible area above the keyboard.
+ * Drawers use it (together with `dvh` caps) to size themselves:
+ *
+ *   maxHeight: `min(80dvh, ${viewportHeight - 8}px)`
+ *
+ * When the keyboard opens the whole viewport shrinks, the bottom-fixed sheet
+ * stays glued right above the keyboard and its content compresses — no JS
+ * repositioning involved (vaul's `repositionInputs` is disabled in
+ * components/ui/drawer.tsx).
  */
 export function useKeyboardAwareHeight() {
   const [height, setHeight] = React.useState<number>(() =>
@@ -17,9 +24,13 @@ export function useKeyboardAwareHeight() {
     const update = () => setHeight(window.innerHeight);
     window.addEventListener("resize", update);
     window.addEventListener("orientationchange", update);
+    // Redundância: em alguns iOS o visualViewport dispara antes do resize da
+    // window quando o frame do webview muda (resize: 'native').
+    window.visualViewport?.addEventListener("resize", update);
     return () => {
       window.removeEventListener("resize", update);
       window.removeEventListener("orientationchange", update);
+      window.visualViewport?.removeEventListener("resize", update);
     };
   }, []);
 

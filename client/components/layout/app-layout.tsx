@@ -308,8 +308,6 @@ export function AppLayout() {
               title: notifTitles[type] ?? t("notif_title_default"),
               body: notifBodies[type] ?? t("notif_body_default"),
               extra: { url: "/notificacoes" },
-              smallIcon: "ic_stat_icon_config_sample",
-              iconColor: "#f97316",
             }],
           }).catch(() => {/* permission not granted — silent */ });
         },

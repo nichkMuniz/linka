@@ -78,10 +78,9 @@ export function LoginSplashCopaReveal() {
           top:  calc(var(--k-fy) * var(--word-h));
           transform: translate(-50%, -50%) translateY(12px) scale(0.88);
           opacity: 0;
-          filter: blur(7px)
-                  drop-shadow(0 10px 30px rgba(0, 168, 89, 0.22))
+          filter: drop-shadow(0 10px 30px rgba(0, 168, 89, 0.22))
                   drop-shadow(0 4px 16px rgba(255, 214, 0, 0.18));
-          will-change: opacity, transform, filter;
+          will-change: opacity, transform;
           animation:
             linka-copa-k-in 980ms var(--ease-expo) 70ms forwards,
             linka-copa-k-breathe 4.1s ease-in-out 1190ms infinite;
@@ -158,17 +157,14 @@ export function LoginSplashCopaReveal() {
         @keyframes linka-copa-aura-breathe{ 0%,100%{transform:scale(1.02);opacity:0.62} 50%{transform:scale(1.10);opacity:0.85} }
 
         @keyframes linka-copa-k-in {
-          0%   { opacity:0; transform: translate(-50%,-50%) translateY(12px) scale(0.88);
-                 filter: blur(7px) drop-shadow(0 10px 30px rgba(0,168,89,0.22)) drop-shadow(0 4px 16px rgba(255,214,0,0.18)); }
+          0%   { opacity:0; transform: translate(-50%,-50%) translateY(12px) scale(0.88); }
           55%  { opacity:1; }
-          72%  { transform: translate(-50%,-50%) translateY(0) scale(1.015);
-                 filter: blur(0) drop-shadow(0 10px 30px rgba(0,168,89,0.22)) drop-shadow(0 4px 16px rgba(255,214,0,0.18)); }
-          100% { opacity:1; transform: translate(-50%,-50%) translateY(0) scale(1);
-                 filter: blur(0) drop-shadow(0 10px 30px rgba(0,168,89,0.22)) drop-shadow(0 4px 16px rgba(255,214,0,0.18)); }
+          72%  { transform: translate(-50%,-50%) translateY(0) scale(1.015); }
+          100% { opacity:1; transform: translate(-50%,-50%) translateY(0) scale(1); }
         }
         @keyframes linka-copa-k-breathe {
-          0%,100% { filter: blur(0) drop-shadow(0 10px 30px rgba(0,168,89,0.22)) drop-shadow(0 4px 16px rgba(255,214,0,0.18)); }
-          50%     { filter: blur(0) drop-shadow(0 16px 46px rgba(0,190,100,0.34)) drop-shadow(0 6px 22px rgba(255,214,0,0.28)); }
+          0%,100% { filter: drop-shadow(0 10px 30px rgba(0,168,89,0.22)) drop-shadow(0 4px 16px rgba(255,214,0,0.18)); }
+          50%     { filter: drop-shadow(0 16px 46px rgba(0,190,100,0.34)) drop-shadow(0 6px 22px rgba(255,214,0,0.28)); }
         }
 
         @keyframes linka-copa-lockup-shift {

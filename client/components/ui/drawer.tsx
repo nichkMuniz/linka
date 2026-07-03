@@ -3,14 +3,15 @@ import { Drawer as DrawerPrimitive } from "vaul";
 
 import { cn } from "@/lib/utils";
 
-// Keyboard handling is delegated entirely to vaul's built-in `repositionInputs`
-// (enabled by default). When the iOS software keyboard opens, vaul shrinks the
-// sheet to the area above the keyboard and lifts its `bottom`, then scrolls the
-// focused field into view — covering both inputs pinned at the bottom (e.g. the
-// comments bar) and inputs in the middle of scrollable content (e.g. the
-// edit-caption textarea). We must NOT run a parallel visualViewport handler here:
-// two handlers mutating the same element's `bottom`/`height` fight each other,
-// which made the sheet jump up and inputs overlap or fall off-screen.
+// Keyboard handling is delegated entirely to the NATIVE webview resize:
+// @capacitor/keyboard is configured with `resize: 'native'` (capacitor.config.ts),
+// so when the iOS software keyboard opens the WKWebView frame itself shrinks to
+// the area above the keyboard. Fixed `bottom-0` sheets, `dvh`-based height caps
+// and `useKeyboardAwareHeight` all track that resize automatically — no JS
+// repositioning needed. vaul's `repositionInputs` MUST stay disabled here: it
+// mutates the sheet's inline `height`/`bottom` from visualViewport events that
+// are unreliable inside WKWebView (stale height locks, double-movement), which
+// is exactly what used to break every drawer with a text input on iPhone.
 
 const Drawer = ({
   shouldScaleBackground = true,
@@ -18,6 +19,7 @@ const Drawer = ({
 }: React.ComponentProps<typeof DrawerPrimitive.Root>) => (
   <DrawerPrimitive.Root
     shouldScaleBackground={shouldScaleBackground}
+    repositionInputs={false}
     {...props}
   />
 );

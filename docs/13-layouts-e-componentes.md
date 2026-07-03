@@ -375,11 +375,13 @@ Sistema de internacionalização:
 ### DrawerContent (comportamento com teclado iOS)
 **Arquivo:** `client/components/ui/drawer.tsx`
 
-Todos os drawers (bottom sheets) do app são renderizados por `DrawerContent`, que trata o teclado do iOS **delegando ao comportamento nativo do vaul** (`repositionInputs`, ligado por padrão):
-- Quando o teclado abre, o vaul reduz a altura do sheet para a área visível acima do teclado e levanta seu `bottom`, mantendo o conteúdo scrollável
-- O input focado é trazido à vista automaticamente — funciona tanto para inputs fixos no rodapé (ex: barra de comentários) quanto para inputs no meio de conteúdo scrollável (ex: textarea de editar legenda)
-- **Importante:** `DrawerContent` **não** deve rodar um handler próprio de `visualViewport` em paralelo. Dois handlers mutando `bottom`/`height` do mesmo elemento brigam entre si — era o que fazia o sheet "subir inteiro" e os inputs sobreporem/sumirem. Por isso o antigo `useKeyboardInsets()` e a variável `--keyboard-offset` foram removidos
-- Consumidores só precisam definir um `max-height` estável (via `useKeyboardAwareHeight`, que ignora o teclado) e usar `flex-1 min-h-0` na área scrollável; o vaul cuida do resto
+Todos os drawers (bottom sheets) do app são renderizados por `DrawerContent`. Desde 2026-07-03, o teclado do iOS é tratado pelo **resize nativo do WebView**, não por JavaScript:
+
+- O plugin `@capacitor/keyboard` está configurado com `resize: 'native'` em `capacitor.config.ts`. Quando o teclado abre, o **frame do WKWebView encolhe** para a área visível acima do teclado.
+- Consequência: qualquer elemento `fixed bottom-0` (drawers, barras de input) fica automaticamente acima do teclado; unidades `dvh`/`vh` e `window.innerHeight` passam a refletir a área visível. Nenhum reposicionamento via JS é necessário.
+- O `repositionInputs` do vaul está **explicitamente desligado** no componente `Drawer` (`repositionInputs={false}`). O mecanismo do vaul depende de eventos de `visualViewport` que são instáveis dentro do WKWebView (altura "travada" obsoleta, movimento duplo) — era a causa dos drawers com input quebrando no iPhone. **Não reativar.**
+- **Importante:** nenhum componente deve rodar handler próprio de `visualViewport` para mover drawers. Dois mecanismos mutando `bottom`/`height` do mesmo elemento brigam entre si. (O hack `releaseDrawerHeightLock` do `CreateWizardDrawer`, que existia para desfazer a altura travada do vaul, foi removido junto.)
+- Consumidores só precisam de um cap de altura que acompanhe o viewport — o padrão do app é `maxHeight: min(XXdvh, ${viewportHeight - 8}px)` com `viewportHeight` vindo de `useKeyboardAwareHeight` (que retorna `window.innerHeight`, agora a área acima do teclado) — e `flex-1 min-h-0` na área scrollável. Com o viewport encolhendo, o sheet comprime e o input pinado no rodapé permanece visível.
 
 ---
 
