@@ -64,8 +64,12 @@ ETAPA 2 — Legenda e publicação
 - Sobre a imagem: botão "Editar" (crop), navegação `ChevronLeft/Right`, dots de posição, badge com total de fotos
 
 ### Toolbar da Galeria
-- Label "Recentes" à esquerda
-- Botão "Selecionar" abre o `<input type="file">` correspondente
+- **Label do álbum atual** ("Recentes" por padrão) à esquerda, agora **clicável** — abre um `DropdownMenu` (padrão Instagram) para trocar de álbum/pasta da galeria do dispositivo:
+  - Itens fixos no topo: **Recentes** (sem filtro — biblioteca completa, comportamento padrão), **Vídeos** e **Favoritos** — estes dois só aparecem se o dispositivo realmente tiver esses álbuns inteligentes (detectados por título via `/vídeo|video/i` e `/favorit/i` na lista retornada por `PhotoLibrary.getAlbums()`)
+  - Submenu **"Todos os álbuns"** — lista o restante dos álbuns do dispositivo (usuário + outros inteligentes), com contagem de itens; a opção **"Dos apps da Meta"** é **sempre excluída** (filtro `/meta/i` no título) por não fazer sentido no contexto do app
+  - Item selecionado marcado com um ✓ azul; trocar de álbum recarrega a grade filtrada por aquele álbum (mantendo o filtro de tipo imagem/vídeo do `mediaType` atual)
+  - **Limitação do plugin**: `PhotoLibrary.getLibrary` não filtra por álbum na consulta — ao selecionar um álbum específico, o app varre a biblioteca em lotes de 150 (`includeAlbumData: true`, até 1500 itens escaneados por chamada) filtrando client-side por `asset.albumIds`, acumulando até preencher uma página (40 itens) ou esgotar a biblioteca; "carregar mais" continua o scan de onde parou
+- Botão "Selecionar vários" **(somente POST)** alterna o `multiSelectMode` — é um chip/pill com estado visual claro: **inativo** = fundo neutro translúcido + círculo vazio (outline); **ativo** = preenchido com o gradiente da marca (azul→roxo), círculo com ✓ branco e o contador `n/5` embutido no próprio label, evitando a ambiguidade de antes (onde só a cor do texto mudava)
 
 ### Grade de Fotos (somente POST)
 - 4 colunas, `gap-px`
@@ -78,6 +82,11 @@ ETAPA 2 — Legenda e publicação
 - Tabs na parte inferior com ícone + label em maiúsculas
 - Sublinhado na opção ativa
 
+### Limite de fotos por post
+- `MAX_POST_PHOTOS = 5` — no máximo **5 fotos** por publicação (somente POST; SHOT continua sendo 1 vídeo)
+- Contador **`n/5`** aparece embutido no próprio botão "Selecionar vários" (chip) quando o modo de seleção múltipla está ativo
+- Ao atingir o limite: as miniaturas **não selecionadas** da galeria ficam esmaecidas (`opacity: .35`) e tocar nelas exibe um toast de aviso (`newpost_max_photos_title`/`newpost_max_photos_desc`) em vez de adicionar — vale tanto para o toque na grade quanto para seleção via `<input type="file" multiple>` (fallback web/câmera), que descarta silenciosamente os arquivos excedentes e mostra o mesmo toast uma única vez ao final
+
 ---
 
 ## Etapa 2: Legenda e Publicação
@@ -88,13 +97,33 @@ ETAPA 2 — Legenda e publicação
 - Botão "Compartilhar" executa o submit (com spinner durante envio)
 
 ### Área de Legenda
-- Miniatura 64×64 da foto/vídeo selecionado
-- `Textarea` sem borda (integrado ao layout), máx. 500 chars
-- Strip horizontal de thumbnails abaixo (apenas se múltiplas fotos selecionadas)
+- Miniatura 64×64 da foto/vídeo selecionado (toque abre o modal de preview, somente POST)
+- `Textarea` sem borda (integrado ao layout), máx. 500 chars, com `ref` (`captionTextareaRef`) para permitir inserção de texto na posição do cursor pela barra de ícones abaixo
+- Strip horizontal de thumbnails abaixo (apenas se múltiplas fotos selecionadas), **reordenável por arrastar** (ver abaixo)
+
+### Barra de Ícones da Legenda (emoji / localização / hashtag)
+Logo abaixo da `Textarea`, três atalhos que inserem texto **na posição do cursor** da legenda ativa (`description` ou `videoDescription`, conforme `mediaType`) — função compartilhada `insertIntoCaption`, que respeita o limite de 500 caracteres e devolve o foco/cursor ao textarea após inserir:
+
+- **Emoji (`Smile`)** — abre o `EmojiPickerDrawer` (`client/components/shared/emoji-picker-drawer.tsx`), um drawer com abas por categoria (rostos, pessoas, animais, comida, atividades, viagens, símbolos) e uma grade de emojis unicode. Como são emojis unicode simples, o WebView do iOS já renderiza com o glyph nativo da Apple — não precisa de fonte/asset extra. O drawer permanece aberto após cada seleção (mesmo comportamento de um teclado de emoji), permitindo inserir vários em sequência
+- **Localização (`MapPin`)** — usa o plugin `@capacitor/geolocation` para pedir permissão e obter a posição atual (`getCurrentPosition`, `enableHighAccuracy: false`), depois faz reverse geocoding via API pública **BigDataCloud** (`api.bigdatacloud.net/data/reverse-geocode-client`, sem necessidade de API key) para resolver "Cidade, País" a partir de lat/lng (`localityLanguage` segue o idioma ativo do app). O resultado é inserido na legenda como `📍 Cidade, País `. Mostra spinner (`Loader2`) no ícone enquanto localiza, e toast de sucesso/erro ao final (permissão negada, timeout ou falha de rede). Permissão declarada em `NSLocationWhenInUseUsageDescription` no `Info.plist` (compartilhada com o rastreamento de corrida)
+- **Hashtag (`#`)** — insere apenas o caractere `#` na posição do cursor, para o usuário completar (ex.: `#fitness`)
+
+### Reordenar fotos (arrastar na strip)
+- Cada miniatura da strip aceita **arrastar horizontalmente** (Pointer Events — `onPointerDown`/`onPointerMove`/`onPointerUp`, `touchAction: "none"` para não conflitar com o scroll da tela) para mudar a ordem de postagem. Ex.: com 3 fotos selecionadas (1,2,3), arrastar a foto 3 para o início produz a ordem 3,1,2 — é essa ordem final que define a sequência publicada no post
+- A troca de posição acontece em tempo real conforme o dedo cruza a metade da miniatura vizinha (`reorderPhotos`, passo de 64px = 56px da miniatura + 8px de gap); a foto arrastada ganha leve escala/sombra e segue o dedo, as demais reacomodam com transição suave
+- Um toque rápido (sem arrastar) continua selecionando aquela foto como a exibida no preview principal da Etapa 1/Etapa 2 e no modal de preview (carrossel) — o mesmo gesto de toque não é mais o `onClick` direto na imagem, e sim resolvido no fim do gesto de arrastar (`handlePhotoDragEnd`) quando o deslocamento foi menor que um limiar (6px)
+- O botão de remover (X) tem prioridade sobre o arrasto (`stopPropagation` no `pointerdown`)
+- Reordenar mantém sincronizados `selectedFiles`, `previewUrls`, `selectedAssetIds` (seleção da galeria) e `cropTransforms` (ajustes de crop por foto) — o arquivo, o crop e a miniatura da galeria "viajam" junto com a foto movida
+
+### Modal de Preview da Imagem (`imagePreviewOpen`)
+- Aberto ao tocar na miniatura 64×64 (somente POST)
+- Mostra `previewUrls[currentPreviewIndex]` em tela cheia sobre backdrop escuro (`rgba(0,0,0,.88)`), com botão de fechar (X)
+- **Com múltiplas fotos selecionadas**: vira um **carrossel** — setas `ChevronLeft`/`ChevronRight` sobre a imagem (translúcidas, `rgba(0,0,0,.5)`) navegam entre `previewUrls`, e uma fileira de **dots** no rodapé indica a posição atual (mesmo padrão visual do carrossel de preview da Etapa 1). Compartilha o índice `currentPreviewIndex` com o preview/crop da Etapa 1 e com a strip de thumbnails da Etapa 2 — navegar em qualquer um dos três reflete nos demais
+- Respeita safe area (wrapper `fixed inset-0` com padding `env(safe-area-inset-*)`)
 
 ### Vincular Meta (somente POST)
 - `Select` com metas ativas do usuário
-- Se sem metas: link "Criar meta →" navega para `/metas?tab=metas`
+- Se sem metas ou pelo atalho "+ Nova meta": navega para `/metas?tab=metas&action=create-goal` — o parâmetro `action=create-goal` faz a tela de Metas **já abrir o wizard de criação direto no passo `goal-origin`** (ver `docs/05-metas.md`), em vez de só cair na tela
 - Hint verde com ícone `Sparkles` quando meta selecionada
 
 ### Botão Publicar
@@ -156,5 +185,6 @@ Campos automaticamente salvos na sessão:
 - Imagens são convertidas para `File[]` e URLs de preview geradas com `URL.createObjectURL`
 - URLs de preview são revogadas no unmount (evita memory leak)
 - Tab ativa é preservada em sessionStorage — ao voltar, usuário retorna na mesma aba
+- **Persistência do passo (step):** o passo atual (`select` ou `caption`) é salvo em `sessionStorage` (`newpost_step`) e restaurado ao montar a tela — desde que ainda haja conteúdo selecionado (fotos no `imageDraft` ou vídeo no `videoDraft`). Isso cobre o fluxo de "+ Nova meta": usuário está na etapa de legenda, sai para `/metas` para criar uma meta nova, e ao retornar cai direto na etapa de legenda com fotos e texto já preenchidos, em vez de reiniciar na galeria. O `newpost_step` é limpo ao publicar com sucesso (post ou shot)
 - A seleção de arquivos usa `<input type="file" multiple accept="image/*">` oculto
 - Para vídeos: `<input type="file" accept="video/*">` oculto

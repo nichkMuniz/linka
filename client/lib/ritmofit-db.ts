@@ -210,14 +210,14 @@ async function ensureProfile(): Promise<DbProfile | null> {
   const user = await getViewer();
   if (!user || !supabase) return null;
 
-  // Return from profile cache if still valid
-  const cachedProfile = _profileCache.get(user.id);
-  if (cachedProfile && Date.now() < cachedProfile.expiry && cachedProfile.data) {
+  // Return from the shared profile cache if a fresh/persisted entry exists
+  const cachedProfile = await getUserProfileDb(user.id);
+  if (cachedProfile) {
     return {
-      id: cachedProfile.data.id,
-      nickname: cachedProfile.data.nickname,
-      handle: cachedProfile.data.handle ?? cleanHandle(cachedProfile.data.nickname ?? ""),
-      avatarUrl: cachedProfile.data.photo ?? undefined,
+      id: cachedProfile.id,
+      nickname: cachedProfile.nickname,
+      handle: cachedProfile.handle ?? cleanHandle(cachedProfile.nickname ?? ""),
+      avatarUrl: cachedProfile.photo ?? undefined,
     };
   }
 
@@ -613,19 +613,12 @@ export async function getProfilesBatchDb(
   return result;
 }
 
-// ─── Profile cache (avoid redundant getUserProfileDb calls) ─────────────────
-const _profileCache = new Map<string, { data: UserProfile | null; expiry: number }>();
-// Dedup concurrent cold reads: when several callers (e.g. Profile Batch 1 +
-// getUserPostsDb) ask for the same profile at once, share a single request.
-const _profileInflight = new Map<string, Promise<UserProfile | null>>();
-const PROFILE_CACHE_TTL_MS = 30_000; // 30 seconds
-
+// ─── Profile cache ────────────────────────────────────────────────────────
+// Profile data rarely changes between visits, so it rides the shared
+// cached() helper (memory + localStorage stale-while-revalidate) with a long
+// TTL instead of refetching on every screen entry.
 export function invalidateProfileCache(userId?: string) {
-  if (userId) {
-    _profileCache.delete(userId);
-  } else {
-    _profileCache.clear();
-  }
+  invalidateQueryCache(userId ? `userProfile:${userId}` : "userProfile");
 }
 
 export type PostComment = {
@@ -1140,7 +1133,7 @@ export async function incrementGoalProgressDb(
     return null;
   }
 
-  // Já foi incrementada hoje — não contabiliza novamente
+  // Já foi incrementada hoje (por qualquer rotina vinculada) — só a primeira do dia conta
   if (currentData.last_progress_date === today) return null;
 
   const currentDaysCompleted = Number(currentData.days_completed ?? 0);
@@ -1227,15 +1220,7 @@ export async function getUserProfileDb(
   if (!hasSupabaseConfig || !supabase) return null;
   assertUUID(userId, "ID do usuário");
 
-  // Check cache first
-  const cached = _profileCache.get(userId);
-  if (cached && Date.now() < cached.expiry) return cached.data;
-
-  // Dedup concurrent cold reads for the same user
-  const inflight = _profileInflight.get(userId);
-  if (inflight) return inflight;
-
-  const request = (async (): Promise<UserProfile | null> => {
+  return cached(`userProfile:${userId}`, CACHE_TTL_LONG, async () => {
     const { data, error } = await supabase!
       .from("profiles")
       .select("id, nickname, bio, photo, cover_photo, objectives, height, weight, age, handle, is_verified, hide_follow_lists, hide_posts_from_non_followers")
@@ -1249,10 +1234,7 @@ export async function getUserProfileDb(
       return null;
     }
 
-    if (!data) {
-      _profileCache.set(userId, { data: null, expiry: Date.now() + PROFILE_CACHE_TTL_MS });
-      return null;
-    }
+    if (!data) return null;
 
     const profile: UserProfile = {
       id: String(data.id ?? ""),
@@ -1270,12 +1252,8 @@ export async function getUserProfileDb(
       hide_posts_from_non_followers: data.hide_posts_from_non_followers === true,
     };
 
-    _profileCache.set(userId, { data: profile, expiry: Date.now() + PROFILE_CACHE_TTL_MS });
     return profile;
-  })().finally(() => { _profileInflight.delete(userId); });
-
-  _profileInflight.set(userId, request);
-  return request;
+  });
 }
 
 export async function updateUserProfileDb(
@@ -1685,6 +1663,30 @@ export type Routine = {
   type: number;
   goal_id: string | null;
   name?: string;
+  last_summary: RoutineLastSummary | null;
+};
+
+/**
+ * Snapshot do último treino finalizado de uma rotina — mesmo formato de
+ * `WorkoutSummaryData` (client/components/goals/workout-summary-overlay.tsx)
+ * sem `userId`/`userGroups`, resolvidos de novo ao reabrir. Sobrescrito a cada
+ * "Finalizar" (sempre o mais recente).
+ */
+export type RoutineLastSummary = {
+  routineName: string;
+  totalSeries: number;
+  totalVolume: number;
+  durationSecs: number;
+  badges: string[];
+  completedExercises: Array<{
+    name: string;
+    totalSets: number;
+    bestKg: number;
+    muscleGroup: string | null;
+  }>;
+  prExercises: Array<{ name: string; previousBestKg: number; newBestKg: number }>;
+  machinedExercises: Array<{ name: string; kg: number }>;
+  completedAt: string;
 };
 
 export type Workout = {
@@ -1906,7 +1908,7 @@ export async function getUserRoutinesDb(userId: string): Promise<Routine[]> {
   return cached(`userRoutines:${userId}`, CACHE_TTL_SHORT, async () => {
   const { data, error } = await supabase
     .from("routines")
-    .select("id, user_id, type, goal_id, name")
+    .select("id, user_id, type, goal_id, name, last_summary")
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
@@ -1923,9 +1925,33 @@ export async function getUserRoutinesDb(userId: string): Promise<Routine[]> {
     type: Number(row.type ?? 1),
     goal_id: row.goal_id ? String(row.goal_id) : null,
     name: row.name ? String(row.name) : undefined,
+    last_summary: row.last_summary ?? null,
   }));
 
   });
+}
+
+/**
+ * Sobrescreve o resumo do último treino finalizado desta rotina — sempre há
+ * no máximo um snapshot por rotina, o mais recente (ver `RoutineLastSummary`).
+ */
+export async function updateRoutineLastSummaryDb(
+  routineId: string,
+  summary: RoutineLastSummary,
+): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+
+  const { error } = await supabase
+    .from("routines")
+    .update({ last_summary: summary })
+    .eq("id", routineId);
+
+  if (error) {
+    console.error("Error saving routine last summary:", error?.message || error);
+    return;
+  }
+
+  invalidateQueryCache("userRoutines");
 }
 
 export async function createRoutineDb(
@@ -1962,6 +1988,7 @@ export async function createRoutineDb(
     type: Number(data.type ?? 1),
     goal_id: data.goal_id ? String(data.goal_id) : null,
     name: data.name ? String(data.name) : undefined,
+    last_summary: null,
   };
 }
 
@@ -1977,7 +2004,7 @@ export async function updateRoutineGoalDb(
       goal_id: goalId,
     })
     .eq("id", routineId)
-    .select("id, user_id, type, goal_id, name")
+    .select("id, user_id, type, goal_id, name, last_summary")
     .maybeSingle();
 
   if (error) {
@@ -1997,6 +2024,7 @@ export async function updateRoutineGoalDb(
     type: Number(data.type ?? 1),
     goal_id: data.goal_id ? String(data.goal_id) : null,
     name: data.name ? String(data.name) : undefined,
+    last_summary: (data as any).last_summary ?? null,
   };
 }
 
@@ -2333,6 +2361,7 @@ export async function getRoutinesByGoalIdDb(
     type: Number(row.type ?? 1),
     goal_id: row.goal_id ? String(row.goal_id) : null,
     name: row.name ? String(row.name) : undefined,
+    last_summary: null,
   }));
 }
 
@@ -2607,6 +2636,7 @@ export type UserDietWithDetails = {
   completed_at?: string | null;
   scheduled_time?: string | null;
   scheduled_days?: string | null;
+  routine_id?: string | null;
 };
 
 export async function getUserDietsDb(
@@ -2617,7 +2647,7 @@ export async function getUserDietsDb(
   const { data, error } = await supabase
     .from("user_diets")
     .select(
-      "id, diet_id, user_id, name, is_completed, completed_at, scheduled_time, scheduled_days, diets(name, photo, description, category, calories, protein_g, carbs_g, fat_g, fiber_g, food_quality)",
+      "id, diet_id, user_id, name, is_completed, completed_at, scheduled_time, scheduled_days, routine_id, diets(name, photo, description, category, calories, protein_g, carbs_g, fat_g, fiber_g, food_quality)",
     )
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
@@ -2748,6 +2778,7 @@ export async function getUserDietsDb(
     completed_at: row.completed_at ?? null,
     scheduled_time: row.scheduled_time ? String(row.scheduled_time) : null,
     scheduled_days: row.scheduled_days ? String(row.scheduled_days) : null,
+    routine_id: row.routine_id != null ? String(row.routine_id) : null,
   }));
 
   });
@@ -2811,6 +2842,7 @@ export type UserHabitWithDetails = {
   completed_at?: string | null;
   scheduled_time?: string | null;
   scheduled_days?: string | null;
+  routine_id?: string | null;
 };
 
 export async function getUserHabitsDb(
@@ -2820,7 +2852,7 @@ export async function getUserHabitsDb(
   return cached(`userHabits:${userId}`, CACHE_TTL_SHORT, async () => {
   const { data, error } = await supabase
     .from("user_habits")
-    .select("id, habit_id, user_id, name, is_completed, completed_at, scheduled_time, scheduled_days, habits(name, description)")
+    .select("id, habit_id, user_id, name, is_completed, completed_at, scheduled_time, scheduled_days, routine_id, habits(name, description)")
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
@@ -2947,6 +2979,7 @@ export async function getUserHabitsDb(
     completed_at: row.completed_at ?? null,
     scheduled_time: row.scheduled_time ? String(row.scheduled_time) : null,
     scheduled_days: row.scheduled_days ? String(row.scheduled_days) : null,
+    routine_id: row.routine_id != null ? String(row.routine_id) : null,
   }));
 
   });
@@ -3416,7 +3449,7 @@ export async function followUserDb(followingId: string): Promise<boolean> {
     return false;
   }
 
-  invalidateQueryCache("following"); invalidateQueryCache("followers"); invalidateQueryCache("followingIds"); invalidateQueryCache("userStats");
+  invalidateQueryCache("following"); invalidateQueryCache("followers"); invalidateQueryCache("followingIds"); invalidateQueryCache("userStats"); invalidateQueryCache("isFollowing");
   return true;
 }
 
@@ -3439,7 +3472,7 @@ export async function unfollowUserDb(followingId: string): Promise<boolean> {
     return false;
   }
 
-  invalidateQueryCache("following"); invalidateQueryCache("followers"); invalidateQueryCache("followingIds"); invalidateQueryCache("userStats");
+  invalidateQueryCache("following"); invalidateQueryCache("followers"); invalidateQueryCache("followingIds"); invalidateQueryCache("userStats"); invalidateQueryCache("isFollowing");
   return true;
 }
 
@@ -3449,19 +3482,21 @@ export async function isFollowingDb(followingId: string): Promise<boolean> {
   const viewer = await getViewer();
   if (!viewer) return false;
 
-  const { data, error } = await supabase
-    .from("following")
-    .select("id")
-    .eq("user_id", viewer.id)
-    .eq("following_id", followingId)
-    .maybeSingle();
+  return cached(`isFollowing:${viewer.id}:${followingId}`, CACHE_TTL_SHORT, async () => {
+    const { data, error } = await supabase!
+      .from("following")
+      .select("id")
+      .eq("user_id", viewer.id)
+      .eq("following_id", followingId)
+      .maybeSingle();
 
-  if (error) {
-    console.error("Error checking if following:", error);
-    return false;
-  }
+    if (error) {
+      console.error("Error checking if following:", error);
+      return false;
+    }
 
-  return !!data;
+    return !!data;
+  });
 }
 
 export async function getFollowingIdsDb(): Promise<string[]> {
@@ -3609,40 +3644,42 @@ export async function getActiveStoriesDb(): Promise<StoryWithUser[]> {
 export async function getUserActiveStoriesDb(userId: string): Promise<StoryWithUser[]> {
   if (!hasSupabaseConfig || !supabase) return [];
 
-  const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  return cached(`userActiveStories:${userId}`, CACHE_TTL_MEDIUM, async () => {
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
-  try {
-    const [flowResult, profileResult] = await Promise.all([
-      selectFlow((cols) =>
+    try {
+      const [flowResult, profileResult] = await Promise.all([
+        selectFlow((cols) =>
+          supabase!
+            .from("flow")
+            .select(cols)
+            .eq("user_id", userId)
+            .gte("created_at", twentyFourHoursAgo)
+            .order("created_at", { ascending: true }),
+        ),
         supabase!
-          .from("flow")
-          .select(cols)
+          .from("profiles")
+          .select("user_id, nickname, photo")
           .eq("user_id", userId)
-          .gte("created_at", twentyFourHoursAgo)
-          .order("created_at", { ascending: true }),
-      ),
-      supabase
-        .from("profiles")
-        .select("user_id, nickname, photo")
-        .eq("user_id", userId)
-        .limit(1),
-    ]);
+          .limit(1),
+      ]);
 
-    if (flowResult.error || !flowResult.data?.length) return [];
+      if (flowResult.error || !flowResult.data?.length) return [];
 
-    const profile = profileResult.data?.[0];
+      const profile = profileResult.data?.[0];
 
-    return flowResult.data.map((story: any) => ({
-      ...story,
-      id: String(story.id),
-      user_id: String(story.user_id),
-      userNickname: profile?.nickname ?? "Usuário",
-      userPhoto: profile?.photo ?? null,
-    }));
-  } catch (err: any) {
-    console.error("Error fetching user stories:", err);
-    return [];
-  }
+      return flowResult.data.map((story: any) => ({
+        ...story,
+        id: String(story.id),
+        user_id: String(story.user_id),
+        userNickname: profile?.nickname ?? "Usuário",
+        userPhoto: profile?.photo ?? null,
+      }));
+    } catch (err: any) {
+      console.error("Error fetching user stories:", err);
+      return [];
+    }
+  });
 }
 
 export async function getExpiredUserFlowsDb(): Promise<StoryWithUser[]> {
@@ -3682,6 +3719,40 @@ export async function getExpiredUserFlowsDb(): Promise<StoryWithUser[]> {
   } catch (err: any) {
     console.error("Error fetching expired flows:", err);
     return [];
+  }
+}
+
+// Busca um flow por id independente do dono ou de já ter expirado (>24h).
+// Usado para redirecionar notificações de reação/comentário quando o flow
+// não está mais no ring ativo (getActiveStoriesDb já não o retorna).
+export async function getFlowByIdDb(flowId: string): Promise<StoryWithUser | null> {
+  if (!hasSupabaseConfig || !supabase) return null;
+
+  try {
+    const { data: flowRows, error } = await selectFlow((cols) =>
+      supabase!.from("flow").select(cols).eq("id", flowId).limit(1),
+    );
+    if (error || !flowRows.length) return null;
+
+    const story = flowRows[0];
+    const { data: profileRows } = await supabase
+      .from("profiles")
+      .select("user_id, nickname, photo")
+      .eq("user_id", story.user_id)
+      .limit(1);
+
+    const profile = profileRows?.[0];
+
+    return {
+      ...story,
+      id: String(story.id),
+      user_id: String(story.user_id),
+      userNickname: profile?.nickname ?? "Usuário",
+      userPhoto: profile?.photo ?? null,
+    };
+  } catch (err: any) {
+    console.error("Error fetching flow by id:", err);
+    return null;
   }
 }
 
@@ -3738,6 +3809,7 @@ export async function createStoryDb(
     // Bust the cached story/flow lists so the new flow shows up immediately
     // on the next load/refresh instead of waiting for the 60s TTL to expire.
     invalidateQueryCache("activeStories");
+    invalidateQueryCache("userActiveStories");
     invalidateQueryCache("userShots");
 
     return data ? { ...data, id: String(data.id), user_id: String(data.user_id) } : null;
@@ -3787,6 +3859,7 @@ export async function deleteStoryDb(storyId: string): Promise<boolean> {
     }
 
     invalidateQueryCache("activeStories");
+    invalidateQueryCache("userActiveStories");
     return true;
   } catch (err: any) {
     console.error("Error deleting story:", err);
@@ -5569,27 +5642,6 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
         group.sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
       }
       const uniquePostPairs = [...groupedPostNotifs.keys()];
-      const postLikeQueries = uniquePostPairs.map((key) => {
-        const [followerId, postId] = key.split(":");
-        return supabase
-          .from("likes")
-          .select("type, created_at")
-          .eq("post_id", postId)
-          .eq("user_id", followerId)
-          .order("created_at", { ascending: true })
-          .then(async (r: any) => {
-            const rows = (r.data ?? []) as any[];
-            if (rows.length > 0) return rows;
-            // Fallback: old shot incentive notifs stored post_id but like is in shots_likes
-            const fallback = await supabase
-              .from("shots_likes")
-              .select("type, created_at")
-              .eq("shots_id", postId)
-              .eq("user_id", followerId)
-              .order("created_at", { ascending: true });
-            return (fallback.data ?? []) as any[];
-          });
-      });
 
       // --- Shot incentives (shots_likes primary, likes fallback) ---
       const groupedShotNotifs = new Map<string, any[]>();
@@ -5602,28 +5654,6 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
         group.sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
       }
       const uniqueShotPairs = [...groupedShotNotifs.keys()];
-      const shotLikeQueries = uniqueShotPairs.map((key) => {
-        const [followerId, shotId] = key.split(":");
-        // Try shots_likes first; if empty (table missing or data in legacy table), fall back to likes
-        return supabase
-          .from("shots_likes")
-          .select("type, created_at")
-          .eq("shots_id", shotId)
-          .eq("user_id", followerId)
-          .order("created_at", { ascending: true })
-          .then(async (r: any) => {
-            const rows = (r.data ?? []) as any[];
-            if (rows.length > 0) return rows;
-            // Fallback: check legacy likes table (used when shots_likes insert failed)
-            const fallback = await supabase
-              .from("likes")
-              .select("type, created_at")
-              .eq("post_id", shotId)
-              .eq("user_id", followerId)
-              .order("created_at", { ascending: true });
-            return (fallback.data ?? []) as any[];
-          });
-      });
 
       // --- Flow incentives (tabela: flow_likes, coluna: flow_id) ---
       const flowIncentiveNotifs = legacyIncentiveNotifs.filter((n: any) => n.flow_id);
@@ -5637,25 +5667,109 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
         group.sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
       }
       const uniqueFlowPairs = [...groupedFlowNotifs.keys()];
-      const flowLikeQueries = uniqueFlowPairs.map((key) => {
-        const [followerId, flowId] = key.split(":");
-        return supabase
-          .from("flow_likes")
-          .select("type, created_at")
-          .eq("flow_id", flowId)
-          .eq("user_id", followerId)
-          .order("created_at", { ascending: true })
-          .then((r: any) => (r.data ?? []) as any[]);
-      });
 
-      const [postLikeResults, shotLikeResults, flowLikeResults] = await Promise.all([
-        Promise.all(postLikeQueries),
-        Promise.all(shotLikeQueries),
-        Promise.all(flowLikeQueries),
-      ]);
+      // Bulk-lookup helpers: previously each (follower, post/shot/flow) pair fired
+      // its own query — an N+1 that could mean dozens of simultaneous requests
+      // for accounts with many legacy incentive notifications. Instead, fetch all
+      // rows for the involved ids in one query per table and group client-side.
+      const idsFromPairs = (pairs: string[], index: 0 | 1) =>
+        [...new Set(pairs.map((k) => k.split(":")[index]))];
 
-      uniquePostPairs.forEach((key, idx) => {
-        const likes: any[] = postLikeResults[idx] ?? [];
+      const groupRowsByPair = (rows: any[], idField: string) => {
+        const map = new Map<string, any[]>();
+        for (const row of rows) {
+          const key = `${row.user_id}:${row[idField]}`;
+          if (!map.has(key)) map.set(key, []);
+          map.get(key)!.push(row);
+        }
+        return map;
+      };
+
+      // --- Bulk fetch: post incentives (likes primary, shots_likes fallback) ---
+      let postLikesMap = new Map<string, any[]>();
+      if (uniquePostPairs.length > 0) {
+        const postIds = idsFromPairs(uniquePostPairs, 1);
+        const followerIdsForPosts = idsFromPairs(uniquePostPairs, 0);
+        const { data: postLikeRows } = await safeQuery(
+          supabase
+            .from("likes")
+            .select("post_id, user_id, type, created_at")
+            .in("post_id", postIds)
+            .in("user_id", followerIdsForPosts)
+            .order("created_at", { ascending: true }),
+        );
+        postLikesMap = groupRowsByPair((postLikeRows as any[]) ?? [], "post_id");
+
+        // Fallback to shots_likes only for pairs that got nothing back (old shot
+        // incentive notifs that stored post_id but whose like lives in shots_likes)
+        const missingPostPairs = uniquePostPairs.filter((key) => !postLikesMap.has(key));
+        if (missingPostPairs.length > 0) {
+          const { data: fallbackRows } = await safeQuery(
+            supabase
+              .from("shots_likes")
+              .select("shots_id, user_id, type, created_at")
+              .in("shots_id", idsFromPairs(missingPostPairs, 1))
+              .in("user_id", idsFromPairs(missingPostPairs, 0))
+              .order("created_at", { ascending: true }),
+          );
+          const fallbackMap = groupRowsByPair((fallbackRows as any[]) ?? [], "shots_id");
+          for (const key of missingPostPairs) {
+            const rows = fallbackMap.get(key);
+            if (rows) postLikesMap.set(key, rows);
+          }
+        }
+      }
+
+      // --- Bulk fetch: shot incentives (shots_likes primary, likes fallback) ---
+      let shotLikesMap = new Map<string, any[]>();
+      if (uniqueShotPairs.length > 0) {
+        const shotIds = idsFromPairs(uniqueShotPairs, 1);
+        const followerIdsForShots = idsFromPairs(uniqueShotPairs, 0);
+        const { data: shotLikeRows } = await safeQuery(
+          supabase
+            .from("shots_likes")
+            .select("shots_id, user_id, type, created_at")
+            .in("shots_id", shotIds)
+            .in("user_id", followerIdsForShots)
+            .order("created_at", { ascending: true }),
+        );
+        shotLikesMap = groupRowsByPair((shotLikeRows as any[]) ?? [], "shots_id");
+
+        // Fallback: check legacy likes table (used when shots_likes insert failed)
+        const missingShotPairs = uniqueShotPairs.filter((key) => !shotLikesMap.has(key));
+        if (missingShotPairs.length > 0) {
+          const { data: fallbackRows } = await safeQuery(
+            supabase
+              .from("likes")
+              .select("post_id, user_id, type, created_at")
+              .in("post_id", idsFromPairs(missingShotPairs, 1))
+              .in("user_id", idsFromPairs(missingShotPairs, 0))
+              .order("created_at", { ascending: true }),
+          );
+          const fallbackMap = groupRowsByPair((fallbackRows as any[]) ?? [], "post_id");
+          for (const key of missingShotPairs) {
+            const rows = fallbackMap.get(key);
+            if (rows) shotLikesMap.set(key, rows);
+          }
+        }
+      }
+
+      // --- Bulk fetch: flow incentives (flow_likes only, no fallback) ---
+      let flowLikesMap = new Map<string, any[]>();
+      if (uniqueFlowPairs.length > 0) {
+        const { data: flowLikeRows } = await safeQuery(
+          supabase
+            .from("flow_likes")
+            .select("flow_id, user_id, type, created_at")
+            .in("flow_id", idsFromPairs(uniqueFlowPairs, 1))
+            .in("user_id", idsFromPairs(uniqueFlowPairs, 0))
+            .order("created_at", { ascending: true }),
+        );
+        flowLikesMap = groupRowsByPair((flowLikeRows as any[]) ?? [], "flow_id");
+      }
+
+      uniquePostPairs.forEach((key) => {
+        const likes: any[] = postLikesMap.get(key) ?? [];
         const notifs = groupedPostNotifs.get(key)!;
         notifs.forEach((notif: any, i: number) => {
           const like = likes[i];
@@ -5665,8 +5779,8 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
         });
       });
 
-      uniqueShotPairs.forEach((key, idx) => {
-        const likes: any[] = shotLikeResults[idx] ?? [];
+      uniqueShotPairs.forEach((key) => {
+        const likes: any[] = shotLikesMap.get(key) ?? [];
         const notifs = groupedShotNotifs.get(key)!;
         notifs.forEach((notif: any, i: number) => {
           const like = likes[i];
@@ -5676,8 +5790,8 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
         });
       });
 
-      uniqueFlowPairs.forEach((key, idx) => {
-        const likes: any[] = flowLikeResults[idx] ?? [];
+      uniqueFlowPairs.forEach((key) => {
+        const likes: any[] = flowLikesMap.get(key) ?? [];
         const notifs = groupedFlowNotifs.get(key)!;
         notifs.forEach((notif: any, i: number) => {
           const like = likes[i];
@@ -7115,16 +7229,18 @@ export type CompletedRoutine = {
 };
 
 /**
- * Returns all routines the user completed today (or recently), built from
+ * Returns routines the user completed in the last 7 days, built from
  * user_workouts_hist joined with user_workouts → routines (for the routine name)
- * and workouts (for muscle_group).
+ * and workouts (for muscle_group). Used by the duel check-in selector so a
+ * workout done on a previous day can still be picked when checking in late.
  */
-export async function getCompletedRoutinesTodayDb(userId: string): Promise<CompletedRoutine[]> {
+export async function getRecentCompletedRoutinesDb(userId: string): Promise<CompletedRoutine[]> {
   if (!hasSupabaseConfig || !supabase || !userId) return [];
   return cached(`completedRoutines:${userId}`, CACHE_TTL_SHORT, async () => {
   try {
-    // Fetch only today's completed workouts
+    // Fetch completed workouts from the last 7 days (including today)
     const since = new Date();
+    since.setDate(since.getDate() - 6);
     since.setHours(0, 0, 0, 0);
 
     const { data, error } = await supabase
@@ -7237,6 +7353,8 @@ export type GroupCheckIn = {
   description: string;
   workoutInfo: string;
   muscleGroup: string | null;
+  /** All distinct muscle groups trained in this check-in (may have more than one, e.g. Legs + Shoulders). */
+  muscleGroups: string[];
   exercises: CompletedRoutineExercise[];
   series: number;
   volume: number;
@@ -7587,6 +7705,7 @@ export async function addGroupCheckInDb(
   distanceKm: number | null = null,
   steps: number | null = null,
   calories: number | null = null,
+  workoutCompletedAt: string | null = null,
 ): Promise<GroupCheckIn> {
   if (!supabase) throw new Error("Supabase not configured");
 
@@ -7599,6 +7718,18 @@ export async function addGroupCheckInDb(
       .single();
 
     const currentNickname = profile?.nickname || "Usuário";
+
+    // All distinct muscle groups trained in this check-in, most-frequent
+    // first (same ranking as `muscleGroup`, which is just muscleGroups[0]).
+    // A session with both Legs and Shoulders shows a tag for each, instead
+    // of only the one with the most exercises.
+    const muscleGroupCounts: Record<string, number> = {};
+    exercises.forEach((ex) => {
+      if (ex.muscleGroup) muscleGroupCounts[ex.muscleGroup] = (muscleGroupCounts[ex.muscleGroup] || 0) + 1;
+    });
+    const muscleGroups = Object.entries(muscleGroupCounts)
+      .sort((a, b) => b[1] - a[1])
+      .map(([mg]) => mg);
 
     const { data, error } = await supabase
       .from("duel_check_ins")
@@ -7613,11 +7744,16 @@ export async function addGroupCheckInDb(
         series,
         volume,
         muscle_group: muscleGroup,
+        muscle_groups: muscleGroups.length > 0 ? muscleGroups : null,
         exercises: JSON.stringify(exercises),
         duration_minutes: durationMinutes,
         distance_km: distanceKm,
         steps,
         calories,
+        // Check-in's date/time follows when the routine was actually completed,
+        // not when the user got around to posting it (e.g. posting today a
+        // workout done yesterday should still land on yesterday's date).
+        ...(workoutCompletedAt ? { created_at: workoutCompletedAt } : {}),
       })
       .select()
       .single();
@@ -7636,6 +7772,7 @@ export async function addGroupCheckInDb(
       description: data.description || "",
       workoutInfo: data.workout_info || "",
       muscleGroup: data.muscle_group || null,
+      muscleGroups: Array.isArray(data.muscle_groups) ? data.muscle_groups : muscleGroups,
       exercises,
       series: data.series || 0,
       volume: data.volume || 0,
@@ -7660,11 +7797,12 @@ export async function getGroupCheckInsDb(groupId: string): Promise<GroupCheckIn[
   try {
     const { data, error } = await supabase
       .from("duel_check_ins")
-      .select("id, group_id, user_id, user_name, photo, description, workout_info, muscle_group, series, volume, duration_minutes, distance_km, steps, calories, created_at")
+      .select("id, group_id, user_id, user_name, photo, description, workout_info, muscle_group, muscle_groups, series, volume, duration_minutes, distance_km, steps, calories, created_at")
       .eq("group_id", groupId)
       .order("created_at", { ascending: false })
       .limit(50);
 
+    if (error) console.error("Error getting check-ins:", error);
     if (error || !data) return [];
 
     // Batch-fetch current profiles (nickname + photo) to avoid stale stored data
@@ -7698,6 +7836,9 @@ export async function getGroupCheckInsDb(groupId: string): Promise<GroupCheckIn[
         description: checkIn.description || "",
         workoutInfo: checkIn.workout_info || "",
         muscleGroup: checkIn.muscle_group || null,
+        muscleGroups: Array.isArray(checkIn.muscle_groups) && checkIn.muscle_groups.length > 0
+          ? checkIn.muscle_groups
+          : (checkIn.muscle_group ? [checkIn.muscle_group] : []),
         exercises: [],
         series: checkIn.series || 0,
         volume: checkIn.volume || 0,
@@ -7727,6 +7868,7 @@ export async function getGroupCheckInDetailDb(checkInId: string): Promise<GroupC
       .eq("id", checkInId)
       .single();
 
+    if (error) console.error("Error getting check-in detail:", error);
     if (error || !data) return null;
 
     const { data: profile } = await supabase
@@ -7751,6 +7893,17 @@ export async function getGroupCheckInDetailDb(checkInId: string): Promise<GroupC
       description: data.description || "",
       workoutInfo: data.workout_info || "",
       muscleGroup: data.muscle_group || null,
+      muscleGroups: (() => {
+        if (Array.isArray(data.muscle_groups) && data.muscle_groups.length > 0) return data.muscle_groups;
+        // Older check-ins predate the muscle_groups column — derive it from
+        // the exercises payload so the detail view still shows every group.
+        try {
+          const parsed = JSON.parse(data.exercises || "[]");
+          return [...new Set(parsed.map((ex: any) => ex.muscleGroup).filter(Boolean))] as string[];
+        } catch {
+          return data.muscle_group ? [data.muscle_group] : [];
+        }
+      })(),
       exercises: (() => {
         try { return JSON.parse(data.exercises || "[]"); } catch { return []; }
       })(),
@@ -7817,6 +7970,9 @@ export async function updateGroupCheckInDb(
       description: data.description || "",
       workoutInfo: data.workout_info || "",
       muscleGroup: data.muscle_group || null,
+      muscleGroups: Array.isArray(data.muscle_groups) && data.muscle_groups.length > 0
+        ? data.muscle_groups
+        : (data.muscle_group ? [data.muscle_group] : []),
       exercises: (() => { try { return JSON.parse(data.exercises || "[]"); } catch { return []; } })(),
       series: data.series || 0,
       volume: data.volume || 0,

@@ -1,5 +1,6 @@
 import type {
   Routine,
+  RoutineLastSummary,
   RoutineTypeCode,
   UserDietWithDetails,
   UserHabitWithDetails,
@@ -17,7 +18,7 @@ export type RoutineCard = {
   type: RoutineTypeCode;
   /** null = unnamed group of this type */
   name: string | null;
-  /** routines.id matched by (type, name); null when the trigger row is missing */
+  /** routines.id — resolved via the items' own routine_id FK when present, else by (type, name); null when the trigger row is missing */
   routineId: string | null;
   goalId: string | null;
   items: RoutineItem[];
@@ -25,6 +26,8 @@ export type RoutineCard = {
   scheduledTime: string | null;
   /** first non-empty scheduled_days among items: Monday-first weekday indices "0,2,4" (null/empty = every day) */
   scheduledDays: string | null;
+  /** snapshot of the most recently finished workout for this routine; null = never executed */
+  lastSummary: RoutineLastSummary | null;
 };
 
 function groupByName<T extends { name?: string | null }>(items: T[]): Map<string | null, T[]> {
@@ -46,8 +49,10 @@ export function buildRoutineCards(
 ): RoutineCard[] {
   const cards: RoutineCard[] = [];
 
+  const routineById = new Map<string, Routine>();
   const routineByTypeName = new Map<string, Routine>();
   for (const r of routines) {
+    routineById.set(r.id, r);
     routineByTypeName.set(`${r.type}::${r.name ?? ""}`, r);
   }
 
@@ -58,7 +63,16 @@ export function buildRoutineCards(
   ) => {
     for (const [name, items] of grouped) {
       const key = `${type}::${name ?? ""}`;
-      const routine = routineByTypeName.get(key) ?? null;
+      // Prefer the routine_id already stamped on the items (unambiguous FK) over
+      // matching by (type, name) — name-matching can resolve to the wrong row when
+      // duplicate `routines` rows share the same type+name (see
+      // docs/migrations/20260422-routine-id-on-items.sql), which was silently
+      // pointing linked-goal routines at an unlinked duplicate.
+      const itemRoutineId = (items.find((i: any) => i.routine_id) as any)?.routine_id ?? null;
+      const routine =
+        (itemRoutineId ? routineById.get(String(itemRoutineId)) : null) ??
+        routineByTypeName.get(key) ??
+        null;
       cards.push({
         key,
         type,
@@ -70,6 +84,7 @@ export function buildRoutineCards(
         scheduledDays:
           items.find((i: any) => i.scheduled_days && String(i.scheduled_days).trim())
             ?.scheduled_days ?? null,
+        lastSummary: routine?.last_summary ?? null,
       });
     }
   };

@@ -363,8 +363,13 @@ Check-ins realizados dentro de um grupo de duelo.
 | `volume` | numeric | — | `0` | Volume de treino |
 | `created_at` | timestamptz | — | `now()` | Data de criação |
 | `updated_at` | timestamptz | — | `now()` | Data de atualização |
-| `muscle_group` | text | — | - | Grupo muscular |
-| `exercice` | text | — | - | Historico de Exercicios feitos |
+| `muscle_group` | text | — | - | Grupo muscular principal (mais frequente entre os exercícios do check-in) |
+| `muscle_groups` | text[] | — | `NULL` | **(2026-07-02)** Todos os grupos musculares distintos trabalhados no check-in (ex: `{Pernas,Ombros}`); um treino de vários grupos mostra uma tag por grupo em vez de só o mais frequente. Ver `docs/migrations/20260702-duel-checkin-muscle-groups.sql` |
+| `exercises` | text | — | - | JSON (`JSON.stringify`) com a lista de exercícios do check-in (nome, grupo muscular, carga, volume) — nome real da coluna; a linha anterior desta tabela ("exercice") estava desatualizada |
+| `duration_minutes` | integer | — | — | Duração do treino em minutos (scoring type `duration`) |
+| `distance_km` | numeric(8,2) | — | — | Distância percorrida em km (scoring type `distance`) |
+| `steps` | integer | — | — | Passos dados (scoring type `steps`) |
+| `calories` | integer | — | — | Calorias queimadas (scoring type `calories`) |
 
 ---
 
@@ -503,6 +508,8 @@ Registro de quem segue um usuário.
 | `created_at` | timestamptz | ✓ | `now()` | Data do follow |
 | `follower_id` | uuid | — | — | Quem está seguindo |
 
+**Índices** (`docs/migrations/20260702-performance-indexes.sql`): `followers_user_id_idx (user_id)`, `followers_follower_id_idx (follower_id)` — cobrem os filtros usados por `getFollowersDb`/`getFollowingIdsDb`.
+
 ---
 
 ## following
@@ -517,6 +524,8 @@ Registro de quem um usuário segue.
 | `following_id` | uuid | — | — | Usuário sendo seguido |
 
 > **Nota:** `followers` e `following` são tabelas simétricas. Uma ação de follow deve inserir em ambas.
+
+**Índices** (`docs/migrations/20260702-performance-indexes.sql`): `following_user_id_idx (user_id)`, `following_following_id_idx (following_id)` — cobrem os filtros usados por `getFollowingDb`/`getFollowersDb`.
 
 ---
 
@@ -609,6 +618,8 @@ Mensagens diretas trocadas entre usuários.
 | `following_id` | uuid | — | — | Destinatário da mensagem |
 | `emojis` | text | — | — | Emojis da mensagem |
 
+**Índices** (`docs/migrations/20260702-performance-indexes.sql`): `messages_user_id_idx (user_id)`, `messages_following_id_idx (following_id)`, `messages_following_id_read_idx (following_id, read)` (contagem de não lidas), `messages_created_at_idx (created_at DESC)` (ordenação de conversas).
+
 ---
 
 ## notifications
@@ -656,6 +667,8 @@ Notificações geradas para os usuários (follows, likes, comentários, duelos).
 
 > A trigger `notify-push-on-notification` (AFTER INSERT em `notifications`) chama a edge function `send-push-notification` para qualquer linha inserida — ou seja, o push é automático.
 > As triggers de flow foram adicionadas em `docs/migrations/20260521-flow-notifications.sql`.
+
+**Índices** (`docs/migrations/20260702-performance-indexes.sql`): `notifications_user_id_created_at_idx (user_id, created_at DESC)` (listagem em `getNotificationsDb`), `notifications_user_id_read_idx (user_id, read)` (contagem de não lidas em `getUnreadNotificationsCountDb`).
 
 ---
 
@@ -747,6 +760,7 @@ Rotinas de treino dos usuários (estrutura de programação).
 | `updated_at` | timestamp | — | `now()` | Data de atualização |
 | `goal_id` | bigint | — | — | Meta vinculada à rotina |
 | `name` | text | — | — | Nome da rotina |
+| `last_summary` | jsonb | — | — | Snapshot do resumo do **último treino finalizado** desta rotina (mesmo formato de `WorkoutSummaryData`, sem `userId`/`userGroups` — resolvidos de novo ao reabrir): `routineName`, `totalSeries`, `totalVolume`, `durationSecs`, `badges`, `completedExercises`, `prExercises`, `machinedExercises`, `completedAt`. Sobrescrito a cada "Finalizar" (`updateRoutineLastSummaryDb`) — nunca há mais de um snapshot por rotina, sempre o mais recente. `NULL` = rotina nunca executada. Gateia o ícone de "resumo do treino" no `routine-detail-drawer.tsx` (só aparece quando não-nulo). Migration: `docs/migrations/20260702-routine-last-summary.sql`. |
 
 ---
 
@@ -905,8 +919,9 @@ Metas ativas vinculadas a um usuário.
 | `quantity` | bigint | ✓ | — | Quantidade alvo |
 | `visibility` | smallint | ✓ | `1` | Visibilidade (1 = pública, 0 = privada) |
 | `created_at` | timestamptz | ✓ | `now()` | Data de criação |
-| `perc` | real | ✓ | `0` | Percentual de conclusão (calculado a partir de days_completed / quantity) |
-| `days_completed` | smallint | — | `0` | Dias completados. Incrementado a cada check-in. **Fonte de verdade para o progresso.** |
+| `perc` | real | ✓ | `0` | Percentual de conclusão (calculado a partir de `days_completed / duration`, arredondado — ver `incrementGoalProgressDb`) |
+| `days_completed` | smallint | — | `0` | Dias completados. Incrementado em +1 por dia (no máx.) ao concluir qualquer rotina vinculada à meta, via `incrementGoalProgressDb`. **Fonte de verdade para o progresso.** |
+| `last_progress_date` | date | — | — | Data (YYYY-MM-DD) do último incremento de `days_completed`. Garante que **só a primeira rotina concluída no dia** (treino, dieta ou hábito, entre as vinculadas a esta meta) incrementa o progresso — conclusões seguintes no mesmo dia são ignoradas. Adicionada em 02/07/2026 (`supabase/migrations/20260702220000_add_last_progress_date_to_user_goals.sql`). |
 
 > RLS: o próprio usuário tem acesso total. Qualquer usuário autenticado pode **ler** metas com `visibility = 1` (política "Anyone can read public goals"). Migration: `20260427-user-goals-public-read.sql`.
 

@@ -316,7 +316,8 @@ export function PostCommentsDialog({
       handleClassName="mt-[10px] h-1 w-[38px] bg-white/25"
       className="flex flex-col !rounded-t-[32px] !border-0"
       style={{
-        maxHeight: `min(82dvh, ${viewportHeight - 8}px)`,
+        height: `min(60dvh, ${viewportHeight - 8}px)`,
+        maxHeight: `min(60dvh, ${viewportHeight - 8}px)`,
         background: "linear-gradient(rgba(30,28,40,.88),rgba(14,13,20,.96))",
         backdropFilter: "blur(40px) saturate(180%)",
         WebkitBackdropFilter: "blur(40px) saturate(180%)",
@@ -338,7 +339,12 @@ export function PostCommentsDialog({
       <div
         ref={commentsListRef}
         className="flex-1 overflow-y-auto px-[18px] pb-3"
-        style={{ display: "flex", flexDirection: "column", gap: "18px" }}
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: "18px",
+          justifyContent: loading || !comments.length ? "center" : "flex-start",
+        }}
         onPointerDown={(e) => e.stopPropagation()}
       >
         {loading ? (

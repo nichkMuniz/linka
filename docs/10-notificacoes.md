@@ -91,7 +91,7 @@ Quando o tipo é incentivo, o ícone exibido é o do incentivo específico (não
   - Notificação de comentário em **shot** (tipo 3, `shotId` presente) → `/shots` com `state.openComments = true` e `state.shotId` (abre drawer de comentários automaticamente). **Nota:** a notificação usa `shots_id` na tabela — corrigido para não confundir com posts.
   - Notificação de reação em comentário de **post** (tipo 6, `postId`) → `/post/:postId` com `state.openComments = true`
   - Notificação de reação em comentário de **shot** (tipo 6, `shotId`) → `/shots` com `state.openComments = true` e `state.shotId`
-  - Notificação de reação em comentário de **flow** (tipo 6, `flowId`) → `/` (feed) com `state.openFlow = flowId` (abre FlowViewerModal)
+  - Notificação de reação em comentário de **flow** (tipo 6, `flowId`) → `/` (feed) com `state.openFlow = flowId` (abre FlowViewerModal). **Se o flow já expirou** (não está mais no ring, > 24h), o `Index.tsx` redireciona para o Arquivo de Flows (`/perfil` com `state.openFlowArchive`) quando o flow é do próprio usuário, ou mostra um toast "não disponível" quando é de outro usuário — ver `docs/01-feed.md` e `docs/08-perfil.md`
   - Notificação de reação em comentário de **check-in** (tipo 6, `checkInId`) → `/comunidade` com `state.openCheckIn = checkInId` (abre drawer do check-in)
   - Notificação de duelo (tipo 4 ou 5) → `/comunidade?tab=requests` (abre aba "Solicitações")
   - Notificação de reação em check-in de duelo (tipo 7) → `/comunidade` com `state.openCheckIn = checkInId` (abre drawer do check-in)

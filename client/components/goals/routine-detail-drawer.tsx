@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Bell, Check, ChevronDown, Pencil, Play, Target, Trash2 } from "lucide-react";
+import { BarChart3, Bell, Check, ChevronDown, ListPlus, Pencil, Play, Target, Trash2 } from "lucide-react";
 import {
   Drawer,
   DrawerContent,
@@ -38,6 +38,8 @@ interface RoutineDetailDrawerProps {
   userGoals: UserGoal[];
   onClose: () => void;
   onStartWorkout: (card: RoutineCard) => void;
+  onViewSummary: (card: RoutineCard) => void;
+  onAddItems: (card: RoutineCard) => void;
   onToggleItem: (card: RoutineCard, item: RoutineItem, completed: boolean) => void;
   onDeleteItem: (card: RoutineCard, item: RoutineItem) => Promise<void>;
   onRename: (card: RoutineCard, newName: string) => Promise<void>;
@@ -52,6 +54,8 @@ export function RoutineDetailDrawer({
   userGoals,
   onClose,
   onStartWorkout,
+  onViewSummary,
+  onAddItems,
   onToggleItem,
   onDeleteItem,
   onRename,
@@ -121,7 +125,7 @@ export function RoutineDetailDrawer({
   };
 
   return (
-    <Drawer open onOpenChange={(o) => !o && onClose()}>
+    <Drawer open onOpenChange={(o) => !o && onClose()} fixed>
       <DrawerContent
         handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
         className="flex flex-col !rounded-t-[32px] !border-0"
@@ -138,6 +142,19 @@ export function RoutineDetailDrawer({
           <DrawerTitle className="flex items-center gap-2 text-left" style={{ color: "#fff" }}>
             <span>{card.type === 1 ? "🏋️" : card.type === 2 ? "🥗" : "✅"}</span>
             <span className="flex-1 truncate">{label}</span>
+            {card.type === 1 && card.lastSummary && (
+              <button
+                onClick={() => {
+                  onClose();
+                  onViewSummary(card);
+                }}
+                aria-label={t("goals_detail_view_summary")}
+                className="h-9 w-9 shrink-0 rounded-full flex items-center justify-center active:scale-95 transition-transform"
+                style={{ background: "rgba(91,140,255,.14)", border: "1px solid rgba(91,140,255,.3)" }}
+              >
+                <BarChart3 className="h-4 w-4" style={{ color: "#5b8cff" }} />
+              </button>
+            )}
           </DrawerTitle>
           <div className="flex items-center gap-1.5 flex-wrap mt-1">
             {card.scheduledTime && (
@@ -297,13 +314,18 @@ export function RoutineDetailDrawer({
               <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>
                 {timeValue ? t("goals_edit_routine_time_set").replace("{time}", timeValue) : t("goals_edit_routine_time_empty")}
               </p>
-              <input
-                type="time"
-                value={timeValue}
-                onChange={(e) => setTimeValue(e.target.value)}
-                className="w-full h-11 rounded-xl px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                style={{ fontSize: "16px", background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }}
-              />
+              <div
+                className="w-full h-11 rounded-xl overflow-hidden"
+                style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)" }}
+              >
+                <input
+                  type="time"
+                  value={timeValue}
+                  onChange={(e) => setTimeValue(e.target.value)}
+                  className="block w-full h-full px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  style={{ fontSize: "16px", minWidth: 0, maxWidth: "100%", boxSizing: "border-box", background: "transparent", border: "none", color: "#fff" }}
+                />
+              </div>
 
               {/* Seleção de dias da semana */}
               <div className="space-y-1.5">
@@ -398,7 +420,7 @@ export function RoutineDetailDrawer({
           )}
 
           {/* Actions */}
-          <div className="grid grid-cols-3 gap-2 pt-1">
+          <div className="grid grid-cols-4 gap-2 pt-1">
             <button
               onClick={() => setEditor(editor === "rename" ? null : "rename")}
               className="flex flex-col items-center gap-1 rounded-2xl p-3 text-xs font-medium transition-all"
@@ -422,6 +444,17 @@ export function RoutineDetailDrawer({
             >
               <Target className="h-4 w-4" />
               {t("goals_detail_goal")}
+            </button>
+            <button
+              onClick={() => {
+                onClose();
+                onAddItems(card);
+              }}
+              className="flex flex-col items-center gap-1 rounded-2xl p-3 text-xs font-medium transition-all"
+              style={{ border: "1px solid rgba(255,255,255,.1)", background: "rgba(255,255,255,.06)", color: "rgba(255,255,255,.7)" }}
+            >
+              <ListPlus className="h-4 w-4" />
+              {t("goals_detail_edit_items")}
             </button>
           </div>
 

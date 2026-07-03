@@ -90,7 +90,7 @@ export function EditPostDrawer({ open, onOpenChange, post, onSaved }: EditPostDr
   };
 
   return (
-    <Drawer open={open} onOpenChange={(v) => { if (!v) onOpenChange(false); }}>
+    <Drawer open={open} onOpenChange={(v) => { if (!v) onOpenChange(false); }} fixed>
       <DrawerContent
         handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
         className="flex flex-col !rounded-t-[32px] !border-0"

@@ -1,4 +1,5 @@
 import * as React from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import {
   Drawer,
@@ -22,6 +23,8 @@ import {
   getExpiredUserFlowsDb,
   deleteStoryDb,
   createPostDb,
+  createShotDb,
+  createStoryDb,
   updateUserPersonalDataDb,
   deletePushTokenDb,
   recordAccessSessionDb,
@@ -58,6 +61,7 @@ import {
   ChevronUp,
   Lock,
   ScanFace,
+  Repeat,
 } from "lucide-react";
 import {
   isBiometricSupported,
@@ -81,6 +85,9 @@ interface SettingsDrawerProps {
   hideTrigger?: boolean;
   /** Quando true, abre diretamente no sub-drawer "Meu Perfil" ao invés da lista de settings */
   directToProfileEdit?: boolean;
+  /** Quando definido, abre diretamente no Arquivo de Flows com esse flow expandido
+   *  (vindo de uma notificação de reação/comentário em flow já expirado) */
+  initialArchivedFlow?: StoryWithUser | null;
 }
 
 export function SettingsDrawer({
@@ -94,6 +101,7 @@ export function SettingsDrawer({
   onOpenChange: controlledOnOpenChange,
   hideTrigger,
   directToProfileEdit,
+  initialArchivedFlow,
 }: SettingsDrawerProps) {
   const navigate = useNavigate();
   const { language, setLanguage, t } = useLanguage();
@@ -457,6 +465,20 @@ export function SettingsDrawer({
   const [expandedFlow, setExpandedFlow] = React.useState<StoryWithUser | null>(null);
   const [repostingFlowId, setRepostingFlowId] = React.useState<string | null>(null);
   const [deletingFlowId, setDeletingFlowId] = React.useState<string | null>(null);
+  const [flowToDelete, setFlowToDelete] = React.useState<StoryWithUser | null>(null);
+  const [flowToShare, setFlowToShare] = React.useState<StoryWithUser | null>(null);
+
+  // Quando initialArchivedFlow está definido (vindo de notificação de flow expirado),
+  // pula a lista e abre direto o flow em tela cheia — mesmo padrão de directToProfileEdit.
+  const initialArchivedFlowRef = React.useRef<StoryWithUser | null>(null);
+  initialArchivedFlowRef.current = initialArchivedFlow ?? null;
+  React.useEffect(() => {
+    if (isOpen && initialArchivedFlowRef.current) {
+      setExpandedFlow(initialArchivedFlowRef.current);
+      openFlowHistory();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
 
   const openFlowHistory = async () => {
     setIsFlowHistoryOpen(true);
@@ -478,26 +500,68 @@ export function SettingsDrawer({
       if (ok) {
         setExpiredFlows((prev) => prev.filter((f) => f.id !== flow.id));
         if (expandedFlow?.id === flow.id) setExpandedFlow(null);
-        toast({ title: "Flow excluído" });
+        toast({ title: t("settings_flow_deleted") });
       } else {
-        toast({ title: "Erro ao excluir flow", variant: "destructive" });
+        toast({ title: t("settings_flow_delete_error"), variant: "destructive" });
       }
     } catch {
-      toast({ title: "Erro ao excluir flow", variant: "destructive" });
+      toast({ title: t("settings_flow_delete_error"), variant: "destructive" });
     } finally {
       setDeletingFlowId(null);
     }
   };
 
+  const confirmDeleteFlow = async () => {
+    if (!flowToDelete) return;
+    const flow = flowToDelete;
+    setFlowToDelete(null);
+    await handleDeleteFlow(flow);
+  };
+
   const handleRepostFlow = async (flow: StoryWithUser) => {
     if (!flow.media_url) return;
+    setFlowToShare(null);
     setRepostingFlowId(flow.id);
     try {
-      await createPostDb(flow.media_url, flow.description || "");
-      toast({ title: "Flow repostado no feed! 🎉" });
+      // Feed posts só suportam imagem (photo) — flows em vídeo viram Shot,
+      // senão a URL do vídeo cai no campo photo do post e quebra no feed.
+      const isVideo = /\.(mp4|mov|webm)/i.test(flow.media_url);
+      if (isVideo) {
+        await createShotDb(flow.media_url, flow.description || "");
+        toast({ title: t("settings_flow_reposted_shots") });
+      } else {
+        await createPostDb(flow.media_url, flow.description || "");
+        toast({ title: t("settings_flow_reposted_feed") });
+      }
       if (expandedFlow?.id === flow.id) setExpandedFlow(null);
     } catch {
-      toast({ title: "Erro ao repostar flow", variant: "destructive" });
+      toast({ title: t("settings_flow_repost_error"), variant: "destructive" });
+    } finally {
+      setRepostingFlowId(null);
+    }
+  };
+
+  const handleRepostToNewFlow = async (flow: StoryWithUser) => {
+    if (!flow.media_url) return;
+    setFlowToShare(null);
+    setRepostingFlowId(flow.id);
+    try {
+      const created = await createStoryDb(
+        flow.description || "",
+        flow.media_url,
+        flow.background_color ?? null,
+        flow.text_position ?? null,
+        flow.text_elements ?? null,
+        flow.media_transform ?? null,
+      );
+      if (created) {
+        toast({ title: t("settings_flow_reposted_flow") });
+        if (expandedFlow?.id === flow.id) setExpandedFlow(null);
+      } else {
+        toast({ title: t("settings_flow_repost_error"), variant: "destructive" });
+      }
+    } catch {
+      toast({ title: t("settings_flow_repost_error"), variant: "destructive" });
     } finally {
       setRepostingFlowId(null);
     }
@@ -1590,8 +1654,13 @@ export function SettingsDrawer({
                     </div>
                   ) : (
                     <>
-                      {/* Expanded flow viewer — story-style fullscreen */}
-                      {expandedFlow && (
+                      {/* Expanded flow viewer — story-style fullscreen.
+                          Portal para document.body: o vaul aplica transform no
+                          DrawerContent durante o swipe, o que vira containing
+                          block de qualquer position:fixed descendente — sem o
+                          portal, esse "fullscreen" ficava confinado à altura do
+                          drawer (maxHeight 80dvh) e sobrava scroll indevido. */}
+                      {expandedFlow && createPortal(
                         <div className="fixed inset-0 z-[9999] bg-black">
                           {/* Media — fullscreen */}
                           {expandedFlow.media_url?.match(/\.(mp4|mov|webm)/) ? (
@@ -1640,22 +1709,22 @@ export function SettingsDrawer({
                             {/* Actions */}
                             <div className="flex gap-2">
                               <button
-                                onClick={() => handleRepostFlow(expandedFlow)}
+                                onClick={() => setFlowToShare(expandedFlow)}
                                 disabled={repostingFlowId === expandedFlow.id}
                                 className="flex items-center justify-center rounded-full active:scale-95 transition-transform disabled:opacity-40"
                                 style={{ width: 38, height: 38, background: "rgba(91,140,255,.85)", border: "1px solid rgba(255,255,255,.2)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" }}
-                                title="Repostar no feed"
-                                aria-label="Repostar no feed"
+                                title={t("settings_flow_share_title")}
+                                aria-label={t("settings_flow_share_title")}
                               >
                                 <Share2 className="h-4 w-4 text-white" />
                               </button>
                               <button
-                                onClick={() => handleDeleteFlow(expandedFlow)}
+                                onClick={() => setFlowToDelete(expandedFlow)}
                                 disabled={deletingFlowId === expandedFlow.id}
                                 className="flex items-center justify-center rounded-full active:scale-95 transition-transform disabled:opacity-40"
                                 style={{ width: 38, height: 38, background: "rgba(239,68,68,.85)", border: "1px solid rgba(255,255,255,.2)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" }}
-                                title="Excluir flow"
-                                aria-label="Excluir flow"
+                                title={t("settings_flow_delete_title")}
+                                aria-label={t("settings_flow_delete_title")}
                               >
                                 <Trash2 className="h-4 w-4 text-white" />
                               </button>
@@ -1676,7 +1745,8 @@ export function SettingsDrawer({
                               </p>
                             </div>
                           )}
-                        </div>
+                        </div>,
+                        document.body,
                       )}
 
                       <div className="grid grid-cols-3 gap-1">
@@ -1712,20 +1782,20 @@ export function SettingsDrawer({
                               </p>
                               <div className="flex gap-1">
                                 <button
-                                  onClick={(e) => { e.stopPropagation(); handleRepostFlow(flow); }}
+                                  onClick={(e) => { e.stopPropagation(); setFlowToShare(flow); }}
                                   disabled={repostingFlowId === flow.id}
                                   className="p-1 rounded-full bg-brand/70 hover:bg-brand transition-colors disabled:opacity-40"
-                                  title="Repostar no feed"
-                                  aria-label="Repostar flow"
+                                  title={t("settings_flow_share_title")}
+                                  aria-label={t("settings_flow_share_title")}
                                 >
                                   <Share2 className="h-2.5 w-2.5 text-white" />
                                 </button>
                                 <button
-                                  onClick={(e) => { e.stopPropagation(); handleDeleteFlow(flow); }}
+                                  onClick={(e) => { e.stopPropagation(); setFlowToDelete(flow); }}
                                   disabled={deletingFlowId === flow.id}
                                   className="p-1 rounded-full bg-red-500/70 hover:bg-red-500 transition-colors disabled:opacity-40"
-                                  title="Excluir flow"
-                                  aria-label="Excluir flow"
+                                  title={t("settings_flow_delete_title")}
+                                  aria-label={t("settings_flow_delete_title")}
                                 >
                                   <Trash2 className="h-2.5 w-2.5 text-white" />
                                 </button>
@@ -1734,6 +1804,118 @@ export function SettingsDrawer({
                           </div>
                         ))}
                       </div>
+
+                      {/* Confirmação de exclusão — portal para document.body (mesmo motivo do viewer fullscreen acima) */}
+                      {flowToDelete && createPortal(
+                        <div
+                          className="fixed inset-0 z-[10000] flex items-center justify-center pointer-events-none"
+                          style={{
+                            paddingTop: "max(1rem, env(safe-area-inset-top))",
+                            paddingBottom: "max(1rem, env(safe-area-inset-bottom))",
+                            paddingLeft: "max(1rem, env(safe-area-inset-left))",
+                            paddingRight: "max(1rem, env(safe-area-inset-right))",
+                            background: "rgba(0,0,0,.6)",
+                          }}
+                        >
+                          <div
+                            className="pointer-events-auto w-full max-w-[320px] rounded-2xl p-5"
+                            style={{
+                              background: "linear-gradient(rgba(30,28,40,.96),rgba(14,13,20,.98))",
+                              border: "1px solid rgba(255,255,255,.14)",
+                              backdropFilter: "blur(20px) saturate(160%)",
+                              WebkitBackdropFilter: "blur(20px) saturate(160%)",
+                            }}
+                          >
+                            <p className="text-base font-semibold text-white mb-1.5">
+                              {t("settings_flow_delete_title")}
+                            </p>
+                            <p className="text-sm mb-5" style={{ color: "rgba(255,255,255,.6)" }}>
+                              {t("settings_flow_delete_desc")}
+                            </p>
+                            <div className="flex gap-2">
+                              <Button
+                                variant="outline"
+                                className="flex-1"
+                                onClick={() => setFlowToDelete(null)}
+                                disabled={deletingFlowId === flowToDelete.id}
+                              >
+                                {t("cancel")}
+                              </Button>
+                              <Button
+                                variant="destructive"
+                                className="flex-1"
+                                onClick={confirmDeleteFlow}
+                                disabled={deletingFlowId === flowToDelete.id}
+                              >
+                                {t("delete")}
+                              </Button>
+                            </div>
+                          </div>
+                        </div>,
+                        document.body,
+                      )}
+
+                      {/* Escolha de destino do compartilhamento — portal para document.body (mesmo motivo do viewer fullscreen acima) */}
+                      {flowToShare && createPortal(
+                        <div
+                          className="fixed inset-0 z-[10000] flex items-end justify-center pointer-events-none"
+                          style={{ background: "rgba(0,0,0,.6)" }}
+                        >
+                          <div
+                            className="pointer-events-auto w-full max-w-[480px] rounded-t-[28px] p-4"
+                            style={{
+                              background: "linear-gradient(rgba(30,28,40,.96),rgba(14,13,20,.98))",
+                              border: "1px solid rgba(255,255,255,.14)",
+                              borderBottom: "none",
+                              backdropFilter: "blur(20px) saturate(160%)",
+                              WebkitBackdropFilter: "blur(20px) saturate(160%)",
+                              paddingBottom: "max(1rem, env(safe-area-inset-bottom))",
+                              paddingLeft: "max(1rem, env(safe-area-inset-left))",
+                              paddingRight: "max(1rem, env(safe-area-inset-right))",
+                            }}
+                          >
+                            <div className="mx-auto mb-3 h-1 w-9 rounded-full" style={{ background: "rgba(255,255,255,.25)" }} />
+                            <p className="text-sm font-semibold px-1 mb-2" style={{ color: "rgba(255,255,255,.5)" }}>
+                              {t("settings_flow_share_title")}
+                            </p>
+
+                            <button
+                              onClick={() => handleRepostToNewFlow(flowToShare)}
+                              disabled={repostingFlowId === flowToShare.id}
+                              className="w-full flex items-center gap-3 rounded-xl px-3 py-3 active:scale-[0.98] transition-transform disabled:opacity-40"
+                              style={{ background: "rgba(255,255,255,.06)" }}
+                            >
+                              <div className="flex items-center justify-center rounded-full shrink-0" style={{ width: 36, height: 36, background: "rgba(91,140,255,.2)" }}>
+                                <Repeat className="h-4 w-4" style={{ color: "#6ea8ff" }} />
+                              </div>
+                              <span className="text-sm text-white font-medium">{t("settings_flow_reshare_to_flow")}</span>
+                            </button>
+
+                            <button
+                              onClick={() => handleRepostFlow(flowToShare)}
+                              disabled={repostingFlowId === flowToShare.id}
+                              className="w-full flex items-center gap-3 rounded-xl px-3 py-3 mt-1.5 active:scale-[0.98] transition-transform disabled:opacity-40"
+                              style={{ background: "rgba(255,255,255,.06)" }}
+                            >
+                              <div className="flex items-center justify-center rounded-full shrink-0" style={{ width: 36, height: 36, background: "rgba(91,140,255,.2)" }}>
+                                <Share2 className="h-4 w-4" style={{ color: "#6ea8ff" }} />
+                              </div>
+                              <span className="text-sm text-white font-medium">
+                                {/\.(mp4|mov|webm)/i.test(flowToShare.media_url || "") ? t("settings_flow_share_to_shots") : t("settings_flow_share_to_feed")}
+                              </span>
+                            </button>
+
+                            <Button
+                              variant="outline"
+                              className="w-full mt-3"
+                              onClick={() => setFlowToShare(null)}
+                            >
+                              {t("cancel")}
+                            </Button>
+                          </div>
+                        </div>,
+                        document.body,
+                      )}
                     </>
                   )}
                 </div>

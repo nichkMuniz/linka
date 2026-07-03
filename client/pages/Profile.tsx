@@ -54,6 +54,8 @@ import {
   type PostIncentiveType,
   updateUserGoalDb,
   deleteUserGoalDb,
+  invalidateQueryCache,
+  invalidateProfileCache,
 } from "@/lib/ritmofit-db";
 import { formatTimeAgo } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
@@ -140,7 +142,7 @@ import {
   Lock,
 } from "lucide-react";
 import { resetSupabaseAuth, supabase } from "@/lib/supabase";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { useLanguage } from "@/lib/language-context";
 import { Browser } from "@capacitor/browser";
 import { hapticLight } from "@/lib/haptics";
@@ -148,6 +150,7 @@ import { hapticLight } from "@/lib/haptics";
 export default function Profile() {
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const { userId } = useParams<{ userId?: string }>();
   const { t } = useLanguage();
 
@@ -283,6 +286,19 @@ export default function Profile() {
   // Settings drawer (controlled externally so the trigger can be styled per design)
   const [settingsOpen, setSettingsOpen] = React.useState(false);
   const [settingsOpenToProfile, setSettingsOpenToProfile] = React.useState(false);
+  // Flow expirado vindo de uma notificação (reação/comentário) — abre o Settings
+  // direto no Arquivo de Flows com esse flow expandido (ver client/pages/Index.tsx)
+  const [archivedFlowFromNotif, setArchivedFlowFromNotif] = React.useState<StoryWithUser | null>(null);
+
+  React.useEffect(() => {
+    const state = location.state as { openFlowArchive?: StoryWithUser } | null;
+    if (state?.openFlowArchive) {
+      navigate(location.pathname, { replace: true, state: {} });
+      setArchivedFlowFromNotif(state.openFlowArchive);
+      setSettingsOpen(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state]);
 
   // Cover photo (banner) — own profile can replace the gradient with a photo
   const coverFileInputRef = React.useRef<HTMLInputElement>(null);
@@ -383,11 +399,23 @@ export default function Profile() {
     if (!isPulling) return;
     if (pullDistance >= PULL_THRESHOLD) {
       hapticLight();
+      // Profile data is cached (long TTL) so it doesn't refetch on every screen
+      // entry — a manual pull-to-refresh explicitly asks for fresh data, so bust
+      // the cache first instead of just re-serving the cached values.
+      if (profileUserId) {
+        invalidateProfileCache(profileUserId);
+        invalidateQueryCache(`userStats:${profileUserId}`);
+        invalidateQueryCache(`userPosts:${profileUserId}`);
+        invalidateQueryCache(`userRoutines:${profileUserId}`);
+        invalidateQueryCache(`userShots:${profileUserId}`);
+        invalidateQueryCache(`commercialProfile:${profileUserId}`);
+        invalidateQueryCache(`userActiveStories:${profileUserId}`);
+      }
       loadProfile();
     }
     setPullDistance(0);
     setIsPulling(false);
-  }, [isPulling, pullDistance, loadProfile]);
+  }, [isPulling, pullDistance, loadProfile, profileUserId]);
 
   const handleViewPost = React.useCallback(async (post: PostWithUser) => {
     setSelectedPost(post);
@@ -1275,9 +1303,10 @@ export default function Profile() {
               onProfileUpdated={(updated) => setProfile(updated)}
               onRequestDeleteAccount={() => setIsDeleteAccountOpen(true)}
               open={settingsOpen}
-              onOpenChange={(open) => { setSettingsOpen(open); if (!open) setSettingsOpenToProfile(false); }}
+              onOpenChange={(open) => { setSettingsOpen(open); if (!open) { setSettingsOpenToProfile(false); setArchivedFlowFromNotif(null); } }}
               hideTrigger
               directToProfileEdit={settingsOpenToProfile}
+              initialArchivedFlow={archivedFlowFromNotif}
             />
           )}
 

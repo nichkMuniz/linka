@@ -37,269 +37,31 @@ import {
   Trophy,
   Plus,
   ChevronDown,
-  Pencil,
+  Images,
+  FolderOpen,
 } from "lucide-react";
 import { useLanguage } from "@/lib/language-context";
-import { PhotoLibrary, type PhotoLibraryAsset } from "@capgo/capacitor-photo-library";
+import { PhotoLibrary, type PhotoLibraryAsset, type PhotoLibraryAlbum } from "@capgo/capacitor-photo-library";
+import { Geolocation } from "@capacitor/geolocation";
 import { UserAvatar } from "@/components/shared/user-avatar";
-
-// ─── Crop types & helpers ───────────────────────────────────────────────────
-
-interface CropTransform {
-  scale: number;
-  offsetX: number;
-  offsetY: number;
-}
-
-const MIN_SCALE = 1;
-const MAX_SCALE = 5;
-
-function clampVal(v: number, lo: number, hi: number) {
-  return Math.min(Math.max(v, lo), hi);
-}
-
-function clampedOffset(
-  imgEl: HTMLImageElement,
-  containerW: number,
-  scale: number,
-  ox: number,
-  oy: number
-): { offsetX: number; offsetY: number } {
-  const imgAspect = imgEl.naturalWidth / imgEl.naturalHeight;
-  let baseW: number, baseH: number;
-  if (imgAspect > 1) { baseH = containerW; baseW = containerW * imgAspect; }
-  else { baseW = containerW; baseH = containerW / imgAspect; }
-  const dW = baseW * scale;
-  const dH = baseH * scale;
-  const maxX = Math.max(0, (dW - containerW) / 2);
-  const maxY = Math.max(0, (dH - containerW) / 2);
-  return { offsetX: clampVal(ox, -maxX, maxX), offsetY: clampVal(oy, -maxY, maxY) };
-}
-
-function applyTransformToBlob(
-  dataUrl: string,
-  transform: CropTransform,
-  containerWidth: number
-): Promise<Blob> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => {
-      const frameW = containerWidth;
-      const frameH = containerWidth;
-      const imgAspect = img.naturalWidth / img.naturalHeight;
-      let baseW: number, baseH: number;
-      if (imgAspect > 1) { baseH = frameH; baseW = frameH * imgAspect; }
-      else { baseW = frameW; baseH = frameW / imgAspect; }
-      const { scale, offsetX, offsetY } = transform;
-      const cssPerNatX = (baseW * scale) / img.naturalWidth;
-      const cssPerNatY = (baseH * scale) / img.naturalHeight;
-      const cropOriginX = ((baseW * scale - frameW) / 2 - offsetX) / cssPerNatX;
-      const cropOriginY = ((baseH * scale - frameH) / 2 - offsetY) / cssPerNatY;
-      const cropNatW = frameW / cssPerNatX;
-      const cropNatH = frameH / cssPerNatY;
-      const MAX_EXPORT = 2160;
-      const exportW = Math.round(Math.min(cropNatW, MAX_EXPORT));
-      const exportH = Math.round(Math.min(cropNatH, MAX_EXPORT));
-      const canvas = document.createElement("canvas");
-      canvas.width = exportW;
-      canvas.height = exportH;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) { reject(new Error("no ctx")); return; }
-      ctx.drawImage(img, cropOriginX, cropOriginY, cropNatW, cropNatH, 0, 0, exportW, exportH);
-      canvas.toBlob(
-        (b) => (b ? resolve(b) : reject(new Error("toBlob failed"))),
-        "image/jpeg",
-        0.92
-      );
-    };
-    img.onerror = reject;
-    img.src = dataUrl;
-  });
-}
-
-// ─── Module-level image decode cache ────────────────────────────────────────
-
-const decodedImageCache: Record<string, HTMLImageElement> = {};
-
-function getCachedImage(src: string): HTMLImageElement {
-  if (!decodedImageCache[src]) {
-    const img = new Image();
-    img.src = src;
-    decodedImageCache[src] = img;
-  }
-  return decodedImageCache[src];
-}
-
-// ─── Inline crop preview ────────────────────────────────────────────────────
-
-function InlineCropPreview({
-  imageSrc,
-  transform,
-  onTransformChange,
-  containerWidthRef,
-}: {
-  imageSrc: string;
-  transform: CropTransform;
-  onTransformChange: (t: CropTransform) => void;
-  containerWidthRef: React.MutableRefObject<number>;
-}) {
-  const containerRef = React.useRef<HTMLDivElement>(null);
-  const canvasRef = React.useRef<HTMLCanvasElement>(null);
-  const imgRef = React.useRef<HTMLImageElement | null>(null);
-  const [imageLoaded, setImageLoaded] = React.useState(false);
-  const [containerW, setContainerW] = React.useState(0);
-  const gestureRef = React.useRef<{
-    type: "none" | "drag" | "pinch";
-    lastX: number; lastY: number; lastDist: number; lastScale: number;
-  }>({ type: "none", lastX: 0, lastY: 0, lastDist: 0, lastScale: 1 });
-
-  // Store latest transform in a ref so gesture handlers don't go stale
-  const transformRef = React.useRef(transform);
-  React.useEffect(() => { transformRef.current = transform; }, [transform]);
-
-  React.useEffect(() => {
-    const cached = getCachedImage(imageSrc);
-    if (cached.complete && cached.naturalWidth > 0) {
-      // Already decoded — draw immediately, no flash
-      imgRef.current = cached;
-      setImageLoaded(true);
-      return;
-    }
-    setImageLoaded(false);
-    const onLoad = () => { imgRef.current = cached; setImageLoaded(true); };
-    cached.addEventListener("load", onLoad, { once: true });
-    return () => cached.removeEventListener("load", onLoad);
-  }, [imageSrc]);
-
-  React.useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(() => {
-      const w = el.clientWidth;
-      setContainerW(w);
-      containerWidthRef.current = w;
-    });
-    ro.observe(el);
-    const w = el.clientWidth;
-    setContainerW(w);
-    containerWidthRef.current = w;
-    return () => ro.disconnect();
-  }, []);
-
-  // Draw canvas — useLayoutEffect to run synchronously after DOM update, avoiding flicker
-  React.useLayoutEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || containerW === 0) return;
-    // Always look up the image directly from cache so we get the correct image
-    // even when imageSrc changes but imageLoaded stays true (avoiding stale imgRef).
-    const img = getCachedImage(imageSrc);
-    if (!img.complete || img.naturalWidth === 0) return;
-    imgRef.current = img;
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = Math.round(containerW * dpr);
-    canvas.height = Math.round(containerW * dpr);
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    ctx.scale(dpr, dpr);
-    ctx.clearRect(0, 0, containerW, containerW);
-    const { scale, offsetX, offsetY } = transform;
-    const imgAspect = img.naturalWidth / img.naturalHeight;
-    let baseW: number, baseH: number;
-    if (imgAspect > 1) { baseH = containerW; baseW = containerW * imgAspect; }
-    else { baseW = containerW; baseH = containerW / imgAspect; }
-    const drawW = baseW * scale;
-    const drawH = baseH * scale;
-    ctx.drawImage(img, (containerW - drawW) / 2 + offsetX, (containerW - drawH) / 2 + offsetY, drawW, drawH);
-  }, [transform, imageLoaded, containerW, imageSrc]);
-
-  const getClampedOffset = (scale: number, ox: number, oy: number) => {
-    if (!imgRef.current || containerW === 0) return { offsetX: ox, offsetY: oy };
-    return clampedOffset(imgRef.current, containerW, scale, ox, oy);
-  };
-
-  const onPointerDown = (e: React.PointerEvent) => {
-    if (e.pointerType === "touch") return;
-    gestureRef.current = { type: "drag", lastX: e.clientX, lastY: e.clientY, lastDist: 0, lastScale: transformRef.current.scale };
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-  };
-  const onPointerMove = (e: React.PointerEvent) => {
-    if (gestureRef.current.type !== "drag") return;
-    const dx = e.clientX - gestureRef.current.lastX;
-    const dy = e.clientY - gestureRef.current.lastY;
-    gestureRef.current.lastX = e.clientX;
-    gestureRef.current.lastY = e.clientY;
-    const t = transformRef.current;
-    onTransformChange({ ...t, ...getClampedOffset(t.scale, t.offsetX + dx, t.offsetY + dy) });
-  };
-  const onPointerUp = () => { gestureRef.current.type = "none"; };
-
-  const onTouchStart = (e: React.TouchEvent) => {
-    e.stopPropagation();
-    if (e.touches.length === 1) {
-      gestureRef.current = { type: "drag", lastX: e.touches[0].clientX, lastY: e.touches[0].clientY, lastDist: 0, lastScale: transformRef.current.scale };
-    } else if (e.touches.length === 2) {
-      const dx = e.touches[0].clientX - e.touches[1].clientX;
-      const dy = e.touches[0].clientY - e.touches[1].clientY;
-      gestureRef.current = {
-        type: "pinch",
-        lastX: (e.touches[0].clientX + e.touches[1].clientX) / 2,
-        lastY: (e.touches[0].clientY + e.touches[1].clientY) / 2,
-        lastDist: Math.sqrt(dx * dx + dy * dy),
-        lastScale: transformRef.current.scale,
-      };
-    }
-  };
-  const onTouchMove = (e: React.TouchEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const t = transformRef.current;
-    if (e.touches.length === 1 && gestureRef.current.type === "drag") {
-      const dx = e.touches[0].clientX - gestureRef.current.lastX;
-      const dy = e.touches[0].clientY - gestureRef.current.lastY;
-      gestureRef.current.lastX = e.touches[0].clientX;
-      gestureRef.current.lastY = e.touches[0].clientY;
-      onTransformChange({ ...t, ...getClampedOffset(t.scale, t.offsetX + dx, t.offsetY + dy) });
-    } else if (e.touches.length === 2 && gestureRef.current.type === "pinch") {
-      const dx = e.touches[0].clientX - e.touches[1].clientX;
-      const dy = e.touches[0].clientY - e.touches[1].clientY;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
-      const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
-      const scaleDelta = dist / gestureRef.current.lastDist;
-      const panDx = midX - gestureRef.current.lastX;
-      const panDy = midY - gestureRef.current.lastY;
-      gestureRef.current.lastDist = dist;
-      gestureRef.current.lastX = midX;
-      gestureRef.current.lastY = midY;
-      const newScale = clampVal(t.scale * scaleDelta, MIN_SCALE, MAX_SCALE);
-      onTransformChange({ scale: newScale, ...getClampedOffset(newScale, t.offsetX + panDx, t.offsetY + panDy) });
-    }
-  };
-  const onTouchEnd = (e: React.TouchEvent) => {
-    e.stopPropagation();
-    if (e.touches.length === 0) gestureRef.current.type = "none";
-    else if (e.touches.length === 1) {
-      gestureRef.current = { type: "drag", lastX: e.touches[0].clientX, lastY: e.touches[0].clientY, lastDist: 0, lastScale: transformRef.current.scale };
-    }
-  };
-
-  return (
-    <div
-      ref={containerRef}
-      className="w-full h-full relative select-none overflow-hidden cursor-grab active:cursor-grabbing"
-      style={{ touchAction: "none" }}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerLeave={onPointerUp}
-      onTouchStart={onTouchStart}
-      onTouchMove={onTouchMove}
-      onTouchEnd={onTouchEnd}
-    >
-      <canvas ref={canvasRef} className="w-full h-full" style={{ display: "block" }} />
-    </div>
-  );
-}
+import { EmojiPickerDrawer } from "@/components/shared/emoji-picker-drawer";
+import {
+  InlineCropPreview,
+  type CropTransform,
+  DEFAULT_TRANSFORM,
+  applyTransformToBlob,
+  getCachedImage,
+} from "@/components/shared/inline-crop-preview";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
+  DropdownMenuPortal,
+} from "@/components/ui/dropdown-menu";
 
 // ─── Module-level draft ─────────────────────────────────────────────────────
 
@@ -316,14 +78,37 @@ const videoDraft: { file: File | null; preview: string | null } = { file: null, 
 type Step = "select" | "caption";
 type MediaType = "post" | "shot";
 
-const DEFAULT_TRANSFORM: CropTransform = { scale: 1, offsetX: 0, offsetY: 0 };
+const MAX_POST_PHOTOS = 5;
+
+function arrayMove<T>(arr: T[], from: number, to: number): T[] {
+  const copy = arr.slice();
+  const [item] = copy.splice(from, 1);
+  copy.splice(to, 0, item);
+  return copy;
+}
+
+// Ícone da pasta no menu de álbuns — heurística pelo título (localizado pelo próprio iOS)
+function albumMenuIcon(title: string) {
+  const s = title.toLowerCase();
+  if (s.includes("favorit")) return Heart;
+  if (s.includes("vídeo") || s.includes("video")) return Video;
+  return FolderOpen;
+}
+
+const ALBUM_SCAN_BATCH = 150;
+const ALBUM_SCAN_MAX_PER_CALL = 1500;
 
 export default function NewPost() {
   const navigate = useNavigate();
   const { user, loading: authLoading } = useAuth();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
 
-  const [step, setStep] = React.useState<Step>("select");
+  const [step, setStep] = React.useState<Step>(() => {
+    const hasDraftContent = imageDraft.previews.length > 0 || !!videoDraft.preview;
+    return hasDraftContent && sessionStorage.getItem("newpost_step") === "caption"
+      ? "caption"
+      : "select";
+  });
   const [mediaType, setMediaType] = React.useState<MediaType>(
     () => (sessionStorage.getItem("newpost_tab") === "video" ? "shot" : "post"),
   );
@@ -334,6 +119,11 @@ export default function NewPost() {
     () => imageDraft.transforms
   );
   const [currentPreviewIndex, setCurrentPreviewIndex] = React.useState(0);
+  // ── Reordenar fotos por arrastar (strip da Etapa 2) ──
+  const [draggingPhotoIndex, setDraggingPhotoIndex] = React.useState<number | null>(null);
+  const [photoDragOffsetX, setPhotoDragOffsetX] = React.useState(0);
+  const photoDragStartXRef = React.useRef(0);
+  const photoDragStartIndexRef = React.useRef<number | null>(null);
   const [description, setDescription] = React.useState(
     () => sessionStorage.getItem("newpost_description") || "",
   );
@@ -348,6 +138,9 @@ export default function NewPost() {
   const [videoDescription, setVideoDescription] = React.useState(
     () => sessionStorage.getItem("newpost_video_description") || "",
   );
+  const captionTextareaRef = React.useRef<HTMLTextAreaElement>(null);
+  const [emojiPickerOpen, setEmojiPickerOpen] = React.useState(false);
+  const [isLocating, setIsLocating] = React.useState(false);
 
   const [userGoals, setUserGoals] = React.useState<UserGoal[]>([]);
   const [isLoadingGoals, setIsLoadingGoals] = React.useState(false);
@@ -364,6 +157,12 @@ export default function NewPost() {
 
   const [multiSelectMode, setMultiSelectMode] = React.useState(false);
   const [selectedAssetIds, setSelectedAssetIds] = React.useState<string[]>([]);
+
+  // ── Álbuns da galeria (pastas) ──
+  const [albums, setAlbums] = React.useState<PhotoLibraryAlbum[]>([]);
+  const [albumsLoading, setAlbumsLoading] = React.useState(false);
+  const [selectedAlbumId, setSelectedAlbumId] = React.useState<string | null>(null);
+  const albumScanOffsetRef = React.useRef(0);
 
   const imageInputRef = React.useRef<HTMLInputElement>(null);
   const videoInputRef = React.useRef<HTMLInputElement>(null);
@@ -387,6 +186,7 @@ export default function NewPost() {
   }, []);
 
   // ── Persist session ──
+  React.useEffect(() => { sessionStorage.setItem("newpost_step", step); }, [step]);
   React.useEffect(() => { sessionStorage.setItem("newpost_description", description); }, [description]);
   React.useEffect(() => { sessionStorage.setItem("newpost_goal_id", selectedGoalId); }, [selectedGoalId]);
   React.useEffect(() => { sessionStorage.setItem("newpost_video_description", videoDescription); }, [videoDescription]);
@@ -434,24 +234,86 @@ export default function NewPost() {
   const loadGalleryPage = React.useCallback(async (page: number, reset = false) => {
     setGalleryLoading(true);
     try {
-      const result = await PhotoLibrary.getLibrary({
-        offset: page * GALLERY_PAGE_SIZE,
-        limit: GALLERY_PAGE_SIZE,
-        includeImages: mediaType === "post",
-        includeVideos: mediaType === "shot",
-        thumbnailWidth: 300,
-        thumbnailHeight: 300,
-        thumbnailQuality: 0.7,
-      });
-      setGalleryAssets((prev) => reset ? result.assets : [...prev, ...result.assets]);
-      setGalleryHasMore(result.hasMore);
+      if (!selectedAlbumId) {
+        const result = await PhotoLibrary.getLibrary({
+          offset: page * GALLERY_PAGE_SIZE,
+          limit: GALLERY_PAGE_SIZE,
+          includeImages: mediaType === "post",
+          includeVideos: mediaType === "shot",
+          thumbnailWidth: 300,
+          thumbnailHeight: 300,
+          thumbnailQuality: 0.7,
+        });
+        setGalleryAssets((prev) => reset ? result.assets : [...prev, ...result.assets]);
+        setGalleryHasMore(result.hasMore);
+        setGalleryPage(page);
+        return;
+      }
+
+      // O plugin não filtra por álbum na consulta — varremos a biblioteca em
+      // lotes (`includeAlbumData`) coletando os assets que pertencem a ele.
+      if (reset) albumScanOffsetRef.current = 0;
+      const matches: PhotoLibraryAsset[] = [];
+      let scanned = 0;
+      let underlyingHasMore = true;
+      while (matches.length < GALLERY_PAGE_SIZE && scanned < ALBUM_SCAN_MAX_PER_CALL && underlyingHasMore) {
+        const result = await PhotoLibrary.getLibrary({
+          offset: albumScanOffsetRef.current,
+          limit: ALBUM_SCAN_BATCH,
+          includeImages: mediaType === "post",
+          includeVideos: mediaType === "shot",
+          includeAlbumData: true,
+          thumbnailWidth: 300,
+          thumbnailHeight: 300,
+          thumbnailQuality: 0.7,
+        });
+        underlyingHasMore = result.hasMore;
+        if (result.assets.length === 0) break;
+        albumScanOffsetRef.current += result.assets.length;
+        scanned += result.assets.length;
+        matches.push(...result.assets.filter((a) => a.albumIds?.includes(selectedAlbumId)));
+      }
+      setGalleryAssets((prev) => (reset ? matches : [...prev, ...matches]));
+      setGalleryHasMore(underlyingHasMore);
       setGalleryPage(page);
     } catch {
       // silently fail — user may have denied or be on web
     } finally {
       setGalleryLoading(false);
     }
-  }, [mediaType]);
+  }, [mediaType, selectedAlbumId]);
+
+  // ── Álbuns da galeria (carregados sob demanda ao abrir o menu) ──
+  const loadAlbumsIfNeeded = React.useCallback(async () => {
+    if (albums.length > 0 || albumsLoading) return;
+    setAlbumsLoading(true);
+    try {
+      const { albums: fetched } = await PhotoLibrary.getAlbums();
+      setAlbums(
+        fetched
+          .filter((a) => a.assetCount > 0 && !/meta/i.test(a.title))
+          .sort((a, b) => b.assetCount - a.assetCount),
+      );
+    } catch {
+      // web/permissão negada — o menu segue só com "Recentes"
+    } finally {
+      setAlbumsLoading(false);
+    }
+  }, [albums.length, albumsLoading]);
+
+  // ── Selecionar um álbum (pasta) no menu ──
+  const handleSelectAlbum = (albumId: string | null) => {
+    if (albumId === selectedAlbumId) return;
+    setSelectedAlbumId(albumId);
+    hasAutoSelectedRef.current = false;
+    setGalleryAssets([]);
+  };
+
+  React.useEffect(() => {
+    if (galleryPermission === "granted" || galleryPermission === "limited") {
+      loadGalleryPage(0, true);
+    }
+  }, [selectedAlbumId]);
 
   React.useEffect(() => {
     const initGallery = async () => {
@@ -482,6 +344,7 @@ export default function NewPost() {
     hasAutoSelectedRef.current = false;
     setMultiSelectMode(false);
     setSelectedAssetIds([]);
+    setSelectedAlbumId(null);
     if (galleryPermission === "granted" || galleryPermission === "limited") {
       setGalleryAssets([]);
       loadGalleryPage(0, true);
@@ -631,6 +494,14 @@ export default function NewPost() {
             return prev;
           });
         } else {
+          if (selectedAssetIds.length >= MAX_POST_PHOTOS) {
+            toast({
+              title: t("newpost_max_photos_title"),
+              description: t("newpost_max_photos_desc").replace("{n}", String(MAX_POST_PHOTOS)),
+              variant: "destructive",
+            });
+            return;
+          }
           // Toggle on — add to carousel. Show the selection badge instantly,
           // then append the full-res image once it finishes loading.
           setSelectedAssetIds((prev) => [...prev, asset.id]);
@@ -655,6 +526,9 @@ export default function NewPost() {
     e.target.value = "";
     if (files.length === 0) return;
 
+    let remainingSlots = MAX_POST_PHOTOS - previewUrls.length;
+    let skippedForLimit = 0;
+
     for (const file of files) {
       if (!file.type.startsWith("image/")) {
         toast({
@@ -672,7 +546,20 @@ export default function NewPost() {
         });
         continue;
       }
+      if (remainingSlots <= 0) {
+        skippedForLimit++;
+        continue;
+      }
       addImageFile(file);
+      remainingSlots--;
+    }
+
+    if (skippedForLimit > 0) {
+      toast({
+        title: t("newpost_max_photos_title"),
+        description: t("newpost_max_photos_desc").replace("{n}", String(MAX_POST_PHOTOS)),
+        variant: "destructive",
+      });
     }
   };
 
@@ -726,6 +613,136 @@ export default function NewPost() {
     });
   };
 
+  // Move a foto de `from` para `to`, mantendo files/previews/assetIds/crops/seleção sincronizados
+  const reorderPhotos = (from: number, to: number) => {
+    if (from === to) return;
+    setSelectedFiles((prev) => (prev.length === previewUrls.length ? arrayMove(prev, from, to) : prev));
+    setPreviewUrls((prev) => arrayMove(prev, from, to));
+    setSelectedAssetIds((prev) => (prev.length === previewUrls.length ? arrayMove(prev, from, to) : prev));
+    setCropTransforms((prev) => {
+      const arr = previewUrls.map((_, i) => prev[i]);
+      const moved = arrayMove(arr, from, to);
+      const next: Record<number, CropTransform> = {};
+      moved.forEach((v, i) => { if (v) next[i] = v; });
+      return next;
+    });
+    setCurrentPreviewIndex((prev) => {
+      if (prev === from) return to;
+      if (from < to) return prev > from && prev <= to ? prev - 1 : prev;
+      return prev >= to && prev < from ? prev + 1 : prev;
+    });
+  };
+
+  const PHOTO_DRAG_PITCH = 64; // largura da miniatura (56px) + gap (8px)
+  const PHOTO_TAP_THRESHOLD = 6; // px — abaixo disso, pointerup vira "selecionar como principal"
+
+  const handlePhotoDragStart = (index: number, e: React.PointerEvent<HTMLDivElement>) => {
+    if (previewUrls.length < 2) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    photoDragStartXRef.current = e.clientX;
+    photoDragStartIndexRef.current = index;
+    setDraggingPhotoIndex(index);
+    setPhotoDragOffsetX(0);
+  };
+
+  const handlePhotoDragMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (draggingPhotoIndex === null) return;
+    let delta = e.clientX - photoDragStartXRef.current;
+    const slots = Math.round(delta / PHOTO_DRAG_PITCH);
+    if (slots !== 0) {
+      const newIndex = Math.min(Math.max(draggingPhotoIndex + slots, 0), previewUrls.length - 1);
+      if (newIndex !== draggingPhotoIndex) {
+        reorderPhotos(draggingPhotoIndex, newIndex);
+        photoDragStartXRef.current += (newIndex - draggingPhotoIndex) * PHOTO_DRAG_PITCH;
+        delta = e.clientX - photoDragStartXRef.current;
+        setDraggingPhotoIndex(newIndex);
+      }
+    }
+    setPhotoDragOffsetX(delta);
+  };
+
+  const handlePhotoDragEnd = () => {
+    if (
+      draggingPhotoIndex !== null &&
+      Math.abs(photoDragOffsetX) < PHOTO_TAP_THRESHOLD &&
+      draggingPhotoIndex === photoDragStartIndexRef.current
+    ) {
+      setCurrentPreviewIndex(draggingPhotoIndex);
+    }
+    setDraggingPhotoIndex(null);
+    setPhotoDragOffsetX(0);
+    photoDragStartIndexRef.current = null;
+  };
+
+  // ── Caption composer: emoji / hashtag / localização ──
+  // Insere texto na posição do cursor da legenda ativa (post ou shot), sem
+  // perder a seleção — igual ao comportamento de um teclado de emoji nativo.
+  const insertIntoCaption = React.useCallback((text: string) => {
+    const setValue = mediaType === "post" ? setDescription : setVideoDescription;
+    const currentValue = mediaType === "post" ? description : videoDescription;
+    const el = captionTextareaRef.current;
+    const start = el?.selectionStart ?? currentValue.length;
+    const end = el?.selectionEnd ?? currentValue.length;
+    let next = currentValue.slice(0, start) + text + currentValue.slice(end);
+    let cursor = start + text.length;
+    if (next.length > 500) {
+      next = next.slice(0, 500);
+      cursor = Math.min(cursor, 500);
+    }
+    setValue(next);
+    requestAnimationFrame(() => {
+      el?.focus();
+      el?.setSelectionRange(cursor, cursor);
+    });
+  }, [mediaType, description, videoDescription]);
+
+  const handleSelectEmoji = (emoji: string) => insertIntoCaption(emoji);
+
+  const handleAddHashtag = () => insertIntoCaption("#");
+
+  const handleAddLocation = async () => {
+    if (isLocating) return;
+    setIsLocating(true);
+    try {
+      const permStatus = await Geolocation.checkPermissions();
+      let granted = permStatus.location === "granted";
+      if (!granted) {
+        const requested = await Geolocation.requestPermissions();
+        granted = requested.location === "granted";
+      }
+      if (!granted) {
+        toast({
+          title: t("newpost_location_error_title"),
+          description: t("newpost_location_permission_desc"),
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const position = await Geolocation.getCurrentPosition({ enableHighAccuracy: false, timeout: 10000 });
+      const { latitude, longitude } = position.coords;
+      const response = await fetch(
+        `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=${language === "en" ? "en" : "pt"}`,
+      );
+      const data = await response.json();
+      const city: string | undefined = data.city || data.locality || data.principalSubdivision;
+      const country: string | undefined = data.countryName;
+      const label = [city, country].filter(Boolean).join(", ");
+      if (!label) throw new Error("empty location");
+
+      insertIntoCaption(`📍 ${label} `);
+      toast({ title: t("newpost_location_added_title"), description: label });
+    } catch {
+      toast({
+        title: t("newpost_location_error_title"),
+        description: t("newpost_location_error_desc"),
+        variant: "destructive",
+      });
+    } finally {
+      setIsLocating(false);
+    }
+  };
+
   // ── Submit handlers ──
   const handleImageSubmit = React.useCallback(async () => {
     if (!user || selectedFiles.length === 0) {
@@ -777,9 +794,11 @@ export default function NewPost() {
       setCurrentPreviewIndex(0);
       setDescription("");
       setSelectedGoalId("");
+      setStep("select");
       sessionStorage.removeItem("newpost_description");
       sessionStorage.removeItem("newpost_goal_id");
-      navigate("/");
+      sessionStorage.removeItem("newpost_step");
+      navigate("/", { state: { refreshFeed: true } });
     } catch (err: any) {
       if (uploadedPaths.length > 0) supabase!.storage.from("posts").remove(uploadedPaths).catch(() => {});
       toast({ title: t("newpost_post_error"), description: err?.message || t("newpost_try_later"), variant: "destructive" });
@@ -822,7 +841,9 @@ export default function NewPost() {
       setSelectedVideoFile(null);
       setVideoPreview(null);
       setVideoDescription("");
+      setStep("select");
       sessionStorage.removeItem("newpost_video_description");
+      sessionStorage.removeItem("newpost_step");
       navigate("/shots");
     } catch (err: any) {
       toast({ title: t("newpost_shot_error"), description: err?.message || t("newpost_try_later"), variant: "destructive" });
@@ -864,6 +885,16 @@ export default function NewPost() {
   //  STEP 1 — Gallery picker (glass design)
   // ─────────────────────────────────────────
   if (step === "select") {
+    // Atalhos rápidos do menu de álbuns (padrão Instagram) — o resto entra em "Todos os álbuns"
+    const videosAlbum = albums.find((a) => /vídeo|video/i.test(a.title));
+    const favoritesAlbum = albums.find((a) => /favorit/i.test(a.title));
+    const otherAlbums = albums.filter(
+      (a) => a.id !== videosAlbum?.id && a.id !== favoritesAlbum?.id,
+    );
+    const currentAlbumTitle = !selectedAlbumId
+      ? t("newpost_recents")
+      : albums.find((a) => a.id === selectedAlbumId)?.title ?? t("newpost_recents");
+
     const renderGrid = () => (
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 2 }}>
         {/* Camera cell */}
@@ -885,6 +916,8 @@ export default function NewPost() {
         {galleryAssets.map((asset) => {
           const selectedIdx = selectedAssetIds.indexOf(asset.id);
           const isSelected = mediaType === "post" ? selectedIdx !== -1 : selectedVideoFile?.name === asset.fileName;
+          const atPhotoLimit =
+            mediaType === "post" && multiSelectMode && !isSelected && selectedAssetIds.length >= MAX_POST_PHOTOS;
           const thumbSrc = asset.thumbnail?.webPath;
           return (
             <button
@@ -894,6 +927,7 @@ export default function NewPost() {
                 position: "relative", aspectRatio: "1/1", overflow: "hidden",
                 outline: isSelected ? "2.5px solid #9d6bff" : "none",
                 outlineOffset: -2.5,
+                opacity: atPhotoLimit ? 0.35 : 1,
               }}
             >
               {thumbSrc ? (
@@ -979,16 +1013,6 @@ export default function NewPost() {
                     }
                     containerWidthRef={cropContainerWidthRef}
                   />
-                  {/* "Editar" pill */}
-                  <span style={{
-                    position: "absolute", top: 12, left: 12, padding: "6px 12px", borderRadius: 14,
-                    fontSize: 12, fontWeight: 600, color: "#fff",
-                    background: "rgba(0,0,0,.35)", backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
-                    display: "flex", alignItems: "center", gap: 6, pointerEvents: "none",
-                  }}>
-                    <Pencil className="h-3.5 w-3.5" />
-                    {t("newpost_edit_photo")}
-                  </span>
                   {/* Carousel nav */}
                   {previewUrls.length > 1 && (
                     <>
@@ -1038,9 +1062,96 @@ export default function NewPost() {
 
           {/* Gallery toolbar */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 18px 10px", flexShrink: 0 }}>
-            <span style={{ fontSize: 14, fontWeight: 600, color: "#fff", display: "flex", alignItems: "center", gap: 6 }}>
-              {t("newpost_recents")} <ChevronDown className="h-4 w-4" />
-            </span>
+            <DropdownMenu onOpenChange={(open) => open && loadAlbumsIfNeeded()}>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  style={{ fontSize: 14, fontWeight: 600, color: "#fff", display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", padding: 0, maxWidth: 180 }}
+                >
+                  <span className="truncate">{currentAlbumTitle}</span>
+                  <ChevronDown className="h-4 w-4 shrink-0" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="start"
+                className="w-64 border-white/10 p-1.5"
+                style={{ background: "rgba(24,22,32,.94)", backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)", borderRadius: 20 }}
+              >
+                <DropdownMenuItem
+                  onClick={() => handleSelectAlbum(null)}
+                  className="text-white focus:bg-white/10 focus:text-white rounded-xl"
+                  style={{ minHeight: 44, gap: 10, fontSize: 14, fontWeight: 600 }}
+                >
+                  <Images className="h-4 w-4 opacity-70 shrink-0" />
+                  {t("newpost_recents")}
+                  {!selectedAlbumId && <Check className="h-4 w-4 ml-auto shrink-0" style={{ color: "#6ea8ff" }} />}
+                </DropdownMenuItem>
+
+                {videosAlbum && (
+                  <DropdownMenuItem
+                    onClick={() => handleSelectAlbum(videosAlbum.id)}
+                    className="text-white focus:bg-white/10 focus:text-white rounded-xl"
+                    style={{ minHeight: 44, gap: 10, fontSize: 14, fontWeight: 600 }}
+                  >
+                    <Video className="h-4 w-4 opacity-70 shrink-0" />
+                    {t("newpost_videos_album")}
+                    {selectedAlbumId === videosAlbum.id && <Check className="h-4 w-4 ml-auto shrink-0" style={{ color: "#6ea8ff" }} />}
+                  </DropdownMenuItem>
+                )}
+
+                {favoritesAlbum && (
+                  <DropdownMenuItem
+                    onClick={() => handleSelectAlbum(favoritesAlbum.id)}
+                    className="text-white focus:bg-white/10 focus:text-white rounded-xl"
+                    style={{ minHeight: 44, gap: 10, fontSize: 14, fontWeight: 600 }}
+                  >
+                    <Heart className="h-4 w-4 opacity-70 shrink-0" />
+                    {t("newpost_favorites_album")}
+                    {selectedAlbumId === favoritesAlbum.id && <Check className="h-4 w-4 ml-auto shrink-0" style={{ color: "#6ea8ff" }} />}
+                  </DropdownMenuItem>
+                )}
+
+                {albumsLoading && (
+                  <div style={{ padding: "10px 12px", fontSize: 12, color: "rgba(255,255,255,.4)" }}>
+                    {t("newpost_loading_albums")}
+                  </div>
+                )}
+
+                {otherAlbums.length > 0 && (
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger
+                      className="text-white focus:bg-white/10 focus:text-white data-[state=open]:bg-white/10 rounded-xl"
+                      style={{ minHeight: 44, gap: 10, fontSize: 14, fontWeight: 600 }}
+                    >
+                      <FolderOpen className="h-4 w-4 opacity-70 mr-2 shrink-0" />
+                      {t("newpost_all_albums")}
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuPortal>
+                      <DropdownMenuSubContent
+                        className="w-64 border-white/10 p-1.5 max-h-[50vh] overflow-y-auto"
+                        style={{ background: "rgba(24,22,32,.96)", backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)", borderRadius: 20 }}
+                      >
+                        {otherAlbums.map((album) => {
+                          const AlbumIcon = albumMenuIcon(album.title);
+                          return (
+                            <DropdownMenuItem
+                              key={album.id}
+                              onClick={() => handleSelectAlbum(album.id)}
+                              className="text-white focus:bg-white/10 focus:text-white rounded-xl"
+                              style={{ minHeight: 44, gap: 10, fontSize: 14, fontWeight: 600 }}
+                            >
+                              <AlbumIcon className="h-4 w-4 opacity-70 shrink-0" />
+                              <span className="truncate">{album.title}</span>
+                              {selectedAlbumId === album.id && <Check className="h-4 w-4 ml-auto shrink-0" style={{ color: "#6ea8ff" }} />}
+                            </DropdownMenuItem>
+                          );
+                        })}
+                      </DropdownMenuSubContent>
+                    </DropdownMenuPortal>
+                  </DropdownMenuSub>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
             {mediaType === "post" && (
               <button
                 onClick={() => {
@@ -1055,9 +1166,35 @@ export default function NewPost() {
                     setCurrentPreviewIndex(0);
                   }
                 }}
-                style={{ fontSize: 13, fontWeight: 600, color: multiSelectMode ? "#6ea8ff" : "#9d6bff" }}
+                aria-pressed={multiSelectMode}
+                aria-label={t("newpost_select_btn")}
+                style={{
+                  display: "flex", alignItems: "center", gap: 6,
+                  padding: "8px 14px", borderRadius: 999, minHeight: 36,
+                  fontSize: 13, fontWeight: 650,
+                  color: multiSelectMode ? "#fff" : "rgba(255,255,255,.7)",
+                  background: multiSelectMode
+                    ? "linear-gradient(135deg,#5b8cff,#9d6bff)"
+                    : "rgba(255,255,255,.06)",
+                  border: multiSelectMode ? "1px solid rgba(157,107,255,.5)" : "1px solid rgba(255,255,255,.14)",
+                  boxShadow: multiSelectMode
+                    ? "inset 0 1px 0 rgba(255,255,255,.3), 0 6px 16px -6px rgba(123,99,242,.55)"
+                    : "none",
+                  transition: "background .18s ease, box-shadow .18s ease, color .18s ease",
+                }}
               >
-                {t("newpost_select_btn")}
+                <span style={{
+                  width: 16, height: 16, borderRadius: "50%", flexShrink: 0,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  background: multiSelectMode ? "#fff" : "transparent",
+                  border: multiSelectMode ? "none" : "1.5px solid rgba(255,255,255,.45)",
+                  transition: "background .18s ease, border-color .18s ease",
+                }}>
+                  {multiSelectMode && <Check width={10} height={10} strokeWidth={3.5} style={{ color: "#7b3ff2" }} />}
+                </span>
+                {multiSelectMode
+                  ? `${t("newpost_select_btn")} · ${previewUrls.length}/${MAX_POST_PHOTOS}`
+                  : t("newpost_select_btn")}
               </button>
             )}
           </div>
@@ -1218,6 +1355,7 @@ export default function NewPost() {
           boxShadow: "inset 0 1px 0 rgba(255,255,255,.14)",
         }}>
           <Textarea
+            ref={captionTextareaRef}
             placeholder={mediaType === "post" ? t("newpost_caption_placeholder") : t("newpost_caption_video_placeholder")}
             value={activeText}
             onChange={(e) =>
@@ -1233,31 +1371,68 @@ export default function NewPost() {
         {/* Icon bar + char counter */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 6px 0" }}>
           <div style={{ display: "flex", gap: 14, color: "rgba(255,255,255,.55)" }}>
-            <button style={{ display: "flex", alignItems: "center" }}><Smile width={17} height={17} /></button>
-            <button style={{ display: "flex", alignItems: "center" }}><MapPin width={17} height={17} /></button>
-            <button style={{ fontSize: 12.5, fontWeight: 600, lineHeight: 1 }}>#</button>
+            <button
+              onClick={() => setEmojiPickerOpen(true)}
+              aria-label={t("newpost_add_emoji")}
+              style={{ display: "flex", alignItems: "center", minHeight: 32 }}
+            >
+              <Smile width={17} height={17} />
+            </button>
+            <button
+              onClick={handleAddLocation}
+              disabled={isLocating}
+              aria-label={t("newpost_add_location")}
+              style={{ display: "flex", alignItems: "center", minHeight: 32, opacity: isLocating ? 0.6 : 1 }}
+            >
+              {isLocating ? (
+                <Loader2 width={17} height={17} className="animate-spin" />
+              ) : (
+                <MapPin width={17} height={17} />
+              )}
+            </button>
+            <button
+              onClick={handleAddHashtag}
+              aria-label={t("newpost_add_hashtag")}
+              style={{ fontSize: 12.5, fontWeight: 600, lineHeight: 1, minHeight: 32, display: "flex", alignItems: "center" }}
+            >
+              #
+            </button>
           </div>
           <span style={{ fontSize: 12, color: activeText.length > 450 ? "#fb923c" : "rgba(255,255,255,.4)" }}>
             {activeText.length}/500
           </span>
         </div>
 
-        {/* Multiple photos strip */}
+        {/* Multiple photos strip — arraste para reordenar */}
         {mediaType === "post" && previewUrls.length > 1 && (
           <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 4, marginTop: 14, scrollbarWidth: "none" }}>
             {previewUrls.map((url, i) => (
-              <div key={i} style={{ position: "relative", flexShrink: 0 }}>
+              <div
+                key={url}
+                onPointerDown={(e) => handlePhotoDragStart(i, e)}
+                onPointerMove={handlePhotoDragMove}
+                onPointerUp={handlePhotoDragEnd}
+                onPointerCancel={handlePhotoDragEnd}
+                style={{
+                  position: "relative", flexShrink: 0, touchAction: "none", cursor: "grab",
+                  transform: draggingPhotoIndex === i ? `translateX(${photoDragOffsetX}px) scale(1.06)` : "none",
+                  zIndex: draggingPhotoIndex === i ? 2 : 1,
+                  transition: draggingPhotoIndex === i ? "none" : "transform .18s ease",
+                }}
+              >
                 <img
                   src={url}
                   alt={t("newpost_photo_alt").replace("{n}", String(i + 1))}
-                  onClick={() => setCurrentPreviewIndex(i)}
+                  draggable={false}
                   style={{
-                    width: 56, height: 56, borderRadius: 12, objectFit: "cover", cursor: "pointer",
+                    width: 56, height: 56, borderRadius: 12, objectFit: "cover", pointerEvents: "none",
                     outline: i === currentPreviewIndex ? "2px solid #6ea8ff" : "none",
                     outlineOffset: 1,
+                    boxShadow: draggingPhotoIndex === i ? "0 10px 24px -8px rgba(0,0,0,.7)" : "none",
                   }}
                 />
                 <button
+                  onPointerDown={(e) => e.stopPropagation()}
                   onClick={() => removePhoto(i)}
                   style={{ position: "absolute", top: -4, right: -4, background: "rgba(0,0,0,.7)", borderRadius: "50%", padding: 2 }}
                 >
@@ -1328,7 +1503,7 @@ export default function NewPost() {
                 })}
                 {/* Nova meta shortcut */}
                 <button
-                  onClick={() => navigate("/metas?tab=metas")}
+                  onClick={() => navigate("/metas?tab=metas&action=create-goal")}
                   style={{
                     flexShrink: 0, display: "flex", alignItems: "center", gap: 8,
                     padding: "12px 18px", borderRadius: 18,
@@ -1342,7 +1517,7 @@ export default function NewPost() {
               </div>
             ) : (
               <button
-                onClick={() => navigate("/metas?tab=metas")}
+                onClick={() => navigate("/metas?tab=metas&action=create-goal")}
                 style={{ fontSize: 14, color: "rgba(255,255,255,.5)" }}
               >
                 {t("newpost_no_goals")}{" "}
@@ -1380,9 +1555,33 @@ export default function NewPost() {
           <div className="relative pointer-events-auto w-full max-w-full" style={{ maxHeight: "calc(100dvh - 4rem)" }}>
             <img
               src={previewUrls[currentPreviewIndex]}
-              alt={t("newpost_view_image")}
+              alt={t("newpost_photo_alt").replace("{n}", String(currentPreviewIndex + 1))}
               style={{ width: "100%", maxHeight: "calc(100dvh - 4rem)", objectFit: "contain", borderRadius: 16 }}
             />
+            {/* Carousel nav (só quando há mais de uma foto) */}
+            {previewUrls.length > 1 && (
+              <>
+                <button
+                  onClick={() => setCurrentPreviewIndex((i) => (i - 1 + previewUrls.length) % previewUrls.length)}
+                  aria-label={t("newpost_prev_photo")}
+                  style={{ position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)", background: "rgba(0,0,0,.5)", borderRadius: "50%", padding: 8 }}
+                >
+                  <ChevronLeft className="h-5 w-5 text-white" />
+                </button>
+                <button
+                  onClick={() => setCurrentPreviewIndex((i) => (i + 1) % previewUrls.length)}
+                  aria-label={t("newpost_next_photo")}
+                  style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "rgba(0,0,0,.5)", borderRadius: "50%", padding: 8 }}
+                >
+                  <ChevronRight className="h-5 w-5 text-white" />
+                </button>
+                <div style={{ position: "absolute", bottom: 12, left: "50%", transform: "translateX(-50%)", display: "flex", gap: 4, pointerEvents: "none" }}>
+                  {previewUrls.map((_, i) => (
+                    <div key={i} style={{ borderRadius: 99, background: "#fff", width: i === currentPreviewIndex ? 16 : 6, height: 6, opacity: i === currentPreviewIndex ? 1 : 0.5, transition: "width .2s" }} />
+                  ))}
+                </div>
+              </>
+            )}
             {/* Close button */}
             <button
               onClick={() => setImagePreviewOpen(false)}
@@ -1433,6 +1632,12 @@ export default function NewPost() {
           )}
         </button>
       </div>
+
+      <EmojiPickerDrawer
+        open={emojiPickerOpen}
+        onOpenChange={setEmojiPickerOpen}
+        onSelect={handleSelectEmoji}
+      />
     </div>
   );
 }

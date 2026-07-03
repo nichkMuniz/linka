@@ -118,11 +118,16 @@
     scrollbar-gutter: stable;
     /* Sidebar width token — used to offset fixed-positioned modals in desktop */
     --sidebar-w: 0px;
+    /* Disables native elastic bounce — WKWebView detaches/misplaces position:fixed
+       elements (header/bottom nav) mid-bounce, worse on tall-safe-area devices.
+       Our own pull-to-refresh (Index.tsx) drives its own transform instead. */
+    overscroll-behavior-y: none;
   }
 
   body {
     @apply bg-background text-foreground;
     overflow-x: hidden;
+    overscroll-behavior-y: none;
     /* Prevent Radix UI from injecting padding-right when locking scroll on modal open */
     padding-right: 0 !important;
   }

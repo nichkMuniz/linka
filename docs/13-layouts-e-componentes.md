@@ -8,7 +8,7 @@
 client/components/
 ├── ui/             ← Shadcn UI (não mexer)
 ├── layout/         ← Componentes estruturais globais (AppLayout, ShotsLayout, ThemeProvider, FloatingActionMenu)
-├── shared/         ← Componentes reutilizáveis em 2+ domínios (ImageWithFallback, AnimatedLoading, PostIncentiveButton, ExerciseImage, DietImage, EmojiPicker)
+├── shared/         ← Componentes reutilizáveis em 2+ domínios (ImageWithFallback, AnimatedLoading, PostIncentiveButton, ExerciseImage, DietImage, EmojiPicker, InlineCropPreview)
 ├── modals/         ← Modais e Dialogs globais (PostCommentsDialog, PostLikesModal, FlowViewerModal, FlowCreationDialog)
 ├── post/           ← Componentes de post (PostCarousel)
 ├── shots/          ← Componentes de shots/flows (FlowCarousel)
@@ -41,6 +41,7 @@ client/components/
 - **Header:** Logo + ícones de navegação secundária (buscar, notificações, perfil)
 - **Badge de mensagens não lidas:** Contador no ícone de Comunidade
 - **Badge de notificações:** Contador no ícone de Notificações
+- **Refetch de badges no refresh do feed:** contadores são carregados no mount e mantidos via subscription realtime do Supabase (que pode cair silenciosamente em background no iOS). Para evitar badge desatualizado, o `AppLayout` também escuta os eventos `ritmofit-refresh-feed` (toque no logo/home) e `ritmofit-refresh-badges` (disparado pelo pull-to-refresh em `Index.tsx`) e refaz o fetch de `getUnreadMessageCountDb`/`getUnreadNotificationsCountDb` a cada um deles
 - **Foto de perfil:** Carregada dinamicamente no ícone de Perfil
 - **Bottom Navigation (mobile):** 5 itens fixos na parte inferior
 - **Side Navigation (desktop):** Navegação lateral em telas grandes (244px fixo)
@@ -50,6 +51,12 @@ client/components/
 
 #### Desktop — frame de conteúdo
 Em desktop (md+), o conteúdo é limitado a `max-w-[680px]` centralizado após a sidebar (244px). Todas as sobreposições fixas (Dialogs, Drawers) respeitam esse frame usando a classe `md-modal-centered` / `md-drawer-centered` definida em `global.css`, que ajusta o `left` para `calc(50vw + 122px)` (centro do frame de conteúdo).
+
+#### Header/Bottom Nav flutuantes (mobile) — bounce elástico do iOS
+Header e Bottom Nav são `position: fixed` com `top`/`bottom` calculados a partir de `env(safe-area-inset-*)`. No WKWebView do iOS, o bounce elástico nativo (rubber-band) pode deslocar/"descolar" momentaneamente elementos fixos durante o overscroll — mais perceptível em telas com safe area maior (Dynamic Island). Como o Feed já implementa seu próprio gesto de pull-to-refresh via touch handlers (`Index.tsx`), o bounce nativo é redundante e foi desativado globalmente com `overscroll-behavior-y: none` em `html`/`body` (`global.css`), eliminando o glitch sem afetar o pull-to-refresh custom.
+
+#### Header flutuante — auto-ocultar ao rolar (mobile)
+Nas rotas `/`, `/vitrine`, `/comunidade` e `/metas`, o header pill flutuante some ao rolar para baixo (>96px de scroll e delta > 30px) e reaparece ao rolar para cima (delta < -30px), controlado pelo estado `headerHidden` em `AppLayout` (classe `-translate-y-[200%]` quando oculto). Em `/`, `/vitrine` e `/metas` o listener é no `window` (a página inteira rola — `Goals.tsx` usa fluxo normal de documento, sem container de altura fixa). Em `/comunidade` a tela usa um container interno de altura fixa com scroll próprio (não a window) — por isso o `AppLayout` escuta `scroll` em fase de captura no `document` e filtra pelo atributo `data-community-scroll-container`, presente no container `flex-1 overflow-y-auto` de cada aba (Mensagens, Duelos, Ranking, Solicitações) em `Community.tsx`. Esse padrão de captura evita referência obsoleta quando o container é desmontado/remontado (troca de aba, abrir/fechar uma conversa).
 
 ---
 
@@ -109,15 +116,19 @@ Modal de visualização de stories:
 
 ### PostCarousel
 **Arquivo:** `client/components/post/post-carousel.tsx`
-**Usado em:** Feed (Index), Perfil
+**Usado em:** Feed (Index), Perfil, PostDetail, Comunidade (modal de detalhe do check-in de duelo)
 
 Carrossel de imagens de um post:
 - Navegação com setas esquerda/direita
 - Indicador de posição (dots ou números)
 - Swipe em mobile
 - Imagens com `ImageWithFallback`
-- Prop `tall`: frame alto (`h-[72dvh]`, até `680px`) em vez do padrão `aspect-square` — usado pelo `PostCard` do feed para que cada post ocupe quase a tela inteira ("1 post por vez" ao rolar)
+- Prop `tall`: frame alto (calculado via `calc(100dvh - ...)`, até `500px`) em vez do padrão `aspect-square` — usado pelo `PostCard` do feed para que cada post ocupe quase a tela inteira ("1 post por vez" ao rolar)
+- Prop `fill`: preenche 100% da altura do container pai via `h-full` (em vez de `aspect-square` ou do cálculo de `tall`) — usado pela tela de Detalhe do Post, cujo container pai já tem altura fixa via flexbox (tem prioridade sobre `tall`)
 - Quando `tall`, a foto usa fit adaptativo: `cover` (preenche cortando) por padrão, mas troca para `contain` + fundo desfocado quando a proporção da foto destoa muito da do frame (ex.: canvas quadrado de resumo de treino), para não cortar informação do conteúdo
+- **Prop `priority` (2026-07-02):** força `loading="eager"` na primeira/única foto em vez de `"lazy"` — usar quando o carrossel já monta visível dentro de um modal/drawer (ex: detalhe do check-in de duelo), onde "lazy" só atrasa o fetch sem nenhum ganho (não há scroll para "chegar" até a imagem). Não usar em contextos de lista/feed, onde "lazy" evita baixar fotos fora da viewport.
+- **Fade-in ao carregar (2026-07-02):** a imagem interna (`ZoomableImage`) começa em `opacity: 0` e transiciona para `1` no `onLoad`, em vez de aparecer abruptamente — o fundo do frame já preenche o espaço, então não há flash de conteúdo vazio.
+- **Constantes exportadas `POST_PHOTO_WIDTH`/`POST_PHOTO_QUALITY`:** usadas por quem quiser pré-aquecer (`new Image().src = cdnImg(url, { width: POST_PHOTO_WIDTH, quality: POST_PHOTO_QUALITY })`) a mesma URL transformada que o carrossel vai pedir — ver o prefetch de fotos de check-in em `Community.tsx`, que evita o usuário sentir a latência de cache-frio do endpoint de transform do Supabase Storage ao abrir o modal de detalhe.
 
 ---
 
@@ -143,6 +154,7 @@ Dialog de comentários de um post:
 - Contagem de comentários no botão trigger
 - Badge de comentário não lido (para o dono do post)
 - Deletar comentário próprio
+- **Altura fixa** (`height: min(60dvh, viewportHeight - 8px)`, não apenas `maxHeight`) — o drawer sempre nasce no mesmo tamanho, com ou sem comentários, para evitar que o drawer "pule" de tamanho quando o primeiro comentário é postado (o novo comentário nascia atrás do input). A lista interna centraliza o estado vazio/loading verticalmente quando não há comentários. `PromotionCommentsDrawer` segue o mesmo padrão.
 
 ---
 
@@ -201,6 +213,20 @@ Wrapper de imagem com tratamento de erro:
 - Exibe imagem original se disponível
 - Exibe imagem fallback se a original falhar
 - Props: `src`, `alt`, `fallback`, `className`
+
+---
+
+### InlineCropPreview
+**Arquivo:** `client/components/shared/inline-crop-preview.tsx`
+**Usado em:** NewPost (Etapa 1, foto de post), WorkoutSummaryOverlay (foto do resumo de treino)
+
+Zoom/pan direto no frame quadrado da foto (pinch-to-zoom + arraste), **sem** passar por uma tela de crop separada (2026-07-02, extraído do `NewPost.tsx` para reuso). Exporta:
+- `InlineCropPreview` — componente (canvas) que desenha a foto com o `CropTransform` atual e captura gestos de pointer/touch (drag = pan, pinch = zoom, `MIN_SCALE`–`MAX_SCALE` = 1–5)
+- `CropTransform` (`{ scale, offsetX, offsetY }`) e `DEFAULT_TRANSFORM`
+- `applyTransformToBlob(dataUrl, transform, containerWidth)` — gera o `Blob` já recortado (JPEG) para upload, replicando visualmente o que o usuário viu no frame
+- `getCachedImage(src)` — cache de `HTMLImageElement` decodificado, evita re-decodificar a mesma foto entre re-renders
+
+Cada foto tem seu próprio `CropTransform` guardado por índice (`Record<number, CropTransform>`), reindexado ao remover/reordenar fotos. Como o frame captura o gesto de arraste para pan, telas com múltiplas fotos não podem depender de swipe nativo para navegar entre elas — precisam de setas/dots clicáveis (ver `NewPost.tsx` e `workout-summary-overlay.tsx`).
 
 ---
 

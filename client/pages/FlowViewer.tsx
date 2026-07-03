@@ -40,7 +40,6 @@ import {
   Send,
   Trash2,
   Eye,
-  Pause,
   Play,
   Pencil,
   Check,
@@ -62,7 +61,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { cdnImg } from "@/lib/image-url";
 
-function sortStoriesInstagram(storiesList: StoryWithUser[]): StoryWithUser[] {
+function sortStoriesInstagram(storiesList: StoryWithUser[], currentUserId?: string): StoryWithUser[] {
   const groups: Record<string, StoryWithUser[]> = {};
   storiesList.forEach((s) => {
     if (!groups[s.user_id]) groups[s.user_id] = [];
@@ -72,7 +71,14 @@ function sortStoriesInstagram(storiesList: StoryWithUser[]): StoryWithUser[] {
     uid,
     latest: Math.max(...groups[uid].map((s) => new Date(s.created_at).getTime())),
   }));
-  userLatests.sort((a, b) => b.latest - a.latest);
+  // O próprio flow do usuário sempre vem primeiro (mesmo comportamento do FlowCarousel);
+  // os demais seguem ordenados pelo flow mais recente primeiro, para que "avançar"
+  // a partir do próprio flow leve sempre ao flow mais recentemente postado.
+  userLatests.sort((a, b) => {
+    if (a.uid === currentUserId) return -1;
+    if (b.uid === currentUserId) return 1;
+    return b.latest - a.latest;
+  });
   const sorted: StoryWithUser[] = [];
   userLatests.forEach(({ uid }) => {
     const userGroup = [...groups[uid]].sort(
@@ -147,7 +153,10 @@ export default function FlowViewer() {
       .finally(() => setLoadingStories(false));
   }, []);
 
-  const sortedStories = React.useMemo(() => sortStoriesInstagram(allStories), [allStories]);
+  const sortedStories = React.useMemo(
+    () => sortStoriesInstagram(allStories, user?.id),
+    [allStories, user?.id],
+  );
   const story = React.useMemo(
     () => sortedStories.find((s) => s.id === storyId) ?? null,
     [sortedStories, storyId],
@@ -405,22 +414,28 @@ export default function FlowViewer() {
   }, [story]);
 
   const handleSwipeTouchStart = React.useCallback((e: React.TouchEvent) => {
-    if (!isOwner) return;
     const touch = e.touches[0];
     swipeTouchStartRef.current = { x: touch.clientX, y: touch.clientY };
-  }, [isOwner]);
+  }, []);
 
   const handleSwipeTouchEnd = React.useCallback((e: React.TouchEvent) => {
-    if (!isOwner || !swipeTouchStartRef.current) return;
+    if (!swipeTouchStartRef.current) return;
     const touch = e.changedTouches[0];
     const deltaX = touch.clientX - swipeTouchStartRef.current.x;
     const deltaY = touch.clientY - swipeTouchStartRef.current.y;
     swipeTouchStartRef.current = null;
-    // Swipe para cima: vertical, mínimo 60px, predominantemente vertical
-    if (deltaY < -60 && Math.abs(deltaY) > Math.abs(deltaX)) {
+
+    // Swipe para baixo: vertical, mínimo 80px, predominantemente vertical — fecha o flow e volta ao feed
+    if (deltaY > 80 && Math.abs(deltaY) > Math.abs(deltaX)) {
+      handleClose();
+      return;
+    }
+
+    // Swipe para cima (apenas dono): vertical, mínimo 60px, predominantemente vertical — abre lista de visualizadores
+    if (isOwner && deltaY < -60 && Math.abs(deltaY) > Math.abs(deltaX)) {
       handleOpenViewers();
     }
-  }, [isOwner, handleOpenViewers]);
+  }, [isOwner, handleOpenViewers, handleClose]);
 
   const handleTapZonePointerDown = React.useCallback((e: React.PointerEvent) => {
     holdPointerStartRef.current = { x: e.clientX, y: e.clientY };
@@ -586,6 +601,14 @@ export default function FlowViewer() {
 
   if (!story) return null;
 
+  const HEADER_GLASS_BTN_STYLE: React.CSSProperties = {
+    background: "linear-gradient(rgba(255,255,255,.12),rgba(255,255,255,.03))",
+    backdropFilter: "blur(18px) saturate(160%)",
+    WebkitBackdropFilter: "blur(18px) saturate(160%)",
+    border: "1px solid rgba(255,255,255,.18)",
+    boxShadow: "inset 0 1px 0 rgba(255,255,255,.25), 0 8px 18px -8px rgba(0,0,0,.55)",
+  };
+
   return (
     <>
       <div className="fixed inset-0 bg-black z-0 flex items-center justify-center overflow-hidden">
@@ -711,31 +734,26 @@ export default function FlowViewer() {
                   </motion.div>
                 </AnimatePresence>
 
-                <div className="flex items-center gap-1">
-                  <button onClick={handleTogglePause} className="text-white/90 hover:text-white p-2">
-                    {isPaused ? (
-                      <Play className="h-6 w-6 fill-white/20" />
-                    ) : (
-                      <Pause className="h-6 w-6 fill-white/20" />
-                    )}
-                  </button>
+                <div className="flex items-center gap-2">
                   {isOwner && (
-                    <>
-                      <button onClick={handleOpenViewers} className="text-white/90 hover:text-white p-2">
-                        <Eye className="h-6 w-6" />
-                      </button>
-                      <button
-                        onClick={handleDeleteStory}
-                        disabled={isDeletingStory}
-                        className="text-white/90 hover:text-red-400 p-2 disabled:opacity-50"
-                      >
-                        <Trash2 className="h-6 w-6" />
-                      </button>
-                    </>
+                    <motion.button
+                      onClick={handleDeleteStory}
+                      disabled={isDeletingStory}
+                      whileTap={{ scale: 0.88 }}
+                      style={HEADER_GLASS_BTN_STYLE}
+                      className="h-9 w-9 rounded-full flex items-center justify-center text-white/90 hover:text-red-400 transition-colors disabled:opacity-50"
+                    >
+                      <Trash2 className="h-[18px] w-[18px]" />
+                    </motion.button>
                   )}
-                  <button onClick={handleClose} className="text-white/70 hover:text-white p-2 ml-1">
-                    <X className="h-6 w-6" />
-                  </button>
+                  <motion.button
+                    onClick={handleClose}
+                    whileTap={{ scale: 0.88 }}
+                    style={HEADER_GLASS_BTN_STYLE}
+                    className="h-9 w-9 rounded-full flex items-center justify-center text-white/90 hover:text-white transition-colors"
+                  >
+                    <X className="h-[18px] w-[18px]" />
+                  </motion.button>
                 </div>
               </div>
             </div>
@@ -954,7 +972,6 @@ export default function FlowViewer() {
                   transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
                 >
                   <ChevronUp className="h-3.5 w-3.5 text-white/45" />
-                  <Eye className="h-3.5 w-3.5 text-white/45" />
                   <span className="text-[10px] text-white/45 font-medium tracking-wide">visualizações</span>
                 </motion.button>
               )}

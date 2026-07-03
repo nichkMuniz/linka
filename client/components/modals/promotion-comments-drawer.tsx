@@ -22,6 +22,7 @@ import {
 import { useAuth } from "@/hooks/useAuth";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
+import { cn } from "@/lib/utils";
 
 export function PromotionCommentsDrawer({
   promotionId,
@@ -158,7 +159,8 @@ export function PromotionCommentsDrawer({
         className="flex flex-col !rounded-t-[32px] !border-0"
         onOpenAutoFocus={(e) => e.preventDefault()}
         style={{
-          maxHeight: `min(85dvh, ${viewportHeight - 8}px)`,
+          height: `min(60dvh, ${viewportHeight - 8}px)`,
+          maxHeight: `min(60dvh, ${viewportHeight - 8}px)`,
           paddingBottom: "env(safe-area-inset-bottom)",
           background: "linear-gradient(rgba(30,28,40,.88),rgba(14,13,20,.96))",
           backdropFilter: "blur(40px) saturate(180%)",
@@ -176,7 +178,13 @@ export function PromotionCommentsDrawer({
         {/* stopPropagation prevents vaul from starting a drag gesture when tapping inside the content */}
         <div className="flex flex-col flex-1 gap-3 overflow-hidden px-4 pb-4" onPointerDown={(e) => e.stopPropagation()}>
           {/* Comments list */}
-          <div className="flex-1 space-y-3 overflow-y-auto rounded-2xl p-3" style={{ border: "1px solid rgba(255,255,255,.08)", background: "rgba(255,255,255,.03)" }}>
+          <div
+            className={cn(
+              "flex-1 space-y-3 overflow-y-auto rounded-2xl p-3",
+              !loading && comments.length === 0 && "flex flex-col items-center justify-center",
+            )}
+            style={{ border: "1px solid rgba(255,255,255,.08)", background: "rgba(255,255,255,.03)" }}
+          >
             {loading ? (
               <div className="space-y-3">
                 {Array.from({ length: 3 }).map((_, i) => (

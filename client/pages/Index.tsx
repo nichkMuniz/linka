@@ -13,6 +13,7 @@ import {
   getRoutinesByGoalIdDb,
   getRoutineItemsForViewDb,
   getActiveStoriesDb,
+  getFlowByIdDb,
   getUserProfileDb,
   createStoryDb,
   deleteOldStoriesDb,
@@ -26,6 +27,7 @@ import {
   type PostIncentiveType,
   type StoryWithUser,
   invalidateProfileCache,
+  invalidateQueryCache,
 } from "@/lib/ritmofit-db";
 import { PostLikesModal } from "@/components/modals/post-likes-modal";
 import { ReportDrawer } from "@/components/shared/report-drawer";
@@ -177,6 +179,11 @@ export default function Index() {
   const loadFeed = React.useCallback(async (showLoading = true) => {
     if (showLoading) setLoading(true);
     try {
+      // Os flows/stories têm cache interno (stale-while-revalidate, TTL de 60s) em
+      // `getActiveStoriesDb`. Sem invalidar aqui, um refresh manual (pull-to-refresh,
+      // tocar no logo, etc.) podia devolver a mesma lista antiga por até 2 ciclos de
+      // TTL — exigindo vários refreshs seguidos até o flow novo de um seguidor aparecer.
+      invalidateQueryCache("activeStories");
       const [postsData, storiesData] = await Promise.all([
         getFeedPosts(),
         getActiveStoriesDb(),
@@ -248,16 +255,34 @@ export default function Index() {
     setViewedStoryIds((prev) => (prev.has(storyId) ? prev : new Set(prev).add(storyId)));
   }, []);
 
-  // Open a specific flow when navigating from a notification
+  // Open a specific flow when navigating from a notification. If it's no longer
+  // in the active ring (expired >24h), redirect to the flow archive (own flow)
+  // showing that exact media, instead of silently doing nothing.
   React.useEffect(() => {
     const state = location.state as { openFlow?: string } | null;
-    if (!state?.openFlow || stories.length === 0) return;
+    if (!state?.openFlow || loading) return;
+    const flowId = state.openFlow;
     navigate(location.pathname, { replace: true, state: {} });
-    const targetStory = stories.find((s) => String(s.id) === String(state.openFlow));
+
+    const targetStory = stories.find((s) => String(s.id) === String(flowId));
     if (targetStory) {
       navigate(`/flows/${targetStory.id}`);
+      return;
     }
-  }, [stories, location.state?.openFlow]);
+
+    (async () => {
+      try {
+        const flow = await getFlowByIdDb(flowId);
+        if (flow && flow.user_id === user?.id) {
+          navigate("/perfil", { state: { openFlowArchive: flow } });
+        } else {
+          toast({ title: t("feed_flow_unavailable") });
+        }
+      } catch (err) {
+        console.error("Error checking expired flow:", err);
+      }
+    })();
+  }, [stories, loading, location.state?.openFlow]);
 
   React.useEffect(() => {
     const handler = () => {
@@ -782,6 +807,10 @@ export default function Index() {
       hapticLight();
       setDiscoverLoaded(false);
       loadFeed(true);
+      // Refresh de badges (mensagens/notificações) — o AppLayout escuta este
+      // evento para refazer o fetch, cobrindo o caso da subscription realtime
+      // ter caído silenciosamente.
+      window.dispatchEvent(new CustomEvent("ritmofit-refresh-badges"));
     }
     setPullDistance(0);
     setIsPulling(false);

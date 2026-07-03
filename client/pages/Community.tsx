@@ -18,7 +18,7 @@ import {
   getGroupCheckInsDb,
   getGroupCheckInDetailDb,
   getEnrichedDuelGroupsDb,
-  getCompletedRoutinesTodayDb,
+  getRecentCompletedRoutinesDb,
   getUserProfileDb,
   addMembersToGroupDb,
   leaveGroupDb,
@@ -46,6 +46,7 @@ import {
   sendCheckInReactionNotificationDb,
   getCheckInVotesDb,
   setCheckInVoteDb,
+  invalidateQueryCache,
   type Conversation,
   type MessageWithUser,
   type SearchUser,
@@ -59,6 +60,7 @@ import {
   type DuelCheckInVoteType,
 } from "@/lib/ritmofit-db";
 import { useAuth } from "@/hooks/useAuth";
+import { hapticLight } from "@/lib/haptics";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 // Tabs component replaced by custom underline tabs
@@ -71,7 +73,8 @@ import { AddMembersDrawer } from "@/components/community/add-members-drawer";
 import { EditCheckInDrawer } from "@/components/community/edit-checkin-drawer";
 import { SwipeableConversationRow } from "@/components/community/swipeable-conversation-row";
 import { ImageCropperDrawer } from "@/components/shared/image-cropper-drawer";
-import { PostCarousel } from "@/components/post/post-carousel";
+import { PostCarousel, POST_PHOTO_WIDTH, POST_PHOTO_QUALITY } from "@/components/post/post-carousel";
+import { cdnImg } from "@/lib/image-url";
 import {
   Drawer,
   DrawerContent,
@@ -110,11 +113,27 @@ import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { CommunitySkeleton } from "@/components/shared/animated-loading";
 import { useLanguage } from "@/lib/language-context";
+import type { TranslationKey } from "@/lib/i18n";
 import { UserInsignias } from "@/components/profile/user-insignias";
 import { ImageWithFallback } from "@/components/shared/image-with-fallback";
 import { UserAvatar } from "@/components/shared/user-avatar";
 
 type ViewMode = "conversations" | "conversation";
+
+// Fallback photo for check-ins posted without a photo, so the card/detail
+// never renders with an empty image slot.
+const DEFAULT_CHECKIN_PHOTO = "/Monstrinho_segurando_pesinho_202603301834.jpeg";
+
+const DUEL_SCORING_TYPE_OPTIONS: { value: import("@/lib/ritmofit-db").DuelScoringType; icon: string; titleKey: TranslationKey; descKey: TranslationKey }[] = [
+  { value: "check_in_count", icon: "#", titleKey: "duels_scoring_check_in_count", descKey: "duels_scoring_check_in_count_desc" },
+  { value: "active_days", icon: "📅", titleKey: "duels_scoring_active_days", descKey: "duels_scoring_active_days_desc" },
+  { value: "hustle_points", icon: "⭐", titleKey: "duels_scoring_hustle_points", descKey: "duels_scoring_hustle_points_desc" },
+  { value: "duration", icon: "⏱", titleKey: "duels_scoring_duration", descKey: "duels_scoring_duration_desc" },
+  { value: "distance", icon: "🗺", titleKey: "duels_scoring_distance", descKey: "duels_scoring_distance_desc" },
+  { value: "steps", icon: "👟", titleKey: "duels_scoring_steps", descKey: "duels_scoring_steps_desc" },
+  { value: "calories", icon: "🔥", titleKey: "duels_scoring_calories", descKey: "duels_scoring_calories_desc" },
+  { value: "memes", icon: "🎭", titleKey: "duels_scoring_memes", descKey: "duels_scoring_memes_desc" },
+];
 
 export default function Community() {
   const { user } = useAuth();
@@ -136,6 +155,7 @@ export default function Community() {
   const [searchQuery, setSearchQuery] = React.useState("");
   const [ranking, setRanking] = React.useState<RankingUser[]>([]);
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
+  const hasScrolledForConversationRef = React.useRef(false);
   const messageInputRef = React.useRef<HTMLInputElement>(null);
   const photoInputRef = React.useRef<HTMLInputElement>(null);
   const [isSendingPhoto, setIsSendingPhoto] = React.useState(false);
@@ -183,6 +203,29 @@ export default function Community() {
 
   const [groupCheckIns, setGroupCheckIns] = React.useState<GroupCheckIn[]>([]);
   const [groupParticipants, setGroupParticipants] = React.useState<Array<{ userId: string; userNickname: string; userPhoto: string | null }>>([]);
+
+  // Warms the Supabase image-transform cache for the check-in detail photo
+  // as soon as the list loads, instead of only starting that request when the
+  // user taps a check-in. The detail drawer requests this exact same
+  // transformed URL (same width/quality — see `priority` PostCarousel usage
+  // below), so by the time someone taps in it's often already cached at the
+  // CDN edge, avoiding the cold-transform latency that made photos feel slow
+  // to appear.
+  const prefetchedCheckInPhotosRef = React.useRef<Set<string>>(new Set());
+  React.useEffect(() => {
+    // Cap + low priority so this background warm-up never competes with the
+    // list's own thumbnails (or anything else) for bandwidth/connections —
+    // it's a nice-to-have head start, not something worth stalling on.
+    groupCheckIns.slice(0, 15).forEach((c) => {
+      if (!c.photo) return;
+      const url = cdnImg(c.photo, { width: POST_PHOTO_WIDTH, quality: POST_PHOTO_QUALITY });
+      if (!url || prefetchedCheckInPhotosRef.current.has(url)) return;
+      prefetchedCheckInPhotosRef.current.add(url);
+      const img = new window.Image();
+      if ("fetchPriority" in img) (img as any).fetchPriority = "low";
+      img.src = url;
+    });
+  }, [groupCheckIns]);
   const [activeGroupViewTab, setActiveGroupViewTab] = React.useState<"check-ins" | "participants">("check-ins");
   const [activeGroupIndex, setActiveGroupIndex] = React.useState(0);
   const [isAddCheckInModalOpen, setIsAddCheckInModalOpen] = React.useState(false);
@@ -203,6 +246,20 @@ export default function Community() {
   // pendingCropSrc: data URL waiting to be cropped; pendingCropIndex: index to replace (-1 = append new)
   const [pendingCropSrc, setPendingCropSrc] = React.useState<string | null>(null);
   const [pendingCropIndex, setPendingCropIndex] = React.useState<number>(-1);
+  const checkInCameraInputRef = React.useRef<HTMLInputElement>(null);
+  const checkInGalleryInputRef = React.useRef<HTMLInputElement>(null);
+
+  const handleCheckInPhotoSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      setPendingCropIndex(-1);
+      setPendingCropSrc(ev.target?.result as string);
+    };
+    reader.readAsDataURL(file);
+  };
 
   React.useEffect(() => {
     if (checkInPhotoFiles.length === 0) {
@@ -215,6 +272,23 @@ export default function Community() {
   }, [checkInPhotoFiles]);
   const [completedRoutines, setCompletedRoutines] = React.useState<CompletedRoutine[]>([]);
   const [selectedRoutineKey, setSelectedRoutineKey] = React.useState<string | null>(null);
+
+  // Routine + day combos already checked in to the currently open group —
+  // blocks re-posting the exact same workout session as a new check-in
+  // there (scoped per group: sharing the same workout across different
+  // duels you're in is fine, it's only re-posting *within one group* that
+  // would inflate that group's score).
+  const checkedInRoutineDayKeys = React.useMemo(() => {
+    const set = new Set<string>();
+    groupCheckIns.forEach((c) => {
+      if (!c.workoutInfo) return;
+      const day = new Date(c.createdAt).toDateString();
+      set.add(`${c.workoutInfo.trim().toLowerCase()}__${day}`);
+    });
+    return set;
+  }, [groupCheckIns]);
+  const routineDayKey = (routineName: string, completedAt: string) =>
+    `${routineName.trim().toLowerCase()}__${new Date(completedAt).toDateString()}`;
   const [participantsSearch, setParticipantsSearch] = React.useState("");
   const [selectedCheckInForDetail, setSelectedCheckInForDetail] = React.useState<GroupCheckIn | null>(null);
   const [isCheckInDetailOpen, setIsCheckInDetailOpen] = React.useState(false);
@@ -435,6 +509,63 @@ export default function Community() {
       });
   }, [setSearchParams]);
 
+  // Re-fetches check-ins/participants for the open group without clearing the
+  // current list first (avoids the empty-state flash `openGroupView` causes) —
+  // used by pull-to-refresh below.
+  const refreshGroupView = React.useCallback(async (groupId: string) => {
+    invalidateQueryCache("groupCheckIns");
+    invalidateQueryCache("groupParticipants");
+    try {
+      const [checkIns, participants] = await Promise.all([
+        getGroupCheckInsDb(groupId),
+        getGroupParticipantsDb(groupId),
+      ]);
+      if (activeGroupIdRef.current !== groupId) return;
+      setGroupCheckIns(checkIns);
+      setGroupParticipants(participants);
+      if (checkIns.length > 0) {
+        getCheckInReactionsDb(checkIns.map((c) => c.id)).then(setCheckInReactions).catch(() => { });
+      }
+      if (selectedGroupForView?.scoringType === "memes") {
+        getCheckInVotesDb(groupId).then(setCheckInVotes).catch(() => { });
+      }
+    } catch (err: any) {
+      console.error("Error refreshing group data:", err);
+    }
+  }, [selectedGroupForView?.scoringType]);
+
+  // Pull-to-refresh for the group screen (same UX as the feed)
+  const groupViewScrollRef = React.useRef<HTMLDivElement>(null);
+  const groupPullStartY = React.useRef(0);
+  const [groupPullDistance, setGroupPullDistance] = React.useState(0);
+  const [isGroupPulling, setIsGroupPulling] = React.useState(false);
+  const [isGroupRefreshing, setIsGroupRefreshing] = React.useState(false);
+  const GROUP_PULL_THRESHOLD = 72;
+
+  const onGroupTouchStart = React.useCallback((e: React.TouchEvent) => {
+    const scrollEl = groupViewScrollRef.current;
+    if (!scrollEl || scrollEl.scrollTop > 0) return;
+    groupPullStartY.current = e.touches[0].clientY;
+    setIsGroupPulling(true);
+  }, []);
+
+  const onGroupTouchMove = React.useCallback((e: React.TouchEvent) => {
+    if (!isGroupPulling) return;
+    const delta = e.touches[0].clientY - groupPullStartY.current;
+    if (delta > 0) setGroupPullDistance(Math.min(delta * 0.4, GROUP_PULL_THRESHOLD + 20));
+  }, [isGroupPulling]);
+
+  const onGroupTouchEnd = React.useCallback(() => {
+    if (!isGroupPulling) return;
+    if (groupPullDistance >= GROUP_PULL_THRESHOLD && selectedGroupForView) {
+      hapticLight();
+      setIsGroupRefreshing(true);
+      refreshGroupView(selectedGroupForView.id).finally(() => setIsGroupRefreshing(false));
+    }
+    setGroupPullDistance(0);
+    setIsGroupPulling(false);
+  }, [isGroupPulling, groupPullDistance, selectedGroupForView, refreshGroupView]);
+
   const showConfirm = React.useCallback(
     (title: string, description: string, onConfirm: () => void) => {
       setConfirmDialog({ open: true, title, description, onConfirm });
@@ -626,6 +757,7 @@ export default function Community() {
 
     // Clear messages immediately so previous conversation's messages never bleed through
     setMessages([]);
+    hasScrolledForConversationRef.current = false;
 
     const targetUserId = selectedConversation.userId;
 
@@ -660,9 +792,24 @@ export default function Community() {
     loadMessages();
   }, [selectedConversation?.userId, viewMode]);
 
-  // Auto-scroll to bottom when messages change
+  // Auto-scroll to the last message: instant snap when a conversation is first opened
+  // (or reopened), smooth scroll for messages sent/received afterwards.
   React.useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (messages.length === 0) return;
+
+    const isInitialLoad = !hasScrolledForConversationRef.current;
+    messagesEndRef.current?.scrollIntoView({ behavior: isInitialLoad ? "auto" : "smooth" });
+
+    if (isInitialLoad) {
+      hasScrolledForConversationRef.current = true;
+      // Images/audio players can still be loading and shift the layout after the
+      // initial paint — re-snap to the bottom once they've had time to settle so
+      // the conversation reliably opens on the last message.
+      const timers = [150, 400].map((delay) =>
+        setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "auto" }), delay),
+      );
+      return () => timers.forEach(clearTimeout);
+    }
   }, [messages]);
 
   const handleSendMessage = React.useCallback(async () => {
@@ -1417,10 +1564,10 @@ export default function Community() {
 
   return (
     <div
-      className={`w-full flex flex-col ${activeTab !== "ranking" && activeTab !== "requests" ? "overflow-hidden" : ""}`}
-      style={activeTab !== "ranking" && activeTab !== "requests" ? {
+      className="w-full flex flex-col overflow-hidden"
+      style={{
         height: "calc(100dvh - 64px - env(safe-area-inset-top) - 1.5rem - 4.75rem - env(safe-area-inset-bottom))",
-      } : undefined}
+      }}
     >
       {/* Tabs — segmented control style (igual à tela de Loja) */}
       <div className="flex-shrink-0 px-4 pt-3 pb-3" style={{ borderBottom: "1px solid rgba(255,255,255,.08)" }}>
@@ -1502,7 +1649,7 @@ export default function Community() {
           </div>
 
           {/* Conversations List — LinKa Glass cards */}
-          <div className="flex-1 overflow-y-auto px-3 pt-1 pb-4">
+          <div data-community-scroll-container className="flex-1 overflow-y-auto px-3 pt-1 pb-4">
             {filteredConversations.length > 0 ? (
               <div className="flex flex-col gap-1">
                 {filteredConversations.map((conversation) => (
@@ -1659,7 +1806,30 @@ export default function Community() {
           </div>
 
           {/* Content */}
-          <div className="flex-1 overflow-y-auto">
+          <div
+            ref={groupViewScrollRef}
+            className="flex-1 overflow-y-auto"
+            onTouchStart={onGroupTouchStart}
+            onTouchMove={onGroupTouchMove}
+            onTouchEnd={onGroupTouchEnd}
+          >
+            {/* Pull-to-refresh indicator */}
+            {(groupPullDistance > 0 || isGroupRefreshing) && (
+              <div
+                className="flex items-center justify-center overflow-hidden transition-all"
+                style={{ height: `${isGroupRefreshing ? GROUP_PULL_THRESHOLD : groupPullDistance}px` }}
+              >
+                <div
+                  className={`h-6 w-6 rounded-full border-2 border-t-transparent ${isGroupRefreshing ? "animate-spin" : "transition-transform"}`}
+                  style={{
+                    borderColor: "#9d6bff",
+                    borderTopColor: "transparent",
+                    transform: isGroupRefreshing ? undefined : `rotate(${(groupPullDistance / GROUP_PULL_THRESHOLD) * 360}deg)`,
+                    opacity: isGroupRefreshing ? 1 : groupPullDistance / GROUP_PULL_THRESHOLD,
+                  }}
+                />
+              </div>
+            )}
             <div className="pb-32">
               {/* Hero Banner Section */}
               <div className="relative h-48 flex items-end overflow-hidden">
@@ -1903,10 +2073,17 @@ export default function Community() {
                                     <p className="text-sm font-medium truncate text-white/90">
                                       {checkIn.description || checkIn.workoutInfo}
                                     </p>
-                                    <div className="flex items-center gap-1.5">
-                                      <span className="text-xs truncate" style={{ color: "rgba(255,255,255,.5)" }}>{checkIn.userName}</span>
-                                      {checkIn.muscleGroup && (
-                                        <span className="text-[10px] px-1.5 py-0.5 rounded-full shrink-0 leading-none" style={{ color: "#9d6bff", background: "rgba(157,107,255,.14)" }}>{checkIn.muscleGroup}</span>
+                                    <div className="flex items-center gap-1.5 min-w-0">
+                                      <span className="text-xs truncate min-w-0" style={{ color: "rgba(255,255,255,.5)" }}>{checkIn.userName}</span>
+                                      {checkIn.muscleGroups.length > 0 && (
+                                        <div className="flex items-center gap-1 shrink-0">
+                                          {checkIn.muscleGroups.slice(0, 2).map((mg) => (
+                                            <span key={mg} className="text-[10px] px-1.5 py-0.5 rounded-full shrink-0 leading-none" style={{ color: "#9d6bff", background: "rgba(157,107,255,.14)" }}>{mg}</span>
+                                          ))}
+                                          {checkIn.muscleGroups.length > 2 && (
+                                            <span className="text-[10px] px-1.5 py-0.5 rounded-full shrink-0 leading-none" style={{ color: "rgba(255,255,255,.55)", background: "rgba(255,255,255,.08)" }}>+{checkIn.muscleGroups.length - 2}</span>
+                                          )}
+                                        </div>
                                       )}
                                     </div>
                                   </div>
@@ -2081,7 +2258,7 @@ export default function Community() {
                     setCompletedRoutines([]);
                     setIsAddCheckInModalOpen(true);
                     setIsLoadingRoutines(true);
-                    getCompletedRoutinesTodayDb(user.id)
+                    getRecentCompletedRoutinesDb(user.id)
                       .then(setCompletedRoutines)
                       .catch((err: any) => { console.error("Error loading completed routines:", err); })
                       .finally(() => setIsLoadingRoutines(false));
@@ -2181,7 +2358,7 @@ export default function Community() {
       {/* Duels Tab */}
       {activeTab === "duels" && !selectedGroupForView && (
         <>
-          <div className="flex-1 overflow-y-auto px-4 pb-6 pt-4 space-y-5 min-h-0">
+          <div data-community-scroll-container className="flex-1 overflow-y-auto px-4 pb-6 pt-4 space-y-5 min-h-0">
 
             {/* CTA: Criar um duelo */}
             <button
@@ -2464,7 +2641,7 @@ export default function Community() {
       {activeTab === "ranking" && (
         <>
           {/* Single scrollable container */}
-          <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-3 pt-4">
+          <div data-community-scroll-container className="flex-1 overflow-y-auto px-4 pb-4 space-y-3 pt-4">
             <h1 className="text-2xl font-bold tracking-tight pb-1">{t("community_ranking")}</h1>
             {ranking.length > 0 ? (
               <div className="space-y-2">
@@ -2557,7 +2734,7 @@ export default function Community() {
           <div className="flex-shrink-0 px-4 pt-4 pb-0">
             <h1 className="text-2xl font-bold tracking-tight">Solicitações</h1>
           </div>
-          <div className="flex-1 overflow-y-auto px-4 pb-4 pt-4 space-y-3">
+          <div data-community-scroll-container className="flex-1 overflow-y-auto px-4 pb-4 pt-4 space-y-3">
 
             {/* Convites recebidos pelo usuário */}
             {pendingInvites.length > 0 && (
@@ -2965,16 +3142,7 @@ export default function Community() {
             {groupStep === 4 && (
               <div className="space-y-4">
                 <div className="space-y-2">
-                  {([
-                    { value: "check_in_count", icon: "#",  title: "Contagem de check-in",   desc: "Maior número de check-ins" },
-                    { value: "active_days",     icon: "📅", title: "Dias ativos",            desc: "A maioria dos dias com pelo menos um check-in" },
-                    { value: "hustle_points",   icon: "⭐", title: "Pontos de hustle",       desc: "Sistema de pontuação baseado em volume de treino" },
-                    { value: "duration",        icon: "⏱", title: "Duração",                desc: "A maior parte do tempo gasto ativo" },
-                    { value: "distance",        icon: "🗺", title: "Distância",              desc: "Maior distância percorrida" },
-                    { value: "steps",           icon: "👟", title: "Passos",                 desc: "A maioria dos passos dados" },
-                    { value: "calories",        icon: "🔥", title: "Calorias",               desc: "Mais calorias queimadas" },
-                    { value: "memes",           icon: "🎭", title: "Memes",                  desc: "O líder define a regra — a galera vota para classificar ou desclassificar" },
-                  ] as { value: import("@/lib/ritmofit-db").DuelScoringType; icon: string; title: string; desc: string }[]).map((opt) => (
+                  {DUEL_SCORING_TYPE_OPTIONS.map((opt) => (
                     <button
                       key={opt.value}
                       onClick={() => setGroupConfig({ ...groupConfig, scoringType: opt.value })}
@@ -2987,8 +3155,8 @@ export default function Community() {
                         {opt.icon}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-white">{opt.title}</p>
-                        <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>{opt.desc}</p>
+                        <p className="text-sm font-semibold text-white">{t(opt.titleKey)}</p>
+                        <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>{t(opt.descKey)}</p>
                       </div>
                       <div className="w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center transition-colors" style={groupConfig.scoringType === opt.value ? { borderColor: "#5b8cff", background: "#5b8cff" } : { borderColor: "rgba(255,255,255,.4)" }}>
                         {groupConfig.scoringType === opt.value && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
@@ -3339,52 +3507,74 @@ export default function Community() {
                             <img src={url} alt={`Thumb ${i}`} className="w-full h-full object-cover" />
                           </button>
                         ))}
-                        <label className="shrink-0 w-14 h-14 rounded-lg border-2 border-dashed border-brand/40 flex items-center justify-center cursor-pointer hover:bg-brand/5">
-                          <Plus className="h-5 w-5 text-brand" />
-                          <input
-                            type="file"
-                            accept="image/*"
-                            onChange={(e) => {
-                              const file = e.target.files?.[0];
-                              e.target.value = "";
-                              if (!file) return;
-                              const reader = new FileReader();
-                              reader.onload = (ev) => {
-                                setPendingCropIndex(-1);
-                                setPendingCropSrc(ev.target?.result as string);
-                              };
-                              reader.readAsDataURL(file);
-                            }}
-                            className="hidden"
-                          />
-                        </label>
+                        <button
+                          type="button"
+                          onClick={() => checkInCameraInputRef.current?.click()}
+                          className="shrink-0 w-14 h-14 rounded-lg border-2 border-dashed border-brand/40 flex items-center justify-center cursor-pointer hover:bg-brand/5"
+                          title={t("duels_checkin_camera")}
+                        >
+                          <Camera className="h-5 w-5 text-brand" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => checkInGalleryInputRef.current?.click()}
+                          className="shrink-0 w-14 h-14 rounded-lg border-2 border-dashed border-brand/40 flex items-center justify-center cursor-pointer hover:bg-brand/5"
+                          title={t("duels_checkin_gallery")}
+                        >
+                          <Image className="h-5 w-5 text-brand" />
+                        </button>
                       </div>
                     </div>
                   ) : (
-                    <label className="cursor-pointer block p-8 text-center transition-colors hover:bg-brand/5 group">
-                      <div className="w-16 h-16 bg-brand/10 rounded-full flex items-center justify-center mx-auto mb-3 group-hover:scale-110 transition-transform">
+                    <div className="p-8 flex flex-col items-center gap-3">
+                      <div className="w-16 h-16 bg-brand/10 rounded-full flex items-center justify-center">
                         <Plus className="h-8 w-8 text-brand" />
                       </div>
-                      <p className="text-sm font-medium text-white">Adicionar Fotos</p>
-                      <p className="text-xs mt-1" style={{ color: "rgba(255,255,255,.5)" }}>Selecione uma imagem por vez</p>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          e.target.value = "";
-                          if (!file) return;
-                          const reader = new FileReader();
-                          reader.onload = (ev) => {
-                            setPendingCropIndex(-1);
-                            setPendingCropSrc(ev.target?.result as string);
-                          };
-                          reader.readAsDataURL(file);
-                        }}
-                        className="hidden"
-                      />
-                    </label>
+                      <div className="text-center">
+                        <p className="text-sm font-medium text-white">Adicionar Fotos</p>
+                        <p className="text-xs mt-1" style={{ color: "rgba(255,255,255,.5)" }}>{t("duels_checkin_photo_hint")}</p>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="rounded-full text-xs h-9 px-4 bg-transparent border-white/20 text-white hover:bg-white/10 hover:text-white"
+                          onClick={() => checkInCameraInputRef.current?.click()}
+                        >
+                          <Camera className="h-4 w-4 mr-1.5" />
+                          {t("duels_checkin_camera")}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="rounded-full text-xs h-9 px-4 bg-transparent border-white/20 text-white hover:bg-white/10 hover:text-white"
+                          onClick={() => checkInGalleryInputRef.current?.click()}
+                        >
+                          <Image className="h-4 w-4 mr-1.5" />
+                          {t("duels_checkin_gallery")}
+                        </Button>
+                      </div>
+                    </div>
                   )}
+                  {/* Front camera capture mirrors the resulting photo on iOS WebKit;
+                      forcing the rear camera here (matches NewPost.tsx) avoids it. */}
+                  <input
+                    ref={checkInCameraInputRef}
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    onChange={handleCheckInPhotoSelected}
+                    className="hidden"
+                  />
+                  <input
+                    ref={checkInGalleryInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleCheckInPhotoSelected}
+                    className="hidden"
+                  />
                 </div>
               </div>
 
@@ -3422,8 +3612,8 @@ export default function Community() {
                 ) : completedRoutines.length === 0 ? (
                   <div className="rounded-xl p-4 text-center space-y-3" style={GLASS_PANEL_STYLE}>
                     <div>
-                      <p className="text-sm font-medium text-white">Nenhum treino concluído</p>
-                      <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,.5)" }}>Conclua uma rotina hoje para fazer check-in</p>
+                      <p className="text-sm font-medium text-white">{t("duels_checkin_no_routines_title")}</p>
+                      <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,.5)" }}>{t("duels_checkin_no_routines_subtitle")}</p>
                     </div>
                     <Button
                       size="sm"
@@ -3434,7 +3624,7 @@ export default function Community() {
                         navigate("/metas");
                       }}
                     >
-                      Ir para Metas e Rotinas
+                      {t("duels_checkin_goto_goals")}
                     </Button>
                   </div>
                 ) : (
@@ -3448,13 +3638,22 @@ export default function Community() {
                       const dateLabel = isToday
                         ? "Hoje " + completedDate.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
                         : completedDate.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" }) + " " + completedDate.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+                      const alreadyCheckedIn = checkedInRoutineDayKeys.has(routineDayKey(routine.routineName, routine.completedAt));
 
                       return (
                         <button
                           key={key}
-                          onClick={() => setSelectedRoutineKey(isSelected ? null : key)}
-                          className="w-full text-left rounded-xl border overflow-hidden transition-colors"
-                          style={isSelected
+                          onClick={() => {
+                            if (alreadyCheckedIn) {
+                              toast({ title: t("duels_checkin_duplicate_error_title"), description: t("duels_checkin_duplicate_error_desc"), variant: "destructive" });
+                              return;
+                            }
+                            setSelectedRoutineKey(isSelected ? null : key);
+                          }}
+                          className={`w-full text-left rounded-xl border overflow-hidden transition-colors ${alreadyCheckedIn ? "cursor-not-allowed" : ""}`}
+                          style={alreadyCheckedIn
+                            ? { borderColor: "rgba(255,255,255,.08)", background: "rgba(255,255,255,.02)", opacity: 0.55 }
+                            : isSelected
                             ? { borderColor: "#5b8cff", background: "rgba(91,140,255,.1)" }
                             : { borderColor: "rgba(255,255,255,.1)", background: "rgba(255,255,255,.04)" }}
                         >
@@ -3469,6 +3668,12 @@ export default function Community() {
                                   <span className="text-xs bg-brand/15 text-brand px-1.5 py-0.5 rounded-full">{routine.primaryMuscleGroup}</span>
                                 )}
                                 <span className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>{routine.exercises.length} exerc. · {dateLabel}</span>
+                                {alreadyCheckedIn && (
+                                  <span className="text-xs flex items-center gap-1" style={{ color: "rgba(255,255,255,.45)" }}>
+                                    <CheckCircle2 className="h-3 w-3" />
+                                    {t("duels_checkin_already_posted")}
+                                  </span>
+                                )}
                               </div>
                               {/* Exercise list preview */}
                               <div className="mt-1.5 space-y-0.5">
@@ -3522,6 +3727,11 @@ export default function Community() {
                     toast({ title: "Selecione um treino", description: "Escolha o treino que você realizou", variant: "destructive" });
                     return;
                   }
+                  const routineToSubmit = completedRoutines[parseInt(selectedRoutineKey)];
+                  if (routineToSubmit && checkedInRoutineDayKeys.has(routineDayKey(routineToSubmit.routineName, routineToSubmit.completedAt))) {
+                    toast({ title: t("duels_checkin_duplicate_error_title"), description: t("duels_checkin_duplicate_error_desc"), variant: "destructive" });
+                    return;
+                  }
                   const needsMetric = ["duration", "distance", "steps", "calories"].includes(selectedGroupForView.scoringType || "");
                   if (needsMetric && !checkInMetricValue) {
                     toast({ title: "Campo obrigatório", description: "Informe o valor da métrica para este desafio", variant: "destructive" });
@@ -3557,21 +3767,25 @@ export default function Community() {
 
                     const metricVal = checkInMetricValue ? parseFloat(checkInMetricValue) : null;
                     const scoringType = selectedGroupForView.scoringType || "check_in_count";
+                    // No photo uploaded → fall back to the default check-in
+                    // mascot image instead of leaving the photo slot empty.
+                    const finalPhotos = uploadedUrls.length > 0 ? uploadedUrls : [DEFAULT_CHECKIN_PHOTO];
                     const checkIn = await addGroupCheckInDb(
                       selectedGroupForView.id,
                       user.id,
-                      uploadedUrls[0] || "",
+                      finalPhotos[0],
                       checkInForm.description,
                       exerciseName,
                       selectedRoutine?.totalSeries || 0,
                       selectedRoutine?.totalVolume || 0,
                       selectedRoutine?.primaryMuscleGroup || null,
                       selectedRoutine?.exercises || [],
-                      uploadedUrls,
+                      finalPhotos,
                       scoringType === "duration" ? metricVal : null,
                       scoringType === "distance" ? metricVal : null,
                       scoringType === "steps" ? metricVal : null,
                       scoringType === "calories" ? metricVal : null,
+                      selectedRoutine?.completedAt || null,
                     );
 
                     setGroupCheckIns((prev) => [checkIn, ...prev]);
@@ -3647,11 +3861,16 @@ export default function Community() {
         }}
       />
 
-      {/* Reaction Viewer — who reacted with a specific emoji */}
+      {/* Reaction Viewer — who reacted with a specific emoji. Same z-index
+          fix as the Participant Details Modal below: the base DrawerContent
+          defaults to z-[310] with a z-[300] overlay (see
+          client/components/ui/drawer.tsx) — the old z-[110] here put this
+          drawer's own content *under* its own backdrop. */}
       <Drawer open={!!reactionViewerState} onOpenChange={(open) => { if (!open) setReactionViewerState(null); }}>
         <DrawerContent
           {...GLASS_SHEET_PROPS}
-          className="flex flex-col !rounded-t-[32px] !border-0 z-[110]"
+          className="flex flex-col !rounded-t-[32px] !border-0 z-[330]"
+          overlayClassName="z-[320]"
           style={{ ...GLASS_SHEET_STYLE, maxHeight: "60dvh" }}
           onOpenAutoFocus={(e) => e.preventDefault()}
         >
@@ -3758,11 +3977,11 @@ export default function Community() {
                     className="h-8 w-8 flex-shrink-0"
                   />
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 flex-wrap">
                       <span className="text-sm font-semibold truncate text-white">{selectedCheckInForDetail.userName}</span>
-                      {selectedCheckInForDetail.muscleGroup && (
-                        <span className="text-[10px] bg-brand/15 text-brand px-1 py-0.5 rounded-full shrink-0 leading-none">{selectedCheckInForDetail.muscleGroup}</span>
-                      )}
+                      {selectedCheckInForDetail.muscleGroups.map((mg) => (
+                        <span key={mg} className="text-[10px] bg-brand/15 text-brand px-1 py-0.5 rounded-full shrink-0 leading-none">{mg}</span>
+                      ))}
                     </div>
                     <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>
                       {new Date(selectedCheckInForDetail.createdAt).toLocaleDateString("pt-BR", { day: "numeric", month: "short" })} · {new Date(selectedCheckInForDetail.createdAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
@@ -3776,6 +3995,7 @@ export default function Community() {
                     photos={selectedCheckInForDetail.photos || [selectedCheckInForDetail.photo]}
                     alt="check-in"
                     objectFit="contain"
+                    priority
                   />
                 ) : selectedCheckInForDetail.photo ? (
                   <div className="relative rounded-2xl overflow-hidden aspect-square md:aspect-auto md:h-[400px] bg-slate-950/40 flex-shrink-0 flex items-center justify-center">
@@ -4058,8 +4278,8 @@ export default function Community() {
         >
           <DrawerHeader className="shrink-0 flex flex-row items-center justify-between pr-4">
             <div>
-              <DrawerTitle className="text-white">Detalhes do Grupo</DrawerTitle>
-              <DrawerDescription className="sr-only">Informações e estatísticas do grupo</DrawerDescription>
+              <DrawerTitle className="text-white">{t("duels_group_details_title")}</DrawerTitle>
+              <DrawerDescription className="sr-only">{t("duels_group_details_desc")}</DrawerDescription>
             </div>
             {selectedGroupForView?.createdBy === user?.id && !isEditingGroupInfo && (
               <Button
@@ -4073,7 +4293,7 @@ export default function Community() {
                 }}
               >
                 <Edit3 className="h-3.5 w-3.5" />
-                Editar
+                {t("duels_group_edit")}
               </Button>
             )}
           </DrawerHeader>
@@ -4083,7 +4303,7 @@ export default function Community() {
               <div className="space-y-4">
                 {/* Group Name */}
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-muted-foreground">Nome do Grupo</label>
+                  <label className="text-sm font-medium text-muted-foreground">{t("duels_group_name_label")}</label>
                   {isEditingGroupInfo ? (
                     <Input
                       value={editGroupName}
@@ -4100,7 +4320,7 @@ export default function Community() {
 
                 {/* Location */}
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-muted-foreground">Local</label>
+                  <label className="text-sm font-medium text-muted-foreground">{t("duels_group_location_label")}</label>
                   <div className="p-3 rounded-lg bg-muted/20">
                     <p className="text-sm">📍 {selectedGroupForView.city}</p>
                   </div>
@@ -4108,7 +4328,7 @@ export default function Community() {
 
                 {/* Goal */}
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-muted-foreground">Objetivo</label>
+                  <label className="text-sm font-medium text-muted-foreground">{t("duels_group_goal_label")}</label>
                   {isEditingGroupInfo ? (
                     <Textarea
                       value={editGroupGoal}
@@ -4124,10 +4344,26 @@ export default function Community() {
                   )}
                 </div>
 
+                {/* Modality — scoring type used by the group */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-muted-foreground">{t("duels_group_modality_label")}</label>
+                  <div className="p-3 rounded-lg bg-muted/20 flex items-center gap-2.5">
+                    {(() => {
+                      const opt = DUEL_SCORING_TYPE_OPTIONS.find((o) => o.value === (selectedGroupForView.scoringType || "check_in_count")) ?? DUEL_SCORING_TYPE_OPTIONS[0];
+                      return (
+                        <>
+                          <span className="text-base leading-none">{opt.icon}</span>
+                          <p className="text-sm font-medium">{t(opt.titleKey)}</p>
+                        </>
+                      );
+                    })()}
+                  </div>
+                </div>
+
                 {/* Meme Rule — shown when scoring is memes */}
                 {selectedGroupForView?.scoringType === "memes" && selectedGroupForView?.memeRule && (
                   <div className="space-y-1">
-                    <label className="text-xs font-medium text-muted-foreground">🎭 Regra do desafio</label>
+                    <label className="text-xs font-medium text-muted-foreground">{t("duels_group_meme_rule_label")}</label>
                     <div className="p-3 rounded-lg bg-brand/5 border border-brand/20">
                       <p className="text-sm">{selectedGroupForView.memeRule}</p>
                     </div>
@@ -4137,7 +4373,7 @@ export default function Community() {
                 {/* Dates */}
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
-                    <label className="text-xs font-medium text-muted-foreground">Início</label>
+                    <label className="text-xs font-medium text-muted-foreground">{t("duels_group_start_label")}</label>
                     <div className="p-3 rounded-lg bg-muted/20">
                       <p className="text-sm">
                         {selectedGroupForView.createdAt
@@ -4147,12 +4383,12 @@ export default function Community() {
                     </div>
                   </div>
                   <div className="space-y-1">
-                    <label className="text-xs font-medium text-muted-foreground">Encerramento</label>
+                    <label className="text-xs font-medium text-muted-foreground">{t("duels_group_end_label")}</label>
                     <div className="p-3 rounded-lg bg-muted/20">
                       <p className="text-sm">
                         {selectedGroupForView.endDate
                           ? new Date(selectedGroupForView.endDate).toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" })
-                          : "Sem prazo"}
+                          : t("duels_group_no_deadline")}
                       </p>
                     </div>
                   </div>
@@ -4167,7 +4403,7 @@ export default function Community() {
                       onClick={() => setIsEditingGroupInfo(false)}
                       disabled={isSavingGroupInfo}
                     >
-                      Cancelar
+                      {t("cancel")}
                     </Button>
                     <Button
                       className="flex-1 rounded-full border-0"
@@ -4182,15 +4418,15 @@ export default function Community() {
                           // Update the group in the lists
                           setUserCreatedGroups((prev) => prev.map((g) => g.id === selectedGroupForView.id ? { ...g, name: editGroupName.trim(), goal: editGroupGoal.trim(), description: editGroupGoal.trim() } : g));
                           setIsEditingGroupInfo(false);
-                          toast({ title: "Grupo atualizado!", description: "Nome e objetivo salvos com sucesso." });
+                          toast({ title: t("duels_group_updated_title"), description: t("duels_group_updated_desc") });
                         } catch (error: any) {
-                          toast({ title: "Erro ao salvar", description: error?.message || "Tente novamente.", variant: "destructive" });
+                          toast({ title: t("duels_group_save_error"), description: error?.message || t("duels_group_retry"), variant: "destructive" });
                         } finally {
                           setIsSavingGroupInfo(false);
                         }
                       }}
                     >
-                      {isSavingGroupInfo ? "Salvando..." : "Salvar"}
+                      {isSavingGroupInfo ? t("duels_group_saving") : t("duels_group_save")}
                     </Button>
                   </div>
                 )}
@@ -4206,7 +4442,7 @@ export default function Community() {
                           className="w-full rounded-full gap-2"
                         >
                           <Trash2 className="h-4 w-4" />
-                          Apagar Grupo
+                          {t("duels_group_delete_btn")}
                         </Button>
                       </>
                     ) : (
@@ -4215,7 +4451,7 @@ export default function Community() {
                         variant="outline"
                         className="w-full rounded-full gap-2 bg-transparent border-white/20 text-white hover:bg-white/10 hover:text-white"
                       >
-                        Sair do Grupo
+                        {t("duels_group_leave_btn")}
                       </Button>
                     )}
                   </div>
@@ -4228,11 +4464,11 @@ export default function Community() {
           <AlertDialog open={deleteGroupConfirmOpen} onOpenChange={setDeleteGroupConfirmOpen}>
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>Apagar grupo</AlertDialogTitle>
-                <AlertDialogDescription>Tem certeza que deseja apagar este grupo? Esta ação é irreversível.</AlertDialogDescription>
+                <AlertDialogTitle>{t("duels_group_delete_confirm_title")}</AlertDialogTitle>
+                <AlertDialogDescription>{t("duels_group_delete_confirm_desc")}</AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
                 <AlertDialogAction
                   className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                   onClick={async (e) => {
@@ -4242,7 +4478,7 @@ export default function Community() {
                     const groupId = selectedGroupForView.id;
                     try {
                       await deleteGroupDb(groupId);
-                      toast({ title: "Grupo apagado!", description: "O grupo foi removido com sucesso." });
+                      toast({ title: t("duels_group_deleted_title"), description: t("duels_group_deleted_desc") });
                       setIsGroupDetailsOpen(false);
                       setSelectedGroupForView(null);
                       setGroupCheckIns([]);
@@ -4252,11 +4488,11 @@ export default function Community() {
                       setJoinedGroupIds(new Set(enriched.filter((g) => g.isAlreadyMember).map((g) => g.id)));
                       setAvailableGroups(enriched.filter((g) => !g.isAlreadyMember).map(toGroupCard));
                     } catch (error: any) {
-                      toast({ title: "Erro ao apagar grupo", description: error?.message || "Tente novamente.", variant: "destructive" });
+                      toast({ title: t("duels_group_delete_error"), description: error?.message || t("duels_group_retry"), variant: "destructive" });
                     }
                   }}
                 >
-                  Apagar
+                  {t("duels_group_delete_action")}
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
@@ -4266,11 +4502,11 @@ export default function Community() {
           <AlertDialog open={leaveGroupConfirmOpen} onOpenChange={setLeaveGroupConfirmOpen}>
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>Sair do grupo</AlertDialogTitle>
-                <AlertDialogDescription>Tem certeza que deseja sair deste grupo?</AlertDialogDescription>
+                <AlertDialogTitle>{t("duels_group_leave_confirm_title")}</AlertDialogTitle>
+                <AlertDialogDescription>{t("duels_group_leave_confirm_desc")}</AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
                 <AlertDialogAction
                   onClick={async (e) => {
                     e.preventDefault();
@@ -4279,7 +4515,7 @@ export default function Community() {
                     const groupId = selectedGroupForView.id;
                     try {
                       await leaveGroupDb(groupId);
-                      toast({ title: "Você saiu do grupo!", description: "Você não é mais participante deste grupo." });
+                      toast({ title: t("duels_group_left_title"), description: t("duels_group_left_desc") });
                       setIsGroupDetailsOpen(false);
                       setSelectedGroupForView(null);
                       setGroupCheckIns([]);
@@ -4295,11 +4531,11 @@ export default function Community() {
                         }).catch(() => { });
                       }
                     } catch (error: any) {
-                      toast({ title: "Erro ao sair do grupo", description: error?.message || "Tente novamente.", variant: "destructive" });
+                      toast({ title: t("duels_group_leave_error"), description: error?.message || t("duels_group_retry"), variant: "destructive" });
                     }
                   }}
                 >
-                  Sair
+                  {t("duels_group_leave_action")}
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
@@ -4443,11 +4679,14 @@ export default function Community() {
         </DrawerContent>
       </Drawer>
 
-      {/* Participant Details Modal */}
+      {/* Participant Details Modal — opens while the Participants list Drawer
+          (default z-300/310, see client/components/ui/drawer.tsx) stays open
+          behind it, so it needs to sit strictly above that, not below it. */}
       <Drawer open={!!participantDetailsId} onOpenChange={(open) => !open && setParticipantDetailsId(null)}>
         <DrawerContent
           {...GLASS_SHEET_PROPS}
-          className="flex flex-col !rounded-t-[32px] !border-0 z-[110]"
+          className="flex flex-col !rounded-t-[32px] !border-0 z-[330]"
+          overlayClassName="z-[320]"
           style={{ ...GLASS_SHEET_STYLE, height: "95dvh", maxHeight: "95dvh" }}
           onOpenAutoFocus={(e) => e.preventDefault()}
         >

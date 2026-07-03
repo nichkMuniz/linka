@@ -1,5 +1,5 @@
 import * as React from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { useLanguage } from "@/lib/language-context";
 import { useWorkout } from "@/lib/workout-context";
@@ -29,6 +29,7 @@ import {
   updateRoutineItemsScheduledTimeDb,
   updateRoutineItemsScheduledDaysDb,
   updateRoutineGoalDb,
+  updateRoutineLastSummaryDb,
   updateUserGoalDb,
   deleteUserGoalDb,
   getEnrichedDuelGroupsDb,
@@ -133,6 +134,7 @@ export default function Goals() {
   const { user } = useAuth();
   const { t } = useLanguage();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const {
     workoutModalOpen,
     setWorkoutModalOpen,
@@ -176,6 +178,8 @@ export default function Goals() {
   const [createGoalFlow, setCreateGoalFlow] = React.useState(false);
   // tipo cuja lista de rotinas está aberta (null = fechado)
   const [listType, setListType] = React.useState<RoutineTypeCode | null>(null);
+  // rotina sendo editada (adicionar itens) via CreateWizardDrawer em modo "add items"
+  const [editRoutineCard, setEditRoutineCard] = React.useState<RoutineCard | null>(null);
   const [badgesOpen, setBadgesOpen] = React.useState(false);
   const [calendarOpen, setCalendarOpen] = React.useState(false);
   const [checkInDates, setCheckInDates] = React.useState<string[]>([]);
@@ -237,6 +241,23 @@ export default function Goals() {
     }
   }, [pendingReopen, setPendingReopen, setWorkoutModalOpen]);
 
+  // Chegando de outra tela (ex.: Novo Post) pedindo para já abrir o wizard de criação de meta
+  React.useEffect(() => {
+    if (searchParams.get("action") === "create-goal") {
+      setCreateGoalFlow(true);
+      setCreateType(null);
+      setCreateOpen(true);
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete("action");
+          return next;
+        },
+        { replace: true },
+      );
+    }
+  }, [searchParams, setSearchParams]);
+
   // Cards derivados
   const cards = React.useMemo(
     () => buildRoutineCards(routines, workouts, diets, habits),
@@ -246,6 +267,24 @@ export default function Goals() {
 
   const selectedCard = cards.find((c) => c.key === selectedCardKey) ?? null;
   const selectedGoal = userGoals.find((g) => g.id === selectedGoalId) ?? null;
+  // Alvo do CreateWizardDrawer em modo "adicionar itens" — memoizado pelo card
+  // para não resetar a seleção do usuário a cada re-render enquanto o drawer está aberto.
+  const editRoutineTarget = React.useMemo(
+    () =>
+      editRoutineCard
+        ? {
+            type: editRoutineCard.type,
+            name: editRoutineCard.name,
+            routineId: editRoutineCard.routineId,
+            existingItemIds: editRoutineCard.items.map((i) =>
+              i.kind === "workout" ? i.workout_id : i.kind === "diet" ? i.diet_id : i.habit_id,
+            ),
+            scheduledTime: editRoutineCard.scheduledTime,
+            scheduledDays: editRoutineCard.scheduledDays,
+          }
+        : null,
+    [editRoutineCard],
+  );
   const activeWorkoutCard =
     cards.find((c) => c.key === sessionCardKey) ??
     workoutCards.find((c) => (c.name ?? "__unnamed__") === selectedRoutineName) ??
@@ -385,6 +424,25 @@ export default function Goals() {
       userGroups: [],
     });
 
+    // Snapshot persistido na rotina — sobrescreve o resumo anterior (sempre o
+    // mais recente) para alimentar o ícone de "resumo do treino" no detalhe da
+    // rotina. Disparado sem bloquear a UI; badges chegam depois (ver abaixo).
+    const persistSummary = (badges: string[]) => {
+      if (!card?.routineId) return;
+      updateRoutineLastSummaryDb(card.routineId, {
+        routineName: card.name ?? t("goals_rt_exercises"),
+        totalSeries: summary.totalSeries,
+        totalVolume: summary.totalVolume,
+        durationSecs: summary.durationSecs,
+        badges,
+        completedExercises: summary.completedExercises,
+        prExercises: summary.prExercises,
+        machinedExercises: summary.machinedExercises,
+        completedAt: new Date().toISOString(),
+      }).catch(() => { /* resumo persistido é best-effort */ });
+    };
+    persistSummary([]);
+
     if (!user) return;
 
     // Enriquecimento em segundo plano: check-in, badges e duelos. Quando
@@ -396,6 +454,7 @@ export default function Goals() {
         setSummaryData((prev) =>
           prev ? { ...prev, badges: awarded.map((b) => b.name) } : prev,
         );
+        persistSummary(awarded.map((b) => b.name));
         // Adiado: as insígnias são Radix Dialog e ficariam atrás do resumo; só
         // exibimos quando o resumo for fechado (ver onClose do overlay).
         setPendingBadges(awarded);
@@ -428,6 +487,28 @@ export default function Goals() {
       }
     }
     loadData();
+  };
+
+  // Reabre o resumo do último treino finalizado desta rotina (ícone no
+  // detalhe da rotina) — mesmo overlay do fluxo de "Finalizar", só que sem
+  // disparar check-in/badges/progresso de meta de novo (já aconteceram na
+  // época). userGroups é resolvido de novo para refletir os duelos atuais.
+  const handleViewRoutineSummary = (card: RoutineCard) => {
+    if (!card.lastSummary) return;
+    setSummaryData({
+      ...card.lastSummary,
+      userId: user?.id ?? "",
+      userGroups: [],
+    });
+    if (!user) return;
+    getEnrichedDuelGroupsDb(user.id)
+      .then(({ myGroups }) => {
+        const userGroups = myGroups.map((g) => ({ id: g.id, name: g.name }));
+        if (userGroups.length > 0) {
+          setSummaryData((prev) => (prev ? { ...prev, userGroups } : prev));
+        }
+      })
+      .catch(() => { /* sem duelos — botão simplesmente não aparece */ });
   };
 
   const handleToggleItem = async (card: RoutineCard, item: RoutineItem, completed: boolean) => {
@@ -617,8 +698,13 @@ export default function Goals() {
       {/* ── Overlays e drawers ── */}
       {user && (
         <CreateWizardDrawer
-          open={createOpen}
-          onOpenChange={setCreateOpen}
+          open={createOpen || editRoutineCard !== null}
+          onOpenChange={(o) => {
+            if (!o) {
+              setCreateOpen(false);
+              setEditRoutineCard(null);
+            }
+          }}
           userId={user.id}
           userGoals={userGoals}
           initialStep={
@@ -631,8 +717,10 @@ export default function Goals() {
                   : "what"
           }
           initialRoutineType={createType ?? 1}
+          editRoutine={editRoutineTarget}
           onCreated={() => {
             setCreateOpen(false);
+            setEditRoutineCard(null);
             loadData();
           }}
         />
@@ -656,6 +744,8 @@ export default function Goals() {
         userGoals={userGoals}
         onClose={() => setSelectedCardKey(null)}
         onStartWorkout={handleStartWorkout}
+        onViewSummary={handleViewRoutineSummary}
+        onAddItems={(card) => setEditRoutineCard(card)}
         onToggleItem={handleToggleItem}
         onDeleteItem={handleDeleteItem}
         onRename={handleRename}

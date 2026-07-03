@@ -1,21 +1,21 @@
 import * as React from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { getPostByIdDb, getPostLikeUsersDb, getPostLikesDb, getUserPostLikesDb, togglePostIncentiveDb, getUserGoalByIdDb, deletePostDb, flushPendingIncentivesDb, type PostWithUser, type PostLikeStats, type PostIncentiveType, type UserGoal } from "@/lib/ritmofit-db";
-import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { useLanguage } from "@/lib/language-context";
-import { ArrowLeft, Edit2, Trash2, MoreVertical, Target } from "lucide-react";
+import { ArrowLeft, Edit2, Trash2, MoreVertical } from "lucide-react";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
 import { PostCarousel } from "@/components/post/post-carousel";
-import { formatTimeAgo } from "@/lib/utils";
+import { formatTimeAgo, cn } from "@/lib/utils";
 import { PostIncentiveButton } from "@/components/shared/post-incentive-button";
 import { PostCommentsDialog } from "@/components/modals/post-comments-dialog";
 import { PostDetailSkeleton } from "@/components/shared/animated-loading";
 import { PostLikesModal } from "@/components/modals/post-likes-modal";
 import { EditPostDrawer } from "@/components/post/edit-post-drawer";
+import { getPostGradient, GLASS_TOP, GLASS_ACTION, DESC_MAX_CHARS, renderWithHashtags } from "@/lib/post-visuals";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -48,6 +48,8 @@ export default function PostDetail() {
   const [likeStats, setLikeStats] = React.useState<PostLikeStats>({ apoio: 0, continua: 0, ganhador: 0, consegueMais: 0, limiteMaior: 0, maisAlgum: 0 });
   const [userLikes, setUserLikes] = React.useState<PostIncentiveType[]>([]);
   const [togglingIncentives, setTogglingIncentives] = React.useState<Set<number>>(new Set());
+  const [descExpanded, setDescExpanded] = React.useState(false);
+  const [carouselIndex, setCarouselIndex] = React.useState(0);
 
   // Edit post state
   const [editDialogOpen, setEditDialogOpen] = React.useState(false);
@@ -121,6 +123,15 @@ export default function PostDetail() {
 
   const totalLikes = likeStats.apoio + likeStats.continua + likeStats.ganhador + likeStats.consegueMais + likeStats.limiteMaior + likeStats.maisAlgum;
 
+  const description = post?.description ?? "";
+  const isDescTruncatable = description.includes("\n") || description.length > DESC_MAX_CHARS;
+  const truncatedDescription = description.length > DESC_MAX_CHARS
+    ? description.slice(0, DESC_MAX_CHARS).trimEnd()
+    : description.split("\n")[0] ?? "";
+  const photos = post?.photos && post.photos.length > 0
+    ? post.photos
+    : post?.photo ? [post.photo] : null;
+
   const handleOpenLikesModal = async () => {
     await flushPendingIncentivesDb(post!.id);
     const likes = await getPostLikeUsersDb(post!.id);
@@ -177,9 +188,18 @@ export default function PostDetail() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div
+      className="flex flex-col overflow-hidden bg-background"
+      style={{
+        // A tela sempre mostra exatamente 1 post — sem necessidade de scroll.
+        // Reserva a mesma altura de chrome (header flutuante + bottom nav do AppLayout)
+        // que já é aplicada via padding em <main> (client/components/layout/app-layout.tsx),
+        // para que header próprio + card do post preencham o restante sem estourar a viewport.
+        height: "calc(100dvh - max(14px, env(safe-area-inset-top) + 6px) - 52px - 12px - env(safe-area-inset-bottom) - 100px)",
+      }}
+    >
       {/* Header */}
-      <div className="sticky top-0 z-40 border-b border-border/60 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 px-4 py-3" style={{ paddingTop: "max(0.75rem, env(safe-area-inset-top))" }}>
+      <div className="shrink-0 border-b border-border/60 px-4 py-3">
         <div className="flex items-center gap-3 max-w-2xl mx-auto">
           <Button
             variant="ghost"
@@ -193,135 +213,203 @@ export default function PostDetail() {
       </div>
 
       {/* Post Detail */}
-      <div className="max-w-2xl mx-auto px-4 py-6">
-        <Card className="border-border/60 relative overflow-hidden">
-          <CardContent className="space-y-3 p-0">
-            {/* Image + overlay */}
-            <div className="relative">
-              {post.photos && post.photos.length > 0 ? (
-                <PostCarousel photos={post.photos} alt="Post" />
-              ) : post.photo ? (
-                <PostCarousel photos={[post.photo]} alt="Post" />
-              ) : (
-                <div className="relative w-full min-h-[56px] bg-muted/30 rounded-lg" />
-              )}
+      <div className="flex-1 min-h-0 max-w-2xl mx-auto w-full px-4 py-4 flex">
+        <div className="relative overflow-hidden fade-in w-full h-full" style={{ borderRadius: "28px", boxShadow: "0 20px 44px -16px rgba(0,0,0,.7)" }}>
+          {photos ? (
+            <PostCarousel
+              photos={photos}
+              alt="Post"
+              objectFit="cover"
+              hideDots
+              fill
+              onIndexChange={setCarouselIndex}
+            />
+          ) : (
+            <div className="w-full h-full" style={{ background: getPostGradient(post.id) }} />
+          )}
 
-              {/* User info overlay */}
-              <div className="absolute bottom-0 left-0 right-0 flex items-end justify-between gap-2 p-3 bg-gradient-to-t from-black/60 via-black/30 to-transparent">
-                <button
-                  onClick={() => navigate(`/usuario/${post.user_id}`)}
-                  className="flex items-center gap-2 hover:opacity-80 transition-opacity min-w-0 flex-1"
-                >
-                  <UserAvatar
-                    photo={post.userPhoto}
-                    nickname={post.userNickname}
-                    size="sm"
-                    className="border border-white/30 shrink-0"
-                  />
-                  <div className="flex items-center gap-1 bg-black/40 backdrop-blur-sm rounded-full px-2 py-0.5 min-w-0">
-                    {post.isVerified && <VerifiedBadge size="sm" />}
-                    <span className="text-xs font-medium text-white leading-none truncate">
-                      {post.userNickname}
-                    </span>
-                  </div>
-                </button>
+          {/* Dark gradient overlay */}
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={{ background: "linear-gradient(to bottom,rgba(0,0,0,.1) 0%,transparent 28%,transparent 55%,rgba(0,0,0,.65) 100%)" }}
+          />
 
-                {/* Context menu */}
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-white hover:bg-white/20"
-                    >
-                      <MoreVertical className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-44">
-                    {post.user_id === user?.id ? (
-                      <>
-                        <DropdownMenuItem onSelect={handleEditOpen}>
-                          <Edit2 className="h-4 w-4 mr-2" />
-                          {t("post_edit_label")}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onSelect={() => setDeleteDialogOpen(true)}
-                          className="text-red-500 focus:text-red-500 focus:bg-red-50 dark:focus:bg-red-950"
-                        >
-                          <Trash2 className="h-4 w-4 mr-2" />
-                          {t("post_delete_label")}
-                        </DropdownMenuItem>
-                      </>
-                    ) : null}
-                  </DropdownMenuContent>
-                </DropdownMenu>
+          {/* Compact pill — user identity (top-left) */}
+          <div
+            className="absolute top-3 left-3 inline-flex items-center gap-2 pointer-events-auto z-10"
+            style={{ height: "44px", borderRadius: "22px", padding: "0 12px 0 6px", ...GLASS_TOP }}
+          >
+            <button
+              className="flex-shrink-0 active:opacity-70 transition-opacity"
+              onClick={() => navigate(`/usuario/${post.user_id}`)}
+            >
+              <UserAvatar
+                photo={post.userPhoto}
+                nickname={post.userNickname}
+                size="sm"
+                className="border border-white/30"
+              />
+            </button>
+
+            <button
+              className="min-w-0 text-left active:opacity-70 transition-opacity"
+              onClick={() => navigate(`/usuario/${post.user_id}`)}
+            >
+              <div className="text-[13px] font-semibold text-white flex items-center gap-1 leading-tight" style={{ maxWidth: "160px" }}>
+                <span className="truncate">{post.userNickname}</span>
+                {post.isVerified && <VerifiedBadge size="sm" />}
               </div>
-            </div>
+              <div className="text-[10.5px] text-white/60 leading-tight">{formatTimeAgo(post.created_at)}</div>
+            </button>
 
-            {/* Incentive buttons + comments */}
-            <div className="flex items-center px-2 pt-1 pb-0.5">
-              {([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => (
-                <PostIncentiveButton
-                  key={type}
-                  type={type}
-                  isActive={userLikes.includes(type)}
-                  onClick={() => handleToggleIncentive(type)}
-                  loading={togglingIncentives.has(type)}
-                />
-              ))}
-              <div className="ml-auto">
-                <PostCommentsDialog
-                  postId={post.id}
-                  commentCount={0}
-                  hasActivity={false}
-                  isPostOwner={post.user_id === user?.id}
-                  defaultOpen={navState?.openComments === true}
-                />
-              </div>
-            </div>
-
-            {/* Like count + timestamp */}
-            <div className="flex items-center gap-2 px-3 pb-1">
-              {totalLikes > 0 && (
-                <button
-                  onClick={handleOpenLikesModal}
-                  className="text-xs font-semibold text-foreground hover:text-brand transition-colors"
-                >
-                  {t("post_incentives_count").replace("{n}", String(totalLikes))}
-                </button>
-              )}
-              <span className="text-xs text-muted-foreground ml-auto">
-                {formatTimeAgo(post.created_at)}
+            {postGoal && (
+              <span
+                className="flex-shrink-0 text-[10.5px] font-semibold text-white px-2 py-0.5 rounded-full"
+                style={{ background: "rgba(255,255,255,.16)", border: "1px solid rgba(255,255,255,.18)" }}
+              >
+                🎯 {Math.round(Math.min(100, Math.max(0, postGoal.perc ?? 0)))}%
               </span>
+            )}
+          </div>
+
+          {/* Context menu (top-right) — owner only */}
+          {post.user_id === user?.id && (
+            <div className="absolute top-3 right-3 z-10">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="flex items-center justify-center text-white active:scale-90 transition-transform"
+                    style={{ width: 36, height: 36, borderRadius: "50%", background: "rgba(0,0,0,.28)", backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)", border: "1px solid rgba(255,255,255,.16)" }}
+                  >
+                    <MoreVertical className="h-4 w-4" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-44">
+                  <DropdownMenuItem onSelect={handleEditOpen}>
+                    <Edit2 className="h-4 w-4 mr-2" />
+                    {t("post_edit_label")}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => setDeleteDialogOpen(true)}
+                    className="text-red-500 focus:text-red-500 focus:bg-red-50 dark:focus:bg-red-950"
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    {t("post_delete_label")}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
+          )}
 
-            {/* Description + goal */}
-            <div className="px-3 pb-3 space-y-2">
-              {post.description && (
-                <p className="text-sm leading-relaxed text-foreground whitespace-pre-wrap">
-                  {post.description}
-                </p>
-              )}
+          {/* Bottom: description + glass action bar */}
+          <div className="absolute bottom-3 left-3 right-3 z-10 pointer-events-auto">
+            {/* Description */}
+            {description && (
+              <p
+                className={cn(
+                  "text-[13px] text-white leading-snug mb-2.5 px-1",
+                  isDescTruncatable && "cursor-pointer",
+                  isDescTruncatable && descExpanded && "max-h-[40vh] overflow-y-auto",
+                )}
+                style={{
+                  textShadow: "0 1px 8px rgba(0,0,0,.5)",
+                  ...(isDescTruncatable && descExpanded ? {
+                    background: "rgba(0,0,0,.45)",
+                    backdropFilter: "blur(14px)",
+                    WebkitBackdropFilter: "blur(14px)",
+                    borderRadius: "14px",
+                    padding: "8px 12px",
+                    marginBottom: "10px",
+                  } : {}),
+                }}
+                onClick={() => { if (isDescTruncatable) setDescExpanded((v) => !v); }}
+              >
+                {!isDescTruncatable || descExpanded ? (
+                  <>
+                    {renderWithHashtags(description)}
+                    {isDescTruncatable && descExpanded && (
+                      <> <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setDescExpanded(false); }}
+                        className="text-white/50"
+                      >
+                        {t("feed_description_less")}
+                      </button></>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    {renderWithHashtags(truncatedDescription)}
+                    {"... "}
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setDescExpanded(true); }}
+                      className="text-white/50"
+                    >
+                      {t("feed_description_more")}
+                    </button>
+                  </>
+                )}
+              </p>
+            )}
 
-              {postGoal && (
-                <div className="w-full text-left">
-                  <div className="flex items-center gap-1.5 mb-1">
-                    <Target className="h-3 w-3 text-brand flex-shrink-0" />
-                    <span className="text-xs font-medium text-foreground truncate flex-1">
-                      {postGoal.description}
-                    </span>
-                  </div>
-                  <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
-                    <div
-                      className="bg-brand h-full rounded-full"
-                      style={{ width: `${Math.min(100, Math.max(0, postGoal.perc ?? 0))}%` }}
-                    />
-                  </div>
+            {/* Carousel indicator — sits right above the incentive action bar */}
+            {photos && photos.length > 1 && (
+              <div className="flex justify-center gap-1 mb-2.5 pointer-events-none">
+                {photos.map((_, index) => (
+                  <div
+                    key={index}
+                    className={cn(
+                      "h-1.5 rounded-full transition-all duration-200",
+                      carouselIndex === index ? "w-4 bg-white" : "w-1.5 bg-white/50",
+                    )}
+                    style={{ boxShadow: "0 1px 4px rgba(0,0,0,.45)" }}
+                  />
+                ))}
+              </div>
+            )}
+
+            {/* Glass action bar */}
+            <div
+              className="flex items-center justify-between px-1.5"
+              style={{ height: "52px", borderRadius: "26px", ...GLASS_ACTION }}
+            >
+              <div className="flex gap-1.5">
+                {([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => (
+                  <PostIncentiveButton
+                    key={type}
+                    type={type}
+                    isActive={userLikes.includes(type)}
+                    onClick={() => handleToggleIncentive(type)}
+                    loading={togglingIncentives.has(type)}
+                  />
+                ))}
+              </div>
+
+              <div className="flex items-center gap-2 pr-1 text-white">
+                {totalLikes > 0 && (
+                  <button
+                    onClick={handleOpenLikesModal}
+                    className="text-[13px] font-semibold text-white"
+                  >
+                    {totalLikes}
+                  </button>
+                )}
+                <span className="h-[18px] w-px" style={{ background: "rgba(255,255,255,.2)" }} />
+                <div className="flex items-center gap-1 text-white">
+                  <PostCommentsDialog
+                    postId={post.id}
+                    commentCount={0}
+                    hasActivity={false}
+                    isPostOwner={post.user_id === user?.id}
+                    defaultOpen={navState?.openComments === true}
+                  />
                 </div>
-              )}
+              </div>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
 
       <PostLikesModal

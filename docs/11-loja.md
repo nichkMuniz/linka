@@ -84,7 +84,7 @@ Cada tab exibe um badge com o total de itens carregados. O botão "+ Publicar" s
 
 - Qualquer usuário pode ler os comentários (sem login)
 - Usuários autenticados podem comentar, editar e excluir os próprios comentários
-- Drawer bottom-sheet (`max-h-[85dvh]`), abre ao tocar no ícone `MessageCircle`
+- Drawer bottom-sheet com altura **fixa** (`min(60dvh, viewportHeight - 8px)`, independente de ter ou não comentários — evita o drawer "pulando" de tamanho quando o primeiro comentário é postado), abre ao tocar no ícone `MessageCircle`
 - Contagem de comentários (`comments_count`) exibida ao lado do ícone
 - Suporta edição inline (textarea substituível) e exclusão com `confirm()`
 - Enter sem Shift envia/salva; Escape cancela edição

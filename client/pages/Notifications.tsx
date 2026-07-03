@@ -417,8 +417,8 @@ export default function Notifications() {
         // Comment on shot → open shots screen with comment drawer open for that shot
         navigate("/shots", { state: { openComments: true, shotId: notification.shotId } });
       } else {
-        // Incentive on shot → navigate to shots screen
-        navigate("/shots", { state: { shotId: notification.shotId } });
+        // Incentive on shot → navigate to shots screen with incentives drawer open
+        navigate("/shots", { state: { openIncentives: true, shotId: notification.shotId } });
       }
     }
     // Type 3 (comment) - navigate to post and open comments modal

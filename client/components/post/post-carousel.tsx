@@ -5,8 +5,11 @@ import { cdnImg } from "@/lib/image-url";
 // Post photos are bounded by the post card width (max ~600px CSS on web,
 // ~430px on phones). Cap at 900px source so the WebView doesn't download the
 // 2-4MB original when the rendered box never exceeds ~900px after DPR.
-const POST_PHOTO_WIDTH = 900;
-const POST_PHOTO_QUALITY = 72;
+// Exported so callers can prefetch (`new Image().src = cdnImg(url, {...})`)
+// the exact same transformed URL this component will request — see
+// `handleCheckInTouchStart`-adjacent prefetch in Community.tsx.
+export const POST_PHOTO_WIDTH = 900;
+export const POST_PHOTO_QUALITY = 72;
 
 interface PostCarouselProps {
   photos: string[];
@@ -19,8 +22,14 @@ interface PostCarouselProps {
   onIndexChange?: (index: number) => void;
   /** Oculta os dots internos quando o indicador é renderizado externamente. */
   hideDots?: boolean;
+  /** Oculta o contador "1/3" no canto superior direito — usar quando esse canto já tem outro elemento sobreposto (ex: menu de opções do post). */
+  hideCounter?: boolean;
   /** Frame alto ocupando a maior parte da viewport (usado no feed para "1 post por tela"). */
   tall?: boolean;
+  /** Preenche 100% da altura do container pai (usado quando o pai já controla a altura via flexbox, ex: tela de detalhe do post). Tem prioridade sobre `tall`. */
+  fill?: boolean;
+  /** A primeira foto carrega "eager" mesmo com uma única imagem — usar quando o carrossel já abre visível (modal/drawer de detalhe), onde "lazy" só atrasa o fetch à toa. */
+  priority?: boolean;
 }
 
 function getPinchDist(touches: React.TouchList | TouchList) {
@@ -42,7 +51,11 @@ function getPinchOrigin(touches: React.TouchList | TouchList, rect: DOMRect) {
 // demais (ex.: canvas quadrado de treino dentro do frame alto do feed) — nesse
 // caso a foto passa a usar "contain" (inteira, sem corte) com um fundo
 // desfocado da própria imagem preenchendo o frame.
-const ADAPTIVE_FIT_LOG_THRESHOLD = 0.35;
+// Calibrado para pegar o canvas quadrado (1:1) do resumo de treino: nos
+// tamanhos de tela do iPhone o desvio real desse caso fica entre ~0.19 e
+// ~0.23 (frame "tall" do feed nunca é exatamente quadrado), então o limite
+// precisa ficar abaixo disso para o card de treino nunca ser cortado.
+const ADAPTIVE_FIT_LOG_THRESHOLD = 0.18;
 
 function ZoomableImage({
   src,
@@ -62,10 +75,12 @@ function ZoomableImage({
   const [origin, setOrigin] = React.useState({ x: 50, y: 50 });
   const [isPinching, setIsPinching] = React.useState(false);
   const [fitMode, setFitMode] = React.useState<"cover" | "contain">("cover");
+  const [loaded, setLoaded] = React.useState(false);
   const pinch = React.useRef({ active: false, startDist: 0, baseScale: 1 });
   const containerRef = React.useRef<HTMLDivElement>(null);
 
   const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    setLoaded(true);
     if (!adaptiveFit) return;
     const img = e.currentTarget;
     const rect = containerRef.current?.getBoundingClientRect();
@@ -147,7 +162,11 @@ function ZoomableImage({
         style={{
           transform: `scale(${scale})`,
           transformOrigin: `${origin.x}% ${origin.y}%`,
-          transition: scale === 1 ? "transform 0.25s ease-out" : "none",
+          // Fade-in on load instead of popping in abruptly once the (possibly
+          // slow, first-time-transformed) CDN image finally arrives — the
+          // frame's background already fills the space so there's no blank flash.
+          opacity: loaded ? 1 : 0,
+          transition: `opacity 0.15s ease-out${scale === 1 ? ", transform 0.25s ease-out" : ""}`,
           userSelect: "none",
           // "pan-y" permite scroll vertical livre; apenas durante pinch bloqueamos tudo
           touchAction: isPinching ? "none" : "pan-y",
@@ -167,7 +186,10 @@ export function PostCarousel({
   objectFit = "cover",
   onIndexChange,
   hideDots,
+  hideCounter,
   tall,
+  fill,
+  priority,
 }: PostCarouselProps) {
   const [currentIndex, setCurrentIndex] = React.useState(0);
 
@@ -183,11 +205,11 @@ export function PostCarousel({
   // "tall" height fills exactly one viewport, accounting for header, stories, tabs, and bottom nav.
   // Formula: 100dvh minus header top offset, minus all fixed-height UI above/below the card (314px constant),
   // minus bottom safe area. maxHeight caps the frame on large screens/iPads.
-  const tallFrameStyle: React.CSSProperties = tall ? {
+  const tallFrameStyle: React.CSSProperties = tall && !fill ? {
     height: "calc(100dvh - max(14px, env(safe-area-inset-top) + 6px) - 314px - env(safe-area-inset-bottom))",
     maxHeight: "500px",
   } : {};
-  const sizeClass = tall ? "" : "aspect-square md:aspect-auto md:h-[450px]";
+  const sizeClass = fill ? "h-full" : tall ? "" : "aspect-square md:aspect-auto md:h-[450px]";
   const coverBox = `relative w-full ${sizeClass} ${frameBg} overflow-hidden rounded-lg`;
 
   if (!Array.isArray(photos)) {
@@ -201,7 +223,7 @@ export function PostCarousel({
   if (photos.length === 1) {
     return (
       <div className={coverBox} style={tallFrameStyle}>
-        <ZoomableImage src={photos[0]} alt={alt} className={imgClass} loading="lazy" adaptiveFit={tall} />
+        <ZoomableImage src={photos[0]} alt={alt} className={imgClass} loading={priority ? "eager" : "lazy"} adaptiveFit={tall} />
       </div>
     );
   }
@@ -326,11 +348,13 @@ export function PostCarousel({
       )}
 
       {/* Pill counter — top-right, never overlaps user info */}
-      <div className="absolute top-3 right-3 pointer-events-none">
-        <span className="text-white text-xs font-semibold bg-black/50 backdrop-blur-sm px-2.5 py-1 rounded-full">
-          {currentIndex + 1}/{photos.length}
-        </span>
-      </div>
+      {!hideCounter && (
+        <div className="absolute top-3 right-3 pointer-events-none">
+          <span className="text-white text-xs font-semibold bg-black/50 backdrop-blur-sm px-2.5 py-1 rounded-full">
+            {currentIndex + 1}/{photos.length}
+          </span>
+        </div>
+      )}
 
       {/* Dots — top-center (ocultados quando renderizados externamente acima do frame de ações) */}
       {!hideDots && (

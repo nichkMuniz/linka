@@ -67,7 +67,7 @@ export function AppLayout() {
   const { layoutMode } = useLayoutMode();
   const { t } = useLanguage();
   const {
-    workoutMinimized, setWorkoutMinimized, setPendingReopen,
+    workoutMinimized, setWorkoutMinimized, pendingReopen, setPendingReopen,
     globalRestTimerRemaining, globalRestTimerActive, globalRestTimerTotal, setGlobalRestTimerTotal,
     workoutSeries, resetWorkoutState,
   } = useWorkout();
@@ -88,6 +88,15 @@ export function AppLayout() {
       }
     }
   }, [globalRestTimerActive]);
+
+  // Sempre que algo sinalizar pendingReopen (ex: tap na notificação de fim de
+  // descanso, mesmo com o app relançado do zero), garante que o usuário seja
+  // levado até /metas para que o modal de treino reabra.
+  React.useEffect(() => {
+    if (pendingReopen && location.pathname !== "/metas") {
+      navigate("/metas");
+    }
+  }, [pendingReopen]);
 
   const [sidebarExpanded, setSidebarExpanded] = React.useState(() => {
     const stored = localStorage.getItem("ritmofit_sidebar_expanded");
@@ -241,20 +250,34 @@ export function AppLayout() {
     return () => { clearInterval(interval); };
   }, [dailyLimitMinutes]);
 
-  React.useEffect(() => {
-    const loadUnreadCounts = async () => {
-      try {
-        const [messageCount, notificationCount] = await Promise.all([
-          getUnreadMessageCountDb(),
-          getUnreadNotificationsCountDb(),
-        ]);
-        setUnreadCount(messageCount);
-        setUnreadNotificationsCount(notificationCount);
-      } catch (err) {
-        console.error("Error loading unread counts:", err);
-      }
-    };
+  const loadUnreadCounts = React.useCallback(async () => {
+    try {
+      const [messageCount, notificationCount] = await Promise.all([
+        getUnreadMessageCountDb(),
+        getUnreadNotificationsCountDb(),
+      ]);
+      setUnreadCount(messageCount);
+      setUnreadNotificationsCount(notificationCount);
+    } catch (err) {
+      console.error("Error loading unread counts:", err);
+    }
+  }, []);
 
+  // Refetch manual de badges (mensagens/notificações) — cobre o caso da
+  // subscription realtime cair silenciosamente (app em background no iOS,
+  // reconexão de WebView, etc). Disparado sempre que o usuário sinaliza um
+  // refresh explícito: tap no logo/home (`ritmofit-refresh-feed`) ou o gesto
+  // de pull-to-refresh do feed (`ritmofit-refresh-badges`).
+  React.useEffect(() => {
+    window.addEventListener("ritmofit-refresh-feed", loadUnreadCounts);
+    window.addEventListener("ritmofit-refresh-badges", loadUnreadCounts);
+    return () => {
+      window.removeEventListener("ritmofit-refresh-feed", loadUnreadCounts);
+      window.removeEventListener("ritmofit-refresh-badges", loadUnreadCounts);
+    };
+  }, [loadUnreadCounts]);
+
+  React.useEffect(() => {
     loadUnreadCounts();
 
     const unsubscribe = subscribeToUnreadNotificationsDb(setUnreadNotificationsCount);
@@ -370,8 +393,8 @@ export function AppLayout() {
     ? (document.body.dataset.fullscreenStep === undefined ? true : bodyFullscreen)
     : bodyFullscreen;
 
-  // Scroll hide header — mobile only, only on feed and shots pages
-  const isScrollHidePage = location.pathname === "/" || location.pathname === "/shots";
+  // Scroll hide header — mobile only, only on feed, shots, vitrine, comunidade and metas pages
+  const isScrollHidePage = location.pathname === "/" || location.pathname === "/shots" || location.pathname === "/vitrine" || location.pathname === "/comunidade" || location.pathname === "/metas";
 
   React.useEffect(() => {
     if (!isScrollHidePage) {
@@ -379,25 +402,51 @@ export function AppLayout() {
       return;
     }
 
-    let lastY = window.scrollY;
+    // Comunidade tem seu próprio container com scroll interno (o layout ocupa a
+    // altura fixa da tela, ao contrário de feed/vitrine que rolam a window). Um
+    // listener em fase de captura no document pega o evento de scroll do container
+    // mesmo que ele seja desmontado/remontado ao trocar de aba ou abrir uma conversa.
+    const isCommunityPage = location.pathname === "/comunidade";
+
+    let lastY = 0;
     let ticking = false;
 
+    const evaluate = (y: number) => {
+      const delta = y - lastY;
+      if (y > 96 && delta > 30) setHeaderHidden(true);
+      if (delta < -30) setHeaderHidden(false);
+      lastY = y;
+    };
+
+    if (isCommunityPage) {
+      const onContainerScroll = (e: Event) => {
+        const el = e.target as HTMLElement | null;
+        if (!el || typeof el.hasAttribute !== "function" || !el.hasAttribute("data-community-scroll-container")) return;
+        if (ticking) return;
+        ticking = true;
+        window.requestAnimationFrame(() => {
+          evaluate(el.scrollTop);
+          ticking = false;
+        });
+      };
+
+      document.addEventListener("scroll", onContainerScroll, { passive: true, capture: true });
+      return () => document.removeEventListener("scroll", onContainerScroll, true);
+    }
+
+    lastY = window.scrollY;
     const onScroll = () => {
       if (ticking) return;
       ticking = true;
       window.requestAnimationFrame(() => {
-        const y = window.scrollY;
-        const delta = y - lastY;
-        if (y > 96 && delta > 30) setHeaderHidden(true);
-        if (delta < -30) setHeaderHidden(false);
-        lastY = y;
+        evaluate(window.scrollY);
         ticking = false;
       });
     };
 
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
-  }, [isScrollHidePage]);
+  }, [isScrollHidePage, location.pathname]);
 
   const limitSeconds = dailyLimitMinutes * 60;
   const remainingSeconds = Math.max(0, limitSeconds + timerSnoozeSeconds - usageSecondsElapsed);

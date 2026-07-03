@@ -253,6 +253,18 @@ O status de seguimento do visitante é carregado com `isFollowingDb(profileUserI
 | Arquivo de Flows | Botão → Drawer aninhado | Histórico de flows expirados (> 24h) |
 | Desconectar | Botão destrutivo | Logout |
 
+**Arquivo de Flows — compartilhar:** cada flow expirado tem uma ação de compartilhar (`Share2`, tanto no grid quanto no viewer expandido) que abre uma action sheet (`flowToShare`, bottom sheet customizado, `z-[10000]`) com duas opções:
+- **Recompartilhar no flow** (`handleRepostToNewFlow`) — cria um novo flow ativo (24h) via `createStoryDb`, reaproveitando `description`, `background_color`, `text_position`, `text_elements` e `media_transform` do flow original.
+- **Compartilhar no feed / nos Shots** (`handleRepostFlow`) — mesma lógica de antes: a tabela `posts` só suporta foto (`photo`), então o destino depende do tipo de mídia: foto → `createPostDb` (vira post no feed); vídeo (URL `.mp4`/`.mov`/`.webm`) → `createShotDb` (vira um Shot, já que o feed não renderiza vídeo). O label do botão muda de acordo ("Compartilhar no feed" vs. "Compartilhar nos Shots").
+
+O overlay usa z-index acima do viewer fullscreen do flow (`z-9999`) para funcionar mesmo com o flow expandido aberto, e respeita safe area (bottom) conforme a seção 8 deste guia.
+
+**Arquivo de Flows — excluir:** a ação de excluir (`Trash2`, tanto no grid quanto no viewer expandido) abre uma confirmação (`flowToDelete` + overlay customizado, `z-[10000]`) antes de chamar `deleteStoryDb` — antes o clique excluía direto, sem chance de cancelar. O overlay usa z-index acima do viewer fullscreen do flow (`z-9999`) para funcionar mesmo com o flow expandido aberto, e respeita safe area conforme a seção 8 deste guia.
+
+**Arquivo de Flows — os três overlays (viewer fullscreen, confirmação de exclusão e action sheet de compartilhamento) são renderizados via `createPortal(..., document.body)`**, não como filhos diretos do `DrawerContent`. O `vaul` (biblioteca do Drawer) aplica `transform` no `DrawerContent` durante o swipe/animação, o que vira *containing block* de qualquer `position: fixed` descendente — sem o portal, esses overlays "fullscreen" ficavam confinados à altura do drawer (`maxHeight: 80dvh`) em vez de cobrir a tela inteira, e sobrava um scroll indevido no drawer ao abrir o viewer. Qualquer novo overlay fullscreen adicionado dentro deste drawer deve seguir o mesmo padrão de portal.
+
+**Arquivo de Flows — abertura direta vinda de notificação:** o `SettingsDrawer` aceita a prop `initialArchivedFlow?: StoryWithUser | null`. Quando definida (e o drawer está aberto), pula a lista e chama `setExpandedFlow(initialArchivedFlow)` + `openFlowHistory()` imediatamente — mesmo padrão do `directToProfileEdit`. Usado quando o usuário clica em uma notificação de reação/comentário (tipo 2, 3 ou 6) referente a um **flow próprio que já expirou** (não está mais no ring ativo do feed): `Index.tsx` detecta que o `flowId` não está em `stories`, busca o flow via `getFlowByIdDb(flowId)` (busca por id, sem filtro de dono/data) e, se `flow.user_id === user.id`, navega para `/perfil` com `state.openFlowArchive = flow`. O `Profile.tsx` lê esse state, abre o `SettingsDrawer` (`setSettingsOpen(true)`) e repassa o flow via `initialArchivedFlow`, limpando o state da navegação e o valor ao fechar o drawer. Se o flow expirado pertence a **outro usuário** (ex.: reação a um comentário seu num flow alheio), não há tela de arquivo acessível — exibe apenas um toast (`feed_flow_unavailable`).
+
 **Perfil Comercial (se ativado):**
 | Campo | Tipo |
 |---|---|
@@ -347,3 +359,22 @@ Exibida entre o card de perfil e as tabs, **apenas quando o usuário tem metas**
 - O hook `useAuth()` determina se é o próprio perfil ou não
 - `Collapsible` é usado para seções expansíveis de rotina
 - Imagens de banner e avatar são hospedadas no Supabase Storage
+
+### Cache de Dados
+
+O perfil não é uma tela que muda com frequência, então as queries de carregamento usam o cache genérico `cached()` de `ritmofit-db.ts` (memória + `localStorage`, padrão stale-while-revalidate) em vez de buscar do zero a cada entrada na tela:
+
+| Dado | Chave de cache | TTL |
+|---|---|---|
+| `getUserProfileDb` | `userProfile:{userId}` | 5 min (`CACHE_TTL_LONG`) |
+| `getUserStatsDb` | `userStats:{userId}` | 30s |
+| `getUserPostsDb` | `userPosts:{userId}` | 30s |
+| `getUserRoutinesDb` | `userRoutines:{userId}` | 30s |
+| `getUserShotsDb` | `userShots:{userId}` | 30s |
+| `getCommercialProfileDb` | `commercialProfile:{userId}` | 30s |
+| `getUserActiveStoriesDb` | `userActiveStories:{userId}` | 60s |
+| `isFollowingDb` | `isFollowing:{viewerId}:{followingId}` | 30s |
+
+- Ao reentrar na tela dentro do TTL, os dados vêm da memória sem round-trip de rede. Após o TTL expirar (mas dentro de 24h), o valor persistido em `localStorage` é exibido imediatamente enquanto uma atualização roda em segundo plano — por isso a tela nunca fica "travada" esperando a rede em revisitas.
+- `updateUserProfileDb` chama `invalidateProfileCache(userId)` para garantir que uma edição de perfil não fique presa ao cache antigo.
+- **Pull-to-refresh** invalida explicitamente todas as chaves acima antes de chamar `loadProfile()`, já que puxar para atualizar é um pedido explícito de dados frescos — não deve reaproveitar cache.

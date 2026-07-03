@@ -52,6 +52,7 @@ import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
 import { useLanguage } from "@/lib/language-context";
 import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
 import { hapticLight, hapticMedium } from "@/lib/haptics";
+import { cn } from "@/lib/utils";
 
 function formatRelativeTime(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -70,6 +71,7 @@ export default function Shots() {
   const navigate = useNavigate();
   const location = useLocation();
   const openCommentsFromNotifRef = React.useRef(false);
+  const openIncentivesFromNotifRef = React.useRef(false);
   const [shots, setShots] = React.useState<ShotWithUser[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [shotsError, setShotsError] = React.useState(false);
@@ -93,6 +95,22 @@ export default function Shots() {
     () => localStorage.getItem("shots_swipe_hint_seen") !== "1"
   );
   const [isMuted, setIsMuted] = React.useState(false);
+  // Label "Som/Mudo" some após alguns segundos, deixando só o ícone visível
+  const [showSoundLabel, setShowSoundLabel] = React.useState(true);
+  const soundLabelTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const revealSoundLabel = React.useCallback(() => {
+    setShowSoundLabel(true);
+    if (soundLabelTimerRef.current) clearTimeout(soundLabelTimerRef.current);
+    soundLabelTimerRef.current = setTimeout(() => setShowSoundLabel(false), 2500);
+  }, []);
+
+  React.useEffect(() => {
+    soundLabelTimerRef.current = setTimeout(() => setShowSoundLabel(false), 2500);
+    return () => {
+      if (soundLabelTimerRef.current) clearTimeout(soundLabelTimerRef.current);
+    };
+  }, []);
   const [editShotOpen, setEditShotOpen] = React.useState(false);
   const [editingShot, setEditingShot] = React.useState<ShotWithUser | null>(null);
   const [deleteShotDialogOpen, setDeleteShotDialogOpen] = React.useState(false);
@@ -106,6 +124,10 @@ export default function Shots() {
   const [isSavingEditComment, setIsSavingEditComment] = React.useState(false);
   const containerRef = React.useRef<HTMLDivElement>(null);
   const videoRefsMap = React.useRef<Record<string, HTMLVideoElement>>({});
+  const progressFillRefsMap = React.useRef<Record<string, HTMLDivElement>>({});
+  const scrubbingShotIdRef = React.useRef<string | null>(null);
+  const scrubWasPlayingRef = React.useRef(false);
+  const progressRafRef = React.useRef<number | null>(null);
   const [isPaused, setIsPaused] = React.useState(false);
   const [quickOverlayShotId, setQuickOverlayShotId] = React.useState<string | null>(null);
   const [burstMap, setBurstMap] = React.useState<Record<string, PostIncentiveType | null>>({});
@@ -120,6 +142,17 @@ export default function Shots() {
   const [shotLikesModalOpen, setShotLikesModalOpen] = React.useState(false);
   const [shotLikes, setShotLikes] = React.useState<Array<{ userId: string; userNickname: string; userPhoto: string | null; type: number }>>([]);
   const [shotLikesLoading, setShotLikesLoading] = React.useState(false);
+  const [expandedDescriptions, setExpandedDescriptions] = React.useState<Set<string>>(new Set());
+  const DESC_MAX_CHARS = 80;
+
+  function toggleShotDescription(shotId: string) {
+    setExpandedDescriptions((prev) => {
+      const next = new Set(prev);
+      if (next.has(shotId)) next.delete(shotId);
+      else next.add(shotId);
+      return next;
+    });
+  }
 
   const handleOpenShotLikes = React.useCallback(async (shotId: string) => {
     if (shotLikesLoading) return;
@@ -169,6 +202,34 @@ export default function Shots() {
   // Keep a ref of the currently visible shot so hold-to-pause can resume safely
   React.useEffect(() => {
     visibleShotIdRef.current = visibleShotId;
+  }, [visibleShotId]);
+
+  // Preenche a barra de progresso do shot visível amostrando `currentTime` a cada
+  // frame via requestAnimationFrame — em vez de depender do evento `timeupdate`
+  // (que dispara só ~4x/s e dá a sensação de "travamento"), produz um avanço
+  // suave a ~60fps. Direto no DOM (sem setState) para não re-renderizar a lista.
+  // Mesma técnica usada na barra de progresso do Flow (FlowViewer.tsx).
+  React.useEffect(() => {
+    if (!visibleShotId) return;
+
+    const tick = () => {
+      if (scrubbingShotIdRef.current !== visibleShotId) {
+        const video = videoRefsMap.current[visibleShotId];
+        const fill = progressFillRefsMap.current[visibleShotId];
+        if (video && fill && video.duration && isFinite(video.duration)) {
+          const ratio = Math.min(1, Math.max(0, video.currentTime / video.duration));
+          fill.style.width = `${ratio * 100}%`;
+        }
+      }
+      progressRafRef.current = requestAnimationFrame(tick);
+    };
+
+    progressRafRef.current = requestAnimationFrame(tick);
+
+    return () => {
+      if (progressRafRef.current) cancelAnimationFrame(progressRafRef.current);
+      progressRafRef.current = null;
+    };
   }, [visibleShotId]);
 
   // Press-and-hold to pause the video while held; release to resume
@@ -226,6 +287,42 @@ export default function Shots() {
     holdFiredRef.current = false;
   }, [resumeFromHold]);
 
+  function seekShotToClientX(shotId: string, track: HTMLDivElement, clientX: number) {
+    const video = videoRefsMap.current[shotId];
+    if (!video || !video.duration || !isFinite(video.duration)) return;
+    const rect = track.getBoundingClientRect();
+    const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+    video.currentTime = ratio * video.duration;
+    const fill = progressFillRefsMap.current[shotId];
+    if (fill) fill.style.width = `${ratio * 100}%`;
+  }
+
+  const handleProgressPointerDown = React.useCallback((e: React.PointerEvent<HTMLDivElement>, shotId: string) => {
+    e.stopPropagation();
+    scrubbingShotIdRef.current = shotId;
+    const video = videoRefsMap.current[shotId];
+    scrubWasPlayingRef.current = !!video && !video.paused;
+    video?.pause();
+    const track = e.currentTarget;
+    track.setPointerCapture(e.pointerId);
+    seekShotToClientX(shotId, track, e.clientX);
+  }, []);
+
+  const handleProgressPointerMove = React.useCallback((e: React.PointerEvent<HTMLDivElement>, shotId: string) => {
+    e.stopPropagation();
+    if (scrubbingShotIdRef.current !== shotId) return;
+    seekShotToClientX(shotId, e.currentTarget, e.clientX);
+  }, []);
+
+  const handleProgressPointerUp = React.useCallback((e: React.PointerEvent<HTMLDivElement>, shotId: string) => {
+    e.stopPropagation();
+    if (scrubbingShotIdRef.current !== shotId) return;
+    scrubbingShotIdRef.current = null;
+    if (scrubWasPlayingRef.current) {
+      videoRefsMap.current[shotId]?.play().catch(() => {});
+    }
+  }, []);
+
   // Load current user avatar once when the comments drawer opens
   React.useEffect(() => {
     if (!commentsOpen || !user) return;
@@ -256,6 +353,19 @@ export default function Shots() {
       handleOpenComments(targetShot);
     }
   }, [shots, location.state]);
+
+  // Open incentives drawer when navigating from a notification (someone incentivized my shot)
+  React.useEffect(() => {
+    const state = location.state as { openIncentives?: boolean; shotId?: string } | null;
+    if (!state?.shotId || !state?.openIncentives || openIncentivesFromNotifRef.current) return;
+    if (shots.length === 0) return; // wait for shots to load
+
+    const targetShot = shots.find((s) => s.id === state.shotId);
+    if (targetShot) {
+      openIncentivesFromNotifRef.current = true;
+      handleOpenShotLikes(targetShot.id);
+    }
+  }, [shots, location.state, handleOpenShotLikes]);
 
   // Scroll to a specific shot when navigating from profile
   const scrolledToShotRef = React.useRef(false);
@@ -811,10 +921,35 @@ export default function Shots() {
               {/* Gradient Overlay for Better Text Visibility */}
               <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/10 to-black/40 pointer-events-none" />
 
+              {/* Video progress bar — toque ou arraste para avançar/retroceder o vídeo */}
+              {shot.video_url && (
+                <div
+                  className="absolute left-3 right-3 z-30 flex items-center"
+                  style={{ top: "0.5rem", height: "16px", touchAction: "none" }}
+                  onPointerDown={(e) => handleProgressPointerDown(e, shot.id)}
+                  onPointerMove={(e) => handleProgressPointerMove(e, shot.id)}
+                  onPointerUp={(e) => handleProgressPointerUp(e, shot.id)}
+                  onPointerCancel={(e) => handleProgressPointerUp(e, shot.id)}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="relative w-full h-[3px] rounded-full bg-white/15 overflow-hidden">
+                    <div
+                      ref={(el) => { if (el) progressFillRefsMap.current[shot.id] = el; }}
+                      className="absolute left-0 top-0 h-full rounded-full"
+                      style={{
+                        width: "0%",
+                        background: "linear-gradient(to right, #3A8DFF, #7B3FF2, #FF8A2A)",
+                        boxShadow: "0 0 6px rgba(123,63,242,.55)",
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+
               {/* Top-right controls */}
               <div
                 className="absolute right-4 z-20 flex items-center gap-2"
-                style={{ top: "1rem" }}
+                style={{ top: "1.75rem" }}
               >
                 <button
                   onClick={() => {
@@ -822,15 +957,22 @@ export default function Shots() {
                     const newMuted = !isMuted;
                     setIsMuted(newMuted);
                     Object.values(videoRefsMap.current).forEach((v) => { v.muted = newMuted; });
+                    revealSoundLabel();
                   }}
-                  className="flex items-center gap-1.5 bg-black/40 hover:bg-black/60 text-white rounded-full px-3 py-1.5 text-xs font-medium transition-colors"
+                  className="flex items-center gap-1.5 bg-black/40 hover:bg-black/60 text-white rounded-full px-2.5 py-1.5 text-xs font-medium transition-smooth"
                   aria-label={isMuted ? t("shots_unmute_label") : t("shots_mute_label")}
                 >
-                  {isMuted ? (
-                    <><VolumeX className="h-4 w-4" /><span>{t("shots_muted")}</span></>
-                  ) : (
-                    <><Volume2 className="h-4 w-4" /><span>{t("shots_sound")}</span></>
-                  )}
+                  {isMuted ? <VolumeX className="h-4 w-4 shrink-0" /> : <Volume2 className="h-4 w-4 shrink-0" />}
+                  <span
+                    className="overflow-hidden whitespace-nowrap transition-smooth"
+                    style={{
+                      maxWidth: showSoundLabel ? "4rem" : "0px",
+                      opacity: showSoundLabel ? 1 : 0,
+                      marginLeft: showSoundLabel ? "0.15rem" : "0px",
+                    }}
+                  >
+                    {isMuted ? t("shots_muted") : t("shots_sound")}
+                  </span>
                 </button>
                 {user?.id === shot.user_id && (
                   <DropdownMenu>
@@ -869,7 +1011,7 @@ export default function Shots() {
               {/* User Info - Top Left */}
               <div
                 className="absolute left-4 z-10 flex items-center gap-3 max-w-[55%]"
-                style={{ top: "1rem" }}
+                style={{ top: "1.75rem" }}
               >
                 <button
                   onClick={() => navigate(`/usuario/${shot.user_id}`)}
@@ -907,24 +1049,69 @@ export default function Shots() {
                 </div>
               </div>
 
-              {/* Bottom Area: Description + Incentive Buttons aligned together */}
+              {/* Bottom Area: Description + Incentive Buttons aligned together.
+                  pointer-events-none on the wrapper (and the empty description
+                  slot) so the invisible space between the text and the icon
+                  column doesn't swallow the video's press-and-hold-to-pause
+                  gesture — only the actual visible content re-enables
+                  pointer-events via pointer-events-auto. */}
               <div
-                className="absolute left-0 right-0 z-10 flex items-end px-4 gap-3"
+                className="absolute left-0 right-0 z-10 flex items-end px-4 gap-3 pointer-events-none"
                 style={{
                   bottom: "1.75rem",
                 }}
               >
                 {/* Description - Bottom Left */}
                 <div className="flex-1 min-w-0 flex flex-col justify-end">
-                  {shot.description && (
-                    <p className="text-sm text-white drop-shadow-md leading-relaxed">
-                      {shot.description}
-                    </p>
-                  )}
+                  {shot.description && (() => {
+                    const description = shot.description;
+                    const isExpanded = expandedDescriptions.has(shot.id);
+                    const isDescTruncatable = description.includes("\n") || description.length > DESC_MAX_CHARS;
+                    const truncatedDescription = description.length > DESC_MAX_CHARS
+                      ? description.slice(0, DESC_MAX_CHARS).trimEnd()
+                      : description.split("\n")[0] ?? "";
+                    return (
+                      <p
+                        className={cn(
+                          "text-sm text-white drop-shadow-md leading-relaxed pointer-events-auto inline-block",
+                          isDescTruncatable && "cursor-pointer",
+                          isExpanded && "max-h-[40vh] overflow-y-auto",
+                        )}
+                        onClick={(e) => { e.stopPropagation(); if (isDescTruncatable) toggleShotDescription(shot.id); }}
+                      >
+                        {!isDescTruncatable || isExpanded ? (
+                          <>
+                            {description}
+                            {isDescTruncatable && isExpanded && (
+                              <> <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); toggleShotDescription(shot.id); }}
+                                className="text-white/60"
+                              >
+                                {t("feed_description_less")}
+                              </button></>
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            {truncatedDescription}
+                            {"... "}
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); toggleShotDescription(shot.id); }}
+                              className="text-white/60"
+                            >
+                              {t("feed_description_more")}
+                            </button>
+                          </>
+                        )}
+                      </p>
+                    );
+                  })()}
                 </div>
 
                 {/* Incentive Buttons + Comments - Right Side */}
-                <div className="flex-shrink-0 flex flex-col gap-3 z-20">
+                <div className="flex-shrink-0 flex flex-col gap-3 z-20 pointer-events-auto">
                   {([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => {
                     const likeKeyMap: Record<number, keyof typeof shot.likes> = {
                       1: "apoio", 2: "continua", 3: "ganhador",

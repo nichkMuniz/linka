@@ -1876,11 +1876,6 @@ export default function Store() {
           >
             <Tag className="h-4 w-4" />
             Promoções
-            {!loading && promotions.length > 0 && (
-              <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full leading-none ${activeTab === "promocoes" ? "bg-white/20 text-white" : "bg-muted text-muted-foreground"}`}>
-                {promotions.length}
-              </span>
-            )}
           </button>
           <button
             onClick={() => setActiveTab("profissionais")}
@@ -1888,11 +1883,6 @@ export default function Store() {
           >
             <Users className="h-4 w-4" />
             Profissionais
-            {!proLoading && professionals.length > 0 && (
-              <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full leading-none ${activeTab === "profissionais" ? "bg-white/20 text-white" : "bg-muted text-muted-foreground"}`}>
-                {professionals.length}
-              </span>
-            )}
           </button>
         </div>
 

@@ -1,6 +1,12 @@
 import * as React from "react";
 import { LocalNotifications } from "@capacitor/local-notifications";
+import { Capacitor } from "@capacitor/core";
 import { type UserWorkoutWithDetails } from "@/lib/ritmofit-db";
+
+// ID da notificação local de "tempo de descanso terminou". Exportado para que
+// o listener genérico de notificações (use-routine-notifications) saiba
+// ignorá-la — ela tem tratamento próprio de tap para reabrir o treino.
+export const REST_NOTIF_ID = 91823;
 
 type WorkoutSeriesEntry = {
   series: number;
@@ -43,7 +49,7 @@ interface WorkoutContextValue {
   setWorkoutRemovedIds: React.Dispatch<React.SetStateAction<string[]>>;
   // Currently expanded exercise card (persisted so it survives minimize + navigation)
   workoutExpandedId: string | null;
-  setWorkoutExpandedId: (v: string | null) => void;
+  setWorkoutExpandedId: React.Dispatch<React.SetStateAction<string | null>>;
   // Reset all workout state
   resetWorkoutState: () => void;
   // Rest timer (shared so FAB can display it)
@@ -207,7 +213,6 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
     return () => document.removeEventListener("visibilitychange", onVisibilityChange);
   }, [workoutStartTime, workoutModalOpen, workoutMinimized]);
 
-  const REST_NOTIF_ID = 91823;
   const REST_TIMER_END_KEY = "rest_timer_end_at";
 
   // Schedule / cancel the local notification for rest timer
@@ -234,6 +239,25 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
       await LocalNotifications.cancel({ notifications: [{ id: REST_NOTIF_ID }] });
     } catch (_) {}
     localStorage.removeItem(REST_TIMER_END_KEY);
+  }, []);
+
+  // Ao tocar na notificação de "descanso terminou" (tela bloqueada ou app em
+  // background/morto), reabre a tela de registrar treino automaticamente.
+  // Usa apenas estado do contexto (sem navegação aqui, pois o Provider fica
+  // fora do Router) — AppLayout observa `pendingReopen` e navega até /metas.
+  React.useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    const listenerPromise = LocalNotifications.addListener(
+      "localNotificationActionPerformed",
+      (action) => {
+        if (action.notification.id !== REST_NOTIF_ID) return;
+        setWorkoutMinimized(false);
+        setPendingReopen(true);
+      }
+    );
+    return () => {
+      listenerPromise.then((l) => l.remove());
+    };
   }, []);
 
   // Persist end timestamp when timer starts so background sync works.

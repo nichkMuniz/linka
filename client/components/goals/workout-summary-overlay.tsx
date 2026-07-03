@@ -1,4 +1,5 @@
 import * as React from "react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useLanguage } from "@/lib/language-context";
 import { toast } from "@/components/ui/use-toast";
 import {
@@ -6,6 +7,12 @@ import {
   addGroupCheckInDb,
   uploadWorkoutImageDb,
 } from "@/lib/ritmofit-db";
+import {
+  InlineCropPreview,
+  type CropTransform,
+  DEFAULT_TRANSFORM,
+  applyTransformToBlob,
+} from "@/components/shared/inline-crop-preview";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -41,6 +48,13 @@ function formatSummaryDuration(secs: number): string {
   return `${secs}s`;
 }
 
+function formatVolumeKg(kg: number): string {
+  if (kg >= 1000) {
+    return `${(kg / 1000).toFixed(1).replace(".", ",")} t`;
+  }
+  return `${kg}kg`;
+}
+
 function roundRectPath(
   ctx: CanvasRenderingContext2D,
   x: number, y: number, w: number, h: number, r: number,
@@ -64,6 +78,17 @@ function hexToRgb(hex: string): [number, number, number] {
 }
 
 // ─── Auto-generated description ─────────────────────────────────────────────
+
+// Same "most frequent muscle group" logic used by getRecentCompletedRoutinesDb,
+// so a check-in shared from here shows the same tag as one added via the
+// duel screen's own check-in drawer.
+function getPrimaryMuscleGroup(exercises: Array<{ muscleGroup: string | null }>): string | null {
+  const counts: Record<string, number> = {};
+  exercises.forEach((ex) => {
+    if (ex.muscleGroup) counts[ex.muscleGroup] = (counts[ex.muscleGroup] || 0) + 1;
+  });
+  return Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+}
 
 function generateDefaultDescription(data: WorkoutSummaryData): string {
   const duration = formatSummaryDuration(data.durationSecs);
@@ -98,7 +123,13 @@ function generateDefaultDescription(data: WorkoutSummaryData): string {
 
 const CANVAS_W = 540;
 const CANVAS_H = 540;
+// Backing store é desenhado em 3x a resolução lógica (via ctx.scale) para não
+// pixelar quando o feed pede a imagem em 900px (post-carousel POST_PHOTO_WIDTH)
+// ou em telas Retina/@3x. A matemática de layout continua toda em espaço 540x540.
+const CANVAS_SCALE = 3;
 const FONT = `"Inter", -apple-system, system-ui, sans-serif`;
+// Mesmo limite usado em NewPost.tsx (MAX_POST_PHOTOS) para manter consistência.
+const MAX_SUMMARY_PHOTOS = 5;
 
 // ── Shell "liquid glass" (mesma linguagem do workout-session-dialog) ──────────
 const GLASS_ROOT_BG = "linear-gradient(165deg,#1b1828 0%,#100e18 55%,#0a0910 100%)";
@@ -136,7 +167,7 @@ function canvasSetup(
 ): CanvasRenderingContext2D | null {
   const ctx = canvas.getContext("2d");
   if (!ctx) return null;
-  const W = canvas.width, H = canvas.height;
+  const W = CANVAS_W, H = CANVAS_H;
 
   const bg = ctx.createLinearGradient(0, 0, 0, H);
   bg.addColorStop(0, bgTop);
@@ -201,7 +232,7 @@ function drawCanvasStats(
   const items: { l: string; v: string }[] = [
     { l: "DURACAO", v: formatSummaryDuration(data.durationSecs) },
     { l: "SERIES", v: String(data.totalSeries) },
-    ...(data.totalVolume > 0 ? [{ l: "VOLUME", v: `${data.totalVolume}kg` }] : []),
+    ...(data.totalVolume > 0 ? [{ l: "VOLUME", v: formatVolumeKg(data.totalVolume) }] : []),
   ];
   const cols = items.length;
   const colW = (W - 40 - (cols - 1) * 8) / cols;
@@ -286,7 +317,7 @@ function drawStandardCanvas(
 ) {
   const ctx = canvasSetup(canvas, "#1a1726", "#0c0a12", "#22c55e", 0.16);
   if (!ctx) return;
-  const W = canvas.width, H = canvas.height;
+  const W = CANVAS_W, H = CANVAS_H;
   const ACCENT = "#22c55e";
 
   ctx.save();
@@ -351,7 +382,7 @@ function drawPRCanvas(
 ) {
   const ctx = canvasSetup(canvas, "#1a1109", "#0a0603", "#f97316", 0.24);
   if (!ctx) return;
-  const W = canvas.width, H = canvas.height;
+  const W = CANVAS_W, H = CANVAS_H;
   const ACCENT = "#f97316";
 
   ctx.save();
@@ -452,7 +483,7 @@ function drawMachineMaxCanvas(
 ) {
   const ctx = canvasSetup(canvas, "#1a1200", "#0c0900", "#eab308", 0.26);
   if (!ctx) return;
-  const W = canvas.width, H = canvas.height;
+  const W = CANVAS_W, H = CANVAS_H;
   const ACCENT = "#eab308";
 
   // Extra center glow
@@ -548,11 +579,12 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
 
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
-  const carouselRef = React.useRef<HTMLDivElement>(null);
+  const cropContainerWidthRef = React.useRef<number>(0);
 
   const [description, setDescription] = React.useState(() => generateDefaultDescription(data));
-  const [userPhoto, setUserPhoto] = React.useState<File | null>(null);
-  const [userPhotoPreview, setUserPhotoPreview] = React.useState<string | null>(null);
+  const [userPhotos, setUserPhotos] = React.useState<File[]>([]);
+  const [userPhotoPreviews, setUserPhotoPreviews] = React.useState<string[]>([]);
+  const [cropTransforms, setCropTransforms] = React.useState<Record<number, CropTransform>>({});
   const [currentSlide, setCurrentSlide] = React.useState(0);
   const [canvasPreviewUrl, setCanvasPreviewUrl] = React.useState<string | null>(null);
   const [isSharing, setIsSharing] = React.useState(false);
@@ -563,7 +595,7 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
   const variant = getCanvasVariant(data);
   const hasPRs = data.prExercises.length > 0;
   const hasMachined = data.machinedExercises.length > 0;
-  const totalSlides = userPhotoPreview ? 2 : 1;
+  const totalSlides = userPhotoPreviews.length + 1;
 
   // Tokens "liquid glass" — tons brancos translúcidos sobre o shell escuro
   const CARD    = "rgba(255,255,255,0.06)";   // painel de vidro
@@ -584,9 +616,13 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
   // Draw off-screen canvas
   React.useEffect(() => {
     const canvas = document.createElement("canvas");
-    canvas.width = CANVAS_W;
-    canvas.height = CANVAS_H;
+    // Backing store 3x maior que o layout lógico (540x540) para não pixelar
+    // ao ser exibido em telas Retina ou redimensionado pelo CDN do feed.
+    canvas.width = CANVAS_W * CANVAS_SCALE;
+    canvas.height = CANVAS_H * CANVAS_SCALE;
     canvasRef.current = canvas;
+    const ctx = canvas.getContext("2d");
+    ctx?.scale(CANVAS_SCALE, CANVAS_SCALE);
     // Aguarda as fontes E o logo antes de desenhar, para o card sair completo.
     Promise.all([document.fonts.ready, loadLogo()]).then(([, logo]) => {
       drawCanvas(canvas, data, logo);
@@ -594,43 +630,84 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
     });
   }, [data]);
 
-  // Cleanup photo preview URL
+  // Cleanup photo preview URLs on unmount (revokes are also done inline on
+  // add/remove; ref keeps the latest list available to the unmount cleanup).
+  const userPhotoPreviewsRef = React.useRef<string[]>([]);
+  userPhotoPreviewsRef.current = userPhotoPreviews;
   React.useEffect(() => {
-    return () => { if (userPhotoPreview) URL.revokeObjectURL(userPhotoPreview); };
-  }, [userPhotoPreview]);
-
-  // Track carousel scroll position
-  const handleCarouselScroll = () => {
-    const el = carouselRef.current;
-    if (!el) return;
-    const idx = Math.round(el.scrollLeft / el.offsetWidth);
-    setCurrentSlide(Math.max(0, Math.min(idx, totalSlides - 1)));
-  };
+    return () => { userPhotoPreviewsRef.current.forEach((url) => URL.revokeObjectURL(url)); };
+  }, []);
 
   const handlePhotoPick = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (userPhotoPreview) URL.revokeObjectURL(userPhotoPreview);
-    setUserPhoto(file);
-    setUserPhotoPreview(URL.createObjectURL(file));
-    // Scroll to photo slide (first)
-    setTimeout(() => {
-      const el = carouselRef.current;
-      if (el) el.scrollTo({ left: 0, behavior: "smooth" });
-      setCurrentSlide(0);
-    }, 50);
+    const files = Array.from(e.target.files || []);
     e.target.value = "";
+    if (files.length === 0) return;
+
+    const previousCount = userPhotos.length;
+    let remainingSlots = MAX_SUMMARY_PHOTOS - previousCount;
+    let skippedForLimit = 0;
+    const newFiles: File[] = [];
+    const newPreviews: string[] = [];
+
+    for (const file of files) {
+      if (!file.type.startsWith("image/")) {
+        toast({
+          title: t("newpost_invalid_type"),
+          description: `${file.name} ${t("newpost_invalid_image")}`,
+          variant: "destructive",
+        });
+        continue;
+      }
+      if (file.size > 10 * 1024 * 1024) {
+        toast({
+          title: t("newpost_file_too_large"),
+          description: `${file.name} ${t("newpost_image_max_size")}`,
+          variant: "destructive",
+        });
+        continue;
+      }
+      if (remainingSlots <= 0) {
+        skippedForLimit++;
+        continue;
+      }
+      newFiles.push(file);
+      newPreviews.push(URL.createObjectURL(file));
+      remainingSlots--;
+    }
+
+    if (skippedForLimit > 0) {
+      toast({
+        title: t("newpost_max_photos_title"),
+        description: t("newpost_max_photos_desc").replace("{n}", String(MAX_SUMMARY_PHOTOS)),
+        variant: "destructive",
+      });
+    }
+
+    if (newFiles.length === 0) return;
+
+    setUserPhotos((prev) => [...prev, ...newFiles]);
+    setUserPhotoPreviews((prev) => [...prev, ...newPreviews]);
+    // Vai direto para o slide da primeira foto recém-adicionada, já pronta para zoom/pan
+    setCurrentSlide(previousCount);
   };
 
-  const removePhoto = () => {
-    if (userPhotoPreview) URL.revokeObjectURL(userPhotoPreview);
-    setUserPhoto(null);
-    setUserPhotoPreview(null);
-    setTimeout(() => {
-      const el = carouselRef.current;
-      if (el) el.scrollTo({ left: 0, behavior: "smooth" });
-      setCurrentSlide(0);
-    }, 50);
+  const removePhotoAt = (index: number) => {
+    setUserPhotoPreviews((prev) => {
+      const url = prev[index];
+      if (url) URL.revokeObjectURL(url);
+      return prev.filter((_, i) => i !== index);
+    });
+    setUserPhotos((prev) => prev.filter((_, i) => i !== index));
+    setCropTransforms((prev) => {
+      const next: Record<number, CropTransform> = {};
+      for (const [k, v] of Object.entries(prev)) {
+        const ki = Number(k);
+        if (ki < index) next[ki] = v;
+        else if (ki > index) next[ki - 1] = v;
+      }
+      return next;
+    });
+    setCurrentSlide((prev) => (prev > index ? prev - 1 : prev));
   };
 
   const getCanvasBlob = (): Promise<Blob> =>
@@ -643,15 +720,27 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
       );
     });
 
+  // Aplica o zoom/pan (cropTransforms) escolhido pelo usuário em cada foto antes
+  // do upload — mesma lógica de recorte do NewPost (applyTransformToBlob).
+  const getCroppedUserPhotoBlobs = async (): Promise<Blob[]> => {
+    const containerWidth = cropContainerWidthRef.current;
+    const blobs: Blob[] = [];
+    for (let i = 0; i < userPhotoPreviews.length; i++) {
+      const transform = cropTransforms[i] || DEFAULT_TRANSFORM;
+      blobs.push(await applyTransformToBlob(userPhotoPreviews[i], transform, containerWidth));
+    }
+    return blobs;
+  };
+
   const handleShareFeed = async () => {
     setIsSharing(true);
     setShareTarget("feed");
     try {
       const urls: string[] = [];
-      // Photo first (if any)
-      if (userPhoto) {
-        const url = await uploadWorkoutImageDb(data.userId, userPhoto);
-        urls.push(url);
+      // User photos first (if any), já com o zoom/pan escolhido aplicado
+      const croppedPhotos = await getCroppedUserPhotoBlobs();
+      for (const photoBlob of croppedPhotos) {
+        urls.push(await uploadWorkoutImageDb(data.userId, photoBlob));
       }
       // Canvas always included
       const blob = await getCanvasBlob();
@@ -678,13 +767,17 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
       const blob = await getCanvasBlob();
       const canvasUrl = await uploadWorkoutImageDb(data.userId, blob);
       const extraPhotos: string[] = [];
-      if (userPhoto) extraPhotos.push(await uploadWorkoutImageDb(data.userId, userPhoto));
+      const croppedPhotos = await getCroppedUserPhotoBlobs();
+      for (const photoBlob of croppedPhotos) {
+        extraPhotos.push(await uploadWorkoutImageDb(data.userId, photoBlob));
+      }
 
       const exercises = data.completedExercises.map((ex) => ({
         workoutId: "", workoutName: ex.name, muscleGroup: ex.muscleGroup,
         kilos: ex.bestKg || null,
         volume: ex.totalSets > 0 ? `${ex.totalSets} séries` : null,
       }));
+      const primaryMuscleGroup = getPrimaryMuscleGroup(data.completedExercises);
 
       const desc = description.trim() || t("goals_summary_share_default_desc");
 
@@ -693,7 +786,7 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
           addGroupCheckInDb(
             g.id, data.userId, canvasUrl, desc,
             data.routineName, data.totalSeries, data.totalVolume,
-            null, exercises, extraPhotos,
+            primaryMuscleGroup, exercises, extraPhotos,
             Math.round(data.durationSecs / 60), null, null, null,
           ),
         ),
@@ -716,19 +809,23 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
       const blob = await getCanvasBlob();
       const canvasUrl = await uploadWorkoutImageDb(data.userId, blob);
       const extraPhotos: string[] = [];
-      if (userPhoto) extraPhotos.push(await uploadWorkoutImageDb(data.userId, userPhoto));
+      const croppedPhotos = await getCroppedUserPhotoBlobs();
+      for (const photoBlob of croppedPhotos) {
+        extraPhotos.push(await uploadWorkoutImageDb(data.userId, photoBlob));
+      }
 
       const exercises = data.completedExercises.map((ex) => ({
         workoutId: "", workoutName: ex.name, muscleGroup: ex.muscleGroup,
         kilos: ex.bestKg || null,
         volume: ex.totalSets > 0 ? `${ex.totalSets} séries` : null,
       }));
+      const primaryMuscleGroup = getPrimaryMuscleGroup(data.completedExercises);
 
       await addGroupCheckInDb(
         groupId, data.userId, canvasUrl,
         description.trim() || t("goals_summary_share_default_desc"),
         data.routineName, data.totalSeries, data.totalVolume,
-        null, exercises, extraPhotos,
+        primaryMuscleGroup, exercises, extraPhotos,
         Math.round(data.durationSecs / 60), null, null, null,
       );
       toast({ title: t("goals_summary_shared_duel"), description: t("goals_summary_shared_duel_desc") });
@@ -811,57 +908,59 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
 
       {/* ── Carousel ── */}
       <div style={{ position: "relative" }}>
-        <div
-          ref={carouselRef}
-          onScroll={handleCarouselScroll}
-          style={{
-            display: "flex",
-            overflowX: "auto",
-            scrollSnapType: "x mandatory",
-            WebkitOverflowScrolling: "touch" as any,
-            scrollbarWidth: "none" as any,
-            msOverflowStyle: "none" as any,
-          }}
-        >
-          {/* User photo slide (shown first when available) */}
-          {userPhotoPreview && (
-            <div style={{ flex: "0 0 100%", scrollSnapAlign: "start", padding: "12px 16px 4px" }}>
-              <img
-                src={userPhotoPreview}
-                alt="Sua foto"
-                style={{
-                  width: "100%", borderRadius: 20, objectFit: "cover",
-                  aspectRatio: `${CANVAS_W}/${CANVAS_H}`, display: "block",
-                  boxShadow: "0 8px 28px rgba(0,0,0,0.35)",
-                }}
+        {/* Frame — foto atual permite zoom/pan direto (pinch + drag), sem tela de crop separada */}
+        <div style={{
+          margin: "12px 16px 4px", aspectRatio: `${CANVAS_W}/${CANVAS_H}`,
+          borderRadius: 20, overflow: "hidden", position: "relative",
+          boxShadow: "0 8px 28px rgba(0,0,0,0.35)", background: CARD,
+        }}>
+          {currentSlide < userPhotoPreviews.length ? (
+            <>
+              <InlineCropPreview
+                imageSrc={userPhotoPreviews[currentSlide]}
+                transform={cropTransforms[currentSlide] || DEFAULT_TRANSFORM}
+                onTransformChange={(tr) =>
+                  setCropTransforms((prev) => ({ ...prev, [currentSlide]: tr }))
+                }
+                containerWidthRef={cropContainerWidthRef}
               />
-            </div>
+              {/* "Editar" pill hint — mesmo padrão do NewPost */}
+              <span style={{
+                position: "absolute", top: 12, left: 12, padding: "6px 12px", borderRadius: 14,
+                fontSize: 12, fontWeight: 600, color: "#fff",
+                background: "rgba(0,0,0,0.35)", backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
+                pointerEvents: "none",
+              }}>
+                {t("newpost_edit_photo")}
+              </span>
+            </>
+          ) : canvasPreviewUrl ? (
+            <img
+              src={canvasPreviewUrl}
+              alt="Resumo do treino"
+              style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+            />
+          ) : (
+            <div style={{
+              width: "100%", height: "100%",
+              animation: "pulse 1.5s ease-in-out infinite",
+            }} />
           )}
-
-          {/* Canvas slide */}
-          <div style={{ flex: "0 0 100%", scrollSnapAlign: "start", padding: "12px 16px 4px" }}>
-            {canvasPreviewUrl ? (
-              <img
-                src={canvasPreviewUrl}
-                alt="Resumo do treino"
-                style={{
-                  width: "100%", borderRadius: 20, display: "block",
-                  boxShadow: "0 8px 28px rgba(0,0,0,0.35)",
-                }}
-              />
-            ) : (
-              <div style={{
-                width: "100%", aspectRatio: `${CANVAS_W}/${CANVAS_H}`,
-                borderRadius: 20, background: CARD,
-                animation: "pulse 1.5s ease-in-out infinite",
-              }} />
-            )}
-          </div>
         </div>
 
         {/* Camera icon — always visible bottom-right of carousel */}
         <button
-          onClick={() => fileInputRef.current?.click()}
+          onClick={() => {
+            if (userPhotos.length >= MAX_SUMMARY_PHOTOS) {
+              toast({
+                title: t("newpost_max_photos_title"),
+                description: t("newpost_max_photos_desc").replace("{n}", String(MAX_SUMMARY_PHOTOS)),
+                variant: "destructive",
+              });
+              return;
+            }
+            fileInputRef.current?.click();
+          }}
           aria-label={t("goals_summary_add_photo")}
           style={{
             position: "absolute",
@@ -882,10 +981,10 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
           </svg>
         </button>
 
-        {/* Remove photo button — top-right, only on photo slide */}
-        {userPhotoPreview && currentSlide === 0 && (
+        {/* Remove photo button — top-right, only while a photo slide is active */}
+        {currentSlide < userPhotoPreviews.length && (
           <button
-            onClick={removePhoto}
+            onClick={() => removePhotoAt(currentSlide)}
             aria-label={t("goals_summary_remove_photo")}
             style={{
               position: "absolute", top: 22, right: 26,
@@ -903,14 +1002,46 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
           </button>
         )}
 
-        {/* Dots indicator */}
+        {/* Prev/next nav — necessário pois o frame captura o gesto de arrastar para pan */}
+        {totalSlides > 1 && (
+          <>
+            <button
+              onClick={() => setCurrentSlide((i) => (i - 1 + totalSlides) % totalSlides)}
+              aria-label={t("goals_summary_prev_slide")}
+              style={{
+                position: "absolute", left: 26, top: "50%", transform: "translateY(-50%)",
+                width: 32, height: 32, borderRadius: "50%",
+                background: "rgba(0,0,0,0.5)", border: "none", cursor: "pointer",
+                display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2,
+              }}
+            >
+              <ChevronLeft className="h-4 w-4" color="#fff" />
+            </button>
+            <button
+              onClick={() => setCurrentSlide((i) => (i + 1) % totalSlides)}
+              aria-label={t("goals_summary_next_slide")}
+              style={{
+                position: "absolute", right: 26, top: "50%", transform: "translateY(-50%)",
+                width: 32, height: 32, borderRadius: "50%",
+                background: "rgba(0,0,0,0.5)", border: "none", cursor: "pointer",
+                display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2,
+              }}
+            >
+              <ChevronRight className="h-4 w-4" color="#fff" />
+            </button>
+          </>
+        )}
+
+        {/* Dots indicator — tocável para ir direto a um slide */}
         {totalSlides > 1 && (
           <div style={{ display: "flex", justifyContent: "center", gap: 6, padding: "6px 0 2px" }}>
             {Array.from({ length: totalSlides }).map((_, i) => (
-              <div
+              <button
                 key={i}
+                onClick={() => setCurrentSlide(i)}
+                aria-label={`Slide ${i + 1}`}
                 style={{
-                  height: 6, borderRadius: 3,
+                  height: 6, borderRadius: 3, border: "none", padding: 0, cursor: "pointer",
                   width: currentSlide === i ? 18 : 6,
                   background: currentSlide === i ? accentHex : "rgba(255,255,255,0.25)",
                   transition: "width 0.2s, background 0.2s",
@@ -1020,7 +1151,7 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
         {[
           { label: t("goals_summary_duration"), value: formatSummaryDuration(data.durationSecs) },
           { label: t("goals_summary_sets"), value: String(data.totalSeries) },
-          ...(data.totalVolume > 0 ? [{ label: t("goals_summary_volume"), value: `${data.totalVolume} kg` }] : []),
+          ...(data.totalVolume > 0 ? [{ label: t("goals_summary_volume"), value: formatVolumeKg(data.totalVolume) }] : []),
         ].map(({ label, value }) => (
           <div key={label} style={{
             flex: 1, background: CARD, borderRadius: 16, padding: "12px 8px", textAlign: "center",
@@ -1165,6 +1296,7 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
         ref={fileInputRef}
         type="file"
         accept="image/*"
+        multiple
         onChange={handlePhotoPick}
         style={{ display: "none" }}
       />
@@ -1352,7 +1484,6 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
       <style>{`
         @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
         @keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
-        div[style*="scrollSnapType"]::-webkit-scrollbar { display: none; }
       `}</style>
     </div>
   );

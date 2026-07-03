@@ -2,6 +2,7 @@ import { useEffect, useCallback, useRef } from "react";
 import { LocalNotifications, type LocalNotificationSchema } from "@capacitor/local-notifications";
 import { Capacitor } from "@capacitor/core";
 import { getRoutineSchedulesDb, RoutineScheduleEntry } from "@/lib/ritmofit-db";
+import { REST_NOTIF_ID } from "@/lib/workout-context";
 
 /**
  * Formats a "HH:MM" or "HH:MM:SS" time string as a display label (e.g. "07:30").
@@ -217,6 +218,9 @@ export function useRoutineNotifications(userId: string | null) {
     const listener = LocalNotifications.addListener(
       "localNotificationActionPerformed",
       (action) => {
+        // Notificação de fim de descanso tem tratamento próprio (workout-context)
+        // que reabre a tela sem forçar reload — evita perder o estado do treino.
+        if (action.notification.id === REST_NOTIF_ID) return;
         const url: string = action.notification.extra?.url || "/metas";
         if (typeof window !== "undefined") {
           window.location.pathname = url;

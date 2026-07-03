@@ -92,6 +92,8 @@ Exibe:
 - Nome do grupo
 - Local (UF)
 - Objetivo
+- **Modalidade** (`scoringType`) — ícone + nome do sistema de pontuação do grupo (Contagem de check-in, Dias ativos, Pontos de hustle, Duração, Distância, Passos, Calorias ou Memes). Mesmo catálogo de opções usado no wizard de criação (Passo 4 — Sistema de Pontuação)
+- Regra do desafio (somente quando `scoringType === "memes"` e `memeRule` está definido)
 - **Data de início** (`createdAt`)
 - **Data de encerramento** (`endDate` — "Sem prazo" se não definido)
 - Botão de sair / apagar grupo (conforme papel do usuário)
@@ -135,6 +137,8 @@ Exibe:
 - Novas mensagens aparecem em tempo real via Supabase Realtime (canal `messages-{userId}`, evento `INSERT` na tabela `messages`)
 - Auto-scroll para última mensagem
 - Marca mensagens como lidas ao abrir a conversa (`markMessagesAsReadDb`) e ao receber mensagem em tempo real
+
+> **Auto-scroll para a última mensagem (2026-07-02):** Ao abrir/reabrir uma conversa, a tela sempre inicia posicionada na última mensagem (enviada ou recebida) — sem animação (`scrollIntoView({ behavior: "auto" })`), evitando o efeito de "rolagem visível" desde o topo. Um `ref` (`hasScrolledForConversationRef`) marca se já houve o scroll inicial daquela conversa e é resetado sempre que `selectedConversation.userId` muda. Como imagens/áudio da conversa podem carregar de forma assíncrona e alterar a altura do conteúdo após o primeiro paint, o scroll inicial é reforçado com dois re-snaps (150ms e 400ms) para garantir que a tela permaneça no fim mesmo após esses ajustes de layout. Mensagens novas (enviadas ou recebidas via realtime) continuam usando `behavior: "smooth"`.
 
 **Long Press / Segurar Mensagem:**
 - Segurar (touch 450ms) ou clique com botão direito abre um overlay de ações no estilo Instagram
@@ -193,7 +197,11 @@ Aberta via `openGroupView` (botão "Ver Grupo" da lista). Renderizada em portal 
 - **FAB de check-in** — círculo flutuante com gradiente azul→roxo e glow; desabilitado (vidro acinzentado) quando o grupo está encerrado. Posição respeita a safe area inferior.
 - **Overlay de reação (long-press)** — sheet de vidro escuro (`rounded-[28px]`, blur 40px) com preview do check-in, 6 emojis rápidos e botão Cancelar.
 
+> **Pull-to-refresh (2026-07-02):** O container de conteúdo da tela do grupo (`flex-1 overflow-y-auto`, banner + stats + histórico) suporta o mesmo gesto de puxar-para-baixo do Feed. Puxar a partir do topo (`scrollTop === 0`) além do limiar (72px) chama `refreshGroupView(groupId)`, que invalida o cache (`groupCheckIns`, `groupParticipants`) e recarrega check-ins, participantes, reações e votos (modo memes) do grupo aberto — sem esvaziar a lista atual antes (evita o flash de estado vazio que `openGroupView` causa ao trocar de grupo). Indicador visual: spinner circular roxo (`#9d6bff`) que gira conforme a distância puxada e roda continuamente (`animate-spin`) durante o refresh.
+
 ---
+
+> **Fix: modal de detalhe do participante nascendo atrás da tela (2026-07-02):** No drawer de Participantes, tocar num nome abre o "Participant Details Modal" (avatar, stats, calendário de check-ins do mês) **sem fechar** o drawer de Participantes — os dois ficam montados ao mesmo tempo, um sobre o outro. O `DrawerContent` base (`client/components/ui/drawer.tsx`) usa `z-[310]` (conteúdo) / `z-[300]` (overlay) por padrão; o modal de detalhe tinha um `z-[110]` explícito — **menor** que o do próprio drawer de Participantes que continuava aberto atrás dele, então renderizava por baixo. Corrigido para `z-[330]` (conteúdo) + `overlayClassName="z-[320]"` (novo prop já suportado pelo `DrawerContent`), garantindo que fique acima do drawer pai independente da ordem de montagem no DOM. O **Reaction Viewer** (quem reagiu com um emoji, aberto a partir da lista de check-ins) tinha o mesmo `z-[110]` incorreto — nesse caso o bug era mais sutil: como o overlay dele não era customizado (ficava no `z-[300]` padrão), o **próprio backdrop do drawer renderizava acima do seu próprio conteúdo**. Mesma correção aplicada lá.
 
 ### Ações em Grupos
 
@@ -250,31 +258,44 @@ Fluxo em 4 etapas com barra de progresso visual no topo:
 ### Check-in de Grupo
 
 **Drawer de Check-in:**
-- Opção de adicionar foto do treino
+- Opção de adicionar foto do treino — dois botões dedicados, **Câmera** e **Galeria**, cada um com seu próprio `<input type="file">` oculto. O input da Câmera usa `capture="environment"` (força a câmera traseira), replicando o padrão já usado em `NewPost.tsx`. **Motivo:** no WebKit do iOS, fotos tiradas com a câmera frontal através de `<input type="file">` saem espelhadas (o arquivo capturado é invertido horizontalmente em relação ao que o usuário viu na pré-visualização); forçar a câmera traseira evita o bug por completo. Ambos os fluxos abrem a foto no `ImageCropperDrawer` (mesmo `pendingCropSrc`/`pendingCropIndex` usados para crop).
+  - **Foto padrão quando nenhuma é enviada (2026-07-02):** se o usuário publicar o check-in sem escolher nenhuma foto, `photo`/`photos` são preenchidos com o mascote estático `public/Monstrinho_segurando_pesinho_202603301834.jpeg` (`DEFAULT_CHECKIN_PHOTO` em `Community.tsx`, referenciado como `/Monstrinho_segurando_pesinho_202603301834.jpeg` — mesma convenção de asset público usada pelo logo do canvas em `workout-summary-overlay.tsx`), em vez de deixar o check-in sem foto no card/detalhe.
 - Textarea para descrição do check-in
-- Seletor de "O que você treinou?" — exibe **apenas rotinas concluídas** nos últimos 7 dias (via `getCompletedRoutinesTodayDb`)
-  - Cada opção mostra: nome da rotina, grupo muscular principal, quantidade de exercícios, horário de conclusão
+- Seletor de "O que você treinou?" — exibe **apenas rotinas concluídas** nos últimos 7 dias (via `getRecentCompletedRoutinesDb`)
+  - Cada opção mostra: nome da rotina, grupo muscular principal, quantidade de exercícios, horário de conclusão (rótulo "Hoje HH:mm" para o dia atual, ou "DD mês HH:mm" para dias anteriores)
   - Lista expandida mostra cada exercício com carga (kg)
   - Série e volume total preenchidos automaticamente do histórico
+  - **Rotina já postada neste grupo (2026-07-02):** se a mesma rotina (nome + dia) já tiver um check-in nesse grupo, a opção aparece **desabilitada** (opacidade reduzida, `cursor-not-allowed`) com o rótulo "Já postado neste grupo" ao lado do horário; tocar nela mostra um toast em vez de selecionar. O botão "Adicionar Check-in" também bloqueia no submit (checagem redundante caso o estado fique desatualizado). Chave de deduplicação: `nome-da-rotina (lowercase/trim) + dia do calendário` calculada a partir dos check-ins já carregados do grupo (`groupCheckIns`) comparados com `routine.completedAt`. **Escopo por grupo** — a mesma rotina pode ser compartilhada normalmente em outro grupo do qual o usuário participa (cada duelo tem pontuação própria); a regra só impede inflar a pontuação de **um** grupo postando o mesmo treino nele mais de uma vez. Essa checagem existe apenas no drawer manual da tela de Duelos — o botão "Compartilhar no Duelo" do resumo de treino (`workout-summary-overlay.tsx`) não passa por ela.
 - Séries/Volume são salvos da tabela `user_workouts_hist` (reais, não zeros)
-- `muscle_group` e `exercises` (JSON) são salvos no check-in para exibição no detalhe
+- `muscle_group`, `muscle_groups` e `exercises` (JSON) são salvos no check-in para exibição no detalhe
+
+> **Data/horário do check-in segue a rotina, não o momento da postagem (2026-07-02):** Como a rotina selecionada pode ter sido concluída em um dia anterior (janela de 7 dias), o check-in é gravado com `created_at` igual ao `completedAt` da rotina escolhida (`addGroupCheckInDb(..., workoutCompletedAt)`), em vez do horário em que o usuário efetivamente tocou em "Adicionar Check-in". Isso garante que o check-in apareça agrupado no dia correto no histórico (Hoje/Ontem/data), na contagem de "dias ativos" e em qualquer ordenação por data — mesmo quando o usuário só lembra de postar depois.
+
+> **Tags de todos os grupos musculares treinados (2026-07-02):** Antes, o check-in guardava só o grupo muscular **mais frequente** entre os exercícios (`muscle_group`) — um treino de Perna + Ombro aparecia sem nenhuma tag de Ombro. `addGroupCheckInDb` agora também calcula `muscle_groups` (todos os grupos distintos, ordenados por frequência) a partir do array `exercises` recebido, e grava na nova coluna `duel_check_ins.muscle_groups` (`text[]`, ver `docs/migrations/20260702-duel-checkin-muscle-groups.sql`). Isso corrige tanto o check-in manual (drawer da tela de Duelos) quanto o "Compartilhar no Duelo" do resumo de treino (`workout-summary-overlay.tsx`), que antes **sempre** enviava `muscleGroup: null` — bug separado, também corrigido, que fazia o check-in aparecer sem tag nenhuma quando compartilhado do resumo.
+> - **Card do histórico** (espaço apertado, ao lado da thumbnail): mostra até **2 tags** + um chip `+N` se houver mais, para não competir com o layout compacto da linha.
+> - **Modal de detalhe** (mais espaço, sem thumbnail ao lado): mostra **todas** as tags, quebrando linha (`flex-wrap`) quando necessário.
 
 **Cards de Check-in no Histórico:**
 - Foto de perfil do usuário ao lado do nome
-- Tag de grupo muscular
+- Tags de grupo muscular (até 2 + `+N`, ver acima)
 - Nome da rotina / descrição
 - **Horário sempre visível** (mesmo quando há foto) — exibido abaixo da thumbnail
 
 **Modal de Detalhe do Check-in:**
 - Foto de perfil do usuário (com fallback para inicial)
 - Data + horário completo do check-in
-- Tag de grupo muscular
+- Tags de todos os grupos musculares treinados (ver acima)
 - Lista de exercícios realizados com nome, grupo muscular e carga (kg)
 - Volume total e número de exercícios como stats
 - **Reações de emoji** — 6 emojis rápidos (❤️ 🔥 💪 😮 👏 🏆), toggle por usuário, contador de reações (`duel_check_in_reactions`); sincronizadas em tempo real via Supabase Realtime (canal `checkin-reactions:{groupId}`) — todos os membros veem as reações atualizadas sem precisar recarregar
 - **Seção de comentários** — lista de comentários com avatar + nome + horário, input para enviar novo comentário (`duel_check_in_comments`)
 
 > **Tabelas necessárias:** `duel_check_in_comments` e `duel_check_in_reactions` — ver migration em `docs/migrations/20260327-community-features.sql`
+
+> **Performance da foto no modal de detalhe (2026-07-02):** A foto do check-in demorava a aparecer ao abrir o modal. Causas identificadas e corrigidas:
+> - `PostCarousel` (usado também no Feed e no Post Detalhe) usava `loading="lazy"` na imagem mesmo quando o carrossel já abre visível dentro de um drawer/modal — o navegador podia adiar o fetch à toa. Novo prop `priority` força `loading="eager"` nesse caso; usado apenas no check-in (`<PostCarousel priority ... />`), sem alterar o comportamento no Feed (onde "lazy" continua correto para posts fora da viewport).
+> - A foto passa pelo endpoint de transform-on-the-fly do Supabase Storage (`cdnImg` → `/storage/v1/render/image/public/...`, ver `client/lib/image-url.ts`), que tem latência perceptível no **primeiro** pedido de uma URL transformada (cache frio na borda). Como o card da lista usa a foto original (sem transform), a foto do modal de detalhe pedia uma URL nunca antes buscada. Agora, assim que a lista de check-ins carrega, os primeiros 15 check-ins com foto têm sua URL transformada (mesma largura/qualidade que o modal vai pedir — `POST_PHOTO_WIDTH`/`POST_PHOTO_QUALITY`, exportados de `post-carousel.tsx`) pré-aquecida em segundo plano (`new Image()`, `fetchPriority: "low"` quando suportado) — na prática, a borda do Supabase já está com cache quente quando o usuário toca no check-in.
+> - `ZoomableImage` (dentro do `PostCarousel`) agora aplica um fade-in (`opacity` 0→1 no `onLoad`) em vez de a imagem "estourar" assim que termina de carregar — o fundo do frame já preenche o espaço, então não há flash de conteúdo vazio.
 
 ---
 
@@ -306,7 +327,7 @@ Dados carregados via `getRankingDb()`
 |---|---|
 | Conversas | `getConversationsDb()` |
 | Mensagens de uma conversa | `getConversationMessagesDb(conversationId)` |
-| Rotinas concluídas (últimos 7 dias) | `getCompletedRoutinesTodayDb(userId)` |
+| Rotinas concluídas (últimos 7 dias) | `getRecentCompletedRoutinesDb(userId)` |
 | Reações de mensagens | `getMessageReactionsDb(messageIds[])` |
 | Adicionar reação | `addMessageReactionDb(messageId, emoji)` |
 | Remover reação | `removeMessageReactionDb(messageId, emoji)` |
@@ -350,6 +371,8 @@ Dados carregados via `getRankingDb()`
 - Tab ativa pode ser controlada via `searchParams` (ex: `?tab=duelos`)
 - `useLayoutMode()` detecta mobile/desktop para ajustes de layout
 - Grupos têm notificações enviadas ao criador quando alguém pede para entrar (`sendGroupJoinRequestNotificationDb`)
+
+> **Header auto-ocultável ao rolar (2026-07-02):** Igual ao Feed, o header flutuante (perfil/lupa/comunidade/notificações) some ao rolar para baixo e reaparece ao rolar para cima. As 4 abas (Mensagens, Duelos, Ranking, Solicitações) compartilham o mesmo wrapper externo com altura fixa (`calc(100dvh - ...)`) e `overflow-hidden`; cada aba tem seu próprio container interno `flex-1 overflow-y-auto` marcado com `data-community-scroll-container`, que o `AppLayout` usa para detectar o scroll (ver `docs/13-layouts-e-componentes.md`). Antes, apenas as abas Mensagens e Duelos tinham essa altura fixa — Ranking e Solicitações rolavam com a window; agora as 4 são consistentes.
 
 ## Design dos Drawers de Duelos (Glass)
 
