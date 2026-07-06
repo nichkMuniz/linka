@@ -9,6 +9,7 @@ import { ArrowLeft, Edit2, Trash2, MoreVertical } from "lucide-react";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
 import { PostCarousel } from "@/components/post/post-carousel";
+import { WorkoutDetailButton } from "@/components/shared/workout-detail-dialog";
 import { formatTimeAgo, cn } from "@/lib/utils";
 import { PostIncentiveButton } from "@/components/shared/post-incentive-button";
 import { PostCommentsDialog } from "@/components/modals/post-comments-dialog";
@@ -352,6 +353,13 @@ export default function PostDetail() {
                   </>
                 )}
               </p>
+            )}
+
+            {/* Workout summary — "Ver treino" pill opens the detail modal */}
+            {post.workoutSummary && (
+              <div className="mb-2.5 px-1">
+                <WorkoutDetailButton summary={post.workoutSummary} />
+              </div>
             )}
 
             {/* Carousel indicator — sits right above the incentive action bar */}

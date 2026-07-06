@@ -5,6 +5,7 @@ import {
   Drawer,
   DrawerContent,
   DrawerDescription,
+  DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
 import { PostIncentiveButton } from "@/components/shared/post-incentive-button";
@@ -14,6 +15,8 @@ import {
   getShotsDb,
   toggleShotIncentiveDb,
   getShotLikeUsersDb,
+  recordShotViewDb,
+  getShotViewersDb,
   addShotCommentDb,
   getShotCommentsDb,
   deleteShotCommentDb,
@@ -23,10 +26,12 @@ import {
   getUserProfileDb,
   type ShotWithUser,
   type ShotComment,
+  type ShotViewer,
   type PostIncentiveType,
 } from "@/lib/ritmofit-db";
+import { renderIncentiveIcon } from "@/lib/incentive-config";
 import { PostLikesModal } from "@/components/modals/post-likes-modal";
-import { MessageCircle, Send, Trash2, VolumeX, Volume2, MoreVertical, Edit2, AlertTriangle, Pencil, Check, X, Play, Users } from "lucide-react";
+import { MessageCircle, Send, Trash2, VolumeX, Volume2, MoreVertical, Edit2, AlertTriangle, Pencil, Check, X, Play, Users, Eye } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -142,6 +147,9 @@ export default function Shots() {
   const [shotLikesModalOpen, setShotLikesModalOpen] = React.useState(false);
   const [shotLikes, setShotLikes] = React.useState<Array<{ userId: string; userNickname: string; userPhoto: string | null; type: number }>>([]);
   const [shotLikesLoading, setShotLikesLoading] = React.useState(false);
+  const [viewersDrawerOpen, setViewersDrawerOpen] = React.useState(false);
+  const [shotViewers, setShotViewers] = React.useState<ShotViewer[]>([]);
+  const [isLoadingViewers, setIsLoadingViewers] = React.useState(false);
   const [expandedDescriptions, setExpandedDescriptions] = React.useState<Set<string>>(new Set());
   const DESC_MAX_CHARS = 80;
 
@@ -168,6 +176,20 @@ export default function Shots() {
       setShotLikesLoading(false);
     }
   }, [shotLikesLoading, t]);
+
+  const handleOpenShotViewers = React.useCallback(async (shotId: string) => {
+    setViewersDrawerOpen(true);
+    setIsLoadingViewers(true);
+    try {
+      const viewers = await getShotViewersDb(shotId);
+      setShotViewers(viewers);
+    } catch (err) {
+      console.error("Error loading shot viewers:", err);
+      toast({ title: t("error"), description: t("shots_views_load_error"), variant: "destructive" });
+    } finally {
+      setIsLoadingViewers(false);
+    }
+  }, [t]);
 
   const handleVideoTap = React.useCallback((shotId: string) => {
     const now = Date.now();
@@ -438,6 +460,14 @@ export default function Shots() {
         const shotId = entry.target.getAttribute("data-shot-id");
         if (!shotId) return;
         setVisibleShotId(shotId);
+        // Record that the current user viewed this shot (skips the owner and
+        // dedupes per session/DB — same system as the Flow "who viewed").
+        const ownerId = entry.target.getAttribute("data-owner-id");
+        if (ownerId) {
+          recordShotViewDb(shotId, ownerId).catch((err) =>
+            console.error("Error recording shot view:", err),
+          );
+        }
         const video = videoRefsMap.current[shotId];
         if (video) {
           video.play().catch((err) => { if (err?.name !== "AbortError" && err?.name !== "NotSupportedError") console.error("Erro ao reproduzir vídeo:", err); });
@@ -844,6 +874,7 @@ export default function Shots() {
             <div
               key={shot.id}
               data-shot-id={shot.id}
+              data-owner-id={shot.user_id}
               className="flex items-center justify-center bg-black relative"
               style={{
                 width: "100%",
@@ -856,7 +887,7 @@ export default function Shots() {
               {/* Video */}
               {shot.video_url ? (
                 <div
-                  className="h-full w-full relative cursor-pointer"
+                  className="h-full w-full relative cursor-pointer select-none"
                   role="button"
                   tabIndex={0}
                   onPointerDown={(e) => handleShotPointerDown(e, shot.id)}
@@ -870,7 +901,13 @@ export default function Shots() {
                     }
                     handleVideoTap(shot.id);
                   }}
-                  style={{ WebkitTapHighlightColor: "transparent" }}
+                  onContextMenu={(e) => e.preventDefault()}
+                  style={{
+                    WebkitTapHighlightColor: "transparent",
+                    WebkitTouchCallout: "none",
+                    WebkitUserSelect: "none",
+                    userSelect: "none",
+                  }}
                 >
                   <QuickIncentiveOverlay
                     visible={quickOverlayShotId === shot.id}
@@ -992,6 +1029,10 @@ export default function Shots() {
                       <DropdownMenuItem onClick={() => handleOpenShotLikes(shot.id)} disabled={shotLikesLoading}>
                         <Users className="h-4 w-4 mr-2" />
                         {t("shots_see_incentives")}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleOpenShotViewers(shot.id)}>
+                        <Eye className="h-4 w-4 mr-2" />
+                        {t("shots_see_views")}
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         className="text-destructive focus:text-destructive"
@@ -1252,6 +1293,52 @@ export default function Shots() {
         likes={shotLikes}
       />
 
+      {/* Shot Viewers Drawer — owner only (mesmo sistema do Flow) */}
+      <Drawer open={viewersDrawerOpen} onOpenChange={setViewersDrawerOpen}>
+        <DrawerContent className="max-h-[85vh]" onOpenAutoFocus={(e) => e.preventDefault()}>
+          <DrawerHeader>
+            <DrawerTitle className="flex items-center gap-2 pt-2">
+              <Eye className="h-5 w-5" />
+              {t("shots_views")} ({shotViewers.length})
+            </DrawerTitle>
+            <DrawerDescription className="sr-only">{t("shots_views")}</DrawerDescription>
+          </DrawerHeader>
+          <div className="overflow-y-auto px-4 pb-12 space-y-3">
+            {isLoadingViewers ? (
+              <div className="py-10 flex justify-center">
+                <div className="animate-spin rounded-full h-7 w-7 border-t-2 border-brand" />
+              </div>
+            ) : shotViewers.length === 0 ? (
+              <p className="text-center text-muted-foreground py-10">{t("shots_no_views")}</p>
+            ) : (
+              shotViewers.map((viewer) => (
+                <button
+                  key={viewer.followerId}
+                  className="flex items-center gap-3 p-3 rounded-xl bg-muted/30 w-full text-left active:opacity-70 transition-opacity hover:bg-muted/50"
+                  onClick={() => {
+                    setViewersDrawerOpen(false);
+                    navigate(`/usuario/${viewer.followerId}`);
+                  }}
+                >
+                  <div className="h-10 w-10 rounded-full overflow-hidden shrink-0">
+                    <UserAvatar photo={viewer.userPhoto} nickname={viewer.userNickname} className="h-full w-full" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold truncate">{viewer.userNickname}</p>
+                    <p className="text-[10px] text-muted-foreground">{formatRelativeTime(viewer.viewedAt)}</p>
+                  </div>
+                  {viewer.incentiveTypes.length > 0 && (
+                    <div className="flex gap-0.5">
+                      {viewer.incentiveTypes.map((type, i) => renderIncentiveIcon(type, "h-3.5 w-3.5", i))}
+                    </div>
+                  )}
+                </button>
+              ))
+            )}
+          </div>
+        </DrawerContent>
+      </Drawer>
+
       {/* Comments Drawer */}
       <Drawer
         open={commentsOpen && selectedShot !== null}
@@ -1263,7 +1350,8 @@ export default function Shots() {
           handleClassName="mt-[10px] h-1 w-[38px] bg-white/25"
           className="flex flex-col !rounded-t-[32px] !border-0"
           style={{
-            maxHeight: `min(82dvh, ${viewportHeight - 8}px)`,
+            height: `min(60dvh, ${viewportHeight - 8}px)`,
+            maxHeight: `min(60dvh, ${viewportHeight - 8}px)`,
             background: "linear-gradient(rgba(30,28,40,.88),rgba(14,13,20,.96))",
             backdropFilter: "blur(40px) saturate(180%)",
             WebkitBackdropFilter: "blur(40px) saturate(180%)",
@@ -1296,18 +1384,33 @@ export default function Shots() {
               comments.map((comment) => (
                 <div key={comment.id} className="flex gap-[11px]">
                   {/* Avatar */}
-                  <UserAvatar
-                    photo={comment.userPhoto}
-                    nickname={comment.userName}
-                    size="sm"
-                    className="flex-shrink-0 mt-0.5"
-                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCommentsOpen(false);
+                      navigate(`/usuario/${comment.userId}`);
+                    }}
+                    className="flex-shrink-0 mt-0.5 hover:opacity-80 transition-opacity"
+                  >
+                    <UserAvatar
+                      photo={comment.userPhoto}
+                      nickname={comment.userName}
+                      size="sm"
+                    />
+                  </button>
 
                   {/* Content */}
                   <div className="flex-1 min-w-0">
                     {/* Name + time */}
                     <div className="text-[13.5px]" style={{ color: "rgba(255,255,255,.95)" }}>
-                      <span className="font-semibold" style={{ color: "#fff" }}>
+                      <span
+                        className="font-semibold hover:opacity-80 transition-opacity cursor-pointer"
+                        style={{ color: "#fff" }}
+                        onClick={() => {
+                          setCommentsOpen(false);
+                          navigate(`/usuario/${comment.userId}`);
+                        }}
+                      >
                         {comment.userName}
                       </span>
                       {" "}

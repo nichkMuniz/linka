@@ -65,11 +65,12 @@ ETAPA 2 — Legenda e publicação
 
 ### Toolbar da Galeria
 - **Label do álbum atual** ("Recentes" por padrão) à esquerda, agora **clicável** — abre um `DropdownMenu` (padrão Instagram) para trocar de álbum/pasta da galeria do dispositivo:
-  - Itens fixos no topo: **Recentes** (sem filtro — biblioteca completa, comportamento padrão), **Vídeos** e **Favoritos** — estes dois só aparecem se o dispositivo realmente tiver esses álbuns inteligentes (detectados por título via `/vídeo|video/i` e `/favorit/i` na lista retornada por `PhotoLibrary.getAlbums()`)
+  - Itens fixos no topo: **Recentes** (sem filtro — biblioteca completa, comportamento padrão) e **Favoritos** — este último só aparece se o dispositivo realmente tiver esse álbum inteligente (detectado por título via `/favorit/i` na lista retornada por `PhotoLibrary.getAlbums()`). O atalho fixo de **Vídeos** foi removido (25/07/2026): no modo POST a consulta já pede só imagens, então filtrar por um álbum só-de-vídeo retornava grade vazia; no modo SHOT a galeria já só traz vídeos, tornando o atalho redundante. Se o dispositivo tiver um álbum "Vídeos", ele ainda aparece normalmente dentro de "Todos os álbuns"
   - Submenu **"Todos os álbuns"** — lista o restante dos álbuns do dispositivo (usuário + outros inteligentes), com contagem de itens; a opção **"Dos apps da Meta"** é **sempre excluída** (filtro `/meta/i` no título) por não fazer sentido no contexto do app
   - Item selecionado marcado com um ✓ azul; trocar de álbum recarrega a grade filtrada por aquele álbum (mantendo o filtro de tipo imagem/vídeo do `mediaType` atual)
   - **Limitação do plugin**: `PhotoLibrary.getLibrary` não filtra por álbum na consulta — ao selecionar um álbum específico, o app varre a biblioteca em lotes de 150 (`includeAlbumData: true`, até 1500 itens escaneados por chamada) filtrando client-side por `asset.albumIds`, acumulando até preencher uma página (40 itens) ou esgotar a biblioteca; "carregar mais" continua o scan de onde parou
 - Botão "Selecionar vários" **(somente POST)** alterna o `multiSelectMode` — é um chip/pill com estado visual claro: **inativo** = fundo neutro translúcido + círculo vazio (outline); **ativo** = preenchido com o gradiente da marca (azul→roxo), círculo com ✓ branco e o contador `n/5` embutido no próprio label, evitando a ambiguidade de antes (onde só a cor do texto mudava)
+  - Ao abrir a tela, a primeira foto da galeria é pré-selecionada automaticamente como preview (comportamento tipo Instagram) — sem que o usuário tenha tocado nela. Se o usuário liga o "Selecionar vários" nesse momento (sem ter tocado em nenhuma foto ainda), essa pré-seleção automática é descartada e o contador começa em `0/5`, em vez de já contar a foto que ninguém escolheu de fato (`autoSelectedActiveRef` em `NewPost.tsx` rastreia se a seleção atual é só a automática ou já foi tocada pelo usuário)
 
 ### Grade de Fotos (somente POST)
 - 4 colunas, `gap-px`
@@ -97,7 +98,7 @@ ETAPA 2 — Legenda e publicação
 - Botão "Compartilhar" executa o submit (com spinner durante envio)
 
 ### Área de Legenda
-- Miniatura 64×64 da foto/vídeo selecionado (toque abre o modal de preview, somente POST)
+- Miniatura 64×64 da foto/vídeo selecionado (toque abre o modal de preview, somente POST). A miniatura reflete o `cropTransforms[i]` (zoom/pan feito na Etapa 1) via `CroppedThumb` (`client/components/shared/inline-crop-preview.tsx`) — não é um simples `object-cover` da imagem original
 - `Textarea` sem borda (integrado ao layout), máx. 500 chars, com `ref` (`captionTextareaRef`) para permitir inserção de texto na posição do cursor pela barra de ícones abaixo
 - Strip horizontal de thumbnails abaixo (apenas se múltiplas fotos selecionadas), **reordenável por arrastar** (ver abaixo)
 
@@ -114,6 +115,7 @@ Logo abaixo da `Textarea`, três atalhos que inserem texto **na posição do cur
 - Um toque rápido (sem arrastar) continua selecionando aquela foto como a exibida no preview principal da Etapa 1/Etapa 2 e no modal de preview (carrossel) — o mesmo gesto de toque não é mais o `onClick` direto na imagem, e sim resolvido no fim do gesto de arrastar (`handlePhotoDragEnd`) quando o deslocamento foi menor que um limiar (6px)
 - O botão de remover (X) tem prioridade sobre o arrasto (`stopPropagation` no `pointerdown`)
 - Reordenar mantém sincronizados `selectedFiles`, `previewUrls`, `selectedAssetIds` (seleção da galeria) e `cropTransforms` (ajustes de crop por foto) — o arquivo, o crop e a miniatura da galeria "viajam" junto com a foto movida
+- Cada miniatura da strip (56×56) também usa `CroppedThumb` para refletir o `cropTransforms[i]` daquela foto, igual à miniatura 64×64 do topo — `CroppedThumb` escala `offsetX/offsetY` do transform pela proporção `tamanhoDaMiniatura / cropContainerWidthRef.current` (a largura do frame de crop cheio da Etapa 1, onde o transform foi originalmente capturado), preservando visualmente o mesmo enquadramento em qualquer tamanho de miniatura
 
 ### Modal de Preview da Imagem (`imagePreviewOpen`)
 - Aberto ao tocar na miniatura 64×64 (somente POST)

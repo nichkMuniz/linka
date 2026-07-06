@@ -72,7 +72,7 @@ Menu flutuante arrastável que dá acesso rápido às principais telas.
 - **Internacionalização (i18n)** — suporte a múltiplos idiomas via `language-context`
 - **Toast notifications** — feedback visual de ações
 - **Responsividade** — layout distinto para mobile e desktop
-- **Cache de queries** — cache em memória com TTL (30s–5min) em `ritmofit-db.ts` via helper `cached()`. Todas as funções de leitura retornam dados cacheados; funções de escrita chamam `invalidateQueryCache(prefix)` para invalidar caches relacionados. Cache limpo automaticamente no logout.
+- **Cache de queries** — cache em memória com TTL (30s–5min) em `ritmofit-db.ts` via helper `cached()`, com camada persistida em `localStorage` (stale-while-revalidate). Todas as funções de leitura retornam dados cacheados; funções de escrita chamam `invalidateQueryCache(prefix)` para invalidar caches relacionados. Cache limpo automaticamente no logout e, no login, quando o usuário é diferente do dono do cache persistido (marcador `lk:cacheOwner`). Regras anti-envenenamento: `getViewer()` nunca cacheia viewer `null`, e funções user-scoped resolvem o viewer **fora** do `cached()` — com viewer nulo retornam vazio sem gravar no cache (chaves são sufixadas com o id do usuário, ex.: `followingIds:<uid>`).
 
 ---
 

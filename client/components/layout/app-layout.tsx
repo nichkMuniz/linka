@@ -22,7 +22,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { PageTransition } from "@/components/layout/page-transition";
 
 import { Button } from "@/components/ui/button";
-import { hapticLight } from "@/lib/haptics";
+import { hapticLight, hapticSuccess } from "@/lib/haptics";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -35,10 +35,12 @@ import {
 } from "@/components/ui/alert-dialog";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { IncentiveConfirmToast } from "@/components/shared/incentive-confirm-toast";
+import { RoutineCompletedToast } from "@/components/shared/routine-completed-toast";
 import { getUnreadMessageCountDb, getUnreadNotificationsCountDb, getUserProfileDb, subscribeToUnreadNotificationsDb, recordAccessSessionDb, recordScreenTimeDb } from "@/lib/ritmofit-db";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
 import { useRoutineNotifications } from "@/hooks/use-routine-notifications";
+import { useEdgeSwipeBack } from "@/hooks/use-edge-swipe-back";
 import { useLayoutMode } from "@/hooks/useLayoutMode";
 import { useLanguage } from "@/lib/language-context";
 import { useWorkout } from "@/lib/workout-context";
@@ -73,6 +75,12 @@ export function AppLayout() {
   } = useWorkout();
 
   const [endWorkoutConfirmOpen, setEndWorkoutConfirmOpen] = React.useState(false);
+
+  // Swipe da borda esquerda → volta para a tela anterior visitada (history back).
+  // Desligado no editor de novo post (/postar), onde voltar perderia o rascunho
+  // e o gesto poderia conflitar com o crop inline.
+  const mainRef = React.useRef<HTMLElement>(null);
+  useEdgeSwipeBack(mainRef, location.pathname !== "/postar");
 
   // Auto-reopen workout modal when rest timer reaches 0 while minimized
   const prevRestTimerActiveRef = React.useRef(globalRestTimerActive);
@@ -289,7 +297,9 @@ export function AppLayout() {
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${user.id}` },
         (payload) => {
-          // Don't fire if user is already on the notifications page
+          // Vibrate for every incoming notification, regardless of which screen the user is on
+          hapticSuccess();
+          // Don't fire the visual/local notification if user is already on the notifications page
           if (window.location.pathname === "/notificacoes") return;
           const row = payload.new as { type?: number;[key: string]: unknown } | undefined;
           if (!row) return;
@@ -391,8 +401,8 @@ export function AppLayout() {
     ? (document.body.dataset.fullscreenStep === undefined ? true : bodyFullscreen)
     : bodyFullscreen;
 
-  // Scroll hide header — mobile only, only on feed, shots, vitrine, comunidade and metas pages
-  const isScrollHidePage = location.pathname === "/" || location.pathname === "/shots" || location.pathname === "/vitrine" || location.pathname === "/comunidade" || location.pathname === "/metas";
+  // Scroll hide header — mobile only, only on feed, shots, vitrine, comunidade, metas and perfil pages
+  const isScrollHidePage = location.pathname === "/" || location.pathname === "/shots" || location.pathname === "/vitrine" || location.pathname === "/comunidade" || location.pathname === "/metas" || location.pathname === "/perfil" || location.pathname.startsWith("/usuario/");
 
   React.useEffect(() => {
     if (!isScrollHidePage) {
@@ -717,6 +727,7 @@ export function AppLayout() {
         )}
       >
         <main
+          ref={mainRef}
           className={cn(
             "w-full",
             isFullscreenPage
@@ -908,6 +919,9 @@ export function AppLayout() {
 
       {/* Global incentive confirmation toast */}
       <IncentiveConfirmToast />
+
+      {/* Global routine-completed celebration (haptic + on-screen toast) */}
+      <RoutineCompletedToast />
 
       {/* Timer Expired Full-Screen Block */}
       {timerBlockVisible && (

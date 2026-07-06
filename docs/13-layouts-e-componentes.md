@@ -41,6 +41,7 @@ client/components/
 - **Header:** Logo + ícones de navegação secundária (buscar, notificações, perfil)
 - **Badge de mensagens não lidas:** Contador no ícone de Comunidade
 - **Badge de notificações:** Contador no ícone de Notificações
+- **Vibração ao receber notificação:** A subscription realtime (`app-layout-notif-push`, canal `notifications`) dispara `hapticSuccess()` (`client/lib/haptics.ts`) para qualquer INSERT na tabela `notifications` do usuário logado — independentemente do tipo (follow, incentivo, comentário, duelo, reação) e da tela em que o usuário está, inclusive na própria tela de Notificações. Roda antes da checagem que pula a notificação local visual (`LocalNotifications.schedule`) quando o usuário já está em `/notificacoes`, então a vibração sempre ocorre mesmo quando o banner é suprimido. Sem efeito fora do runtime nativo (Capacitor) — `hapticSuccess()` é no-op no browser.
 - **Refetch de badges no refresh do feed:** contadores são carregados no mount e mantidos via subscription realtime do Supabase (que pode cair silenciosamente em background no iOS). Para evitar badge desatualizado, o `AppLayout` também escuta os eventos `ritmofit-refresh-feed` (toque no logo/home) e `ritmofit-refresh-badges` (disparado pelo pull-to-refresh em `Index.tsx`) e refaz o fetch de `getUnreadMessageCountDb`/`getUnreadNotificationsCountDb` a cada um deles
 - **Foto de perfil:** Carregada dinamicamente no ícone de Perfil
 - **Bottom Navigation (mobile):** 5 itens fixos na parte inferior
@@ -48,6 +49,7 @@ client/components/
 - **Timer de uso diário:** Monitora tempo de sessão
 - **Limite diário:** Se o usuário configurou um limite, bloqueia o app ao atingir
 - **Floating Action Menu:** Menu flutuante arrastável (mobile)
+- **Swipe da borda esquerda → voltar (mobile):** Arrastar da borda esquerda para a direita volta para a **tela anterior visitada** (history back). Implementado pelo hook `useEdgeSwipeBack` (`client/hooks/use-edge-swipe-back.ts`), aplicado ao `<main>` do AppLayout via `mainRef`. O conteúdo desliza acompanhando o dedo (header e bottom nav ficam fixos), e ao soltar acima do limiar (~32% da largura ou flick rápido) dispara `hapticLight()` + `navigate(-1)`, animando a tela anterior deslizando da esquerda. Só inicia na faixa de 30px da borda esquerda (para não sequestrar carrosséis horizontais internos), ignora scroll vertical (trava de direção), não dispara com dialog/drawer aberto nem quando não há histórico anterior (`history.state.idx === 0`, evita sair do app). **Desligado em `/postar`** (voltar perderia o rascunho do novo post).
 
 #### Desktop — frame de conteúdo
 Em desktop (md+), o conteúdo é limitado a `max-w-[680px]` centralizado após a sidebar (244px). Todas as sobreposições fixas (Dialogs, Drawers) respeitam esse frame usando a classe `md-modal-centered` / `md-drawer-centered` definida em `global.css`, que ajusta o `left` para `calc(50vw + 122px)` (centro do frame de conteúdo).
@@ -153,7 +155,7 @@ Dialog de comentários de um post:
 - Campo para adicionar comentário com **EmojiPicker** integrado
 - Contagem de comentários no botão trigger
 - Badge de comentário não lido (para o dono do post)
-- Deletar comentário próprio
+- Deletar comentário próprio — abre um **`AlertDialog` de confirmação** (título `comments_delete_title`, descrição `comments_delete_desc`, botão de ação em `bg-destructive` com estado de carregamento `comments_deleting`), padronizado para ser idêntico ao modal de exclusão de comentário da tela de Shots. Não usa mais o `confirm()` nativo do navegador
 - **Altura fixa** (`height: min(60dvh, viewportHeight - 8px)`, não apenas `maxHeight`) — o drawer sempre nasce no mesmo tamanho, com ou sem comentários, para evitar que o drawer "pule" de tamanho quando o primeiro comentário é postado (o novo comentário nascia atrás do input). A lista interna centraliza o estado vazio/loading verticalmente quando não há comentários. `PromotionCommentsDrawer` segue o mesmo padrão.
 
 ---
@@ -230,6 +232,14 @@ Cada foto tem seu próprio `CropTransform` guardado por índice (`Record<number,
 
 ---
 
+### WorkoutDetailButton
+**Arquivo:** `client/components/shared/workout-detail-dialog.tsx`
+**Usado em:** Feed (`PostCard`), Perfil (viewer de post), PostDetail
+
+Pill **"Ver treino"** + drawer glass **simplificado** de detalhe do treino, renderizado apenas em posts que carregam um `workout_summary` (posts de resumo de treino compartilhados no feed). Props: `summary: PostWorkoutSummary` (tipo em `client/lib/workout-summary-types.ts`) e `className` (posicionamento do pill). O drawer (padrão glass §9.4) mostra **só** a lista de exercícios: cada linha com a **miniatura do exercício** (`ExerciseImage`, fallback gradiente/emoji por grupo quando sem foto), nome + grupo muscular e as **séries em chips `{kg}kg × {reps}`** — sem stats/banners (o overlay completo é o `WorkoutSummaryOverlay` na tela de Metas). Optou-se por pill dedicado em vez de tornar a imagem inteira clicável, para não conflitar com o duplo-toque de incentivo, o pinch-zoom e o swipe de carrossel já existentes na imagem do post. Ver `docs/01-feed.md` (Detalhe do treino) e `docs/14-database-schema.md` (`posts.workout_summary`).
+
+---
+
 ### UserInsignias
 **Arquivo:** `client/components/profile/user-insignias.tsx`
 **Usado em:** Feed, Perfil
@@ -298,6 +308,21 @@ Detecta o modo de layout:
 Hook simples para detectar mobile:
 - Baseado em `window.innerWidth`
 - Retorna `true` se largura < breakpoint
+
+---
+
+### useEdgeSwipeBack
+**Arquivo:** `client/hooks/use-edge-swipe-back.ts`
+**Usado por:** AppLayout (aplicado ao `<main>`)
+
+Gesto de "voltar" estilo iOS — arrastar da borda esquerda para a direita retorna à tela anterior visitada:
+- **Assinatura:** `useEdgeSwipeBack(ref, enabled)` — `ref` do elemento que desliza; `enabled` para desligar por rota
+- **Lógica de voltar:** `navigate(-1)` (history back). Como toda navegação entre telas usa `<Link>` (empilha histórico), voltar uma entrada é sempre a última tela visitada
+- **Só edge-swipe:** o toque precisa iniciar nos primeiros 30px da borda esquerda, evitando conflito com carrosséis horizontais internos (PostCarousel, FlowViewer, InlineCropPreview)
+- **Trava de direção:** se o movimento inicial for mais vertical que horizontal, trata como scroll e cancela
+- **Confirmação:** solta acima de ~32% da largura da tela (mín. 70px) **ou** flick rápido (≥ 0.5px/ms) → `hapticLight()` + `navigate(-1)`
+- **Feedback visual:** desliza o `<main>` com o dedo (transform GPU, sem re-render); ao confirmar, anima a tela anterior deslizando da esquerda até 0
+- **Guardas:** não dispara se `history.state.idx === 0` (sem tela anterior, evita sair do app) nem com dialog/drawer aberto (`[role="dialog"]`/`[role="alertdialog"]`/`[vaul-drawer]`)
 
 ---
 
@@ -381,7 +406,8 @@ Todos os drawers (bottom sheets) do app são renderizados por `DrawerContent`. D
 - Consequência: qualquer elemento `fixed bottom-0` (drawers, barras de input) fica automaticamente acima do teclado; unidades `dvh`/`vh` e `window.innerHeight` passam a refletir a área visível. Nenhum reposicionamento via JS é necessário.
 - O `repositionInputs` do vaul está **explicitamente desligado** no componente `Drawer` (`repositionInputs={false}`). O mecanismo do vaul depende de eventos de `visualViewport` que são instáveis dentro do WKWebView (altura "travada" obsoleta, movimento duplo) — era a causa dos drawers com input quebrando no iPhone. **Não reativar.**
 - **Importante:** nenhum componente deve rodar handler próprio de `visualViewport` para mover drawers. Dois mecanismos mutando `bottom`/`height` do mesmo elemento brigam entre si. (O hack `releaseDrawerHeightLock` do `CreateWizardDrawer`, que existia para desfazer a altura travada do vaul, foi removido junto.)
-- Consumidores só precisam de um cap de altura que acompanhe o viewport — o padrão do app é `maxHeight: min(XXdvh, ${viewportHeight - 8}px)` com `viewportHeight` vindo de `useKeyboardAwareHeight` (que retorna `window.innerHeight`, agora a área acima do teclado) — e `flex-1 min-h-0` na área scrollável. Com o viewport encolhendo, o sheet comprime e o input pinado no rodapé permanece visível.
+- Consumidores só precisam de um cap de altura que acompanhe o viewport — o padrão do app é `maxHeight: min(XXdvh, ${viewportHeight - 8}px)` com `viewportHeight` vindo de `useKeyboardAwareHeight` — e `flex-1 min-h-0` na área scrollável. Com o viewport encolhendo, o sheet comprime e o input pinado no rodapé permanece visível.
+- **Correção do delay ao focar input (2026-07-06):** dentro do WKWebView o evento `window`/`visualViewport` "resize" que reporta o frame encolhido chega **atrasado** (até ~1s), e unidades `dvh`/`vh` ficam congeladas no valor antigo até lá — por isso um drawer com input focado permanecia em altura cheia por até um segundo antes de saltar para caber acima do teclado. `useKeyboardAwareHeight` agora escuta também os eventos nativos `keyboardWillShow` / `keyboardWillHide` do `@capacitor/keyboard` (que disparam no **início** da animação do teclado e já trazem `keyboardHeight`) e recalcula a altura na hora (`fullHeight - keyboardHeight`), em sincronia com o teclado. Os listeners de `resize`/`orientationchange` permanecem como fallback para web e rotação. **Isso é só dimensionamento (sizing), não reposicionamento** — a regra acima de não mover drawers via `visualViewport` continua valendo.
 
 ---
 

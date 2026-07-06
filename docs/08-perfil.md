@@ -126,6 +126,7 @@ Cada post na grade:
 **Ao expandir um post:**
 - Carrossel de imagens (`PostCarousel`)
 - Descrição — truncada em até 30 caracteres ou 1 linha; exibe `...` + botão clicável **"mais"** (chave i18n `feed_description_more`) para expandir o texto completo, e botão **"menos"** (`feed_description_less`) para recolher. Estado de expansão é resetado ao abrir um novo post
+- **Pill "Ver treino"** (`WorkoutDetailButton`) — só em posts de **resumo de treino** (com `workout_summary`), abaixo da descrição em modo visualização. Abre o drawer simplificado com a lista de exercícios (miniatura + grupo + séries em chips `{kg}kg × {reps}`; mesmo componente do feed/PostDetail). Ver `docs/01-feed.md` (Detalhe do treino)
 - Botões de incentivo interativos (`PostIncentiveButton` × 6 tipos) — visíveis em modo visualização e edição
 - Botão comentários (`PostCommentsDialog`) — visível apenas em modo visualização (oculto ao editar)
 - Contador de incentivos clicável → abre `PostLikesModal`
@@ -357,6 +358,8 @@ Exibida entre o card de perfil e as tabs, **apenas quando o usuário tem metas**
 
 - A mesma tela (`Profile.tsx`) é usada para `/perfil` e `/usuario/:userId`
 - O hook `useAuth()` determina se é o próprio perfil ou não
+- **Header some ao rolar (scroll hide):** igual ao feed/shots/vitrine/comunidade/metas, o header flutuante do `AppLayout` (mobile) se esconde ao rolar para baixo e reaparece ao rolar para cima, controlado pela lista `isScrollHidePage` em `app-layout.tsx`
+- **Fecha drawers/modais ao trocar de perfil:** `/perfil` e `/usuario/:userId` renderizam o mesmo componente `Profile.tsx`, então navegar de um perfil para outro (ex.: tocar no nome de um usuário dentro dos comentários/incentivos de um post aberto) **não remonta a tela** — sem tratamento, o drawer do post (ou qualquer outro drawer/modal) permanecia aberto sobre o novo perfil carregado. Um efeito dedicado (`prevProfileUserIdRef`) compara o `profileUserId` anterior com o atual e, quando muda (ignorando a montagem inicial, para não quebrar a abertura do Settings vinda de notificação via `openFlowArchive`), fecha todos os drawers/modais: post, likes, shot, story, histórico de treino, exclusão de rotina, seguidores/seguindo, meta, planos, configurações e compartilhamento
 - `Collapsible` é usado para seções expansíveis de rotina
 - Imagens de banner e avatar são hospedadas no Supabase Storage
 
@@ -369,7 +372,6 @@ O perfil não é uma tela que muda com frequência, então as queries de carrega
 | `getUserProfileDb` | `userProfile:{userId}` | 5 min (`CACHE_TTL_LONG`) |
 | `getUserStatsDb` | `userStats:{userId}` | 30s |
 | `getUserPostsDb` | `userPosts:{userId}` | 30s |
-| `getUserRoutinesDb` | `userRoutines:{userId}` | 30s |
 | `getUserShotsDb` | `userShots:{userId}` | 30s |
 | `getCommercialProfileDb` | `commercialProfile:{userId}` | 30s |
 | `getUserActiveStoriesDb` | `userActiveStories:{userId}` | 60s |
@@ -378,3 +380,4 @@ O perfil não é uma tela que muda com frequência, então as queries de carrega
 - Ao reentrar na tela dentro do TTL, os dados vêm da memória sem round-trip de rede. Após o TTL expirar (mas dentro de 24h), o valor persistido em `localStorage` é exibido imediatamente enquanto uma atualização roda em segundo plano — por isso a tela nunca fica "travada" esperando a rede em revisitas.
 - `updateUserProfileDb` chama `invalidateProfileCache(userId)` para garantir que uma edição de perfil não fique presa ao cache antigo.
 - **Pull-to-refresh** invalida explicitamente todas as chaves acima antes de chamar `loadProfile()`, já que puxar para atualizar é um pedido explícito de dados frescos — não deve reaproveitar cache.
+- **`getUserRoutinesDb` não é cacheado** (ver `docs/05-metas.md`) — sempre busca direto do Supabase, então o resumo de rotinas do perfil também reflete criações/edições feitas em Metas sem esperar TTL nem pull-to-refresh.

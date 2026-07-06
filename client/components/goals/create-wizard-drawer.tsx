@@ -49,11 +49,13 @@ import {
   updateRoutineGoalDb,
   updateRoutineItemsScheduledTimeDb,
   updateRoutineItemsScheduledDaysDb,
+  updateRoutineItemScheduledTimeDb,
   type Diet,
   type Habit,
   type ProgrammedGoal,
   type RoutineTypeCode,
   type UserGoal,
+  type UserHabit,
   type Workout,
 } from "@/lib/ritmofit-db";
 import {
@@ -155,6 +157,8 @@ export function CreateWizardDrawer({
   const [routineName, setRoutineName] = React.useState("");
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
   const [scheduledTime, setScheduledTime] = React.useState("");
+  // Horários individuais por hábito (chave = habit_id do catálogo) quando a rotina tem 2+ hábitos
+  const [habitTimes, setHabitTimes] = React.useState<Record<string, string>>({});
   const [scheduledDays, setScheduledDays] = React.useState<Set<number>>(new Set());
   const [linkGoalId, setLinkGoalId] = React.useState<string | null>(null);
   const [searchQuery, setSearchQuery] = React.useState("");
@@ -206,6 +210,7 @@ export function CreateWizardDrawer({
       setRoutineName("");
       setSelectedIds(new Set());
       setScheduledTime("");
+      setHabitTimes({});
       setScheduledDays(new Set());
       setLinkGoalId(null);
       setSearchQuery("");
@@ -333,6 +338,14 @@ export function CreateWizardDrawer({
     return habits.filter((h) => !q || h.name.toLowerCase().includes(q));
   }, [routineType, workouts, diets, habits, searchQuery, muscleFilter]);
 
+  // Rotinas de hábito com 2+ itens ganham um horário por item no passo de agendamento,
+  // em vez de um único horário aplicado a todos.
+  const selectedHabitsForSchedule = React.useMemo(
+    () => habits.filter((h) => selectedIds.has(h.id)),
+    [habits, selectedIds],
+  );
+  const isMultiHabitSchedule = routineType === 3 && selectedHabitsForSchedule.length > 1;
+
   /** find the just-created routines row (type+name) and link it to a goal */
   const linkNewRoutineToGoal = async (type: RoutineTypeCode, name: string | null, goalUserGoal: string) => {
     const userGoal = userGoals.find((g) => g.id === goalUserGoal);
@@ -359,6 +372,7 @@ export function CreateWizardDrawer({
       const ids = Array.from(selectedIds);
 
       let insertedIds: string[] = [];
+      let insertedHabits: UserHabit[] = [];
       if (routineType === 1) {
         const inserted = await createUserWorkoutsDb(userId, ids, { name: name || undefined });
         insertedIds = inserted.map((i) => i.id);
@@ -368,11 +382,23 @@ export function CreateWizardDrawer({
       } else {
         const inserted = await createUserHabitsDb(userId, ids, { name: name || undefined });
         insertedIds = inserted.map((i) => i.id);
+        insertedHabits = inserted;
       }
 
       await backfillRoutineIdOnItemsDb(userId, routineType, name, insertedIds).catch(() => {});
 
-      if (scheduledTime) {
+      // Rotina de hábito com 2+ itens: aplica um horário por item (casado por habit_id)
+      // em vez do horário único de `scheduledTime`.
+      const hasIndividualHabitTimes = isMultiHabitSchedule && insertedHabits.length > 1;
+      if (hasIndividualHabitTimes) {
+        await Promise.all(
+          insertedHabits.map((row) => {
+            const time = habitTimes[row.habit_id] || null;
+            if (!time) return Promise.resolve();
+            return updateRoutineItemScheduledTimeDb(userId, 3, row.id, time).catch(() => {});
+          }),
+        );
+      } else if (scheduledTime) {
         await updateRoutineItemsScheduledTimeDb(userId, routineType, name, scheduledTime).catch(() => {});
       }
 
@@ -382,7 +408,7 @@ export function CreateWizardDrawer({
       }
 
       // Agenda as notificações locais da nova rotina (se tiver horário definido).
-      if (scheduledTime) {
+      if (scheduledTime || hasIndividualHabitTimes) {
         window.dispatchEvent(new CustomEvent("ritmofit-routines-changed"));
       }
 
@@ -1474,21 +1500,53 @@ export function CreateWizardDrawer({
           {/* ── Step 3: schedule (time + weekdays + goal) ─────────── */}
           {step === "build-schedule" && (
             <>
-              <div className="space-y-2">
-                <Label className="text-sm font-semibold" style={{ color: "#fff" }}>{t("goals_edit_routine_time_label")}</Label>
-                <div
-                  className="w-full h-11 rounded-xl overflow-hidden"
-                  style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)" }}
-                >
-                  <input
-                    type="time"
-                    value={scheduledTime}
-                    onChange={(e) => setScheduledTime(e.target.value)}
-                    className="block w-full h-full px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                    style={{ fontSize: "16px", minWidth: 0, maxWidth: "100%", boxSizing: "border-box", background: "transparent", border: "none", color: "#fff" }}
-                  />
+              {isMultiHabitSchedule ? (
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold" style={{ color: "#fff" }}>{t("goals_edit_routine_time_label")}</Label>
+                  <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>
+                    {t("goals_wizard_habit_time_per_item_hint")}
+                  </p>
+                  <div className="space-y-2">
+                    {selectedHabitsForSchedule.map((h) => (
+                      <div key={h.id} className="flex items-center gap-2">
+                        <span className="flex-1 min-w-0 truncate text-sm" style={{ color: "#fff" }}>
+                          {h.name}
+                        </span>
+                        <div
+                          className="w-[128px] h-11 rounded-xl overflow-hidden shrink-0"
+                          style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)" }}
+                        >
+                          <input
+                            type="time"
+                            value={habitTimes[h.id] ?? ""}
+                            onChange={(e) =>
+                              setHabitTimes((prev) => ({ ...prev, [h.id]: e.target.value }))
+                            }
+                            className="block w-full h-full px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                            style={{ fontSize: "16px", minWidth: 0, maxWidth: "100%", boxSizing: "border-box", background: "transparent", border: "none", color: "#fff" }}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold" style={{ color: "#fff" }}>{t("goals_edit_routine_time_label")}</Label>
+                  <div
+                    className="w-full h-11 rounded-xl overflow-hidden"
+                    style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)" }}
+                  >
+                    <input
+                      type="time"
+                      value={scheduledTime}
+                      onChange={(e) => setScheduledTime(e.target.value)}
+                      className="block w-full h-full px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                      style={{ fontSize: "16px", minWidth: 0, maxWidth: "100%", boxSizing: "border-box", background: "transparent", border: "none", color: "#fff" }}
+                    />
+                  </div>
+                </div>
+              )}
 
               <div className="space-y-2">
                 <Label className="text-sm font-semibold" style={{ color: "#fff" }}>{t("goals_wizard_days_label")}</Label>

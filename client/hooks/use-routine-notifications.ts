@@ -1,8 +1,14 @@
 import { useEffect, useCallback, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { LocalNotifications, type LocalNotificationSchema } from "@capacitor/local-notifications";
 import { Capacitor } from "@capacitor/core";
 import { getRoutineSchedulesDb, RoutineScheduleEntry } from "@/lib/ritmofit-db";
 import { REST_NOTIF_ID } from "@/lib/workout-context";
+
+// Mapeia o tipo textual da notificação para o código numérico usado em
+// RoutineCard.key (`${RoutineTypeCode}::${name}`), permitindo abrir o drawer
+// certo direto ao tocar na notificação (ver Goals.tsx, param `openRoutine`).
+const ROUTINE_TYPE_CODE: Record<string, number> = { workout: 1, diet: 2, habit: 3 };
 
 /**
  * Formats a "HH:MM" or "HH:MM:SS" time string as a display label (e.g. "07:30").
@@ -128,10 +134,11 @@ async function applySchedulesNative(schedules: RoutineScheduleEntry[]): Promise<
       g.count > 1
         ? `Hora da sua rotina (${g.count} ${labels[g.type] || "itens"})`
         : `Hora da sua rotina: ${labels[g.type] || "item"}`;
+    const routineKey = `${ROUTINE_TYPE_CODE[g.type] ?? g.type}::${g.name ?? ""}`;
     const base = {
       title,
       body,
-      extra: { url: "/metas" },
+      extra: { url: `/metas?openRoutine=${encodeURIComponent(routineKey)}` },
     };
 
     const weekdays = parseWeekdays(g.days);
@@ -163,6 +170,7 @@ async function applySchedulesNative(schedules: RoutineScheduleEntry[]): Promise<
  * Replaces the previous Service Worker + Web Notifications approach.
  */
 export function useRoutineNotifications(userId: string | null) {
+  const navigate = useNavigate();
   // Tracks last sync to avoid redundant calls
   const lastSyncRef = useRef<number>(0);
 
@@ -210,7 +218,8 @@ export function useRoutineNotifications(userId: string | null) {
     };
   }, [syncAll]);
 
-  // Handle notification tap → navigate to /metas
+  // Handle notification tap → navigate to /metas (via SPA router, sem reload,
+  // preservando o parâmetro `openRoutine` que abre o drawer certo).
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
     const listener = LocalNotifications.addListener(
@@ -220,15 +229,13 @@ export function useRoutineNotifications(userId: string | null) {
         // que reabre a tela sem forçar reload — evita perder o estado do treino.
         if (action.notification.id === REST_NOTIF_ID) return;
         const url: string = action.notification.extra?.url || "/metas";
-        if (typeof window !== "undefined") {
-          window.location.pathname = url;
-        }
+        navigate(url);
       }
     );
     return () => {
       listener.then((l) => l.remove());
     };
-  }, []);
+  }, [navigate]);
 
   return { syncAll };
 }

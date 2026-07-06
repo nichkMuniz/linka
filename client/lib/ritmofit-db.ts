@@ -1,4 +1,5 @@
-import { getUserSafe, hasSupabaseConfig, supabase, registerViewerCacheInvalidator } from "@/lib/supabase";
+import { getUserSafe, hasSupabaseConfig, supabase, registerViewerCacheInvalidator, registerAuthUserReadyHandler } from "@/lib/supabase";
+import type { PostWorkoutSummary } from "@/lib/workout-summary-types";
 
 // ─── Auth helpers ─────────────────────────────────────────────────────────────
 
@@ -58,7 +59,14 @@ export async function getViewer() {
 
   try {
     const user = await getUserSafe();
-    _viewerCache = { user, expiry: Date.now() + VIEWER_TTL_MS };
+    // Nunca cachear `null`: logo após o login (ou numa falha transitória de
+    // refresh do token) um null cacheado por 30s fazia todas as queries
+    // user-scoped retornarem vazio — feed sem posts de seguidos, flows/shots/
+    // notificações vazios. getSession() lê do localStorage, então re-tentar
+    // a cada chamada é barato.
+    if (user) {
+      _viewerCache = { user, expiry: Date.now() + VIEWER_TTL_MS };
+    }
     return user;
   } catch {
     return null;
@@ -69,6 +77,24 @@ export { invalidateViewerCache };
 
 // Register the cache invalidator so supabase.ts can clear it on sign-out
 registerViewerCacheInvalidator(invalidateViewerCache);
+
+// Quando uma sessão fica disponível (login, cold start, refresh de token):
+// derruba o viewer cache (pode conter `null` cacheado antes do login) e, se o
+// usuário mudou desde a última sessão, purga o cache de queries inteiro — os
+// dados persistidos pertencem a outro contexto. Quando é o mesmo usuário, o
+// cache persistido é preservado para manter o first paint instantâneo.
+const CACHE_OWNER_KEY = "lk:cacheOwner"; // fora do prefixo lk:q: para sobreviver ao persistDelete()
+registerAuthUserReadyHandler((userId: string) => {
+  _viewerCache = null;
+  try {
+    if (localStorage.getItem(CACHE_OWNER_KEY) === userId) return;
+    _queryCache.clear();
+    persistDelete();
+    localStorage.setItem(CACHE_OWNER_KEY, userId);
+  } catch {
+    _queryCache.clear();
+  }
+});
 
 // ─── Generic query cache ──────────────────────────────────────────────────────
 // Two-layer cache:
@@ -197,6 +223,33 @@ export function invalidateQueryCache(prefix?: string) {
     if (key.startsWith(prefix)) _queryCache.delete(key);
   }
   persistDelete(prefix);
+}
+
+// ————————————————————————————————————————————————————————————————
+// Localização de catálogo (workouts / diets / habits)
+// Os catálogos têm colunas name_eng / description_eng (tradução em inglês —
+// ver docs/migrations/20260704-catalog-eng-columns.sql). Quando o idioma da UI
+// é "en" e o campo _eng está preenchido, usamos ele; caso contrário caímos
+// para o texto original em português (inclui itens criados pelo usuário, que
+// não têm tradução). O idioma é lido do mesmo localStorage do language-context.
+// ————————————————————————————————————————————————————————————————
+export function getUiLanguage(): "pt" | "en" {
+  try {
+    return typeof localStorage !== "undefined" &&
+      localStorage.getItem("ritmofit-language") === "en"
+      ? "en"
+      : "pt";
+  } catch {
+    return "pt";
+  }
+}
+
+function pickLocalized(pt: any, eng: any): string {
+  if (getUiLanguage() === "en") {
+    const e = eng == null ? "" : String(eng);
+    if (e.trim() !== "") return e;
+  }
+  return pt == null ? "" : String(pt);
 }
 
 export type DbProfile = {
@@ -1053,10 +1106,12 @@ export async function getUserGoalsByUserIdDb(
 
 export async function getUserGoalsDb(): Promise<UserGoal[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-  return cached("userGoals", CACHE_TTL_MEDIUM, async () => {
+  // Viewer resolvido FORA do cached(): com viewer null (logo após o login ou
+  // falha transitória de auth) retornamos vazio SEM gravar no cache — antes,
+  // o vazio era persistido e servido por até 24h (stale-while-revalidate).
   const viewer = await getViewer();
   if (!viewer) return [];
-
+  return cached(`userGoals:${viewer.id}`, CACHE_TTL_MEDIUM, async () => {
   return getUserGoalsByUserIdDb(viewer.id);
 
   });
@@ -1177,9 +1232,9 @@ export async function incrementGoalProgressDb(
 
 export async function getUserSelectedGoalIdsDb(): Promise<string[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-  return cached("selectedGoalIds", CACHE_TTL_MEDIUM, async () => {
   const viewer = await getViewer();
   if (!viewer) return [];
+  return cached(`selectedGoalIds:${viewer.id}`, CACHE_TTL_MEDIUM, async () => {
 
   const { data, error } = await supabase
     .from("user_goals")
@@ -1339,6 +1394,7 @@ export type PostWithUser = {
   userNickname: string;
   userPhoto: string | null;
   isVerified?: boolean;
+  workoutSummary?: PostWorkoutSummary | null;
 };
 
 export async function getUserPostsDb(userId: string): Promise<PostWithUser[]> {
@@ -1349,7 +1405,7 @@ export async function getUserPostsDb(userId: string): Promise<PostWithUser[]> {
   const [postsRes, userProfile] = await Promise.all([
     supabase
       .from("posts")
-      .select("id, description, photo, photos, created_at, user_id, user_goal_id")
+      .select("id, description, photo, photos, created_at, user_id, user_goal_id, workout_summary")
       .eq("user_id", userId)
       .order("created_at", { ascending: false })
       .limit(100),
@@ -1378,6 +1434,7 @@ export async function getUserPostsDb(userId: string): Promise<PostWithUser[]> {
     userNickname,
     userPhoto,
     isVerified,
+    workoutSummary: (row.workout_summary as PostWorkoutSummary | null) ?? null,
   }));
 
   });
@@ -1390,7 +1447,7 @@ export async function getPostByIdDb(postId: string): Promise<PostWithUser | null
 
   const { data, error } = await supabase
     .from("posts")
-    .select("id, description, photo, photos, created_at, user_id, user_goal_id")
+    .select("id, description, photo, photos, created_at, user_id, user_goal_id, workout_summary")
     .eq("id", postId)
     .maybeSingle();
 
@@ -1408,6 +1465,7 @@ export async function getPostByIdDb(postId: string): Promise<PostWithUser | null
     userNickname: userProfile?.nickname || "Usuário",
     userPhoto: userProfile?.photo || null,
     isVerified: userProfile?.is_verified === true,
+    workoutSummary: (data.workout_summary as PostWorkoutSummary | null) ?? null,
   };
 
   });
@@ -1441,11 +1499,11 @@ export async function getWorkoutsDb(): Promise<Workout[]> {
   if (!hasSupabaseConfig || !supabase) return [];
   const viewer = await getViewer();
   const userId = viewer?.id ?? null;
-  return cached(`workouts:${userId ?? "anon"}`, CACHE_TTL_LONG, async () => {
+  return cached(`workouts:${getUiLanguage()}:${userId ?? "anon"}`, CACHE_TTL_LONG, async () => {
   const mapRow = (row: any): Workout => ({
     id: String(row.id ?? ""),
-    name: String(row.name ?? ""),
-    description: String(row.description ?? ""),
+    name: pickLocalized(row.name, row.name_eng),
+    description: pickLocalized(row.description, row.description_eng),
     photo: resolveWorkoutPhotoUrl(row.photo, row.wger_id),
     muscle_group: row.muscle_group ? String(row.muscle_group) : null,
     type: row.type != null ? Number(row.type) : null,
@@ -1454,14 +1512,14 @@ export async function getWorkoutsDb(): Promise<Workout[]> {
   // Fetch all workouts including created_by_user for client-side filtering
   const { data: allData, error } = await supabase!
     .from("workouts")
-    .select("id, name, description, photo, muscle_group, type, wger_id, created_by_user")
+    .select("id, name, description, name_eng, description_eng, photo, muscle_group, type, wger_id, created_by_user")
     .order("created_at", { ascending: false });
 
   if (error) {
     // created_by_user column may not exist — fallback shows everything
     const { data } = await supabase!
       .from("workouts")
-      .select("id, name, description, photo, muscle_group, type, wger_id")
+      .select("id, name, description, name_eng, description_eng, photo, muscle_group, type, wger_id")
       .order("created_at", { ascending: false });
     return (data ?? []).map(mapRow);
   }
@@ -1524,11 +1582,11 @@ export async function getCatalogWorkoutsFromDb(): Promise<Array<{
   if (!hasSupabaseConfig || !supabase) return [];
   const viewer = await getViewer();
   const userId = viewer?.id ?? null;
-  return cached(`catalogWorkouts:${userId ?? "anon"}`, CACHE_TTL_LONG, async () => {
+  return cached(`catalogWorkouts:${getUiLanguage()}:${userId ?? "anon"}`, CACHE_TTL_LONG, async () => {
   const mapRow = (row: any) => ({
     id: String(row.id),
-    name: String(row.name ?? ""),
-    description: String(row.description ?? ""),
+    name: pickLocalized(row.name, row.name_eng),
+    description: pickLocalized(row.description, row.description_eng),
     muscleGroup: String(row.muscle_group ?? ""),
     photo: resolveWorkoutPhotoUrl(row.photo, row.wger_id),
     wgerId: row.wger_id ? Number(row.wger_id) : null,
@@ -1536,13 +1594,13 @@ export async function getCatalogWorkoutsFromDb(): Promise<Array<{
 
   const { data: allData, error } = await supabase!
     .from("workouts")
-    .select("id, name, description, muscle_group, photo, wger_id, created_by_user")
+    .select("id, name, description, name_eng, description_eng, muscle_group, photo, wger_id, created_by_user")
     .order("name", { ascending: true });
 
   if (error) {
     const { data } = await supabase!
       .from("workouts")
-      .select("id, name, description, muscle_group, photo, wger_id")
+      .select("id, name, description, name_eng, description_eng, muscle_group, photo, wger_id")
       .order("name", { ascending: true });
     return (data ?? []).map(mapRow);
   }
@@ -1683,6 +1741,11 @@ export type RoutineLastSummary = {
     totalSets: number;
     bestKg: number;
     muscleGroup: string | null;
+    // Foto do exercício (opcional). Espelha WorkoutSessionSummary/WorkoutSummaryData.
+    photo?: string | null;
+    // Carga (kg) e repetições de cada série concluída (opcional: snapshots antigos
+    // não têm). Espelha o campo `sets` de WorkoutSessionSummary/WorkoutSummaryData.
+    sets?: Array<{ kg: number; reps: number }>;
   }>;
   prExercises: Array<{ name: string; previousBestKg: number; newBestKg: number }>;
   machinedExercises: Array<{ name: string; kg: number }>;
@@ -1716,11 +1779,11 @@ export async function getDietsDb(): Promise<Diet[]> {
   if (!hasSupabaseConfig || !supabase) return [];
   const viewer = await getViewer();
   const userId = viewer?.id ?? null;
-  return cached(`diets:${userId ?? "anon"}`, CACHE_TTL_LONG, async () => {
+  return cached(`diets:${getUiLanguage()}:${userId ?? "anon"}`, CACHE_TTL_LONG, async () => {
   const mapRow = (row: any): Diet => ({
     id: String(row.id ?? ""),
-    name: String(row.name ?? ""),
-    description: String(row.description ?? ""),
+    name: pickLocalized(row.name, row.name_eng),
+    description: pickLocalized(row.description, row.description_eng),
     photo: row.photo ? String(row.photo) : null,
     category: row.category ? String(row.category) : null,
     calories: row.calories != null ? Number(row.calories) : null,
@@ -1734,13 +1797,13 @@ export async function getDietsDb(): Promise<Diet[]> {
   // mealdb_id identifica itens de catálogo importados (TheMealDB) — mais confiável que created_by_user
   const { data: allData, error } = await supabase!
     .from("diets")
-    .select("id, name, description, photo, category, calories, protein_g, carbs_g, fat_g, fiber_g, food_quality, created_by_user, mealdb_id")
+    .select("id, name, description, name_eng, description_eng, photo, category, calories, protein_g, carbs_g, fat_g, fiber_g, food_quality, created_by_user, mealdb_id")
     .order("created_at", { ascending: false });
 
   if (error) {
     const { data } = await supabase!
       .from("diets")
-      .select("id, name, description, photo, category, calories, protein_g, carbs_g, fat_g, fiber_g, food_quality")
+      .select("id, name, description, name_eng, description_eng, photo, category, calories, protein_g, carbs_g, fat_g, fiber_g, food_quality")
       .order("created_at", { ascending: false });
     return (data ?? []).map(mapRow);
   }
@@ -1765,17 +1828,17 @@ export async function getCatalogDietsFromDb(): Promise<Array<{
   id: string; name: string; description: string; category: string; photo: string | null; mealdbId: number | null;
 }>> {
   if (!hasSupabaseConfig || !supabase) return [];
-  return cached("catalogDiets", CACHE_TTL_LONG, async () => {
+  return cached(`catalogDiets:${getUiLanguage()}`, CACHE_TTL_LONG, async () => {
   const { data } = await supabase
     .from("diets")
-    .select("id, name, description, photo, category, mealdb_id")
+    .select("id, name, description, name_eng, description_eng, photo, category, mealdb_id")
     .not("mealdb_id", "is", null)
     .not("photo", "is", null);
 
   return (data ?? []).map((row: any) => ({
     id: String(row.id),
-    name: String(row.name ?? ""),
-    description: String(row.description ?? ""),
+    name: pickLocalized(row.name, row.name_eng),
+    description: pickLocalized(row.description, row.description_eng),
     category: String(row.category ?? ""),
     photo: row.photo ? String(row.photo) : null,
     mealdbId: row.mealdb_id ? Number(row.mealdb_id) : null,
@@ -1842,22 +1905,22 @@ export async function getHabitsDb(): Promise<Habit[]> {
   if (!hasSupabaseConfig || !supabase) return [];
   const viewer = await getViewer();
   const userId = viewer?.id ?? null;
-  return cached(`habits:${userId ?? "anon"}`, CACHE_TTL_LONG, async () => {
+  return cached(`habits:${getUiLanguage()}:${userId ?? "anon"}`, CACHE_TTL_LONG, async () => {
   const mapRow = (row: any): Habit => ({
     id: String(row.id ?? ""),
-    name: String(row.name ?? ""),
-    description: String(row.description ?? ""),
+    name: pickLocalized(row.name, row.name_eng),
+    description: pickLocalized(row.description, row.description_eng),
   });
 
   const { data: allData, error } = await supabase!
     .from("habits")
-    .select("id, name, description, created_by_user")
+    .select("id, name, description, name_eng, description_eng, created_by_user")
     .order("created_at", { ascending: false });
 
   if (error) {
     const { data } = await supabase!
       .from("habits")
-      .select("id, name, description")
+      .select("id, name, description, name_eng, description_eng")
       .order("created_at", { ascending: false });
     return (data ?? []).map(mapRow);
   }
@@ -1905,7 +1968,6 @@ export async function createCustomHabitDb(
 
 export async function getUserRoutinesDb(userId: string): Promise<Routine[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-  return cached(`userRoutines:${userId}`, CACHE_TTL_SHORT, async () => {
   const { data, error } = await supabase
     .from("routines")
     .select("id, user_id, type, goal_id, name, last_summary")
@@ -1927,8 +1989,6 @@ export async function getUserRoutinesDb(userId: string): Promise<Routine[]> {
     name: row.name ? String(row.name) : undefined,
     last_summary: row.last_summary ?? null,
   }));
-
-  });
 }
 
 /**
@@ -1950,8 +2010,6 @@ export async function updateRoutineLastSummaryDb(
     console.error("Error saving routine last summary:", error?.message || error);
     return;
   }
-
-  invalidateQueryCache("userRoutines");
 }
 
 export async function createRoutineDb(
@@ -1977,8 +2035,6 @@ export async function createRoutineDb(
     console.error(`Error creating routine [${errorCode}]:`, errorMsg);
     throw new Error(`Erro ao criar rotina: ${errorMsg}`);
   }
-
-  invalidateQueryCache("userRoutines");
 
   if (!data) return null;
 
@@ -2013,8 +2069,6 @@ export async function updateRoutineGoalDb(
     console.error(`Error updating routine goal [${errorCode}]:`, errorMsg);
     throw new Error(`Erro ao atualizar meta da rotina: ${errorMsg}`);
   }
-
-  invalidateQueryCache("userRoutines");
 
   if (!data) return null;
 
@@ -2070,7 +2124,6 @@ export async function updateRoutineNameDb(
     await hQuery;
   }
 
-  invalidateQueryCache("userRoutines");
   return true;
 }
 
@@ -2090,9 +2143,6 @@ export async function updateRoutineItemsScheduledTimeDb(
     console.error("Error updating routine items scheduled_time:", error);
     return false;
   }
-  invalidateQueryCache(
-    typeCode === 1 ? "userWorkouts:" : typeCode === 2 ? "userDiets:" : "userHabits:",
-  );
   return true;
 }
 
@@ -2120,9 +2170,33 @@ export async function updateRoutineItemsScheduledDaysDb(
     console.error("Error updating routine items scheduled_days:", error);
     return false;
   }
-  invalidateQueryCache(
-    typeCode === 1 ? "userWorkouts:" : typeCode === 2 ? "userDiets:" : "userHabits:",
-  );
+  return true;
+}
+
+/**
+ * Sets the scheduled_time for a single routine item (one row in user_workouts/
+ * user_diets/user_habits), instead of every item of the routine. Mirrors
+ * {@link updateRoutineItemsScheduledTimeDb} but scoped to one item id — lets
+ * habit routines with multiple items carry distinct reminder times.
+ */
+export async function updateRoutineItemScheduledTimeDb(
+  userId: string,
+  typeCode: number,
+  itemId: string,
+  scheduledTime: string | null,
+): Promise<boolean> {
+  if (!hasSupabaseConfig || !supabase) return false;
+  const table =
+    typeCode === 1 ? "user_workouts" : typeCode === 2 ? "user_diets" : "user_habits";
+  const { error } = await supabase
+    .from(table)
+    .update({ scheduled_time: scheduledTime })
+    .eq("user_id", userId)
+    .eq("id", itemId);
+  if (error) {
+    console.error("Error updating routine item scheduled_time:", error);
+    return false;
+  }
   return true;
 }
 
@@ -2136,8 +2210,6 @@ export async function deleteRoutineDb(routineId: string, userId: string): Promis
     .eq("user_id", userId);
 
   if (error) throw error;
-
-  invalidateQueryCache("userRoutines");
 }
 
 /**
@@ -2177,9 +2249,6 @@ export async function deleteRoutineCardDb(
     ? await routinesQuery.eq("name", name)
     : await routinesQuery.is("name", null);
   if (routinesError) throw routinesError;
-
-  invalidateQueryCache("userRoutines");
-  invalidateQueryCache(typeCode === 1 ? "userWorkouts:" : typeCode === 2 ? "userDiets:" : "userHabits:");
 }
 
 /** Deletes a single routine item (user_workouts/user_diets/user_habits row) and its history records. */
@@ -2198,8 +2267,6 @@ export async function deleteRoutineItemDb(
 
   const { error } = await supabase.from(table).delete().eq("id", itemId);
   if (error) throw error;
-
-  invalidateQueryCache(typeCode === 1 ? "userWorkouts:" : typeCode === 2 ? "userDiets:" : "userHabits:");
 }
 
 // Get items for a specific routine (by routineId when available, falling back to userId + routineName + type)
@@ -2227,9 +2294,9 @@ export async function getRoutineItemsForViewDb(
       // Step 2: fetch workout names from workouts table
       const workoutIds = [...new Set(data.map((r: any) => r.workout_id).filter(Boolean))];
       const { data: workoutsData } = workoutIds.length > 0
-        ? await supabase.from("workouts").select("id, name").in("id", workoutIds)
+        ? await supabase.from("workouts").select("id, name, name_eng").in("id", workoutIds)
         : { data: [] };
-      const nameMap = new Map((workoutsData ?? []).map((w: any) => [String(w.id), String(w.name)]));
+      const nameMap = new Map((workoutsData ?? []).map((w: any) => [String(w.id), pickLocalized(w.name, w.name_eng)]));
 
       const seen = new Set<string>();
       return data.filter((r: any) => {
@@ -2256,9 +2323,9 @@ export async function getRoutineItemsForViewDb(
 
       const dietIds = [...new Set(data.map((r: any) => r.diet_id).filter(Boolean))];
       const { data: dietsData } = dietIds.length > 0
-        ? await supabase.from("diets").select("id, name").in("id", dietIds)
+        ? await supabase.from("diets").select("id, name, name_eng").in("id", dietIds)
         : { data: [] };
-      const nameMap = new Map((dietsData ?? []).map((d: any) => [String(d.id), String(d.name)]));
+      const nameMap = new Map((dietsData ?? []).map((d: any) => [String(d.id), pickLocalized(d.name, d.name_eng)]));
 
       const seen = new Set<string>();
       return data.filter((r: any) => {
@@ -2285,9 +2352,9 @@ export async function getRoutineItemsForViewDb(
 
       const habitIds = [...new Set(data.map((r: any) => r.habit_id).filter(Boolean))];
       const { data: habitsData } = habitIds.length > 0
-        ? await supabase.from("habits").select("id, name").in("id", habitIds)
+        ? await supabase.from("habits").select("id, name, name_eng").in("id", habitIds)
         : { data: [] };
-      const nameMap = new Map((habitsData ?? []).map((h: any) => [String(h.id), String(h.name)]));
+      const nameMap = new Map((habitsData ?? []).map((h: any) => [String(h.id), pickLocalized(h.name, h.name_eng)]));
 
       const seen = new Set<string>();
       return data.filter((r: any) => {
@@ -2411,7 +2478,6 @@ export async function createUserWorkoutsDb(
     throw new Error(`Erro ao salvar exercícios: ${errorMsg}`);
   }
 
-  invalidateQueryCache("userWorkouts:"); invalidateQueryCache("userRoutines:");
   return (data ?? []).map((row: any) => ({
     id: String(row.id ?? ""),
     workout_id: String(row.workout_id ?? ""),
@@ -2441,7 +2507,6 @@ export async function updateUserWorkoutNotesDb(
     console.error("Error updating workout note:", error);
     throw error;
   }
-  invalidateQueryCache("userWorkouts:");
 }
 
 export type UserWorkoutWithDetails = {
@@ -2465,11 +2530,10 @@ export async function getUserWorkoutsDb(
   userId: string,
 ): Promise<UserWorkoutWithDetails[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-  return cached(`userWorkouts:${userId}`, CACHE_TTL_SHORT, async () => {
   const { data, error } = await supabase
     .from("user_workouts")
     .select(
-      "id, workout_id, user_id, name, created_at, scheduled_time, scheduled_days, notes, routine_id, time_to_rest, workouts(name, photo, description, muscle_group, wger_id)",
+      "id, workout_id, user_id, name, created_at, scheduled_time, scheduled_days, notes, routine_id, time_to_rest, workouts(name, name_eng, photo, description, description_eng, muscle_group, wger_id)",
     )
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
@@ -2507,7 +2571,7 @@ export async function getUserWorkoutsDb(
         if (workoutIds.length > 0) {
           const { data: workoutsData } = await supabase
             .from("workouts")
-            .select("id, name, photo, description, muscle_group, wger_id")
+            .select("id, name, name_eng, photo, description, description_eng, muscle_group, wger_id")
             .in("id", workoutIds);
 
           if (workoutsData) {
@@ -2524,9 +2588,9 @@ export async function getUserWorkoutsDb(
             workout_id: String(row.workout_id ?? ""),
             user_id: String(row.user_id ?? ""),
             name: row.name ? String(row.name) : null,
-            workoutName: workoutDetails?.name || "Exercício desconhecido",
+            workoutName: pickLocalized(workoutDetails?.name, workoutDetails?.name_eng) || "Exercício desconhecido",
             workoutPhoto: resolveWorkoutPhotoUrl(workoutDetails?.photo, workoutDetails?.wger_id),
-            workoutDescription: workoutDetails?.description || undefined,
+            workoutDescription: pickLocalized(workoutDetails?.description, workoutDetails?.description_eng) || undefined,
             muscle_group: workoutDetails?.muscle_group || null,
             created_at: row.created_at ? String(row.created_at) : null,
             scheduled_time: row.scheduled_time ? String(row.scheduled_time) : null,
@@ -2555,9 +2619,9 @@ export async function getUserWorkoutsDb(
     workout_id: String(row.workout_id ?? ""),
     user_id: String(row.user_id ?? ""),
     name: row.name ? String(row.name) : null,
-    workoutName: (row.workouts as any)?.name || "Exercício desconhecido",
+    workoutName: pickLocalized((row.workouts as any)?.name, (row.workouts as any)?.name_eng) || "Exercício desconhecido",
     workoutPhoto: resolveWorkoutPhotoUrl((row.workouts as any)?.photo, (row.workouts as any)?.wger_id),
-    workoutDescription: (row.workouts as any)?.description || undefined,
+    workoutDescription: pickLocalized((row.workouts as any)?.description, (row.workouts as any)?.description_eng) || undefined,
     muscle_group: (row.workouts as any)?.muscle_group || null,
     created_at: row.created_at ? String(row.created_at) : null,
     scheduled_time: row.scheduled_time ? String(row.scheduled_time) : null,
@@ -2566,8 +2630,6 @@ export async function getUserWorkoutsDb(
     routine_id: row.routine_id != null ? String(row.routine_id) : null,
     time_to_rest: row.time_to_rest != null ? Number(row.time_to_rest) : null,
   }));
-
-  });
 }
 
 export type UserDiet = {
@@ -2608,7 +2670,6 @@ export async function createUserDietsDb(
     throw new Error(`Erro ao salvar dietas: ${errorMsg}`);
   }
 
-  invalidateQueryCache("userDiets:"); invalidateQueryCache("userRoutines:");
   return (data ?? []).map((row: any) => ({
     id: String(row.id ?? ""),
     diet_id: String(row.diet_id ?? ""),
@@ -2643,11 +2704,10 @@ export async function getUserDietsDb(
   userId: string,
 ): Promise<UserDietWithDetails[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-  return cached(`userDiets:${userId}`, CACHE_TTL_SHORT, async () => {
   const { data, error } = await supabase
     .from("user_diets")
     .select(
-      "id, diet_id, user_id, name, is_completed, completed_at, scheduled_time, scheduled_days, routine_id, diets(name, photo, description, category, calories, protein_g, carbs_g, fat_g, fiber_g, food_quality)",
+      "id, diet_id, user_id, name, is_completed, completed_at, scheduled_time, scheduled_days, routine_id, diets(name, name_eng, photo, description, description_eng, category, calories, protein_g, carbs_g, fat_g, fiber_g, food_quality)",
     )
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
@@ -2683,7 +2743,7 @@ export async function getUserDietsDb(
         if (dietIds.length > 0) {
           const { data: dietsData } = await supabase
             .from("diets")
-            .select("id, name, photo, description, category, calories, protein_g, carbs_g, fat_g, fiber_g, food_quality")
+            .select("id, name, name_eng, photo, description, description_eng, category, calories, protein_g, carbs_g, fat_g, fiber_g, food_quality")
             .in("id", dietIds);
 
           if (dietsData) {
@@ -2700,9 +2760,9 @@ export async function getUserDietsDb(
             diet_id: String(row.diet_id ?? ""),
             user_id: String(row.user_id ?? ""),
             name: row.name ? String(row.name) : null,
-            dietName: dietDetails?.name || "Dieta desconhecida",
+            dietName: pickLocalized(dietDetails?.name, dietDetails?.name_eng) || "Dieta desconhecida",
             dietPhoto: dietDetails?.photo || null,
-            dietDescription: dietDetails?.description || undefined,
+            dietDescription: pickLocalized(dietDetails?.description, dietDetails?.description_eng) || undefined,
             dietCategory: dietDetails?.category || null,
             dietCalories: dietDetails?.calories != null ? Number(dietDetails.calories) : null,
             dietProtein: dietDetails?.protein_g != null ? Number(dietDetails.protein_g) : null,
@@ -2730,7 +2790,7 @@ export async function getUserDietsDb(
     console.warn(`[getUserDietsDb] Trying minimal fallback without is_completed/completed_at: ${errorMsg}`);
     const { data: minData, error: minError } = await supabase
       .from("user_diets")
-      .select("id, diet_id, user_id, name, diets(name, photo, description, category)")
+      .select("id, diet_id, user_id, name, diets(name, name_eng, photo, description, description_eng, category)")
       .eq("user_id", userId)
       .order("created_at", { ascending: false });
 
@@ -2740,9 +2800,9 @@ export async function getUserDietsDb(
         diet_id: String(row.diet_id ?? ""),
         user_id: String(row.user_id ?? ""),
         name: row.name ? String(row.name) : null,
-        dietName: (row.diets as any)?.name || "Dieta desconhecida",
+        dietName: pickLocalized((row.diets as any)?.name, (row.diets as any)?.name_eng) || "Dieta desconhecida",
         dietPhoto: (row.diets as any)?.photo || null,
-        dietDescription: (row.diets as any)?.description || undefined,
+        dietDescription: pickLocalized((row.diets as any)?.description, (row.diets as any)?.description_eng) || undefined,
         dietCategory: (row.diets as any)?.category || null,
         dietCalories: (row.diets as any)?.calories != null ? Number((row.diets as any).calories) : null,
         dietProtein: (row.diets as any)?.protein_g != null ? Number((row.diets as any).protein_g) : null,
@@ -2764,9 +2824,9 @@ export async function getUserDietsDb(
     diet_id: String(row.diet_id ?? ""),
     user_id: String(row.user_id ?? ""),
     name: row.name ? String(row.name) : null,
-    dietName: (row.diets as any)?.name || "Dieta desconhecida",
+    dietName: pickLocalized((row.diets as any)?.name, (row.diets as any)?.name_eng) || "Dieta desconhecida",
     dietPhoto: (row.diets as any)?.photo || null,
-    dietDescription: (row.diets as any)?.description || undefined,
+    dietDescription: pickLocalized((row.diets as any)?.description, (row.diets as any)?.description_eng) || undefined,
     dietCategory: (row.diets as any)?.category || null,
     dietCalories: (row.diets as any)?.calories != null ? Number((row.diets as any).calories) : null,
     dietProtein: (row.diets as any)?.protein_g != null ? Number((row.diets as any).protein_g) : null,
@@ -2780,8 +2840,6 @@ export async function getUserDietsDb(
     scheduled_days: row.scheduled_days ? String(row.scheduled_days) : null,
     routine_id: row.routine_id != null ? String(row.routine_id) : null,
   }));
-
-  });
 }
 
 export type UserHabit = {
@@ -2822,7 +2880,6 @@ export async function createUserHabitsDb(
     throw new Error(`Erro ao salvar hábitos: ${errorMsg}`);
   }
 
-  invalidateQueryCache("userHabits:"); invalidateQueryCache("userRoutines:");
   return (data ?? []).map((row: any) => ({
     id: String(row.id ?? ""),
     habit_id: String(row.habit_id ?? ""),
@@ -2849,10 +2906,9 @@ export async function getUserHabitsDb(
   userId: string,
 ): Promise<UserHabitWithDetails[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-  return cached(`userHabits:${userId}`, CACHE_TTL_SHORT, async () => {
   const { data, error } = await supabase
     .from("user_habits")
-    .select("id, habit_id, user_id, name, is_completed, completed_at, scheduled_time, scheduled_days, routine_id, habits(name, description)")
+    .select("id, habit_id, user_id, name, is_completed, completed_at, scheduled_time, scheduled_days, routine_id, habits(name, name_eng, description, description_eng)")
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
@@ -2883,7 +2939,7 @@ export async function getUserHabitsDb(
       if (habitIds.length > 0) {
         const { data: habitsData } = await supabase
           .from("habits")
-          .select("id, name, description")
+          .select("id, name, name_eng, description, description_eng")
           .in("id", habitIds);
         if (habitsData) {
           habitsData.forEach((h: any) => { habitDetailsMap[String(h.id)] = h; });
@@ -2896,8 +2952,8 @@ export async function getUserHabitsDb(
           habit_id: String(row.habit_id ?? ""),
           user_id: String(row.user_id ?? ""),
           name: row.name ? String(row.name) : null,
-          habitName: hd?.name || "Hábito desconhecido",
-          habitDescription: hd?.description || undefined,
+          habitName: pickLocalized(hd?.name, hd?.name_eng) || "Hábito desconhecido",
+          habitDescription: pickLocalized(hd?.description, hd?.description_eng) || undefined,
           is_completed: row.is_completed ?? false,
           completed_at: row.completed_at ?? null,
           scheduled_time: row.scheduled_time ? String(row.scheduled_time) : null,
@@ -2920,7 +2976,7 @@ export async function getUserHabitsDb(
       if (habitIds.length > 0) {
         const { data: habitsData } = await supabase
           .from("habits")
-          .select("id, name, description")
+          .select("id, name, name_eng, description, description_eng")
           .in("id", habitIds);
         if (habitsData) {
           habitsData.forEach((h: any) => { habitDetailsMap[String(h.id)] = h; });
@@ -2933,8 +2989,8 @@ export async function getUserHabitsDb(
           habit_id: String(row.habit_id ?? ""),
           user_id: String(row.user_id ?? ""),
           name: row.name ? String(row.name) : null,
-          habitName: hd?.name || "Hábito desconhecido",
-          habitDescription: hd?.description || undefined,
+          habitName: pickLocalized(hd?.name, hd?.name_eng) || "Hábito desconhecido",
+          habitDescription: pickLocalized(hd?.description, hd?.description_eng) || undefined,
           is_completed: row.is_completed ?? false,
           completed_at: null,
           scheduled_time: null,
@@ -2973,16 +3029,14 @@ export async function getUserHabitsDb(
     habit_id: String(row.habit_id ?? ""),
     user_id: String(row.user_id ?? ""),
     name: row.name ? String(row.name) : null,
-    habitName: (row.habits as any)?.name || "Hábito desconhecido",
-    habitDescription: (row.habits as any)?.description || undefined,
+    habitName: pickLocalized((row.habits as any)?.name, (row.habits as any)?.name_eng) || "Hábito desconhecido",
+    habitDescription: pickLocalized((row.habits as any)?.description, (row.habits as any)?.description_eng) || undefined,
     is_completed: row.is_completed ?? false,
     completed_at: row.completed_at ?? null,
     scheduled_time: row.scheduled_time ? String(row.scheduled_time) : null,
     scheduled_days: row.scheduled_days ? String(row.scheduled_days) : null,
     routine_id: row.routine_id != null ? String(row.routine_id) : null,
   }));
-
-  });
 }
 
 // Routine Scheduled Time
@@ -3006,17 +3060,17 @@ export async function getRoutineSchedulesDb(
   const [workoutsRes, dietsRes, habitsRes] = await Promise.all([
     supabase
       .from("user_workouts")
-      .select("id, name, scheduled_time, scheduled_days, workouts(name)")
+      .select("id, name, scheduled_time, scheduled_days, workouts(name, name_eng)")
       .eq("user_id", userId)
       .not("scheduled_time", "is", null),
     supabase
       .from("user_diets")
-      .select("id, name, scheduled_time, scheduled_days, diets(name)")
+      .select("id, name, scheduled_time, scheduled_days, diets(name, name_eng)")
       .eq("user_id", userId)
       .not("scheduled_time", "is", null),
     supabase
       .from("user_habits")
-      .select("id, name, scheduled_time, scheduled_days, habits(name)")
+      .select("id, name, scheduled_time, scheduled_days, habits(name, name_eng)")
       .eq("user_id", userId)
       .not("scheduled_time", "is", null),
   ]);
@@ -3027,7 +3081,7 @@ export async function getRoutineSchedulesDb(
     results.push({
       id: String(row.id),
       type: "workout",
-      name: row.name || (row.workouts as any)?.name || "Treino",
+      name: row.name || pickLocalized((row.workouts as any)?.name, (row.workouts as any)?.name_eng) || "Treino",
       scheduled_time: String(row.scheduled_time),
       scheduled_days: row.scheduled_days ? String(row.scheduled_days) : null,
     });
@@ -3036,7 +3090,7 @@ export async function getRoutineSchedulesDb(
     results.push({
       id: String(row.id),
       type: "diet",
-      name: row.name || (row.diets as any)?.name || "Dieta",
+      name: row.name || pickLocalized((row.diets as any)?.name, (row.diets as any)?.name_eng) || "Dieta",
       scheduled_time: String(row.scheduled_time),
       scheduled_days: row.scheduled_days ? String(row.scheduled_days) : null,
     });
@@ -3045,7 +3099,7 @@ export async function getRoutineSchedulesDb(
     results.push({
       id: String(row.id),
       type: "habit",
-      name: row.name || (row.habits as any)?.name || "Hábito",
+      name: row.name || pickLocalized((row.habits as any)?.name, (row.habits as any)?.name_eng) || "Hábito",
       scheduled_time: String(row.scheduled_time),
       scheduled_days: row.scheduled_days ? String(row.scheduled_days) : null,
     });
@@ -3220,7 +3274,7 @@ export async function getRoutineWorkoutsDb(userId: string, routineName: string |
   try {
     const baseQuery = supabase
       .from("user_workouts")
-      .select("id, workout_id, workouts(name)")
+      .select("id, workout_id, workouts(name, name_eng)")
       .eq("user_id", userId)
       .limit(30);
     const { data, error } = routineName
@@ -3231,7 +3285,7 @@ export async function getRoutineWorkoutsDb(userId: string, routineName: string |
       return data.map((r: any) => ({
         id: String(r.id),
         itemId: String(r.workout_id),
-        itemName: (r.workouts as any)?.name || "Exercício",
+        itemName: pickLocalized((r.workouts as any)?.name, (r.workouts as any)?.name_eng) || "Exercício",
       }));
     }
 
@@ -3252,9 +3306,9 @@ export async function getRoutineWorkoutsDb(userId: string, routineName: string |
     if (workoutIds.length > 0) {
       const { data: wData } = await supabase
         .from("workouts")
-        .select("id, name")
+        .select("id, name, name_eng")
         .in("id", workoutIds);
-      (wData ?? []).forEach((w: any) => { namesMap[String(w.id)] = w.name; });
+      (wData ?? []).forEach((w: any) => { namesMap[String(w.id)] = pickLocalized(w.name, w.name_eng); });
     }
 
     return fb.map((r: any) => ({
@@ -3272,7 +3326,7 @@ export async function getRoutineDietsDb(userId: string, routineName: string | nu
   try {
     const baseQuery = supabase
       .from("user_diets")
-      .select("id, diet_id, diets(name)")
+      .select("id, diet_id, diets(name, name_eng)")
       .eq("user_id", userId)
       .limit(30);
     const { data, error } = routineName
@@ -3283,7 +3337,7 @@ export async function getRoutineDietsDb(userId: string, routineName: string | nu
       return data.map((r: any) => ({
         id: String(r.id),
         itemId: String(r.diet_id),
-        itemName: (r.diets as any)?.name || "Alimento",
+        itemName: pickLocalized((r.diets as any)?.name, (r.diets as any)?.name_eng) || "Alimento",
       }));
     }
 
@@ -3304,9 +3358,9 @@ export async function getRoutineDietsDb(userId: string, routineName: string | nu
     if (dietIds.length > 0) {
       const { data: dData } = await supabase
         .from("diets")
-        .select("id, name")
+        .select("id, name, name_eng")
         .in("id", dietIds);
-      (dData ?? []).forEach((d: any) => { namesMap[String(d.id)] = d.name; });
+      (dData ?? []).forEach((d: any) => { namesMap[String(d.id)] = pickLocalized(d.name, d.name_eng); });
     }
 
     return fb.map((r: any) => ({
@@ -3383,8 +3437,6 @@ export async function copyRoutineToUserDb(
     : await finalUpdateQuery.is("name", null);
 
   if (finalUpdateError) console.error("Error setting follower_id after copy:", finalUpdateError.message);
-
-  invalidateQueryCache("userRoutines");
 }
 
 // Following Functions
@@ -3501,9 +3553,12 @@ export async function isFollowingDb(followingId: string): Promise<boolean> {
 
 export async function getFollowingIdsDb(): Promise<string[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-  return cached("followingIds", CACHE_TTL_MEDIUM, async () => {
+  // Viewer fora do cached(): um viewer null logo após o login fazia esta
+  // função cachear/persistir uma lista vazia — o feed passava a mostrar só os
+  // posts do próprio usuário até o cache expirar.
   const viewer = await getViewer();
   if (!viewer) return [];
+  return cached(`followingIds:${viewer.id}`, CACHE_TTL_MEDIUM, async () => {
 
   const { data, error } = await supabase
     .from("following")
@@ -3579,9 +3634,9 @@ async function selectFlow(builder: (cols: string) => any): Promise<{ data: any[]
 
 export async function getActiveStoriesDb(): Promise<StoryWithUser[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-  return cached("activeStories", CACHE_TTL_MEDIUM, async () => {
   const viewer = await getViewer();
   if (!viewer) return [];
+  return cached(`activeStories:${viewer.id}`, CACHE_TTL_MEDIUM, async () => {
 
   // Get stories from the last 24 hours
   const twentyFourHoursAgo = new Date(
@@ -4237,6 +4292,134 @@ export async function getFlowViewersDb(storyId: string): Promise<FlowViewer[]> {
   }
 }
 
+// ─────────────────────────── Shot views ───────────────────────────
+// Espelha o sistema de visualizações do Flow (recordFlowViewDb /
+// getFlowViewersDb), gravando quem viu cada Shot em `shot_user_viewed`.
+
+export type ShotViewer = {
+  followerId: string;
+  userNickname: string;
+  userPhoto: string | null;
+  incentiveTypes: number[]; // empty = no incentive sent
+  viewedAt: string;
+};
+
+// In-memory set to avoid duplicate inserts within the same browser session
+const _recordedShotViews = new Set<string>();
+// In-flight lock set to prevent race conditions
+const _recordingShotInFlight = new Set<string>();
+
+export async function recordShotViewDb(shotId: string, shotOwnerId: string): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+
+  const viewer = await getViewer();
+  if (!viewer || viewer.id === shotOwnerId) return;
+
+  const key = `${viewer.id}:${shotId}`;
+
+  // Already recorded in this session or currently being recorded — skip
+  if (_recordedShotViews.has(key) || _recordingShotInFlight.has(key)) return;
+
+  _recordingShotInFlight.add(key);
+
+  try {
+    // Convert to number for bigint column compatibility
+    const numericShotId = Number(shotId);
+    const shotIdValue = Number.isFinite(numericShotId) ? numericShotId : shotId;
+
+    // Check DB first to avoid duplicates across sessions/screens
+    const { data: existing } = await supabase
+      .from("shot_user_viewed")
+      .select("shot_id")
+      .eq("shot_id", shotIdValue)
+      .eq("follower_id", viewer.id)
+      .maybeSingle();
+
+    if (existing) {
+      _recordedShotViews.add(key);
+      return;
+    }
+
+    const { error } = await supabase
+      .from("shot_user_viewed")
+      .insert({
+        user_id: shotOwnerId,
+        follower_id: viewer.id,
+        shot_id: shotIdValue,
+        updated_at: new Date().toISOString(),
+      });
+
+    if (error) {
+      // 23505 = duplicate key — record already exists, treat as success
+      if (error.code === "23505") {
+        _recordedShotViews.add(key);
+      } else {
+        console.error("Error inserting shot view:", error.message);
+      }
+    } else {
+      _recordedShotViews.add(key);
+    }
+  } catch (err: any) {
+    console.error("Error recording shot view:", err?.message || err);
+  } finally {
+    _recordingShotInFlight.delete(key);
+  }
+}
+
+export async function getShotViewersDb(shotId: string): Promise<ShotViewer[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  try {
+    const { data: views, error } = await supabase
+      .from("shot_user_viewed")
+      .select("follower_id, created_at, updated_at")
+      .eq("shot_id", shotId)
+      .order("updated_at", { ascending: false });
+
+    if (error || !views || views.length === 0) return [];
+
+    const followerIds = views.map((v: any) => v.follower_id);
+
+    const [profilesResult, likesResult] = await Promise.all([
+      supabase
+        .from("profiles")
+        .select("user_id, nickname, photo")
+        .in("user_id", followerIds),
+      supabase
+        .from("shots_likes")
+        .select("user_id, type")
+        .eq("shots_id", shotId)
+        .in("user_id", followerIds),
+    ]);
+
+    const profileMap = new Map(
+      (profilesResult.data ?? []).map((p: any) => [String(p.user_id), p]),
+    );
+
+    // Group all incentive types per user (a user can send multiple)
+    const likesPerUser = new Map<string, number[]>();
+    for (const l of (likesResult.data ?? [])) {
+      const uid = String(l.user_id);
+      if (!likesPerUser.has(uid)) likesPerUser.set(uid, []);
+      likesPerUser.get(uid)!.push(Number(l.type));
+    }
+
+    return views.map((view: any) => {
+      const profile = profileMap.get(String(view.follower_id));
+      return {
+        followerId: String(view.follower_id),
+        userNickname: profile?.nickname ?? "Usuário",
+        userPhoto: profile?.photo ?? null,
+        incentiveTypes: likesPerUser.get(String(view.follower_id)) ?? [],
+        viewedAt: String(view.updated_at ?? view.created_at),
+      };
+    });
+  } catch (err: any) {
+    console.error("Error fetching shot viewers:", err?.message || err);
+    return [];
+  }
+}
+
 // Messages functionality
 export type Message = {
   id: string;
@@ -4337,9 +4520,9 @@ export async function sendMessageDb(
 
 export async function getConversationsDb(): Promise<Conversation[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-  return cached("conversations", CACHE_TTL_MEDIUM, async () => {
   const viewer = await getViewer();
   if (!viewer) return [];
+  return cached(`conversations:${viewer.id}`, CACHE_TTL_MEDIUM, async () => {
 
   try {
     // Get recent messages excluding ones soft-deleted by the viewer
@@ -4534,9 +4717,9 @@ export async function setMessageEmojiDb(
 
 export async function getUnreadMessageCountDb(): Promise<number> {
   if (!hasSupabaseConfig || !supabase) return 0;
-  return cached("unreadMsgCount", CACHE_TTL_SHORT, async () => {
   const viewer = await getViewer();
   if (!viewer) return 0;
+  return cached(`unreadMsgCount:${viewer.id}`, CACHE_TTL_SHORT, async () => {
 
   try {
     // Count distinct senders with unread messages — fetch only user_id, cap at 100 to avoid huge payloads
@@ -4693,11 +4876,11 @@ export function groupCommentReactions(
 
 export async function getFollowersDb(userId?: string): Promise<SearchUser[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-  return cached(`followers:${userId}`, CACHE_TTL_SHORT, async () => {
   const viewer = await getViewer();
   if (!viewer) return [];
 
   const targetUserId = userId ?? viewer.id;
+  return cached(`followers:${targetUserId}`, CACHE_TTL_SHORT, async () => {
 
   try {
     // Get all followers of the target user
@@ -4817,9 +5000,9 @@ export type ShotWithUser = Shot & {
 
 export async function getShotsDb(): Promise<ShotWithUser[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-  return cached("shots", CACHE_TTL_MEDIUM, async () => {
   const viewer = await getViewer();
   if (!viewer) return [];
+  return cached(`shots:${viewer.id}`, CACHE_TTL_MEDIUM, async () => {
 
   try {
     // Get recent shots from all users (algorithm shows everyone's content)
@@ -5030,9 +5213,10 @@ export async function deleteShotDb(shotId: string): Promise<boolean> {
   if (!viewer) return false;
 
   try {
-    // Delete dependencies first (likes and comments)
+    // Delete dependencies first (likes, comments and view records)
     await supabase.from("shots_likes").delete().eq("shots_id", shotId);
     await supabase.from("shots_comments").delete().eq("shots_id", shotId);
+    await supabase.from("shot_user_viewed").delete().eq("shot_id", shotId);
 
     const { error } = await supabase
       .from("shots")
@@ -5465,7 +5649,6 @@ export async function toggleUserDietCompletionDb(
     return false;
   }
 
-  invalidateQueryCache("userDiets");
   return true;
 }
 
@@ -5493,7 +5676,6 @@ export async function toggleUserHabitCompletionDb(
     return false;
   }
 
-  invalidateQueryCache("userHabits");
   return true;
 }
 
@@ -5519,9 +5701,9 @@ export type NotificationItem = {
 
 export async function getNotificationsDb(): Promise<NotificationItem[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-  return cached("notifications", CACHE_TTL_MEDIUM, async () => {
   const viewer = await getViewer();
   if (!viewer) return [];
+  return cached(`notifications:${viewer.id}`, CACHE_TTL_MEDIUM, async () => {
 
   try {
     // Read directly from notifications table
@@ -5891,9 +6073,9 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
 
 export async function getUnreadNotificationsCountDb(): Promise<number> {
   if (!hasSupabaseConfig || !supabase) return 0;
-  return cached("unreadNotifCount", CACHE_TTL_SHORT, async () => {
   const viewer = await getViewer();
   if (!viewer) return 0;
+  return cached(`unreadNotifCount:${viewer.id}`, CACHE_TTL_SHORT, async () => {
 
   try {
     // Fetch unread notification rows (we need post/shot IDs to apply grouping logic)
@@ -6075,6 +6257,7 @@ export async function createPostDb(
   photoUrl: string | string[] | null,
   description: string,
   userGoalId?: string | null,
+  workoutSummary?: PostWorkoutSummary | null,
 ): Promise<string> {
   if (!supabase) throw new Error("Supabase não configurado");
 
@@ -6095,6 +6278,9 @@ export async function createPostDb(
         photos: photosJson,
         description: description.trim(),
         user_goal_id: userGoalId ? Number(userGoalId) : null,
+        // Resumo estruturado do treino (só em posts de "resumo do treino"
+        // compartilhados no feed) — habilita o pill "Ver treino" + modal de detalhe.
+        workout_summary: workoutSummary ?? null,
         created_at: new Date().toISOString(),
       })
       .select("id");
@@ -6938,7 +7124,7 @@ export async function getWorkoutHistoryDb(
   workoutId: string
 ): Promise<WorkoutHistoryRecord[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-  return cached(`workoutHistory:${userId}`, CACHE_TTL_SHORT, async () => {
+  return cached(`workoutHistory:${getUiLanguage()}:${userId}`, CACHE_TTL_SHORT, async () => {
   try {
     const { data, error } = await supabase
       .from("user_workouts_hist")
@@ -6951,7 +7137,7 @@ export async function getWorkoutHistoryDb(
         volume,
         date_completed,
         created_at,
-        workouts (name)
+        workouts (name, name_eng)
       `)
       .eq("user_id", userId)
       .eq("workout_id", workoutId)
@@ -6964,7 +7150,7 @@ export async function getWorkoutHistoryDb(
       userId: String(row.user_id),
       userWorkoutId: row.user_workout_id,
       workoutId: String(row.workout_id),
-      workoutName: row.workouts?.name || "Exercício",
+      workoutName: pickLocalized(row.workouts?.name, row.workouts?.name_eng) || "Exercício",
       kilos: row.kilos,
       volume: row.volume,
       dateCompleted: String(row.date_completed),
@@ -7236,7 +7422,7 @@ export type CompletedRoutine = {
  */
 export async function getRecentCompletedRoutinesDb(userId: string): Promise<CompletedRoutine[]> {
   if (!hasSupabaseConfig || !supabase || !userId) return [];
-  return cached(`completedRoutines:${userId}`, CACHE_TTL_SHORT, async () => {
+  return cached(`completedRoutines:${getUiLanguage()}:${userId}`, CACHE_TTL_SHORT, async () => {
   try {
     // Fetch completed workouts from the last 7 days (including today)
     const since = new Date();
@@ -7252,7 +7438,7 @@ export async function getRecentCompletedRoutinesDb(userId: string): Promise<Comp
         kilos,
         volume,
         date_completed,
-        workouts (name, muscle_group)
+        workouts (name, name_eng, muscle_group)
       `)
       .eq("user_id", userId)
       .gte("date_completed", since.toISOString())
@@ -7302,7 +7488,7 @@ export async function getRecentCompletedRoutinesDb(userId: string): Promise<Comp
       if (!alreadyAdded) {
         sessionMap[key].exercises.push({
           workoutId: String(row.workout_id),
-          workoutName: (row.workouts as any)?.name || "Exercício",
+          workoutName: pickLocalized((row.workouts as any)?.name, (row.workouts as any)?.name_eng) || "Exercício",
           muscleGroup: (row.workouts as any)?.muscle_group || null,
           kilos: row.kilos,
           volume: row.volume,
@@ -8371,6 +8557,8 @@ export async function deleteAllUserDataDb(userId: string): Promise<void> {
     del("flow_complaint", "user_id", userId),
     del("flow_user_viewed", "user_id", userId),
     del("flow_user_viewed", "follower_id", userId),
+    del("shot_user_viewed", "user_id", userId),
+    del("shot_user_viewed", "follower_id", userId),
     del("post_complaint", "user_id", userId),
     del("shots_complaint", "user_id", userId),
     del("user_complaint", "user_id", userId),
@@ -8535,9 +8723,9 @@ export type GroupJoinRequest = {
 /** Returns all pending join requests for groups owned by the current user */
 export async function getPendingGroupRequestsDb(): Promise<GroupJoinRequest[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-  return cached("pendingGroupRequests", CACHE_TTL_MEDIUM, async () => {
   const viewer = await getViewer();
   if (!viewer) return [];
+  return cached(`pendingGroupRequests:${viewer.id}`, CACHE_TTL_MEDIUM, async () => {
 
   try {
     // Get my groups

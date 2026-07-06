@@ -183,21 +183,25 @@ Layout em **lista vertical** (anteriormente: grid de 2 colunas). Segue o design 
 
 ---
 
-### Tela do Grupo (LinKa Glass — refatorado 2026-06-27)
+### Tela do Grupo / Check-ins (redesign roxo — 2026-07-04)
 
-Aberta via `openGroupView` (botão "Ver Grupo" da lista). Renderizada em portal fullscreen sobre fundo de gradiente escuro (`linear-gradient(rgba(20,19,28,1),rgba(10,10,16,1))`), seguindo o design system LinKa Glass. Toda string usa `t()` (chaves `duels_group_*`).
+Aberta via `openGroupView` (botão "Ver Grupo" da lista). Renderizada em portal fullscreen. Refatorada a partir do design `Check-ins.dc.html` (Claude Design) para um visual mais moderno: paleta roxa profunda e tipografia de duas fontes. Toda string usa `t()` (chaves `duels_group_*`).
+
+**Paleta e fontes (definidas via CSS custom properties no container do portal):**
+- `--bg:#0d0a17` (fundo) · `--surface:#171128` (cartões/nav) · `--surface2:#221a38` (tiles) · `--line:rgba(255,255,255,.08)` (bordas) · `--muted:#9a8db2` (texto de apoio) · `--accent:#7c3aed` · `--accent2:#a855f7` (roxos da marca do duelo).
+- **Fontes:** `Manrope` (corpo, aplicada no container) e `Space Grotesk` (números de destaque, título do hero, label "Grupo"). Ambas importadas junto com Inter em `client/global.css`.
 
 **Estrutura:**
-- **Header** — barra de vidro com blur (`backdrop-filter blur(24px)`) e borda translúcida; botão `ArrowLeft` branco com hover de vidro. Respeita `env(safe-area-inset-top)`.
-- **Hero banner** (h-48) — foto de capa do grupo ou, sem foto, gradiente azul→roxo da marca. Overlay escuro na base com o nome do grupo. Botão de editar capa (só criador) é um círculo de vidro com blur no canto superior direito.
-- **Cards de estatísticas** (Líder / Você / Dias) — 3 cartões frosted-glass (`rgba(255,255,255,.04)` + borda `rgba(255,255,255,.08)`, `rounded-[18px]`), números em roxo (`#9d6bff`), labels em branco translúcido. Clicáveis (ver tabela abaixo).
-- **Tab "Histórico (n)"** — sublinhado roxo (`#9d6bff`).
-- **Lista de check-ins** — agrupados por dia (Hoje/Ontem/data); cada item é um cartão de vidro `rounded-[18px]` com avatar, descrição, nome, tag de grupo muscular (roxa), thumbnail e horário. Skeleton de loading e empty state também em estilo glass.
-- **Bottom nav** — barra de vidro com blur e `env(safe-area-inset-bottom)`; 3 itens com **ícones Lucide** (`FileText` Detalhes, `Users` Participantes, `Trophy` Classificações) substituindo os emojis antigos.
-- **FAB de check-in** — círculo flutuante com gradiente azul→roxo e glow; desabilitado (vidro acinzentado) quando o grupo está encerrado. Posição respeita a safe area inferior.
-- **Overlay de reação (long-press)** — sheet de vidro escuro (`rounded-[28px]`, blur 40px) com preview do check-in, 6 emojis rápidos e botão Cancelar.
+- **Header** — 3 partes sobre o fundo liso: botão `ArrowLeft` em quadrado arredondado (`--surface`, `rounded-[11px]`), label central "Grupo" (`Space Grotesk`, `--muted`) e botão de **editar capa** (só criador) em quadrado arredondado com `Edit3` (o input de foto vive aqui agora). Respeita `env(safe-area-inset-top)`.
+- **Hero card** — cartão compacto (`h-[130px]`, `rounded-[22px]`, margem lateral `px-5`) com a foto de capa (ou ícone centralizado sem foto), scrim escuro na base e nome do grupo em `Space Grotesk` 24px.
+- **Grade de estatísticas assimétrica** — grid 2 colunas: **card grande "Seu ranking"** (`row-span-2`, gradiente `--accent2 → #4c1d95`) com `#{posição}` em 38px; à direita, dois cartões `--surface` empilhados: **Líder** (pontuação + "{nome} · líder") e **Dias restantes** (nº + label). Números em `Space Grotesk`/`--accent2`. Clicáveis (ver tabela abaixo): ranking e líder → Classificações; dias → Detalhes.
+- **Pills de seção segmentadas** — única navegação secundária da tela (o bottom nav do mock original foi removido por redundância). Container `--surface` `rounded-[15px]` com 3 pills: **Detalhes** (ativo, fundo `--accent`, mostra o histórico inline), **Participantes** (abre drawer) e **Ranking** (abre Classificações).
+- **Header "Histórico" + "N registros"** — título 14px + contagem em `--muted`.
+- **Lista de check-ins** — agrupados por dia (Hoje/Ontem/data, label 10.5px `--muted`); cada item é um cartão `--surface` `rounded-[17px]` com **borda-esquerda de 3px** (roxo `--accent2` para os check-ins do próprio usuário, `--line` para os demais), tile 40px `rounded-[12px]` (thumbnail da foto ou avatar quadrado), título em negrito, "{nome} · horário" e pill roxa `+{nº de grupos musculares}`. Reações de emoji e barra de avaliação (modo memes) permanecem abaixo, alinhadas ao tile. Skeleton e empty state seguem a mesma paleta.
+- **FAB de check-in** — **pill** flutuante (ícone `Plus` + label "Check-in") com gradiente `--accent2 → --accent` e glow; desabilitado (acinzentado) quando o grupo está encerrado. Ancorada a `calc(20px + env(safe-area-inset-bottom))` do rodapé (antes precisava de 88px para não sobrepor o bottom nav, que não existe mais).
+- **Overlay de reação (long-press)** — sheet de vidro escuro (`rounded-[28px]`, blur 40px) com preview do check-in, 6 emojis rápidos e botão Cancelar (mantido do design anterior).
 
-> **Pull-to-refresh (2026-07-02):** O container de conteúdo da tela do grupo (`flex-1 overflow-y-auto`, banner + stats + histórico) suporta o mesmo gesto de puxar-para-baixo do Feed. Puxar a partir do topo (`scrollTop === 0`) além do limiar (72px) chama `refreshGroupView(groupId)`, que invalida o cache (`groupCheckIns`, `groupParticipants`) e recarrega check-ins, participantes, reações e votos (modo memes) do grupo aberto — sem esvaziar a lista atual antes (evita o flash de estado vazio que `openGroupView` causa ao trocar de grupo). Indicador visual: spinner circular roxo (`#9d6bff`) que gira conforme a distância puxada e roda continuamente (`animate-spin`) durante o refresh.
+> **Pull-to-refresh (2026-07-02):** O container de conteúdo da tela do grupo (`flex-1 overflow-y-auto`, hero + stats + histórico) suporta o mesmo gesto de puxar-para-baixo do Feed. Puxar a partir do topo (`scrollTop === 0`) além do limiar (72px) chama `refreshGroupView(groupId)`, que invalida o cache (`groupCheckIns`, `groupParticipants`) e recarrega check-ins, participantes, reações e votos (modo memes) do grupo aberto — sem esvaziar a lista atual antes (evita o flash de estado vazio que `openGroupView` causa ao trocar de grupo). Indicador visual: spinner circular roxo que gira conforme a distância puxada e roda continuamente (`animate-spin`) durante o refresh.
 
 ---
 

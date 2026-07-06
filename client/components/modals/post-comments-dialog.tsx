@@ -8,6 +8,16 @@ import {
   DrawerTitle,
   DrawerTrigger,
 } from "@/components/ui/drawer";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { toast } from "@/components/ui/use-toast";
 import { cn } from "@/lib/utils";
 import {
@@ -118,7 +128,9 @@ export function PostCommentsDialog({
   const [draft, setDraft] = React.useState("");
   const commentsListRef = React.useRef<HTMLDivElement>(null);
   const [submitting, setSubmitting] = React.useState(false);
-  const [deletingId, setDeletingId] = React.useState<string | null>(null);
+  const [deleteCommentDialogOpen, setDeleteCommentDialogOpen] = React.useState(false);
+  const [deletingCommentId, setDeletingCommentId] = React.useState<string | null>(null);
+  const [isDeletingComment, setIsDeletingComment] = React.useState(false);
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [editDraft, setEditDraft] = React.useState("");
   const [savingEditId, setSavingEditId] = React.useState<string | null>(null);
@@ -270,13 +282,17 @@ export function PostCommentsDialog({
     }
   }, [editDraft, t]);
 
-  const handleDelete = React.useCallback(async (commentId: string) => {
-    if (!confirm(t("comments_delete_confirm"))) return;
+  const handleDelete = React.useCallback((commentId: string) => {
+    setDeletingCommentId(commentId);
+    setDeleteCommentDialogOpen(true);
+  }, []);
 
+  const handleConfirmDelete = React.useCallback(async () => {
+    if (!deletingCommentId) return;
+    setIsDeletingComment(true);
     try {
-      setDeletingId(commentId);
-      await deletePostCommentDb(commentId);
-      setComments((prev) => prev.filter((c) => c.id !== commentId));
+      await deletePostCommentDb(deletingCommentId);
+      setComments((prev) => prev.filter((c) => c.id !== deletingCommentId));
       toast({ title: t("comments_deleted") });
     } catch (err: any) {
       console.error("Error deleting comment:", err);
@@ -285,9 +301,11 @@ export function PostCommentsDialog({
         description: err?.message || t("retry"),
       });
     } finally {
-      setDeletingId(null);
+      setIsDeletingComment(false);
+      setDeleteCommentDialogOpen(false);
+      setDeletingCommentId(null);
     }
-  }, [t]);
+  }, [deletingCommentId, t]);
 
   const triggerButton = (
     <motion.button
@@ -456,7 +474,7 @@ export function PostCommentsDialog({
                   <button
                     type="button"
                     onClick={() => handleDelete(comment.id)}
-                    disabled={deletingId === comment.id}
+                    disabled={isDeletingComment && deletingCommentId === comment.id}
                     className="rounded-lg p-1.5 transition-colors active:opacity-70 disabled:opacity-50"
                     style={{ color: "rgba(255,255,255,.4)" }}
                     aria-label={t("comments_delete_label")}
@@ -555,6 +573,29 @@ export function PostCommentsDialog({
     </DrawerContent>
   );
 
+  const deleteCommentDialog = (
+    <AlertDialog open={deleteCommentDialogOpen} onOpenChange={setDeleteCommentDialogOpen}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{t("comments_delete_title")}</AlertDialogTitle>
+          <AlertDialogDescription>
+            {t("comments_delete_desc")}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={isDeletingComment}>{t("cancel")}</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={handleConfirmDelete}
+            disabled={isDeletingComment}
+            className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+          >
+            {isDeletingComment ? t("comments_deleting") : t("delete")}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+
   if (defaultOpen) {
     return (
       <>
@@ -579,16 +620,20 @@ export function PostCommentsDialog({
         <Drawer open={open} onOpenChange={handleOpenChange} noBodyStyles shouldScaleBackground={false}>
           {drawerContent}
         </Drawer>
+        {deleteCommentDialog}
       </>
     );
   }
 
   return (
-    <Drawer open={open} onOpenChange={handleOpenChange} noBodyStyles shouldScaleBackground={false}>
-      <DrawerTrigger asChild>
-        {triggerButton}
-      </DrawerTrigger>
-      {drawerContent}
-    </Drawer>
+    <>
+      <Drawer open={open} onOpenChange={handleOpenChange} noBodyStyles shouldScaleBackground={false}>
+        <DrawerTrigger asChild>
+          {triggerButton}
+        </DrawerTrigger>
+        {drawerContent}
+      </Drawer>
+      {deleteCommentDialog}
+    </>
   );
 }

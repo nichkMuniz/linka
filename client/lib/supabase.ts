@@ -10,6 +10,16 @@ export function registerViewerCacheInvalidator(fn: () => void) {
   _invalidateViewerCache = fn;
 }
 
+// Called with the user id whenever a session becomes available (SIGNED_IN /
+// INITIAL_SESSION / TOKEN_REFRESHED). ritmofit-db uses it to drop the viewer
+// cache and, if the account changed since the last session, purge the query
+// cache — sem isso, um viewer `null` cacheado antes do login continuava sendo
+// servido por até 30s depois de logar.
+let _handleAuthUserReady: ((userId: string) => void) | null = null;
+export function registerAuthUserReadyHandler(fn: (userId: string) => void) {
+  _handleAuthUserReady = fn;
+}
+
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
@@ -69,10 +79,14 @@ export const supabase: SupabaseClient | null = hasSupabaseConfig
   })
   : null;
 
-// Invalidate viewer + query cache whenever auth session is lost (logout, token revocation, expiry)
-supabase?.auth.onAuthStateChange((event) => {
+// Invalidate viewer + query cache whenever auth session is lost (logout, token
+// revocation, expiry) — and notify the db layer when a session becomes
+// available, so caches poisoned before/during login are refreshed.
+supabase?.auth.onAuthStateChange((event, session) => {
   if (event === "SIGNED_OUT") {
     _invalidateViewerCache?.();
+  } else if (session?.user?.id) {
+    _handleAuthUserReady?.(session.user.id);
   }
 });
 

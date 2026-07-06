@@ -90,6 +90,75 @@ export function getCachedImage(src: string): HTMLImageElement {
   return decodedImageCache[src];
 }
 
+// ─── Static cropped thumbnail ───────────────────────────────────────────────
+// Renders a small preview that reflects the same scale/pan transform applied
+// in InlineCropPreview, scaling offsetX/offsetY to the thumbnail's own size
+// since the transform's pixel values were captured against `referenceWidth`
+// (the width of the full-size crop frame in Etapa 1).
+
+export function CroppedThumb({
+  imageSrc,
+  transform,
+  referenceWidth,
+  className,
+  style,
+  alt = "",
+}: {
+  imageSrc: string;
+  transform: CropTransform;
+  referenceWidth: number;
+  className?: string;
+  style?: React.CSSProperties;
+  alt?: string;
+}) {
+  const containerRef = React.useRef<HTMLDivElement>(null);
+  const [size, setSize] = React.useState(0);
+  const [natural, setNatural] = React.useState<{ w: number; h: number } | null>(null);
+
+  React.useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setSize(el.clientWidth));
+    ro.observe(el);
+    setSize(el.clientWidth);
+    return () => ro.disconnect();
+  }, []);
+
+  React.useEffect(() => {
+    const img = getCachedImage(imageSrc);
+    const set = () => setNatural({ w: img.naturalWidth, h: img.naturalHeight });
+    if (img.complete && img.naturalWidth > 0) set();
+    else img.addEventListener("load", set, { once: true });
+    return () => img.removeEventListener("load", set);
+  }, [imageSrc]);
+
+  let imgStyle: React.CSSProperties = { display: "none" };
+  if (size > 0 && natural && referenceWidth > 0) {
+    const ratio = size / referenceWidth;
+    const { scale, offsetX, offsetY } = transform;
+    const imgAspect = natural.w / natural.h;
+    let baseW: number, baseH: number;
+    if (imgAspect > 1) { baseH = size; baseW = size * imgAspect; }
+    else { baseW = size; baseH = size / imgAspect; }
+    const drawW = baseW * scale;
+    const drawH = baseH * scale;
+    imgStyle = {
+      position: "absolute",
+      left: (size - drawW) / 2 + offsetX * ratio,
+      top: (size - drawH) / 2 + offsetY * ratio,
+      width: drawW,
+      height: drawH,
+      maxWidth: "none",
+    };
+  }
+
+  return (
+    <div ref={containerRef} className={className} style={{ position: "relative", overflow: "hidden", ...style }}>
+      <img src={imageSrc} alt={alt} draggable={false} style={imgStyle} />
+    </div>
+  );
+}
+
 // ─── Inline crop preview ────────────────────────────────────────────────────
 
 export function InlineCropPreview({

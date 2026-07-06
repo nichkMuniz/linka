@@ -13,6 +13,7 @@ import {
   DEFAULT_TRANSFORM,
   applyTransformToBlob,
 } from "@/components/shared/inline-crop-preview";
+import type { PostWorkoutSummary } from "@/lib/workout-summary-types";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -28,6 +29,12 @@ export type WorkoutSummaryData = {
     totalSets: number;
     bestKg: number;
     muscleGroup: string | null;
+    // Foto do exercício (miniatura no detalhe do feed). Opcional: snapshots antigos
+    // e o fluxo de duelo não preenchem este campo.
+    photo?: string | null;
+    // Carga (kg) e repetições de cada série concluída, em ordem. Opcional: resumos
+    // persistidos antes desta feature (routines.last_summary) não têm este campo.
+    sets?: Array<{ kg: number; reps: number }>;
   }>;
   prExercises: Array<{
     name: string;
@@ -117,6 +124,35 @@ function generateDefaultDescription(data: WorkoutSummaryData): string {
   const exMore = data.completedExercises.length > 3 ? ` +${data.completedExercises.length - 3}` : "";
   const exLine = exNames ? `\n\n${exNames}${exMore}` : "";
   return `Treino de ${data.routineName} concluído! ✅\n\n⏱ ${duration} | 💪 ${data.totalSeries} séries${data.totalVolume > 0 ? ` | 🏋️ ${data.totalVolume}kg` : ""}${exLine}\n\n#treino #fitness #linka`;
+}
+
+// ─── Persisted payload (posts.workout_summary) ──────────────────────────────
+
+// Converte o WorkoutSummaryData (rico, com dados só-de-UI como userGroups) no
+// payload compacto e serializável gravado no post, permitindo que o feed exiba o
+// pill "Ver treino" + o modal de detalhe com exercícios/kg×reps. `canvasUrl` é a
+// imagem gerada do card, usada como miniatura no modal.
+function buildPostWorkoutSummary(
+  data: WorkoutSummaryData,
+  canvasUrl: string,
+): PostWorkoutSummary {
+  return {
+    routineName: data.routineName,
+    durationSecs: data.durationSecs,
+    totalSeries: data.totalSeries,
+    totalVolume: data.totalVolume,
+    imageUrl: canvasUrl,
+    exercises: data.completedExercises.map((ex) => ({
+      name: ex.name,
+      muscleGroup: ex.muscleGroup,
+      bestKg: ex.bestKg,
+      photo: ex.photo ?? null,
+      sets: (ex.sets ?? []).map((s) => ({ kg: s.kg || 0, reps: s.reps || 0 })),
+    })),
+    prExercises: data.prExercises.length > 0 ? data.prExercises : undefined,
+    machinedExercises: data.machinedExercises.length > 0 ? data.machinedExercises : undefined,
+    badges: data.badges.length > 0 ? data.badges : undefined,
+  };
 }
 
 // ─── Canvas constants ────────────────────────────────────────────────────────
@@ -742,11 +778,17 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
       for (const photoBlob of croppedPhotos) {
         urls.push(await uploadWorkoutImageDb(data.userId, photoBlob));
       }
-      // Canvas always included
+      // Canvas always included (last) — its URL vira a miniatura do modal de detalhe
       const blob = await getCanvasBlob();
-      urls.push(await uploadWorkoutImageDb(data.userId, blob));
+      const canvasUrl = await uploadWorkoutImageDb(data.userId, blob);
+      urls.push(canvasUrl);
 
-      await createPostDb(urls, description.trim() || t("goals_summary_share_default_desc"));
+      await createPostDb(
+        urls,
+        description.trim() || t("goals_summary_share_default_desc"),
+        null,
+        buildPostWorkoutSummary(data, canvasUrl),
+      );
       toast({ title: t("goals_summary_shared_feed"), description: t("goals_summary_shared_feed_desc") });
       // Leva o usuário ao feed para ver a publicação recém-criada (fallback: só fecha).
       if (onSharedToFeed) onSharedToFeed();

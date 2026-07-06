@@ -56,6 +56,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { useLanguage } from "@/lib/language-context";
 import { hapticLight } from "@/lib/haptics";
+import { GLASS_SHEET_STYLE, GLASS_SHEET_PROPS, GLASS_PANEL_STYLE, GLASS_PRIMARY_BTN_STYLE } from "@/lib/glass-styles";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Cache persistente do feed (singleton em nível de módulo).
@@ -1016,49 +1017,49 @@ export default function Index() {
 
 
       {/* Goal Progress Drawer */}
-      <Drawer open={goalModalOpen} onOpenChange={setGoalModalOpen}>
-        <DrawerContent className="max-h-[80dvh] flex flex-col" onOpenAutoFocus={(e) => e.preventDefault()}>
+      <Drawer open={goalModalOpen} onOpenChange={setGoalModalOpen} noBodyStyles shouldScaleBackground={false}>
+        <DrawerContent {...GLASS_SHEET_PROPS} style={GLASS_SHEET_STYLE} onOpenAutoFocus={(e) => e.preventDefault()}>
           <DrawerHeader className="shrink-0">
-            <DrawerTitle>{t("feed_goal_drawer_title")}</DrawerTitle>
+            <DrawerTitle className="text-white">{t("feed_goal_drawer_title")}</DrawerTitle>
           </DrawerHeader>
           <div
-            className="flex flex-col flex-1 gap-4 overflow-y-auto px-4"
+            className="flex flex-col flex-1 min-h-0 gap-4 overflow-y-auto px-4"
             style={{ paddingBottom: "max(1.5rem, env(safe-area-inset-bottom))" }}
           >
             {selectedGoalPost?.userGoal && (
               <div className="space-y-4 flex-1">
                 {/* Goal Info */}
-                <div className="p-4 border border-border/40 rounded-2xl bg-card space-y-3">
-                  <p className="text-lg font-bold">{selectedGoalPost.userGoal.description}</p>
+                <div className="p-4 rounded-2xl space-y-3" style={GLASS_PANEL_STYLE}>
+                  <p className="text-lg font-bold text-white">{selectedGoalPost.userGoal.description}</p>
 
                   {/* Progress Bar — Bug 9 fix: clamp to 100 */}
                   <div className="space-y-3">
                     <div className="flex justify-between items-center">
-                      <span className="text-sm font-medium text-foreground">{t("feed_goal_progress_label")}</span>
-                      <span className="text-lg font-bold text-brand">
+                      <span className="text-sm font-medium text-white/85">{t("feed_goal_progress_label")}</span>
+                      <span className="text-lg font-bold text-white">
                         {Math.round(Math.min(100, selectedGoalPost.userGoal.perc))}%
                       </span>
                     </div>
-                    <div className="w-full bg-muted rounded-full h-5 overflow-hidden">
+                    <div className="w-full rounded-full h-5 overflow-hidden" style={{ background: "rgba(255,255,255,.1)" }}>
                       <div
-                        className="bg-brand h-full rounded-full transition-all duration-300"
-                        style={{ width: `${Math.min(100, selectedGoalPost.userGoal.perc)}%` }}
+                        className="h-full rounded-full transition-all duration-300"
+                        style={{ width: `${Math.min(100, selectedGoalPost.userGoal.perc)}%`, background: "linear-gradient(90deg,#5b8cff,#9d6bff)" }}
                       />
                     </div>
                   </div>
 
                   <div className="grid grid-cols-3 gap-3 pt-2">
-                    <div className="p-2 bg-muted/30 rounded-xl text-center">
-                      <p className="text-xs text-muted-foreground">{t("feed_goal_duration")}</p>
-                      <p className="text-sm font-bold">{selectedGoalPost.userGoal.duration}d</p>
+                    <div className="p-2 rounded-xl text-center" style={{ background: "rgba(255,255,255,.05)" }}>
+                      <p className="text-xs text-white/50">{t("feed_goal_duration")}</p>
+                      <p className="text-sm font-bold text-white">{selectedGoalPost.userGoal.duration}d</p>
                     </div>
-                    <div className="p-2 bg-muted/30 rounded-xl text-center">
-                      <p className="text-xs text-muted-foreground">{t("feed_goal_quantity")}</p>
-                      <p className="text-sm font-bold">{selectedGoalPost.userGoal.quantity}</p>
+                    <div className="p-2 rounded-xl text-center" style={{ background: "rgba(255,255,255,.05)" }}>
+                      <p className="text-xs text-white/50">{t("feed_goal_quantity")}</p>
+                      <p className="text-sm font-bold text-white">{selectedGoalPost.userGoal.quantity}</p>
                     </div>
-                    <div className="p-2 bg-muted/30 rounded-xl text-center">
-                      <p className="text-xs text-muted-foreground">{t("feed_goal_type_label")}</p>
-                      <p className="text-sm font-bold">
+                    <div className="p-2 rounded-xl text-center" style={{ background: "rgba(255,255,255,.05)" }}>
+                      <p className="text-xs text-white/50">{t("feed_goal_type_label")}</p>
+                      <p className="text-sm font-bold text-white">
                         {selectedGoalPost.userGoal.type_goal === 1
                           ? t("feed_goal_type_fitness")
                           : selectedGoalPost.userGoal.type_goal === 2
@@ -1071,7 +1072,7 @@ export default function Index() {
 
                 {goalRoutinesLoading ? (
                   <div className="flex items-center justify-center py-6">
-                    <p className="text-sm text-muted-foreground">{t("feed_routine_loading")}</p>
+                    <p className="text-sm text-white/50">{t("feed_routine_loading")}</p>
                   </div>
                 ) : (
                   <>
@@ -1094,14 +1095,14 @@ export default function Index() {
                             postUserId={selectedGoalPost.user_id}
                           />
                         ) : (
-                          <div className="border border-border/40 rounded-2xl p-4 bg-card text-center space-y-3">
-                            <p className="text-sm text-muted-foreground">
+                          <div className="rounded-2xl p-4 text-center space-y-3" style={GLASS_PANEL_STYLE}>
+                            <p className="text-sm text-white/60">
                               {t("feed_routines_no_linked")}
                             </p>
                             <Button
                               variant="outline"
                               size="sm"
-                              className="w-full rounded-full"
+                              className="w-full rounded-full bg-transparent border-white/20 text-white hover:bg-white/10 hover:text-white"
                               onClick={() => navigate("/metas?tab=rotinas")}
                             >
                               {t("feed_routines_link_btn")}
@@ -1136,7 +1137,7 @@ export default function Index() {
                   <button
                     onClick={handleMarkGoalComplete}
                     disabled={isMarkingGoalComplete}
-                    className="w-full flex items-center justify-center gap-1.5 text-xs text-muted-foreground hover:text-emerald-500 transition-colors py-1 disabled:opacity-50"
+                    className="w-full flex items-center justify-center gap-1.5 text-xs text-white/50 hover:text-emerald-400 transition-colors py-1 disabled:opacity-50"
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
@@ -1151,7 +1152,8 @@ export default function Index() {
                     <Button
                       onClick={handleCopyGoal}
                       disabled={isCopyingGoal || hasAlreadyCopiedGoal}
-                      className="flex-1 rounded-full gap-2 shrink-0"
+                      className="flex-1 rounded-full gap-2 shrink-0 border-0"
+                      style={GLASS_PRIMARY_BTN_STYLE}
                     >
                       {isCopyingGoal ? t("feed_goal_copying") : hasAlreadyCopiedGoal ? t("feed_goal_already_copied") : t("feed_goal_copy_btn")}
                     </Button>
@@ -1273,22 +1275,22 @@ function RoutineAccordion({
   }, []);
 
   return (
-    <div className="border border-border/60 rounded-lg overflow-hidden">
+    <div className="rounded-lg overflow-hidden" style={GLASS_PANEL_STYLE}>
       <button
         onClick={() => setExpandedRoutines(!expandedRoutines)}
-        className="w-full flex items-center justify-between p-4 hover:bg-muted/50 transition-colors"
+        className="w-full flex items-center justify-between p-4 hover:bg-white/5 transition-colors"
       >
-        <h3 className="text-sm font-medium">
+        <h3 className="text-sm font-medium text-white">
           {t("feed_goal_linked_routines").replace("{n}", String(groups.length))}
         </h3>
 
         <ChevronDown
-          className={`h-5 w-5 transform transition-transform ${expandedRoutines ? "rotate-180" : ""}`}
+          className={`h-5 w-5 text-white/60 transform transition-transform ${expandedRoutines ? "rotate-180" : ""}`}
         />
       </button>
 
       {expandedRoutines && (
-        <div className="border-t border-border/60 divide-y divide-border/40">
+        <div className="divide-y divide-white/10 border-t border-white/10">
           {groups.map(({ key, type, name }) => {
             const typeIcon = type === 1 ? "🏋️" : type === 2 ? "🍽️" : "✅";
             const typeLabel = type === 1 ? t("feed_routines_exercises") : type === 2 ? t("feed_routines_diets") : t("feed_goal_type_habits");
@@ -1303,27 +1305,27 @@ function RoutineAccordion({
               <div key={key}>
                 <button
                   onClick={() => onToggleRoutine(key, type, name, targetUserId)}
-                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted/30 transition-colors text-left"
+                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/5 transition-colors text-left"
                 >
                   <span className="text-base">{typeIcon}</span>
-                  <span className="flex-1 text-sm font-medium truncate">{label}</span>
-                  <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${isOpen ? "rotate-180" : ""}`} />
+                  <span className="flex-1 text-sm font-medium truncate text-white">{label}</span>
+                  <ChevronDown className={`h-4 w-4 text-white/50 transition-transform ${isOpen ? "rotate-180" : ""}`} />
                 </button>
 
                 {isOpen && (
-                  <div className="bg-muted/20 px-4 pb-3 pt-1 space-y-1.5">
+                  <div className="px-4 pb-3 pt-1 space-y-1.5" style={{ background: "rgba(255,255,255,.03)" }}>
                     {!items ? (
-                      <p className="text-xs text-muted-foreground py-2">{t("feed_routine_loading")}</p>
+                      <p className="text-xs text-white/50 py-2">{t("feed_routine_loading")}</p>
                     ) : items.length === 0 ? (
-                      <p className="text-xs text-muted-foreground py-2">{t("feed_routine_empty_items")}</p>
+                      <p className="text-xs text-white/50 py-2">{t("feed_routine_empty_items")}</p>
                     ) : (
                       <>
                         {items.map((item: any) => {
                           const itemName = item.workoutName || item.dietName || item.habitName || "—";
                           return (
-                            <div key={item.id} className="flex items-center gap-2 py-1.5 px-2 rounded-lg bg-background/60">
-                              <span className="text-xs text-muted-foreground">•</span>
-                              <span className="text-sm truncate">{itemName}</span>
+                            <div key={item.id} className="flex items-center gap-2 py-1.5 px-2 rounded-lg" style={{ background: "rgba(255,255,255,.05)" }}>
+                              <span className="text-xs text-white/50">•</span>
+                              <span className="text-sm truncate text-white">{itemName}</span>
                             </div>
                           );
                         })}
@@ -1331,7 +1333,8 @@ function RoutineAccordion({
                           <Button
                             size="sm"
                             variant={isCopiedThis ? "outline" : "default"}
-                            className="w-full rounded-full mt-2"
+                            className={`w-full rounded-full mt-2 ${isCopiedThis ? "bg-transparent border-white/20 text-white hover:bg-white/10 hover:text-white" : "border-0"}`}
+                            style={isCopiedThis ? undefined : GLASS_PRIMARY_BTN_STYLE}
                             disabled={isCopyingThis || isCopiedThis}
                             onClick={(e) => {
                               e.stopPropagation();

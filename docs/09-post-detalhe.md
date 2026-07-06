@@ -70,6 +70,10 @@ Como a tela sempre exibe exatamente **1 post**, ela não tem scroll de página �
 - Hashtags (`#token`) são destacadas em azul claro (`renderWithHashtags`, `client/lib/post-visuals.tsx`) — mesma função usada no feed
 - Constante `DESC_MAX_CHARS = 80` compartilhada com o `PostCard` via `client/lib/post-visuals.tsx`
 
+### Pill "Ver treino" (só em posts de resumo de treino)
+- Quando o post carrega um `workout_summary`, renderiza o `WorkoutDetailButton` (`client/components/shared/workout-detail-dialog.tsx`) no overlay inferior, acima do indicador de carrossel
+- Tocar abre o drawer simplificado com a lista de exercícios (miniatura do exercício + grupo muscular + séries em chips `{kg}kg × {reps}`) — mesmo componente do feed e do Perfil. Ver `docs/01-feed.md` (Detalhe do treino)
+
 ### Indicador de Carrossel
 - Dots centralizados logo acima da barra de ações, quando o post tem mais de uma foto
 

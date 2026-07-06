@@ -65,7 +65,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 // Tabs component replaced by custom underline tabs
 import { toast } from "@/components/ui/use-toast";
-import { ArrowLeft, Send, Check, CheckCheck, Trophy, TrendingUp, Plus, X, ChevronRight, Trash2, Edit3, Search, PenSquare, MessageCircle, Users, ChevronLeft, Swords, BarChart2, Camera, Image, Mic, Crop, CheckCircle2, XCircle, Pencil, FileText } from "lucide-react";
+import { ArrowLeft, Send, Check, CheckCheck, Trophy, TrendingUp, Plus, X, ChevronRight, Trash2, Edit3, Search, PenSquare, MessageCircle, Users, ChevronLeft, Swords, BarChart2, Camera, Image, Mic, Crop, CheckCircle2, XCircle, Pencil } from "lucide-react";
 import { CommentReactions } from "@/components/shared/comment-reactions";
 import { ClassificationsDrawer } from "@/components/community/classifications-drawer";
 import { NewConversationDrawer } from "@/components/community/new-conversation-drawer";
@@ -143,6 +143,30 @@ export default function Community() {
   const { t } = useLanguage();
 
   const [activeTab, setActiveTab] = React.useState("messages");
+
+  // Hides the segmented tabs bar (mensagens/duelos/ranking) on scroll-down and
+  // brings it back on scroll-up — same thresholds/feel as the app header's
+  // scroll-hide behavior in app-layout.tsx, but driven locally since Community
+  // owns its own internal scroll containers (one per tab, mounted one at a time).
+  const [isTabsBarHidden, setIsTabsBarHidden] = React.useState(false);
+  const tabsScrollLastYRef = React.useRef(0);
+  const tabsScrollTickingRef = React.useRef(false);
+  const handleTabsScrollContainerScroll = React.useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const scrollTop = e.currentTarget.scrollTop;
+    if (tabsScrollTickingRef.current) return;
+    tabsScrollTickingRef.current = true;
+    window.requestAnimationFrame(() => {
+      const delta = scrollTop - tabsScrollLastYRef.current;
+      if (scrollTop > 96 && delta > 30) setIsTabsBarHidden(true);
+      if (delta < -30) setIsTabsBarHidden(false);
+      tabsScrollLastYRef.current = scrollTop;
+      tabsScrollTickingRef.current = false;
+    });
+  }, []);
+  React.useEffect(() => {
+    setIsTabsBarHidden(false);
+    tabsScrollLastYRef.current = 0;
+  }, [activeTab]);
   const [viewMode, setViewMode] = React.useState<ViewMode>("conversations");
   const [conversations, setConversations] = React.useState<Conversation[]>([]);
   const [selectedConversation, setSelectedConversation] =
@@ -1566,11 +1590,30 @@ export default function Community() {
     <div
       className="w-full flex flex-col overflow-hidden"
       style={{
-        height: "calc(100dvh - 64px - env(safe-area-inset-top) - 1.5rem - 4.75rem - env(safe-area-inset-bottom))",
+        // When the chrome (app header + tabs bar) hides on scroll, the shared
+        // <main> still reserves ~64px of padding for the floating header pill.
+        // On this fixed-height, internally-scrolled screen that reserved strip
+        // would otherwise show as an empty black band at the top. Pull the whole
+        // container up by that 64px (and grow its height to keep the bottom edge
+        // fixed) so the list fills the reclaimed space — same feel as the feed.
+        height: isTabsBarHidden
+          ? "calc(100dvh - env(safe-area-inset-top) - 1.5rem - 4.75rem - env(safe-area-inset-bottom))"
+          : "calc(100dvh - 64px - env(safe-area-inset-top) - 1.5rem - 4.75rem - env(safe-area-inset-bottom))",
+        marginTop: isTabsBarHidden ? "-64px" : "0px",
+        transition: "margin-top 200ms ease-in-out, height 200ms ease-in-out",
       }}
     >
-      {/* Tabs — segmented control style (igual à tela de Loja) */}
-      <div className="flex-shrink-0 px-4 pt-3 pb-3" style={{ borderBottom: "1px solid rgba(255,255,255,.08)" }}>
+      {/* Tabs — segmented control style (igual à tela de Loja), oculta ao scrollar como o header */}
+      <div
+        className="flex-shrink-0 px-4 overflow-hidden transition-all duration-200 ease-in-out"
+        style={{
+          borderBottom: isTabsBarHidden ? "1px solid transparent" : "1px solid rgba(255,255,255,.08)",
+          maxHeight: isTabsBarHidden ? 0 : 80,
+          opacity: isTabsBarHidden ? 0 : 1,
+          paddingTop: isTabsBarHidden ? 0 : "0.75rem",
+          paddingBottom: isTabsBarHidden ? 0 : "0.75rem",
+        }}
+      >
         <div className="flex items-center gap-3">
           {/* Segmented tabs */}
           <div
@@ -1649,7 +1692,7 @@ export default function Community() {
           </div>
 
           {/* Conversations List — LinKa Glass cards */}
-          <div data-community-scroll-container className="flex-1 overflow-y-auto px-3 pt-1 pb-4">
+          <div data-community-scroll-container onScroll={handleTabsScrollContainerScroll} className="flex-1 overflow-y-auto px-3 pt-1 pb-4">
             {filteredConversations.length > 0 ? (
               <div className="flex flex-col gap-1">
                 {filteredConversations.map((conversation) => (
@@ -1777,17 +1820,24 @@ export default function Community() {
 
       {/* Duels Tab - Full Screen Group View */}
       {selectedGroupForView && ReactDOM.createPortal(
-        <div className="fixed top-0 right-0 bottom-0 flex flex-col z-[100]" style={{ left: "var(--sidebar-width, 0px)", background: "linear-gradient(rgba(20,19,28,1),rgba(10,10,16,1))" }}>
-          {/* Header with Back Button */}
+        <div
+          className="fixed top-0 right-0 bottom-0 flex flex-col z-[100]"
+          style={{
+            left: "var(--sidebar-width, 0px)",
+            background: "#0d0a17",
+            fontFamily: "'Manrope', sans-serif",
+            "--surface": "#171128",
+            "--surface2": "#221a38",
+            "--line": "rgba(255,255,255,.08)",
+            "--muted": "#9a8db2",
+            "--accent": "#7c3aed",
+            "--accent2": "#a855f7",
+          } as React.CSSProperties}
+        >
+          {/* Header: back · "Grupo" · edit (creator only) */}
           <div
-            className="flex-shrink-0 px-2 py-2 flex items-center justify-start"
-            style={{
-              paddingTop: "calc(env(safe-area-inset-top) + 0.5rem)",
-              background: "linear-gradient(rgba(255,255,255,.06),rgba(255,255,255,.02))",
-              backdropFilter: "blur(24px) saturate(180%)",
-              WebkitBackdropFilter: "blur(24px) saturate(180%)",
-              borderBottom: "1px solid rgba(255,255,255,.08)",
-            }}
+            className="flex-shrink-0 px-5 pb-3 flex items-center justify-between"
+            style={{ paddingTop: "calc(env(safe-area-inset-top) + 0.9rem)" }}
           >
             <button
               onClick={() => {
@@ -1799,10 +1849,48 @@ export default function Community() {
                   return next;
                 }, { replace: true });
               }}
-              className="p-2 rounded-full transition-colors text-white/80 hover:text-white hover:bg-white/[.08] active:scale-95"
+              className="h-9 w-9 rounded-[11px] flex items-center justify-center text-white transition-transform active:scale-90"
+              style={{ background: "var(--surface)" }}
             >
-              <ArrowLeft className="h-5 w-5" />
+              <ArrowLeft className="h-[18px] w-[18px]" strokeWidth={2.2} />
             </button>
+            <span className="text-[13px] font-bold" style={{ fontFamily: "'Space Grotesk', sans-serif", color: "var(--muted)" }}>
+              {t("duels_group_header")}
+            </span>
+            {selectedGroupForView.createdBy === user?.id ? (
+              <>
+                <input
+                  ref={editCoverInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file || !selectedGroupForView) return;
+                    try {
+                      const photoUrl = await updateGroupPhotoDb(selectedGroupForView.id, file);
+                      setSelectedGroupForView({ ...selectedGroupForView, photo: photoUrl });
+                      setUserCreatedGroups((prev) =>
+                        prev.map((g) => g.id === selectedGroupForView.id ? { ...g, photo: photoUrl } : g)
+                      );
+                      toast({ title: t("duels_group_cover_updated") });
+                    } catch {
+                      toast({ title: t("duels_group_cover_error"), variant: "destructive" });
+                    }
+                  }}
+                />
+                <button
+                  onClick={() => editCoverInputRef.current?.click()}
+                  title={t("duels_group_edit_cover")}
+                  className="h-9 w-9 rounded-[11px] flex items-center justify-center text-white transition-transform active:scale-90"
+                  style={{ background: "var(--surface)" }}
+                >
+                  <Edit3 className="h-[15px] w-[15px]" strokeWidth={2.2} />
+                </button>
+              </>
+            ) : (
+              <span className="h-9 w-9" />
+            )}
           </div>
 
           {/* Content */}
@@ -1830,60 +1918,31 @@ export default function Community() {
                 />
               </div>
             )}
-            <div className="pb-32">
-              {/* Hero Banner Section */}
-              <div className="relative h-48 flex items-end overflow-hidden">
-                {selectedGroupForView.photo ? (
-                  <img
-                    src={selectedGroupForView.photo}
-                    alt={selectedGroupForView.name}
-                    className="absolute inset-0 w-full h-full object-cover"
-                  />
-                ) : (
-                  <div className="absolute inset-0" style={{ background: "linear-gradient(135deg,rgba(91,140,255,.28),rgba(157,107,255,.16) 55%,rgba(10,10,16,0))" }} />
-                )}
-                <div className="relative z-10 w-full px-4 pb-4 bg-gradient-to-t from-black/60 to-transparent">
-                  {!selectedGroupForView.photo && (
-                    <div className="text-5xl mb-2">{selectedGroupForView.icon}</div>
-                  )}
-                  <h1 className="text-2xl font-bold text-white drop-shadow">{selectedGroupForView.name}</h1>
-                </div>
-                {selectedGroupForView.createdBy === user?.id && (
-                  <>
-                    <input
-                      ref={editCoverInputRef}
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={async (e) => {
-                        const file = e.target.files?.[0];
-                        if (!file || !selectedGroupForView) return;
-                        try {
-                          const photoUrl = await updateGroupPhotoDb(selectedGroupForView.id, file);
-                          setSelectedGroupForView({ ...selectedGroupForView, photo: photoUrl });
-                          setUserCreatedGroups((prev) =>
-                            prev.map((g) => g.id === selectedGroupForView.id ? { ...g, photo: photoUrl } : g)
-                          );
-                          toast({ title: t("duels_group_cover_updated") });
-                        } catch {
-                          toast({ title: t("duels_group_cover_error"), variant: "destructive" });
-                        }
-                      }}
+            <div className="pb-24">
+              {/* Hero cover card */}
+              <div className="px-5 pt-1">
+                <div className="relative h-[130px] rounded-[22px] overflow-hidden" style={{ background: "linear-gradient(135deg,#2c2249,#170f28)" }}>
+                  {selectedGroupForView.photo ? (
+                    <img
+                      src={selectedGroupForView.photo}
+                      alt={selectedGroupForView.name}
+                      className="absolute inset-0 w-full h-full object-cover"
                     />
-                    <button
-                      className="absolute top-3 right-3 z-20 p-2 rounded-full transition-colors text-white active:scale-95"
-                      style={{ background: "rgba(0,0,0,.4)", border: "1px solid rgba(255,255,255,.14)", backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)" }}
-                      onClick={() => editCoverInputRef.current?.click()}
-                      title={t("duels_group_edit_cover")}
-                    >
-                      <Edit3 className="h-4 w-4" />
-                    </button>
-                  </>
-                )}
+                  ) : (
+                    <div className="absolute inset-0 flex items-center justify-center text-5xl">{selectedGroupForView.icon}</div>
+                  )}
+                  <div className="absolute inset-0" style={{ background: "linear-gradient(to top,rgba(0,0,0,.65),rgba(0,0,0,0) 62%)" }} />
+                  <h1
+                    className="absolute left-[18px] right-[18px] bottom-[14px] text-[24px] font-extrabold leading-tight text-white truncate"
+                    style={{ fontFamily: "'Space Grotesk', sans-serif", textShadow: "0 2px 12px rgba(0,0,0,.6)" }}
+                  >
+                    {selectedGroupForView.name}
+                  </h1>
+                </div>
               </div>
 
               {/* Stats Section */}
-              <div className="px-4 py-4 space-y-2">
+              <div className="px-5 pt-[18px]">
                 {(() => {
                   // Calculate scores respecting scoring type
                   const scoringType = selectedGroupForView.scoringType || "check_in_count";
@@ -1917,82 +1976,95 @@ export default function Community() {
                     )
                     : null;
 
-                  const STAT_CARD_STYLE = {
-                    background: "rgba(255,255,255,.04)",
-                    border: "1px solid rgba(255,255,255,.08)",
-                    boxShadow: "inset 0 1px 0 rgba(255,255,255,.06)",
-                  } as const;
+                  const SURFACE_CARD_STYLE = {
+                    background: "var(--surface)",
+                    border: "1px solid var(--line)",
+                  } as React.CSSProperties;
                   return (
-                    <div className="grid grid-cols-3 gap-3">
-                      {/* Leader Card */}
+                    <div className="grid grid-cols-2 gap-[9px]">
+                      {/* Your ranking — big gradient hero card */}
                       <button
                         onClick={() => setIsClassificationsOpen(true)}
-                        className="p-3 rounded-[18px] text-center flex flex-col items-center active:scale-95 transition-transform"
-                        style={STAT_CARD_STYLE}
+                        className="row-span-2 rounded-[20px] p-[18px] flex flex-col justify-between items-start text-left min-h-[124px] active:scale-[.98] transition-transform"
+                        style={{ background: "linear-gradient(160deg,var(--accent2),#4c1d95)" }}
                       >
-                        <div className="text-lg font-bold mb-1" style={{ color: "#9d6bff" }}>
+                        <span className="text-[10.5px] font-semibold uppercase tracking-[.03em]" style={{ color: "rgba(255,255,255,.75)" }}>
+                          {t("duels_group_your_ranking")}
+                        </span>
+                        <span className="text-[38px] font-extrabold leading-none text-white" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
+                          {userRanking > 0 ? `#${userRanking}` : "–"}
+                        </span>
+                      </button>
+
+                      {/* Leader */}
+                      <button
+                        onClick={() => setIsClassificationsOpen(true)}
+                        className="rounded-[20px] px-4 py-[14px] text-left active:scale-[.98] transition-transform"
+                        style={SURFACE_CARD_STYLE}
+                      >
+                        <div className="text-[24px] font-extrabold leading-none" style={{ fontFamily: "'Space Grotesk', sans-serif", color: "var(--accent2)" }}>
                           {leaderStats ? Math.round(leaderStats.score) : 0}
                         </div>
-                        {leaderStats?.userName && (
-                          <div className="text-xs truncate w-full" style={{ color: "rgba(255,255,255,.5)" }}>
-                            {leaderStats.userName}
-                          </div>
-                        )}
-                        <div className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>{t("duels_group_leader")}</div>
-                      </button>
-
-                      {/* User Ranking Card */}
-                      <button
-                        onClick={() => setIsClassificationsOpen(true)}
-                        className="p-3 rounded-[18px] text-center active:scale-95 transition-transform"
-                        style={STAT_CARD_STYLE}
-                      >
-                        <div className="text-lg font-bold mb-2" style={{ color: "#9d6bff" }}>
-                          {userRanking > 0 ? `#${userRanking}` : "-"}
+                        <div className="text-[10.5px] font-semibold mt-[3px] truncate" style={{ color: "var(--muted)" }}>
+                          {leaderStats?.userName ? `${leaderStats.userName} · ${t("duels_group_leader_suffix")}` : t("duels_group_leader")}
                         </div>
-                        <div className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>{t("duels_group_you")}</div>
                       </button>
 
-                      {/* Days Remaining Card */}
+                      {/* Days remaining */}
                       <button
                         onClick={() => setIsGroupDetailsOpen(true)}
-                        className="p-3 rounded-[18px] text-center active:scale-95 transition-transform"
-                        style={STAT_CARD_STYLE}
+                        className="rounded-[20px] px-4 py-[14px] text-left active:scale-[.98] transition-transform"
+                        style={SURFACE_CARD_STYLE}
                       >
-                        <div className="text-lg font-bold mb-2" style={{ color: "#9d6bff" }}>
-                          {daysRemaining !== null ? (daysRemaining > 0 ? daysRemaining : t("duels_group_ended_short")) : "-"}
+                        <div className="text-[24px] font-extrabold leading-none" style={{ fontFamily: "'Space Grotesk', sans-serif", color: "var(--accent2)" }}>
+                          {daysRemaining !== null ? (daysRemaining > 0 ? daysRemaining : t("duels_group_ended_short")) : "–"}
                         </div>
-                        <div className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>{t("duels_group_days")}</div>
+                        <div className="text-[10.5px] font-semibold mt-[3px]" style={{ color: "var(--muted)" }}>
+                          {daysRemaining !== null && daysRemaining <= 0 ? t("duels_ended") : t("duels_group_days_left")}
+                        </div>
                       </button>
                     </div>
                   );
                 })()}
               </div>
 
-              {/* Divider */}
-              <div className="px-4 py-3">
-                <div className="h-px" style={{ background: "rgba(255,255,255,.08)" }}></div>
+              {/* Segmented tab pills */}
+              <div className="px-5 pt-5">
+                <div className="flex gap-1 p-1 rounded-[15px]" style={{ background: "var(--surface)" }}>
+                  <div className="flex-1 text-center py-[9px] rounded-[12px] text-[12.5px] font-bold text-white" style={{ background: "var(--accent)" }}>
+                    {t("duels_group_tab_details")}
+                  </div>
+                  <button
+                    onClick={() => setIsParticipantsModalOpen(true)}
+                    className="flex-1 text-center py-[9px] rounded-[12px] text-[12.5px] font-semibold transition-transform active:scale-95"
+                    style={{ color: "var(--muted)" }}
+                  >
+                    {t("duels_group_tab_participants")}
+                  </button>
+                  <button
+                    onClick={() => setIsClassificationsOpen(true)}
+                    className="flex-1 text-center py-[9px] rounded-[12px] text-[12.5px] font-semibold transition-transform active:scale-95"
+                    style={{ color: "var(--muted)" }}
+                  >
+                    {t("duels_group_tab_ranking_short")}
+                  </button>
+                </div>
               </div>
 
-              {/* Tabs Header */}
-              <div className="px-4 py-2 flex gap-4" style={{ borderBottom: "1px solid rgba(255,255,255,.08)" }}>
-                <button
-                  onClick={() => setActiveGroupViewTab("check-ins")}
-                  className="px-2 py-2 text-sm font-semibold transition-colors text-white"
-                  style={{ borderBottom: "2px solid #9d6bff", marginBottom: -2 }}
-                >
-                  {t("duels_group_history")} ({groupCheckIns.length})
-                </button>
+              {/* History section header */}
+              <div className="px-5 pt-5 pb-1 flex items-center justify-between">
+                <span className="text-[14px] font-bold text-white">{t("duels_group_history")}</span>
+                <span className="text-[11.5px] font-semibold" style={{ color: "var(--muted)" }}>{t("duels_group_records").replace("{n}", String(groupCheckIns.length))}</span>
               </div>
 
               {/* Check-ins Tab */}
               {activeGroupViewTab === "check-ins" && (
-                <div className="space-y-4 px-3 py-4">
+                <div className="space-y-4 px-5 pt-1 pb-4">
                   {isLoadingCheckIns ? (
-                    <div className="space-y-3">
+                    <div className="space-y-2">
                       {[1, 2, 3].map((i) => (
-                        <div key={i} className="animate-pulse flex gap-3 p-3 rounded-[18px]" style={{ background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.08)" }}>
-                          <div className="w-10 h-10 rounded-full bg-white/10 flex-shrink-0" />
+                        <div key={i} className="animate-pulse flex gap-[11px] items-center rounded-[17px]" style={{ background: "var(--surface)", padding: "11px 11px 11px 13px", borderLeft: "3px solid var(--line)" }}>
+                          <div className="w-10 h-10 rounded-[12px] bg-white/10 flex-none" />
                           <div className="flex-1 space-y-2">
                             <div className="h-3 bg-white/10 rounded w-1/3" />
                             <div className="h-2 bg-white/10 rounded w-1/2" />
@@ -2019,7 +2091,7 @@ export default function Community() {
                     }
                     return grouped.map((group) => (
                       <div key={group.label}>
-                        <p className="text-xs font-semibold mb-2 uppercase tracking-wide" style={{ color: "rgba(255,255,255,.4)" }}>{group.label}</p>
+                        <p className="text-[10.5px] font-semibold mb-2 uppercase tracking-[.04em]" style={{ color: "var(--muted)" }}>{group.label}</p>
                         <div className="space-y-2">
                           {group.items.map((checkIn) => {
                             const reactions = checkInReactions[checkIn.id] ?? [];
@@ -2038,8 +2110,12 @@ export default function Community() {
                                 })()}`}
                               >
                                 <div
-                                  className="flex items-center gap-3 p-2.5 rounded-[18px] active:opacity-80 transition-opacity cursor-pointer select-none"
-                                  style={{ background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.08)" }}
+                                  className="flex items-center gap-[11px] rounded-[17px] active:opacity-80 transition-opacity cursor-pointer select-none"
+                                  style={{
+                                    background: "var(--surface)",
+                                    borderLeft: `3px solid ${checkIn.userId === user?.id ? "var(--accent2)" : "var(--line)"}`,
+                                    padding: "11px 11px 11px 13px",
+                                  }}
                                   onTouchStart={() => handleCheckInTouchStart(checkIn)}
                                   onTouchEnd={handleCheckInTouchEnd}
                                   onTouchMove={handleCheckInTouchEnd}
@@ -2062,44 +2138,38 @@ export default function Community() {
                                     setIsLoadingComments(false);
                                   }}
                                 >
-                                  {/* Avatar */}
-                                  <UserAvatar
-                                    photo={checkIn.userPhoto}
-                                    nickname={checkIn.userName}
-                                    className="w-8 h-8 flex-shrink-0"
-                                  />
+                                  {/* Thumbnail / avatar tile */}
+                                  {checkIn.photo ? (
+                                    <div className="w-10 h-10 rounded-[12px] overflow-hidden flex-none" style={{ background: "var(--surface2)" }}>
+                                      <img src={checkIn.photo} alt="check-in" className="w-full h-full object-cover" />
+                                    </div>
+                                  ) : (
+                                    <UserAvatar
+                                      photo={checkIn.userPhoto}
+                                      nickname={checkIn.userName}
+                                      size="md"
+                                      className="rounded-[12px]"
+                                    />
+                                  )}
                                   {/* Content */}
                                   <div className="flex-1 min-w-0">
-                                    <p className="text-sm font-medium truncate text-white/90">
+                                    <p className="text-[13px] font-bold truncate text-white">
                                       {checkIn.description || checkIn.workoutInfo}
                                     </p>
-                                    <div className="flex items-center gap-1.5 min-w-0">
-                                      <span className="text-xs truncate min-w-0" style={{ color: "rgba(255,255,255,.5)" }}>{checkIn.userName}</span>
-                                      {checkIn.muscleGroups.length > 0 && (
-                                        <div className="flex items-center gap-1 shrink-0">
-                                          {checkIn.muscleGroups.slice(0, 2).map((mg) => (
-                                            <span key={mg} className="text-[10px] px-1.5 py-0.5 rounded-full shrink-0 leading-none" style={{ color: "#9d6bff", background: "rgba(157,107,255,.14)" }}>{mg}</span>
-                                          ))}
-                                          {checkIn.muscleGroups.length > 2 && (
-                                            <span className="text-[10px] px-1.5 py-0.5 rounded-full shrink-0 leading-none" style={{ color: "rgba(255,255,255,.55)", background: "rgba(255,255,255,.08)" }}>+{checkIn.muscleGroups.length - 2}</span>
-                                          )}
-                                        </div>
-                                      )}
-                                    </div>
+                                    <p className="text-[11px] font-medium truncate" style={{ color: "var(--muted)" }}>
+                                      {checkIn.userName} · {new Date(checkIn.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                                    </p>
                                   </div>
-                                  {/* Right side: thumbnail + time always */}
-                                  <div className="flex flex-col items-end gap-1 shrink-0">
-                                    {checkIn.photo && (
-                                      <div className="w-16 h-14 rounded-[12px] overflow-hidden" style={{ background: "rgba(255,255,255,.06)" }}>
-                                        <img src={checkIn.photo} alt="check-in" className="w-full h-full object-cover" />
-                                      </div>
-                                    )}
-                                    <span className="text-[11px]" style={{ color: "rgba(255,255,255,.4)" }}>{new Date(checkIn.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
-                                  </div>
+                                  {/* Muscle group count pill */}
+                                  {checkIn.muscleGroups.length > 0 && (
+                                    <span className="text-[10px] font-bold px-2 py-1 rounded-full flex-none leading-none" style={{ background: "rgba(168,85,247,.2)", color: "var(--accent2)" }}>
+                                      +{checkIn.muscleGroups.length}
+                                    </span>
+                                  )}
                                 </div>
                                 {/* Emoji reactions — all users */}
                                 {groupedReactions.length > 0 && (
-                                  <div className="flex items-center gap-1 flex-wrap pt-1 pl-11">
+                                  <div className="flex items-center gap-1 flex-wrap pt-1 pl-16">
                                     {groupedReactions.map(({ emoji, count }) => (
                                       <button
                                         key={emoji}
@@ -2129,8 +2199,8 @@ export default function Community() {
                                   const disqualified = disqualifyCount > classifyCount && disqualifyCount > 0;
                                   const isOwn = checkIn.userId === user?.id;
                                   return (
-                                    <div className="ml-11 mt-1.5 flex items-center gap-2 pt-1.5" style={{ borderTop: "1px solid rgba(255,255,255,.08)" }}>
-                                      <span className="text-[10px] font-medium shrink-0 tracking-wide" style={{ color: "rgba(255,255,255,.45)" }}>🎭 {t("duels_group_evaluate")}</span>
+                                    <div className="ml-16 mt-1.5 flex items-center gap-2 pt-1.5" style={{ borderTop: "1px solid var(--line)" }}>
+                                      <span className="text-[10px] font-medium shrink-0 tracking-wide" style={{ color: "var(--muted)" }}>🎭 {t("duels_group_evaluate")}</span>
                                       <div className="flex items-center gap-1.5 flex-1">
                                         {!isOwn ? (
                                           <>
@@ -2193,49 +2263,12 @@ export default function Community() {
                       </div>
                     ));
                   })() : (
-                    <p className="text-sm text-center py-8" style={{ color: "rgba(255,255,255,.4)" }}>{t("duels_group_no_checkins")}</p>
+                    <p className="text-sm text-center py-8" style={{ color: "var(--muted)" }}>{t("duels_group_no_checkins")}</p>
                   )}
 
                 </div>
               )}
 
-            </div>
-          </div>
-
-          {/* Bottom Navigation Tabs */}
-          <div
-            className="fixed bottom-0 right-0 z-[52]"
-            style={{
-              left: "var(--sidebar-width, 0px)",
-              background: "linear-gradient(rgba(255,255,255,.06),rgba(255,255,255,.02))",
-              backdropFilter: "blur(24px) saturate(180%)",
-              WebkitBackdropFilter: "blur(24px) saturate(180%)",
-              borderTop: "1px solid rgba(255,255,255,.08)",
-              paddingBottom: "env(safe-area-inset-bottom)",
-            }}
-          >
-            <div className="flex items-center justify-around h-16 px-4">
-              <button
-                onClick={() => setIsGroupDetailsOpen(true)}
-                className="flex flex-col items-center justify-center gap-1 flex-1 text-white/60 hover:text-white transition-colors active:scale-95"
-              >
-                <FileText className="h-[22px] w-[22px]" strokeWidth={1.8} />
-                <span className="text-[11px] font-medium">{t("duels_group_tab_details")}</span>
-              </button>
-              <button
-                onClick={() => setIsParticipantsModalOpen(true)}
-                className="flex flex-col items-center justify-center gap-1 flex-1 text-white/60 hover:text-white transition-colors active:scale-95"
-              >
-                <Users className="h-[22px] w-[22px]" strokeWidth={1.8} />
-                <span className="text-[11px] font-medium">{t("duels_group_tab_participants")}</span>
-              </button>
-              <button
-                onClick={() => setIsClassificationsOpen(true)}
-                className="flex flex-col items-center justify-center gap-1 flex-1 text-white/60 hover:text-white transition-colors active:scale-95"
-              >
-                <Trophy className="h-[22px] w-[22px]" strokeWidth={1.8} />
-                <span className="text-[11px] font-medium">{t("duels_group_tab_rankings")}</span>
-              </button>
             </div>
           </div>
 
@@ -2245,7 +2278,7 @@ export default function Community() {
               ? new Date(selectedGroupForView.endDate) <= new Date()
               : false;
             return (
-              <div className="fixed right-4 z-[101]" style={{ bottom: "calc(88px + env(safe-area-inset-bottom))" }}>
+              <div className="fixed right-[18px] z-[101]" style={{ bottom: "calc(20px + env(safe-area-inset-bottom))" }}>
                 <button
                   disabled={isGroupExpired}
                   onClick={() => {
@@ -2263,15 +2296,16 @@ export default function Community() {
                       .catch((err: any) => { console.error("Error loading completed routines:", err); })
                       .finally(() => setIsLoadingRoutines(false));
                   }}
-                  className="h-14 w-14 rounded-full text-white flex items-center justify-center transition-transform active:scale-95"
+                  className="flex items-center gap-[7px] rounded-full text-white transition-transform active:scale-95"
                   style={
                     isGroupExpired
-                      ? { background: "rgba(255,255,255,.08)", border: "1px solid rgba(255,255,255,.1)", color: "rgba(255,255,255,.35)", cursor: "not-allowed" }
-                      : { background: "linear-gradient(135deg,#5b8cff,#9d6bff)", boxShadow: "0 10px 28px -6px rgba(123,63,242,.6), inset 0 1px 0 rgba(255,255,255,.3)" }
+                      ? { padding: "13px 20px", background: "rgba(255,255,255,.08)", border: "1px solid rgba(255,255,255,.1)", color: "rgba(255,255,255,.35)", cursor: "not-allowed" }
+                      : { padding: "13px 20px", background: "linear-gradient(120deg,#a855f7,#7c3aed)", boxShadow: "0 12px 26px rgba(124,58,237,.45)" }
                   }
                   title={isGroupExpired ? t("duels_ended") : t("duels_checkin_today")}
                 >
-                  <Plus className="h-6 w-6" />
+                  <Plus className="h-4 w-4" strokeWidth={2.6} />
+                  <span className="text-[13px] font-bold">{t("duels_group_checkin_btn")}</span>
                 </button>
               </div>
             );
@@ -2358,7 +2392,7 @@ export default function Community() {
       {/* Duels Tab */}
       {activeTab === "duels" && !selectedGroupForView && (
         <>
-          <div data-community-scroll-container className="flex-1 overflow-y-auto px-4 pb-6 pt-4 space-y-5 min-h-0">
+          <div data-community-scroll-container onScroll={handleTabsScrollContainerScroll} className="flex-1 overflow-y-auto px-4 pb-6 pt-4 space-y-5 min-h-0">
 
             {/* CTA: Criar um duelo */}
             <button
@@ -2641,7 +2675,7 @@ export default function Community() {
       {activeTab === "ranking" && (
         <>
           {/* Single scrollable container */}
-          <div data-community-scroll-container className="flex-1 overflow-y-auto px-4 pb-4 space-y-3 pt-4">
+          <div data-community-scroll-container onScroll={handleTabsScrollContainerScroll} className="flex-1 overflow-y-auto px-4 pb-4 space-y-3 pt-4">
             <h1 className="text-2xl font-bold tracking-tight pb-1">{t("community_ranking")}</h1>
             {ranking.length > 0 ? (
               <div className="space-y-2">
@@ -2734,7 +2768,7 @@ export default function Community() {
           <div className="flex-shrink-0 px-4 pt-4 pb-0">
             <h1 className="text-2xl font-bold tracking-tight">Solicitações</h1>
           </div>
-          <div data-community-scroll-container className="flex-1 overflow-y-auto px-4 pb-4 pt-4 space-y-3">
+          <div data-community-scroll-container onScroll={handleTabsScrollContainerScroll} className="flex-1 overflow-y-auto px-4 pb-4 pt-4 space-y-3">
 
             {/* Convites recebidos pelo usuário */}
             {pendingInvites.length > 0 && (

@@ -79,6 +79,7 @@ import { PostCommentsDialog } from "@/components/modals/post-comments-dialog";
 import { UserInsignias } from "@/components/profile/user-insignias";
 import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
 import { PostCarousel } from "@/components/post/post-carousel";
+import { WorkoutDetailButton } from "@/components/shared/workout-detail-dialog";
 import { FlowViewerModal } from "@/components/modals/flow-viewer-modal";
 import { PostIncentiveButton } from "@/components/shared/post-incentive-button";
 import { FollowButton } from "@/components/shared/follow-button";
@@ -406,7 +407,6 @@ export default function Profile() {
         invalidateProfileCache(profileUserId);
         invalidateQueryCache(`userStats:${profileUserId}`);
         invalidateQueryCache(`userPosts:${profileUserId}`);
-        invalidateQueryCache(`userRoutines:${profileUserId}`);
         invalidateQueryCache(`userShots:${profileUserId}`);
         invalidateQueryCache(`commercialProfile:${profileUserId}`);
         invalidateQueryCache(`userActiveStories:${profileUserId}`);
@@ -587,6 +587,37 @@ export default function Profile() {
   React.useEffect(() => {
     loadProfile();
   }, [profileUserId, loadProfile]);
+
+  // When navigating from one profile to another (e.g. tapping a name inside an
+  // open post's comments/incentives), Profile.tsx stays mounted since "/perfil"
+  // and "/usuario/:userId" render the same component — any drawer/modal left
+  // open from the previous profile would otherwise keep showing stale content
+  // over the newly loaded profile. Skip on first mount (prev === undefined) so
+  // the notification-driven "openFlowArchive" settings drawer above still works.
+  const prevProfileUserIdRef = React.useRef<string | undefined>(undefined);
+  React.useEffect(() => {
+    const prev = prevProfileUserIdRef.current;
+    prevProfileUserIdRef.current = profileUserId;
+    if (prev === undefined || prev === profileUserId) return;
+
+    setIsPostViewerOpen(false);
+    setSelectedPost(null);
+    setIsEditingPost(false);
+    setIsLikesModalOpen(false);
+    setSelectedShot(null);
+    setIsShotEditorOpen(false);
+    setIsStoryViewerOpen(false);
+    setSelectedProfileStory(null);
+    setWorkoutHistoryModalOpen(false);
+    setSelectedWorkoutForHistory(null);
+    setIsDeleteConfirmOpen(false);
+    setShowFollowersModal(false);
+    setShowFollowingModal(false);
+    setSelectedGoalForDrawer(null);
+    setIsPlansModalOpen(false);
+    setSettingsOpen(false);
+    setShareDrawerOpen(false);
+  }, [profileUserId]);
 
   // Refresh stats when page becomes visible (cooldown: at most once per 60s)
   const lastStatsRefreshRef = React.useRef(0);
@@ -2718,6 +2749,11 @@ export default function Profile() {
                           </div>
                         );
                       })()
+                    )}
+
+                    {/* Workout summary — "Ver treino" pill opens the detail modal */}
+                    {!isEditingPost && selectedPost.workoutSummary && (
+                      <WorkoutDetailButton summary={selectedPost.workoutSummary} />
                     )}
 
                     {/* Goal */}

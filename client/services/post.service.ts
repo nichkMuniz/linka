@@ -8,6 +8,7 @@ import {
   type PostWithLikes,
   type PostIncentiveType,
 } from "@/lib/ritmofit-db";
+import type { PostWorkoutSummary } from "@/lib/workout-summary-types";
 
 export type PostWithStats = PostWithLikes & {
   commentCount: number;
@@ -15,6 +16,7 @@ export type PostWithStats = PostWithLikes & {
   userNickname: string;
   userPhoto: string | null;
   isVerified?: boolean;
+  workoutSummary?: PostWorkoutSummary | null;
   userGoal?: {
     id: string;
     goal_id: string;
@@ -50,7 +52,7 @@ export const getFeedPosts = async (
 
   let query = supabase
     .from("posts")
-    .select("id, description, photo, photos, created_at, user_id, user_goal_id")
+    .select("id, description, photo, photos, created_at, user_id, user_goal_id, workout_summary")
     .in("user_id", userIdsToShow)
     .order("created_at", { ascending: false })
     .limit(limit);
@@ -127,6 +129,7 @@ export const getFeedPosts = async (
       userNickname: profile?.nickname || "Usuário",
       userPhoto: profile?.photo || null,
       isVerified: profile?.is_verified === true,
+      workoutSummary: (post.workout_summary as PostWorkoutSummary | null) ?? null,
       userGoal,
     };
   });
@@ -149,7 +152,7 @@ export const getDiscoverPosts = async (): Promise<PostWithStats[]> => {
 
   const { data, error } = await supabase
     .from("posts")
-    .select("id, description, photo, photos, created_at, user_id, user_goal_id")
+    .select("id, description, photo, photos, created_at, user_id, user_goal_id, workout_summary")
     .not("user_id", "in", `(${excludedIds.join(",")})`)
     .order("created_at", { ascending: false })
     .limit(30);
@@ -216,6 +219,7 @@ export const getDiscoverPosts = async (): Promise<PostWithStats[]> => {
       userNickname: profile?.nickname || "Usuário",
       userPhoto: profile?.photo || null,
       isVerified: profile?.is_verified === true,
+      workoutSummary: (post.workout_summary as PostWorkoutSummary | null) ?? null,
       userGoal,
     };
   });

@@ -37,6 +37,15 @@ export function FlowCarousel({
     storyMap.set(story.user_id, story);
   });
 
+  // All story ids per user (not just the oldest representative) — needed so the ring
+  // reflects "has anything new" instead of only the state of a single fixed story id.
+  const storiesByUserId = new Map<string, StoryWithUser[]>();
+  stories.forEach((story) => {
+    const list = storiesByUserId.get(story.user_id);
+    if (list) list.push(story);
+    else storiesByUserId.set(story.user_id, [story]);
+  });
+
   const uniqueStories = Array.from(storyMap.values());
   // Sort avatars by newest first so most recent activity appears first
   uniqueStories.sort(
@@ -132,11 +141,16 @@ export function FlowCarousel({
       {/* Other Stories */}
       {otherStories.length > 0 &&
         otherStories.map((story) => {
-          const isViewed = viewedStoryIds?.has(story.id) ?? false;
+          const userStoryList = storiesByUserId.get(story.user_id) ?? [story];
+          const isViewed = userStoryList.every((s) => viewedStoryIds?.has(s.id) ?? false);
           return (
             <button
               key={story.id}
-              onClick={() => { hapticLight(); onStoryView?.(story.id); navigate(`/flows/${story.id}`); }}
+              onClick={() => {
+                hapticLight();
+                userStoryList.forEach((s) => onStoryView?.(s.id));
+                navigate(`/flows/${story.id}`);
+              }}
               className="shrink-0 flex flex-col items-center gap-1.5 active:scale-95 transition-transform"
             >
               <div

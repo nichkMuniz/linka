@@ -25,6 +25,11 @@ export type WorkoutSessionSummary = {
     totalSets: number;
     bestKg: number;
     muscleGroup: string | null;
+    // Foto do exercício (miniatura ao lado do nome no detalhe do feed).
+    photo: string | null;
+    // Uma entrada por série concluída, em ordem — carga (kg) e repetições de cada
+    // série. Alimenta o detalhe "kg × reps" do resumo compartilhado no feed.
+    sets: Array<{ kg: number; reps: number }>;
   }>;
   prExercises: Array<{
     name: string;
@@ -790,6 +795,8 @@ export function WorkoutSessionDialog({
           totalSets: completed.length,
           bestKg,
           muscleGroup: row?.muscle_group ?? null,
+          photo: row?.workoutPhoto ?? null,
+          sets: completed.map((s) => ({ kg: s.kg || 0, reps: s.reps || 0 })),
         });
 
         if (!isCardio && bestKg > 0) {

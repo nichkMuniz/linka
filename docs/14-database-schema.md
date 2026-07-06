@@ -44,6 +44,7 @@ Documentação técnica de todas as tabelas do banco de dados público (`public`
 | [shots_comments](#shots_comments) | Comentários em Shots |
 | [shots_complaint](#shots_complaint) | Denúncias de Shots |
 | [shots_likes](#shots_likes) | Curtidas em Shots |
+| [shot_user_viewed](#shot_user_viewed) | Registro de visualizações de Shots |
 | [store_catalog](#store_catalog) | Catálogo de produtos de vitrines |
 | [user_complaint](#user_complaint) | Denúncias de usuários |
 | [user_diets](#user_diets) | Dietas ativas do usuário |
@@ -335,8 +336,10 @@ Catálogo de dietas disponíveis na plataforma.
 | Coluna | Tipo | Obrigatório | Padrão | Descrição |
 |---|---|---|---|---|
 | `id` | bigint | PK (identity) | — | Identificador único |
-| `name` | text | ✓ | — | Nome da dieta |
-| `description` | text | ✓ | — | Descrição da dieta |
+| `name` | text | ✓ | — | Nome da dieta (PT) |
+| `description` | text | ✓ | — | Descrição da dieta (PT) |
+| `name_eng` | text | — | — | Nome da dieta em inglês (para usuários estrangeiros). Ver `docs/migrations/20260704-catalog-eng-columns.sql` |
+| `description_eng` | text | — | — | Descrição da dieta em inglês. Populada a partir de tradução PT→EN (`docs/migrations/20260704-catalog-eng-data.sql`) |
 | `photo` | bytea | — | — | Imagem da dieta (binário) |
 | `created_at` | timestamptz | ✓ | `now()` | Data de criação |
 | `calories` | real | — | — | Calorias associadas |
@@ -552,8 +555,10 @@ Catálogo de hábitos pré-definidos disponíveis na plataforma.
 | Coluna | Tipo | Obrigatório | Padrão | Descrição |
 |---|---|---|---|---|
 | `id` | bigint | PK (identity) | — | Identificador único |
-| `name` | text | ✓ | — | Nome do hábito |
-| `description` | text | ✓ | — | Descrição do hábito |
+| `name` | text | ✓ | — | Nome do hábito (PT) |
+| `description` | text | ✓ | — | Descrição do hábito (PT) |
+| `name_eng` | text | — | — | Nome do hábito em inglês (para usuários estrangeiros). Ver `docs/migrations/20260704-catalog-eng-columns.sql` |
+| `description_eng` | text | — | — | Descrição do hábito em inglês. Populada a partir de tradução PT→EN (`docs/migrations/20260704-catalog-eng-data.sql`) |
 | `photo` | bytea | — | — | Imagem do hábito (binário) |
 | `created_at` | timestamptz | ✓ | `now()` | Data de criação |
 
@@ -700,6 +705,7 @@ Posts publicados no feed principal.
 | `user_goal_id` | bigint | — | — | Meta vinculada ao post |
 | `updated_at` | timestamp | — | `now()` | Data de atualização |
 | `photos` | jsonb | — | — | Array JSON de fotos adicionais |
+| `workout_summary` | jsonb | — | `NULL` | **(2026-07-06)** Snapshot estruturado do treino quando um "resumo do treino" é compartilhado no feed (rotina, duração, séries, volume, `imageUrl` do card gerado e a lista de exercícios com `sets: {kg, reps}` por série). Formato = `PostWorkoutSummary` (`client/lib/workout-summary-types.ts`). Habilita o pill "Ver treino" + o modal de detalhe no feed/Perfil/PostDetail. `NULL` em posts comuns de imagem/texto. Herda as policies RLS de `posts`. Ver `docs/migrations/20260706-post-workout-summary.sql` |
 
 ---
 
@@ -822,6 +828,31 @@ Curtidas em Shots.
 | `shots_id` | smallint | — | — | Shot curtido |
 
 > **Atenção:** `shots_id` é `smallint`, o que pode causar overflow para IDs grandes (bigint). Verificar necessidade de migração.
+
+---
+
+## shot_user_viewed
+
+Registra as visualizações de Shots por usuário — espelha `flow_user_viewed`. Permite ao dono do Shot ver quem visualizou seu clipe (drawer "Visualizações" na tela de Shots). Criada na migração `docs/migrations/20260704-shot-user-viewed.sql`.
+
+| Coluna | Tipo | Obrigatório | Padrão | Descrição |
+|---|---|---|---|---|
+| `id` | uuid | PK | `gen_random_uuid()` | Identificador único |
+| `user_id` | uuid | FK → `auth.users` ON DELETE CASCADE | — | Dono do Shot visualizado |
+| `follower_id` | uuid | FK → `auth.users` ON DELETE CASCADE | — | Usuário que visualizou |
+| `shot_id` | bigint | FK → `shots.id` ON DELETE CASCADE | — | Shot visualizado |
+| `created_at` | timestamptz | ✓ | `now()` | Data da visualização |
+| `updated_at` | timestamptz | ✓ | `now()` | Data de atualização |
+
+**Constraint:** `unique(follower_id, shot_id)` — uma visualização por usuário por Shot (dedupe entre sessões/telas).
+**Índices:** `shot_user_viewed_shot_idx (shot_id)`, `shot_user_viewed_user_idx (user_id)`.
+**RLS:**
+- **SELECT:** `auth.uid() = user_id OR auth.uid() = follower_id` — o dono vê quem visualizou; o visualizador enxerga os próprios registros (necessário para o SELECT de dedupe em `recordShotViewDb`).
+- **INSERT:** `auth.uid() = follower_id` — usuário só registra as próprias visualizações.
+- **UPDATE:** `auth.uid() = follower_id`.
+- **DELETE:** `auth.uid() = user_id OR auth.uid() = follower_id` (usado por `deleteAllUserDataDb` e pela exclusão de Shots do próprio dono).
+
+**Funções relacionadas (`ritmofit-db.ts`):** `recordShotViewDb`, `getShotViewersDb`.
 
 ---
 
@@ -1100,8 +1131,10 @@ Catálogo de treinos disponíveis na plataforma.
 |---|---|---|---|---|
 | `id` | uuid | PK | `gen_random_uuid()` | Identificador único |
 | `created_at` | timestamp | — | `now()` | Data de criação |
-| `name` | text | ✓ | — | Nome do treino |
-| `description` | text | ✓ | — | Descrição do treino |
+| `name` | text | ✓ | — | Nome do treino (PT) |
+| `description` | text | ✓ | — | Descrição do treino (PT) |
+| `name_eng` | text | — | — | Nome do treino em inglês (para usuários estrangeiros). Ver `docs/migrations/20260704-catalog-eng-columns.sql` |
+| `description_eng` | text | — | — | Descrição do treino em inglês. Populada a partir de tradução PT→EN (`docs/migrations/20260704-catalog-eng-data.sql`) |
 | `photo` | text | — | — | URL da foto |
 | `muscle_group` | text | — | — | Grupo muscular principal. Para exercícios criados pelo usuário é **obrigatório** (escolhido num select com os grupos existentes). |
 | `equipment` | text | — | — | Equipamentos necessários / tipo de máquina. Preenchido pelo formulário "Criar novo exercício" (`createCustomWorkoutDb`). |

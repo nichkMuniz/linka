@@ -7,6 +7,7 @@ import { PostCarousel } from "@/components/post/post-carousel";
 import { UserInsignias } from "@/components/profile/user-insignias";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { FollowButton } from "@/components/shared/follow-button";
+import { WorkoutDetailButton } from "@/components/shared/workout-detail-dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -294,6 +295,13 @@ export function PostCard({
             </button>
           )}
 
+          {/* Workout summary — "Ver treino" pill opens the detail modal */}
+          {post.workoutSummary && (
+            <div className="mb-2.5 px-1">
+              <WorkoutDetailButton summary={post.workoutSummary} />
+            </div>
+          )}
+
           {/* Carousel indicator — sits right above the incentive action bar */}
           {photos && photos.length > 1 && (
             <div className="flex justify-center gap-1 mb-2.5 pointer-events-none">
@@ -354,9 +362,6 @@ export function PostCard({
                   hasActivity={post.hasActivity}
                   isPostOwner={isOwner}
                 />
-                {post.commentCount > 0 && (
-                  <span className="text-[13px] font-semibold leading-none">{post.commentCount}</span>
-                )}
               </div>
             </div>
           </div>

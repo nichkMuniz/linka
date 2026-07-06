@@ -47,6 +47,7 @@ import { UserAvatar } from "@/components/shared/user-avatar";
 import { EmojiPickerDrawer } from "@/components/shared/emoji-picker-drawer";
 import {
   InlineCropPreview,
+  CroppedThumb,
   type CropTransform,
   DEFAULT_TRANSFORM,
   applyTransformToBlob,
@@ -169,6 +170,9 @@ export default function NewPost() {
   const imageCameraRef = React.useRef<HTMLInputElement>(null);
   const videoCameraRef = React.useRef<HTMLInputElement>(null);
   const hasAutoSelectedRef = React.useRef(false);
+  // True enquanto a única foto presente é a pré-seleção automática (nunca tocada
+  // pelo usuário) — usado para não contar essa foto ao entrar no modo "selecionar vários"
+  const autoSelectedActiveRef = React.useRef(false);
   // Monotonic token to ignore stale full-res loads when the user taps fast
   const tapRequestRef = React.useRef(0);
   // Tracks the actual pixel width of the preview frame for accurate crop export
@@ -361,6 +365,7 @@ export default function NewPost() {
     hasAutoSelectedRef.current = true;
     const firstAsset = galleryAssets.find((a) => a.type === "image");
     if (!firstAsset) return;
+    autoSelectedActiveRef.current = true;
 
     const reqId = ++tapRequestRef.current;
 
@@ -412,6 +417,9 @@ export default function NewPost() {
   }, []);
 
   const handleGalleryAssetTap = async (asset: PhotoLibraryAsset) => {
+    // Qualquer toque do usuário na galeria torna a seleção intencional —
+    // deixa de valer a pré-seleção automática do primeiro item.
+    autoSelectedActiveRef.current = false;
     if (mediaType === "shot" && asset.type === "video") {
       try {
         const { webPath } = await PhotoLibrary.getPhotoUrl({ id: asset.id });
@@ -886,11 +894,8 @@ export default function NewPost() {
   // ─────────────────────────────────────────
   if (step === "select") {
     // Atalhos rápidos do menu de álbuns (padrão Instagram) — o resto entra em "Todos os álbuns"
-    const videosAlbum = albums.find((a) => /vídeo|video/i.test(a.title));
     const favoritesAlbum = albums.find((a) => /favorit/i.test(a.title));
-    const otherAlbums = albums.filter(
-      (a) => a.id !== videosAlbum?.id && a.id !== favoritesAlbum?.id,
-    );
+    const otherAlbums = albums.filter((a) => a.id !== favoritesAlbum?.id);
     const currentAlbumTitle = !selectedAlbumId
       ? t("newpost_recents")
       : albums.find((a) => a.id === selectedAlbumId)?.title ?? t("newpost_recents");
@@ -1087,18 +1092,6 @@ export default function NewPost() {
                   {!selectedAlbumId && <Check className="h-4 w-4 ml-auto shrink-0" style={{ color: "#6ea8ff" }} />}
                 </DropdownMenuItem>
 
-                {videosAlbum && (
-                  <DropdownMenuItem
-                    onClick={() => handleSelectAlbum(videosAlbum.id)}
-                    className="text-white focus:bg-white/10 focus:text-white rounded-xl"
-                    style={{ minHeight: 44, gap: 10, fontSize: 14, fontWeight: 600 }}
-                  >
-                    <Video className="h-4 w-4 opacity-70 shrink-0" />
-                    {t("newpost_videos_album")}
-                    {selectedAlbumId === videosAlbum.id && <Check className="h-4 w-4 ml-auto shrink-0" style={{ color: "#6ea8ff" }} />}
-                  </DropdownMenuItem>
-                )}
-
                 {favoritesAlbum && (
                   <DropdownMenuItem
                     onClick={() => handleSelectAlbum(favoritesAlbum.id)}
@@ -1157,7 +1150,16 @@ export default function NewPost() {
                 onClick={() => {
                   const next = !multiSelectMode;
                   setMultiSelectMode(next);
-                  if (!next && selectedFiles.length > 1) {
+                  if (next && autoSelectedActiveRef.current) {
+                    // A única foto presente é a pré-seleção automática (o usuário
+                    // nunca tocou nela) — não deve contar para o modo múltiplo.
+                    autoSelectedActiveRef.current = false;
+                    setSelectedFiles([]);
+                    setPreviewUrls([]);
+                    setCropTransforms({});
+                    setSelectedAssetIds([]);
+                    setCurrentPreviewIndex(0);
+                  } else if (!next && selectedFiles.length > 1) {
                     const keepIdx = currentPreviewIndex;
                     setSelectedFiles([selectedFiles[keepIdx]]);
                     setPreviewUrls([previewUrls[keepIdx]]);
@@ -1335,7 +1337,12 @@ export default function NewPost() {
               aria-label={t("newpost_view_image")}
               style={{ width: 64, height: 64, borderRadius: 16, overflow: "hidden", flexShrink: 0, boxShadow: "0 8px 20px -8px rgba(0,0,0,.6)", padding: 0, border: "none", cursor: "pointer" }}
             >
-              <img src={previewUrls[currentPreviewIndex]} alt="Preview" className="w-full h-full object-cover" />
+              <CroppedThumb
+                imageSrc={previewUrls[currentPreviewIndex]}
+                transform={cropTransforms[currentPreviewIndex] || DEFAULT_TRANSFORM}
+                referenceWidth={cropContainerWidthRef.current}
+                style={{ width: "100%", height: "100%" }}
+              />
             </button>
           )}
           {mediaType === "shot" && videoPreview && (
@@ -1420,12 +1427,13 @@ export default function NewPost() {
                   transition: draggingPhotoIndex === i ? "none" : "transform .18s ease",
                 }}
               >
-                <img
-                  src={url}
+                <CroppedThumb
+                  imageSrc={url}
+                  transform={cropTransforms[i] || DEFAULT_TRANSFORM}
+                  referenceWidth={cropContainerWidthRef.current}
                   alt={t("newpost_photo_alt").replace("{n}", String(i + 1))}
-                  draggable={false}
                   style={{
-                    width: 56, height: 56, borderRadius: 12, objectFit: "cover", pointerEvents: "none",
+                    width: 56, height: 56, borderRadius: 12, pointerEvents: "none",
                     outline: i === currentPreviewIndex ? "2px solid #6ea8ff" : "none",
                     outlineOffset: 1,
                     boxShadow: draggingPhotoIndex === i ? "0 10px 24px -8px rgba(0,0,0,.7)" : "none",

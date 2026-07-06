@@ -14,7 +14,6 @@ import {
   AlignCenter,
   AlignRight,
 } from "lucide-react";
-import { ImageCropperDrawer } from "@/components/shared/image-cropper-drawer";
 
 const GRADIENT_PRESETS = [
   { id: "pink-orange", value: "linear-gradient(135deg, #FF0080 0%, #FF8A2A 100%)", label: "Rosa" },
@@ -203,7 +202,6 @@ export function FlowCreationDialog({
   const [mediaIsVideo, setMediaIsVideo] = React.useState(false);
   const [description, setDescription] = React.useState("");
   const [isSubmitting, setIsSubmitting] = React.useState(false);
-  const [pendingCropSrc, setPendingCropSrc] = React.useState<string | null>(null);
   const [selectedGradient, setSelectedGradient] = React.useState(GRADIENT_PRESETS[0].value);
   const [facingMode, setFacingMode] = React.useState<"user" | "environment">("environment");
   const [cameraError, setCameraError] = React.useState<string | null>(null);
@@ -735,17 +733,11 @@ export function FlowCreationDialog({
         setStep("caption");
       } else {
         setMediaIsVideo(false);
-        setPendingCropSrc(result);
+        setMediaPreview(result);
+        setStep("caption");
       }
     };
     reader.readAsDataURL(file);
-  };
-
-  const handleCropConfirm = (dataUrl: string) => {
-    setMediaIsVideo(false);
-    setMediaPreview(dataUrl);
-    setPendingCropSrc(null);
-    setStep("caption");
   };
 
   const setMediaTransform = React.useCallback((t: MediaTransform) => {
@@ -947,7 +939,6 @@ export function FlowCreationDialog({
     });
     setMediaIsVideo(false);
     setDescription("");
-    setPendingCropSrc(null);
     setSelectedGradient(GRADIENT_PRESETS[0].value);
     setTexts([]);
     setEditingId(null);
@@ -1668,13 +1659,6 @@ export function FlowCreationDialog({
           </>
         )}
       </div>
-
-      <ImageCropperDrawer
-        imageSrc={pendingCropSrc}
-        aspectRatio={9 / 16}
-        onConfirm={handleCropConfirm}
-        onCancel={() => setPendingCropSrc(null)}
-      />
     </>
   );
 

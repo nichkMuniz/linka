@@ -4,6 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useLanguage } from "@/lib/language-context";
 import { useWorkout } from "@/lib/workout-context";
 import { toast } from "@/components/ui/use-toast";
+import { showRoutineCompleteToast } from "@/lib/routine-complete-toast";
 import {
   getUserRoutinesDb,
   getUserWorkoutsDb,
@@ -28,6 +29,7 @@ import {
   updateRoutineNameDb,
   updateRoutineItemsScheduledTimeDb,
   updateRoutineItemsScheduledDaysDb,
+  updateRoutineItemScheduledTimeDb,
   updateRoutineGoalDb,
   updateRoutineLastSummaryDb,
   updateUserGoalDb,
@@ -265,6 +267,24 @@ export default function Goals() {
   );
   const workoutCards = React.useMemo(() => cards.filter((c) => c.type === 1), [cards]);
 
+  // Tocou numa notificação de rotina (ex.: dieta às 12h) → abrir o drawer de
+  // detalhe já aberto, pronto para marcar como concluída. Espera `cards`
+  // carregar antes de resolver a key, já que o param chega antes do loadData.
+  React.useEffect(() => {
+    const openRoutine = searchParams.get("openRoutine");
+    if (!openRoutine || loading) return;
+    const match = cards.find((c) => c.key === openRoutine);
+    if (match) setSelectedCardKey(match.key);
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("openRoutine");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [searchParams, setSearchParams, cards, loading]);
+
   const selectedCard = cards.find((c) => c.key === selectedCardKey) ?? null;
   const selectedGoal = userGoals.find((g) => g.id === selectedGoalId) ?? null;
   // Alvo do CreateWizardDrawer em modo "adicionar itens" — memoizado pelo card
@@ -411,6 +431,7 @@ export default function Goals() {
     setWorkoutModalOpen(false);
     resetWorkoutState();
     setSessionCardKey(null);
+    showRoutineCompleteToast({ type: 1, name: card?.name ?? null });
     setSummaryData({
       routineName: card?.name ?? t("goals_rt_exercises"),
       totalSeries: summary.totalSeries,
@@ -526,6 +547,7 @@ export default function Goals() {
         const others = card.items.filter((i) => i.id !== item.id);
         const allDone = others.every((i) => isCompletedToday(i as never));
         if (allDone) {
+          showRoutineCompleteToast({ type: card.type, name: card.name });
           await createCheckInDb(user.id);
           const awarded = await awardBadgesForCheckInsDb(user.id, new Date());
           if (awarded.length > 0) setUnlockedBadges(awarded);
@@ -566,6 +588,13 @@ export default function Goals() {
   const handleSetDays = async (card: RoutineCard, days: string | null) => {
     if (!user) return;
     await updateRoutineItemsScheduledDaysDb(user.id, card.type, card.name, days);
+    window.dispatchEvent(new CustomEvent("ritmofit-routines-changed"));
+    await loadData();
+  };
+
+  const handleSetItemTime = async (item: RoutineItem, time: string | null) => {
+    if (!user || !selectedCard) return;
+    await updateRoutineItemScheduledTimeDb(user.id, selectedCard.type, item.id, time);
     window.dispatchEvent(new CustomEvent("ritmofit-routines-changed"));
     await loadData();
   };
@@ -751,6 +780,7 @@ export default function Goals() {
         onRename={handleRename}
         onSetTime={handleSetTime}
         onSetDays={handleSetDays}
+        onSetItemTime={handleSetItemTime}
         onLinkGoal={handleLinkGoal}
         onDeleteCard={handleDeleteCard}
       />

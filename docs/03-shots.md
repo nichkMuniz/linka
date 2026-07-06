@@ -48,7 +48,7 @@ Feed de vídeos curtos no estilo TikTok/Reels. O usuário rola verticalmente ent
 | Nome do criador | Inferior esquerdo | Nickname do usuário |
 | Botão Seguir/Seguindo | Inferior esquerdo | Follow/unfollow inline |
 | Descrição | Inferior esquerdo | Texto descritivo do clipe. Se ultrapassar 80 caracteres ou tiver quebra de linha, é truncado com botão "ver mais/menos" (mesmo padrão do feed) — evita que uma descrição longa ocupe a tela toda |
-| Menu de opções (⋮) | Superior direito | Editar ou Excluir (só para o dono) |
+| Menu de opções (⋮) | Superior direito | Editar, Ver incentivos, Ver visualizações ou Excluir (só para o dono) |
 | Botão Mudo/Som | Superior direito | Toggle de áudio |
 | Botões de Incentivo | Lateral direita | 6 tipos de reação |
 | Botão Comentários | Lateral direita | Ícone de balão + contagem |
@@ -82,7 +82,16 @@ Feed de vídeos curtos no estilo TikTok/Reels. O usuário rola verticalmente ent
 
 ### Menu de Opções (dono do shot)
 - **Editar** — Abre Drawer com textarea para editar descrição
-- **Excluir** — AlertDialog de confirmação → chama `deleteShotDb` que remove o shot e suas dependências (`shots_likes` e `shots_comments`) em cascata, depois remove o item do estado local
+- **Ver incentivos recebidos** — Abre `PostLikesModal` com a lista de quem incentivou (via `getShotLikeUsersDb`)
+- **Ver visualizações** — Abre o Drawer "Visualizações" com a lista de quem viu o shot (via `getShotViewersDb`) — visível apenas para o dono. Ver seção "Visualizações (quem viu o shot)"
+- **Excluir** — AlertDialog de confirmação → chama `deleteShotDb` que remove o shot e suas dependências (`shots_likes`, `shots_comments` e `shot_user_viewed`) em cascata, depois remove o item do estado local
+
+### Visualizações (quem viu o shot)
+- Mesmo sistema da tela de Flow ("quem viu o seu flow")
+- **Registro:** quando um shot entra na tela (fica visível pelo `IntersectionObserver`), o app grava a visualização via `recordShotViewDb(shotId, ownerId)` na tabela `shot_user_viewed`. O dono do próprio shot **não** é registrado, e há deduplicação por sessão (Set em memória) + verificação no banco para não duplicar entre sessões/telas (constraint `unique(follower_id, shot_id)`)
+- **`data-owner-id`** é lido do elemento do shot pelo observer para saber o dono sem depender de closure
+- **Consulta (dono):** o item "Ver visualizações" do menu chama `handleOpenShotViewers` → `getShotViewersDb(shotId)`, que retorna a lista de visualizadores (avatar, nickname, quando viu e os tipos de incentivo que enviaram, se enviaram)
+- **Drawer "Visualizações":** ícone `Eye` + contagem no título; estados de loading (spinner), vazio (`shots_no_views`) e lista; cada item é clicável e navega para `/usuario/:followerId`; os ícones de incentivo enviados são renderizados via `renderIncentiveIcon`
 
 ### Descrição Longa ("ver mais")
 - Mesmo comportamento do feed (`PostCard`): descrição truncada em 80 caracteres (ou na primeira quebra de linha) com botão "ver mais" (`feed_description_more`) para expandir
@@ -130,6 +139,8 @@ Feed de vídeos curtos no estilo TikTok/Reels. O usuário rola verticalmente ent
 ```
 
 - Mesmo layout visual do drawer de comentários do feed (`PostCommentsDialog`): fundo glassmorphism escuro (gradiente + `backdrop-blur`), cantos `rounded-t-[32px]`, título `Comentários · N`, tempo relativo (`agora`/`m`/`h`/`d`), avatar do usuário atual na barra de input e botão de enviar circular com gradiente azul/roxo
+- Altura fixa em `min(60dvh, viewportHeight - 8px)` (`height` e `maxHeight` iguais), igual ao drawer de comentários do feed — não cresce/encolhe conforme a quantidade de comentários
+- Clicar no avatar ou no nome do autor de um comentário fecha o drawer e navega para `/usuario/:userId` (mesmo padrão usado no header do shot e no drawer de Visualizações)
 - Altura controlada por `useKeyboardAwareHeight` (não encolhe com o teclado iOS)
 - Ao focar o input, quem trata o teclado é o `DrawerContent` compartilhado: ele levanta o drawer inteiro acima do teclado e limita o `max-height` à área visível, mantendo a lista de comentários do mesmo tamanho (sem "estourar" nem subir demais). Esse comportamento vale para todos os drawers do app — nenhum consumidor precisa mais empurrar a própria barra de input com `marginBottom: var(--keyboard-offset)`
 - Carrega comentários via `getShotCommentsDb`
@@ -168,6 +179,8 @@ Feed de vídeos curtos no estilo TikTok/Reels. O usuário rola verticalmente ent
 | Status de seguimento | `getFollowingStatusBatchDb()` |
 | Comentários do shot | `getShotCommentsDb(shotId)` |
 | Quem mandou incentivos | `getShotLikeUsersDb(shotId)` — carregado sob demanda pelo dono |
+| Quem visualizou o shot | `getShotViewersDb(shotId)` — carregado sob demanda pelo dono |
+| Registro de visualização | `recordShotViewDb(shotId, ownerId)` — gravado ao shot ficar visível |
 
 ---
 

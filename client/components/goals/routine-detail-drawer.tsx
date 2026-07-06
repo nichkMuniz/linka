@@ -45,6 +45,7 @@ interface RoutineDetailDrawerProps {
   onRename: (card: RoutineCard, newName: string) => Promise<void>;
   onSetTime: (card: RoutineCard, time: string | null) => Promise<void>;
   onSetDays: (card: RoutineCard, days: string | null) => Promise<void>;
+  onSetItemTime: (item: RoutineItem, time: string | null) => Promise<void>;
   onLinkGoal: (card: RoutineCard, goal: UserGoal | null) => Promise<void>;
   onDeleteCard: (card: RoutineCard) => Promise<void>;
 }
@@ -61,6 +62,7 @@ export function RoutineDetailDrawer({
   onRename,
   onSetTime,
   onSetDays,
+  onSetItemTime,
   onLinkGoal,
   onDeleteCard,
 }: RoutineDetailDrawerProps) {
@@ -68,6 +70,8 @@ export function RoutineDetailDrawer({
   const [editor, setEditor] = React.useState<EditorMode>(null);
   const [renameValue, setRenameValue] = React.useState("");
   const [timeValue, setTimeValue] = React.useState("");
+  // Per-item reminder times for habit routines with 2+ items (item.id → "HH:MM")
+  const [itemTimes, setItemTimes] = React.useState<Record<string, string>>({});
   // Set of Monday-first weekday indices (0=Mon … 6=Sun), empty = every day
   const [selectedDays, setSelectedDays] = React.useState<Set<number>>(new Set());
   const [isBusy, setIsBusy] = React.useState(false);
@@ -93,6 +97,11 @@ export function RoutineDetailDrawer({
       setEditor(null);
       setRenameValue(card.name ?? "");
       setTimeValue(card.scheduledTime ? card.scheduledTime.slice(0, 5) : "");
+      const times: Record<string, string> = {};
+      card.items.forEach((i) => {
+        times[i.id] = i.scheduled_time ? i.scheduled_time.slice(0, 5) : "";
+      });
+      setItemTimes(times);
       const parsed = (card.scheduledDays ?? "")
         .split(",")
         .map(Number)
@@ -113,6 +122,8 @@ export function RoutineDetailDrawer({
         ? t("goals_rt_diets")
         : t("goals_rt_habits"));
   const linkedGoal = card.goalId ? userGoals.find((g) => g.goal_id === card.goalId) : null;
+  // Rotinas de hábito com 2+ itens ganham um horário por item em vez de um único horário para a rotina toda
+  const isMultiHabit = card.type === 3 && card.items.length > 1;
 
   const runAction = async (fn: () => Promise<void>) => {
     setIsBusy(true);
@@ -311,21 +322,54 @@ export function RoutineDetailDrawer({
 
           {editor === "time" && (
             <div className="rounded-2xl p-3 space-y-3" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}>
-              <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>
-                {timeValue ? t("goals_edit_routine_time_set").replace("{time}", timeValue) : t("goals_edit_routine_time_empty")}
-              </p>
-              <div
-                className="w-full h-11 rounded-xl overflow-hidden"
-                style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)" }}
-              >
-                <input
-                  type="time"
-                  value={timeValue}
-                  onChange={(e) => setTimeValue(e.target.value)}
-                  className="block w-full h-full px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                  style={{ fontSize: "16px", minWidth: 0, maxWidth: "100%", boxSizing: "border-box", background: "transparent", border: "none", color: "#fff" }}
-                />
-              </div>
+              {isMultiHabit ? (
+                <>
+                  <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>
+                    {t("goals_edit_habit_time_per_item_hint")}
+                  </p>
+                  <div className="space-y-2">
+                    {card.items.map((item) => (
+                      <div key={item.id} className="flex items-center gap-2">
+                        <span className="flex-1 min-w-0 truncate text-sm" style={{ color: "#fff" }}>
+                          {item.kind === "habit" ? item.habitName : ""}
+                        </span>
+                        <div
+                          className="w-[128px] h-11 rounded-xl overflow-hidden shrink-0"
+                          style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)" }}
+                        >
+                          <input
+                            type="time"
+                            value={itemTimes[item.id] ?? ""}
+                            onChange={(e) =>
+                              setItemTimes((prev) => ({ ...prev, [item.id]: e.target.value }))
+                            }
+                            className="block w-full h-full px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                            style={{ fontSize: "16px", minWidth: 0, maxWidth: "100%", boxSizing: "border-box", background: "transparent", border: "none", color: "#fff" }}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>
+                    {timeValue ? t("goals_edit_routine_time_set").replace("{time}", timeValue) : t("goals_edit_routine_time_empty")}
+                  </p>
+                  <div
+                    className="w-full h-11 rounded-xl overflow-hidden"
+                    style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)" }}
+                  >
+                    <input
+                      type="time"
+                      value={timeValue}
+                      onChange={(e) => setTimeValue(e.target.value)}
+                      className="block w-full h-full px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                      style={{ fontSize: "16px", minWidth: 0, maxWidth: "100%", boxSizing: "border-box", background: "transparent", border: "none", color: "#fff" }}
+                    />
+                  </div>
+                </>
+              )}
 
               {/* Seleção de dias da semana */}
               <div className="space-y-1.5">
@@ -377,11 +421,17 @@ export function RoutineDetailDrawer({
                   size="sm"
                   className="flex-1 rounded-full"
                   style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}
-                  disabled={!timeValue || isBusy}
+                  disabled={(!isMultiHabit && !timeValue) || isBusy}
                   onClick={() => {
                     const daysStr = Array.from(selectedDays).sort((a, b) => a - b).join(",");
                     runAction(async () => {
-                      await onSetTime(card, timeValue);
+                      if (isMultiHabit) {
+                        await Promise.all(
+                          card.items.map((item) => onSetItemTime(item, itemTimes[item.id] || null)),
+                        );
+                      } else {
+                        await onSetTime(card, timeValue);
+                      }
                       await onSetDays(card, daysStr || null);
                     });
                   }}

@@ -1,4 +1,4 @@
-import { Haptics, ImpactStyle } from "@capacitor/haptics";
+import { Haptics, ImpactStyle, NotificationType } from "@capacitor/haptics";
 
 const isCapacitor = () =>
   typeof window !== "undefined" &&
@@ -16,5 +16,12 @@ export async function hapticMedium() {
   if (!isCapacitor()) return;
   try {
     await Haptics.impact({ style: ImpactStyle.Medium });
+  } catch {}
+}
+
+export async function hapticSuccess() {
+  if (!isCapacitor()) return;
+  try {
+    await Haptics.notification({ type: NotificationType.Success });
   } catch {}
 }

@@ -138,6 +138,9 @@ export default function FlowViewer() {
   const videoRafRef = React.useRef<number | null>(null);
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const swipeTouchStartRef = React.useRef<{ x: number; y: number } | null>(null);
+  // Marca que o toque atual foi consumido por um swipe (horizontal/vertical),
+  // para que o clique de compatibilidade nas zonas de toque não dispare também.
+  const swipeHandledRef = React.useRef(false);
   const holdTimerRef = React.useRef<NodeJS.Timeout | null>(null);
   const isPausedByHoldRef = React.useRef(false);
   const holdFiredRef = React.useRef(false);
@@ -235,6 +238,55 @@ export default function FlowViewer() {
     if (prevIdx >= 0) {
       navigate(`/flows/${sortedStories[prevIdx].id}`, { replace: true });
     }
+  }, [currentIndex, sortedStories, navigate, story, user]);
+
+  // Swipe (direita → esquerda): pula direto para o PRÓXIMO usuário, descartando
+  // os flows restantes do usuário atual — estilo Instagram. Diferente do toque na
+  // zona direita (`handleNext`), que avança flow a flow dentro do mesmo usuário.
+  const handleNextUser = React.useCallback(() => {
+    setDirection(1);
+    if (currentIndex < 0) { navigate("/"); return; }
+    const curUserId = story?.user_id;
+    let idx = currentIndex + 1;
+    // pula todos os flows restantes do usuário atual
+    while (idx < sortedStories.length && sortedStories[idx].user_id === curUserId) idx++;
+    // ao ver flow de outro usuário, o próprio flow do logado fica sempre no início
+    // da lista e nunca reaparece adiante — checagem defensiva, consistente com handleNext
+    if (curUserId !== user?.id) {
+      while (idx < sortedStories.length && sortedStories[idx].user_id === user?.id) idx++;
+    }
+    if (idx < sortedStories.length) {
+      navigate(`/flows/${sortedStories[idx].id}`, { replace: true });
+    } else {
+      navigate("/");
+    }
+  }, [currentIndex, sortedStories, navigate, story, user]);
+
+  // Swipe (esquerda → direita): volta para o PRIMEIRO flow do usuário anterior.
+  const handlePrevUser = React.useCallback(() => {
+    setDirection(-1);
+    if (currentIndex < 0) return;
+    const curUserId = story?.user_id;
+    let idx = currentIndex - 1;
+    // sai do grupo do usuário atual
+    while (idx >= 0 && sortedStories[idx].user_id === curUserId) idx--;
+    // pula flows do próprio usuário logado ao voltar (consistente com handlePrev)
+    if (curUserId !== user?.id) {
+      while (idx >= 0 && sortedStories[idx].user_id === user?.id) idx--;
+    }
+    if (idx < 0) {
+      // não há usuário anterior — reinicia o usuário atual a partir do primeiro flow
+      let firstIdx = currentIndex;
+      while (firstIdx - 1 >= 0 && sortedStories[firstIdx - 1].user_id === curUserId) firstIdx--;
+      if (firstIdx !== currentIndex) {
+        navigate(`/flows/${sortedStories[firstIdx].id}`, { replace: true });
+      }
+      return;
+    }
+    // idx aponta para o último flow do usuário anterior; recua até o primeiro flow dele
+    const prevUserId = sortedStories[idx].user_id;
+    while (idx - 1 >= 0 && sortedStories[idx - 1].user_id === prevUserId) idx--;
+    navigate(`/flows/${sortedStories[idx].id}`, { replace: true });
   }, [currentIndex, sortedStories, navigate, story, user]);
 
   const handleClose = React.useCallback(() => {
@@ -416,6 +468,7 @@ export default function FlowViewer() {
   const handleSwipeTouchStart = React.useCallback((e: React.TouchEvent) => {
     const touch = e.touches[0];
     swipeTouchStartRef.current = { x: touch.clientX, y: touch.clientY };
+    swipeHandledRef.current = false;
   }, []);
 
   const handleSwipeTouchEnd = React.useCallback((e: React.TouchEvent) => {
@@ -425,17 +478,32 @@ export default function FlowViewer() {
     const deltaY = touch.clientY - swipeTouchStartRef.current.y;
     swipeTouchStartRef.current = null;
 
+    const absX = Math.abs(deltaX);
+    const absY = Math.abs(deltaY);
+
+    // Swipe horizontal (predominantemente horizontal, mínimo 60px): pula de usuário
+    // inteiro — estilo Instagram. Direita→esquerda vai para o próximo usuário
+    // (descartando os flows restantes do atual); esquerda→direita volta ao anterior.
+    if (absX > absY && absX > 60) {
+      swipeHandledRef.current = true;
+      if (deltaX < 0) handleNextUser();
+      else handlePrevUser();
+      return;
+    }
+
     // Swipe para baixo: vertical, mínimo 80px, predominantemente vertical — fecha o flow e volta ao feed
-    if (deltaY > 80 && Math.abs(deltaY) > Math.abs(deltaX)) {
+    if (deltaY > 80 && absY > absX) {
+      swipeHandledRef.current = true;
       handleClose();
       return;
     }
 
     // Swipe para cima (apenas dono): vertical, mínimo 60px, predominantemente vertical — abre lista de visualizadores
-    if (isOwner && deltaY < -60 && Math.abs(deltaY) > Math.abs(deltaX)) {
+    if (isOwner && deltaY < -60 && absY > absX) {
+      swipeHandledRef.current = true;
       handleOpenViewers();
     }
-  }, [isOwner, handleOpenViewers, handleClose]);
+  }, [isOwner, handleOpenViewers, handleClose, handleNextUser, handlePrevUser]);
 
   const handleTapZonePointerDown = React.useCallback((e: React.PointerEvent) => {
     holdPointerStartRef.current = { x: e.clientX, y: e.clientY };
@@ -894,9 +962,9 @@ export default function FlowViewer() {
                 onPointerUp={handleTapZonePointerUp}
                 onPointerCancel={handleTapZonePointerCancel}
               >
-                <div className="flex-1 cursor-pointer" onClick={(e) => { if (holdFiredRef.current) { holdFiredRef.current = false; return; } e.stopPropagation(); if (hasPrevStory) { handlePrev(); } else { handleRestart(); } }} />
-                <div className="flex-[2] cursor-pointer" onClick={() => { if (holdFiredRef.current) { holdFiredRef.current = false; return; } handleTogglePause(); }} />
-                <div className="flex-1 cursor-pointer" onClick={(e) => { if (holdFiredRef.current) { holdFiredRef.current = false; return; } e.stopPropagation(); handleNext(); }} />
+                <div className="flex-1 cursor-pointer" onClick={(e) => { if (swipeHandledRef.current) { swipeHandledRef.current = false; return; } if (holdFiredRef.current) { holdFiredRef.current = false; return; } e.stopPropagation(); if (hasPrevStory) { handlePrev(); } else { handleRestart(); } }} />
+                <div className="flex-[2] cursor-pointer" onClick={() => { if (swipeHandledRef.current) { swipeHandledRef.current = false; return; } if (holdFiredRef.current) { holdFiredRef.current = false; return; } handleTogglePause(); }} />
+                <div className="flex-1 cursor-pointer" onClick={(e) => { if (swipeHandledRef.current) { swipeHandledRef.current = false; return; } if (holdFiredRef.current) { holdFiredRef.current = false; return; } e.stopPropagation(); handleNext(); }} />
               </div>
 
               {isPaused && (
