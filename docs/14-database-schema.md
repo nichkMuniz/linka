@@ -767,6 +767,7 @@ Rotinas de treino dos usuários (estrutura de programação).
 | `goal_id` | bigint | — | — | Meta vinculada à rotina |
 | `name` | text | — | — | Nome da rotina |
 | `last_summary` | jsonb | — | — | Snapshot do resumo do **último treino finalizado** desta rotina (mesmo formato de `WorkoutSummaryData`, sem `userId`/`userGroups` — resolvidos de novo ao reabrir): `routineName`, `totalSeries`, `totalVolume`, `durationSecs`, `badges`, `completedExercises`, `prExercises`, `machinedExercises`, `completedAt`. Sobrescrito a cada "Finalizar" (`updateRoutineLastSummaryDb`) — nunca há mais de um snapshot por rotina, sempre o mais recente. `NULL` = rotina nunca executada. Gateia o ícone de "resumo do treino" no `routine-detail-drawer.tsx` (só aparece quando não-nulo). Migration: `docs/migrations/20260702-routine-last-summary.sql`. |
+| `program_meta` | jsonb | — | — | **(2026-07-08)** Metadados do programa que criou a rotina via o **quiz de personalização** do "Sugerido pelo app": `{ origin: "quiz", exercises: [{ name, muscleGroup, series, reps }] }` (formato `RoutineProgramMeta` em `ritmofit-db.ts`, nomes brutos PT do catálogo). Programas gerados são únicos por usuário e não existem no catálogo estático (`suggested-routines-data.ts`), então o **pré-preenchimento de séries×reps** na primeira execução (`getSuggestedSetsForCard` em `goals-helpers.ts`) lê daqui — rotinas antigas/sem meta caem no fallback por nome (`getSuggestedSetsForRoutine`). `NULL` = rotina criada do zero. Gravado por `updateRoutineProgramMetaDb`. Migration: `docs/migrations/20260708-fitness-profile-and-program-meta.sql`. |
 
 ---
 
@@ -1031,6 +1032,28 @@ Hábitos ativos associados a um usuário.
 
 ---
 
+## user_fitness_profile
+
+Perfil fitness do usuário — respostas do **quiz de personalização** do fluxo "Sugerido pelo app" (tela de Metas). Uma linha por usuário, upsert a cada programa criado (`upsertFitnessProfileDb`); lida em `getFitnessProfileDb` para pré-preencher o quiz na próxima criação de programa.
+
+| Coluna | Tipo | Obrigatório | Padrão | Descrição |
+|---|---|---|---|---|
+| `user_id` | uuid | PK, FK → `auth.users` | — | Usuário (uma linha por usuário) |
+| `goal` | text | ✓ | — | Objetivo: `hypertrophy` \| `fat_loss` \| `strength` \| `conditioning` (check constraint) |
+| `level` | text | ✓ | — | Nível: `beginner` \| `intermediate` \| `advanced` (check constraint) |
+| `training_days` | text | ✓ | `''` | Dias de treino escolhidos — índices Monday-first separados por vírgula (`"0,2,4"` = seg/qua/sex) |
+| `session_minutes` | smallint | ✓ | `60` | Tempo por sessão em minutos (30/45/60/75) |
+| `emphasis` | text | ✓ | — | Ênfase muscular: `balanced` \| `lower` \| `upper` (check constraint) |
+| `location` | text | ✓ | — | Local de treino: `gym` \| `home` (check constraint) |
+| `created_at` | timestamptz | — | `now()` | Data de criação |
+| `updated_at` | timestamptz | — | `now()` | Última atualização |
+
+**RLS:** `fitness_profile_manage_own` — usuário só lê/escreve a própria linha (`auth.uid() = user_id`).
+
+> Migration: `docs/migrations/20260708-fitness-profile-and-program-meta.sql`
+
+---
+
 ## user_habits_hist
 
 Histórico de hábitos realizados pelo usuário.
@@ -1135,7 +1158,7 @@ Catálogo de treinos disponíveis na plataforma.
 | `description` | text | ✓ | — | Descrição do treino (PT) |
 | `name_eng` | text | — | — | Nome do treino em inglês (para usuários estrangeiros). Ver `docs/migrations/20260704-catalog-eng-columns.sql` |
 | `description_eng` | text | — | — | Descrição do treino em inglês. Populada a partir de tradução PT→EN (`docs/migrations/20260704-catalog-eng-data.sql`) |
-| `photo` | text | — | — | URL da foto |
+| `photo` | text | — | — | URL da foto. Itens importados do wger usam o bucket `exercises` via `wger_id` (`exercises/{wger_id}.{ext}`); itens de catálogo sem `wger_id` guardam URL pública completa do bucket `exercises` no caminho `manual/{workout_id}.{ext}` (preenchidos em 2026-07-07: 15 imagens curadas do wger + 12 geradas por IA no estilo anatômico, ~1024px JPEG). Imagens **compartilhadas por nome** (customs criados pelos programas sugeridos + itens de catálogo equivalentes) ficam em `manual/shared/{slug}.{ext}` — sobrescrever o arquivo atualiza todas as linhas que apontam para ele. Linhas de catálogo com imagem errada/quebrada do wger (placeholder-logo, 400, marca d'água) foram corrigidas em 2026-07-07 apontando `photo` para `manual/{workout_id}` (a URL http tem precedência sobre `wger_id` no `resolveWorkoutPhotoUrl`). |
 | `muscle_group` | text | — | — | Grupo muscular principal. Para exercícios criados pelo usuário é **obrigatório** (escolhido num select com os grupos existentes). |
 | `equipment` | text | — | — | Equipamentos necessários / tipo de máquina. Preenchido pelo formulário "Criar novo exercício" (`createCustomWorkoutDb`). |
 | `wger_id` | integer | — | — | ID de referência no wger |

@@ -47,7 +47,7 @@ export const WEEKLY_PROGRAMS: WeeklyProgram[] = [
         name: { pt: "Corpo Inteiro A", en: "Full Body A" },
         exercises: [
           { name: "Agachamento livre", muscleGroup: "Pernas", series: 3, reps: "12" },
-          { name: "Supino reto com halteres", muscleGroup: "Peito", series: 3, reps: "12" },
+          { name: "Supino com Halteres", muscleGroup: "Peito", series: 3, reps: "12" },
           { name: "Remada curvada", muscleGroup: "Costas", series: 3, reps: "12" },
           { name: "Desenvolvimento com halteres", muscleGroup: "Ombros", series: 3, reps: "12" },
           { name: "Prancha", muscleGroup: "Abdômen", series: 3, reps: "30s" },
@@ -60,8 +60,8 @@ export const WEEKLY_PROGRAMS: WeeklyProgram[] = [
           { name: "Leg press", muscleGroup: "Pernas", series: 3, reps: "12" },
           { name: "Puxada na frente", muscleGroup: "Costas", series: 3, reps: "12" },
           { name: "Crucifixo com halteres", muscleGroup: "Peito", series: 3, reps: "12" },
-          { name: "Rosca direta", muscleGroup: "Bíceps", series: 3, reps: "12" },
-          { name: "Abdominal supra", muscleGroup: "Abdômen", series: 3, reps: "15" },
+          { name: "Rosca Direta com Barra Reta", muscleGroup: "Bíceps", series: 3, reps: "12" },
+          { name: "Abdominal Tradicional", muscleGroup: "Abdômen", series: 3, reps: "15" },
         ],
       },
     ],
@@ -85,7 +85,7 @@ export const WEEKLY_PROGRAMS: WeeklyProgram[] = [
           { name: "Supino reto", muscleGroup: "Peito", series: 4, reps: "10" },
           { name: "Supino inclinado com halteres", muscleGroup: "Peito", series: 3, reps: "10" },
           { name: "Crucifixo na máquina", muscleGroup: "Peito", series: 3, reps: "12" },
-          { name: "Tríceps na polia", muscleGroup: "Tríceps", series: 3, reps: "12" },
+          { name: "Tríceps na Polia com Corda", muscleGroup: "Tríceps", series: 3, reps: "12" },
           { name: "Tríceps francês", muscleGroup: "Tríceps", series: 3, reps: "12" },
         ],
       },
@@ -96,7 +96,7 @@ export const WEEKLY_PROGRAMS: WeeklyProgram[] = [
           { name: "Puxada na frente", muscleGroup: "Costas", series: 4, reps: "10" },
           { name: "Remada baixa", muscleGroup: "Costas", series: 3, reps: "10" },
           { name: "Remada unilateral com halter", muscleGroup: "Costas", series: 3, reps: "10" },
-          { name: "Rosca direta", muscleGroup: "Bíceps", series: 3, reps: "12" },
+          { name: "Rosca Direta com Barra Reta", muscleGroup: "Bíceps", series: 3, reps: "12" },
           { name: "Rosca martelo", muscleGroup: "Bíceps", series: 3, reps: "12" },
         ],
       },
@@ -132,10 +132,10 @@ export const WEEKLY_PROGRAMS: WeeklyProgram[] = [
         exercises: [
           { name: "Supino reto", muscleGroup: "Peito", series: 4, reps: "8" },
           { name: "Supino inclinado com halteres", muscleGroup: "Peito", series: 4, reps: "10" },
-          { name: "Crossover", muscleGroup: "Peito", series: 3, reps: "12" },
+          { name: "Crossover no Cabo", muscleGroup: "Peito", series: 3, reps: "12" },
           { name: "Desenvolvimento militar", muscleGroup: "Ombros", series: 4, reps: "8" },
           { name: "Elevação lateral", muscleGroup: "Ombros", series: 4, reps: "12" },
-          { name: "Tríceps na polia", muscleGroup: "Tríceps", series: 4, reps: "12" },
+          { name: "Tríceps na Polia com Corda", muscleGroup: "Tríceps", series: 4, reps: "12" },
           { name: "Tríceps testa", muscleGroup: "Tríceps", series: 3, reps: "10" },
         ],
       },
@@ -143,11 +143,11 @@ export const WEEKLY_PROGRAMS: WeeklyProgram[] = [
         key: "pull",
         name: { pt: "Pull — Puxar", en: "Pull Day" },
         exercises: [
-          { name: "Barra fixa", muscleGroup: "Costas", series: 4, reps: "8" },
+          { name: "Barra Fixa (Chin-up)", muscleGroup: "Costas", series: 4, reps: "8" },
           { name: "Remada curvada", muscleGroup: "Costas", series: 4, reps: "8" },
           { name: "Puxada na frente", muscleGroup: "Costas", series: 3, reps: "10" },
           { name: "Remada baixa", muscleGroup: "Costas", series: 3, reps: "10" },
-          { name: "Rosca direta na barra", muscleGroup: "Bíceps", series: 4, reps: "10" },
+          { name: "Rosca Direta com Barra Reta", muscleGroup: "Bíceps", series: 4, reps: "10" },
           { name: "Rosca martelo", muscleGroup: "Bíceps", series: 3, reps: "12" },
         ],
       },
@@ -160,7 +160,7 @@ export const WEEKLY_PROGRAMS: WeeklyProgram[] = [
           { name: "Levantamento terra romeno", muscleGroup: "Pernas", series: 4, reps: "8" },
           { name: "Cadeira extensora", muscleGroup: "Pernas", series: 3, reps: "12" },
           { name: "Mesa flexora", muscleGroup: "Pernas", series: 3, reps: "12" },
-          { name: "Panturrilha em pé", muscleGroup: "Panturrilha", series: 4, reps: "15" },
+          { name: "Elevação de Panturrilha em Pé", muscleGroup: "Panturrilha", series: 4, reps: "15" },
         ],
       },
     ],
@@ -191,6 +191,23 @@ export function buildRoutineWeekdayMap(): Map<string, number[]> {
 }
 
 /**
+ * Nomes antigos usados pelos programas antes da unificação com o catálogo
+ * `workouts` (2026-07-07) → nome atual. Rotinas criadas antes da mudança têm
+ * itens custom com o nome antigo; os aliases mantêm o pré-preenchimento de
+ * séries/reps funcionando para elas.
+ */
+const EXERCISE_ALIASES: Record<string, string> = {
+  "supino reto com halteres": "supino com halteres",
+  "rosca direta": "rosca direta com barra reta",
+  "rosca direta na barra": "rosca direta com barra reta",
+  "abdominal supra": "abdominal tradicional",
+  "tríceps na polia": "tríceps na polia com corda",
+  "crossover": "crossover no cabo",
+  "barra fixa": "barra fixa (chin-up)",
+  "panturrilha em pé": "elevação de panturrilha em pé",
+};
+
+/**
  * Dada uma rotina criada a partir de um programa (casada pelo nome), retorna o
  * mapa exercício (minúsculo) → série/reps sugeridos pelo app. Usado para
  * pré-preencher o drawer de registrar treino na primeira execução (quando ainda
@@ -210,6 +227,10 @@ export function getSuggestedSetsForRoutine(
         result.set(ex.name.trim().toLowerCase(), { series: ex.series, reps: ex.reps });
       }
     }
+  }
+  for (const [oldName, newName] of Object.entries(EXERCISE_ALIASES)) {
+    const hit = result.get(newName);
+    if (hit && !result.has(oldName)) result.set(oldName, hit);
   }
   return result;
 }

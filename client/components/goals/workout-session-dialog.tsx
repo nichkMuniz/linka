@@ -2,6 +2,12 @@ import * as React from "react";
 import { createPortal } from "react-dom";
 import { useWorkout } from "@/lib/workout-context";
 import { useLanguage } from "@/lib/language-context";
+import {
+  subscribeRun, getRunState, startRun, pauseRun, resumeRun, stopRun,
+  openLocationSettings,
+  type RunState, type RunPoint, type StartRunLabels,
+} from "@/lib/run-tracker";
+import { RouteMap } from "@/components/shared/route-map";
 import { ExerciseImage } from "@/components/shared/exercise-image";
 import { toast } from "@/components/ui/use-toast";
 import {
@@ -86,6 +92,196 @@ function fmtRest(secs: number): string {
   const m = Math.floor(secs / 60);
   const s = secs % 60;
   return s > 0 ? `${m}m ${s}s` : `${m}m`;
+}
+
+// ── Corrida ao ar livre (GPS) ───────────────────────────────────────────────
+// Só o exercício "Corrida ao Ar Livre" do catálogo ganha o painel de GPS —
+// o workoutName chega localizado (pickLocalized), então casamos PT e EN.
+const OUTDOOR_RUN_NAMES = new Set(["corrida ao ar livre", "outdoor running"]);
+const isOutdoorRun = (name?: string | null) =>
+  !!name &&
+  OUTDOOR_RUN_NAMES.has(
+    name.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim(),
+  );
+
+function fmtRunTime(ms: number): string {
+  const total = Math.floor(ms / 1000);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const mm = String(m).padStart(h > 0 ? 2 : 1, "0");
+  const ss = String(s).padStart(2, "0");
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
+function fmtPace(secPerKm: number | null): string {
+  if (secPerKm == null || !isFinite(secPerKm) || secPerKm > 3600) return "—";
+  const m = Math.floor(secPerKm / 60);
+  const s = Math.round(secPerKm % 60);
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+// Painel de corrida GPS — renderizado no card expandido do exercício
+// "Corrida ao Ar Livre". Estados: parado (CTA iniciar) → buscando sinal →
+// correndo/pausado (stats ao vivo). Ao concluir, o dono (dialog) preenche a
+// série com MIN×KM via onFinish.
+function RunTrackerPanel({
+  workoutId, state, onFinish,
+}: {
+  workoutId: string;
+  state: RunState;
+  onFinish: () => void;
+}) {
+  const { t } = useLanguage();
+  const isThisRun = state.workoutId === workoutId && state.status !== "idle";
+  const acquiring = isThisRun && state.status === "acquiring";
+  const paused = isThisRun && state.status === "paused";
+  const otherRunActive = !isThisRun && state.status !== "idle";
+
+  // Strings da notificação Android; no iOS a presença do backgroundMessage é
+  // o que liga o rastreamento com a tela bloqueada (run-tracker.ts).
+  const labels: StartRunLabels = {
+    backgroundTitle: t("goals_run_bg_notif_title"),
+    backgroundMessage: t("goals_run_bg_notif_body"),
+  };
+
+  if (!isThisRun) {
+    return (
+      <div style={{ padding: "12px 16px 14px", borderBottom: `1px solid ${BORDER}` }}>
+        <div style={{ fontSize: 12, color: MUTED_FG, lineHeight: 1.45, marginBottom: 10 }}>
+          {t("goals_run_gps_hint")}
+        </div>
+        {state.error && (
+          <div style={{
+            background: "hsl(var(--destructive) / 0.12)",
+            border: "1px solid hsl(var(--destructive) / 0.4)",
+            borderRadius: 10, padding: "8px 12px", marginBottom: 10,
+            fontSize: 12, color: "hsl(var(--destructive))", lineHeight: 1.45,
+          }}>
+            {t(state.error === "denied" ? "goals_run_denied" : "goals_run_unavailable")}
+            {state.error === "denied" && (
+              <button
+                onClick={() => { void openLocationSettings(); }}
+                style={{
+                  display: "block", marginTop: 6, padding: 0,
+                  background: "none", border: "none", cursor: "pointer",
+                  fontSize: 12, fontWeight: 700, color: PRIMARY,
+                  textDecoration: "underline",
+                }}
+              >
+                {t("goals_run_open_settings")}
+              </button>
+            )}
+          </div>
+        )}
+        <button
+          onClick={() => { void startRun(workoutId, labels); }}
+          disabled={otherRunActive}
+          style={{
+            width: "100%", height: 46, borderRadius: 999, border: "none",
+            background: GLASS_GRADIENT, color: "#fff",
+            fontSize: 14, fontWeight: 700,
+            cursor: otherRunActive ? "not-allowed" : "pointer",
+            opacity: otherRunActive ? 0.45 : 1,
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+            boxShadow: "0 6px 18px rgba(91,140,255,0.35)",
+          }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+            <path d="M12 2a7 7 0 0 1 7 7c0 5-7 13-7 13S5 14 5 9a7 7 0 0 1 7-7z" stroke="#fff" strokeWidth="2" strokeLinejoin="round"/>
+            <circle cx="12" cy="9" r="2.5" fill="#fff"/>
+          </svg>
+          {t("goals_run_start")}
+        </button>
+      </div>
+    );
+  }
+
+  const statusColor = paused ? MUTED_FG : acquiring ? ORANGE : PRIMARY;
+  const statusLabel = paused
+    ? t("goals_run_paused_label")
+    : acquiring
+      ? t("goals_run_acquiring")
+      : state.accuracy != null
+        ? `${t("goals_run_active")} · ±${Math.round(state.accuracy)}m`
+        : t("goals_run_active");
+
+  return (
+    <div style={{ padding: "14px 16px", borderBottom: `1px solid ${BORDER}` }}>
+      {/* Stats ao vivo: distância / tempo / ritmo médio */}
+      <div style={{ display: "flex", marginBottom: 12 }}>
+        {[
+          { label: t("goals_run_distance"), value: state.distanceKm.toFixed(2), unit: "km" },
+          { label: t("goals_run_time"), value: fmtRunTime(state.elapsedMs), unit: null },
+          { label: t("goals_run_pace"), value: fmtPace(state.paceSecPerKm), unit: "/km" },
+        ].map(({ label, value, unit }) => (
+          <div key={label} style={{ flex: 1, textAlign: "center" }}>
+            <div style={{
+              fontSize: 10, fontWeight: 700, letterSpacing: 0.7,
+              textTransform: "uppercase", color: MUTED_FG, opacity: 0.8, marginBottom: 4,
+            }}>
+              {label}
+            </div>
+            <div style={{
+              fontSize: 22, fontWeight: 800, color: FG,
+              fontVariantNumeric: "tabular-nums", lineHeight: 1,
+            }}>
+              {value}
+              {unit && (
+                <span style={{ fontSize: 12, fontWeight: 600, color: MUTED_FG, marginLeft: 3 }}>
+                  {unit}
+                </span>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Status do GPS */}
+      <div style={{
+        display: "flex", alignItems: "center", justifyContent: "center",
+        gap: 6, marginBottom: 12,
+      }}>
+        <span style={{
+          width: 8, height: 8, borderRadius: "50%", background: statusColor,
+          boxShadow: paused ? "none" : `0 0 8px ${statusColor}`,
+        }} />
+        <span style={{ fontSize: 12, fontWeight: 600, color: MUTED_FG }}>
+          {statusLabel}
+        </span>
+      </div>
+
+      <div style={{ display: "flex", gap: 10 }}>
+        <button
+          onClick={() => { void (paused ? resumeRun(labels) : pauseRun()); }}
+          style={{
+            flex: 1, height: 44, borderRadius: 12, border: "none",
+            background: SURFACE, color: FG,
+            fontSize: 13, fontWeight: 700, cursor: "pointer",
+          }}
+        >
+          {paused ? t("goals_session_resume") : t("goals_rest_pause")}
+        </button>
+        <button
+          onClick={onFinish}
+          style={{
+            flex: 1, height: 44, borderRadius: 12, border: "none",
+            background: ORANGE, color: "#fff",
+            fontSize: 13, fontWeight: 700, cursor: "pointer",
+          }}
+        >
+          {t("goals_run_finish")}
+        </button>
+      </div>
+
+      <div style={{
+        fontSize: 11, color: MUTED_FG, opacity: 0.75,
+        textAlign: "center", marginTop: 10, lineHeight: 1.4,
+      }}>
+        {t("goals_run_bg_hint")}
+      </div>
+    </div>
+  );
 }
 
 // Overlay de detalhe do exercício (foto ampliada + "como executar"), reusado
@@ -234,6 +430,19 @@ export function WorkoutSessionDialog({
   const [searchOpen, setSearchOpen] = React.useState(false);
   const [itemSearch, setItemSearch] = React.useState("");
   const [infoExerciseId, setInfoExerciseId] = React.useState<string | null>(null);
+
+  // Corrida GPS (Corrida ao Ar Livre) — o rastreador é um singleton em
+  // run-tracker.ts, então a corrida continua com o treino minimizado; aqui
+  // só espelhamos o estado para renderizar o painel.
+  const [runState, setRunState] = React.useState<RunState>(getRunState);
+  React.useEffect(() => subscribeRun(setRunState), []);
+  // Resumo pós-corrida (stats + mapa do trajeto) — overlay estilo Strava
+  const [runSummary, setRunSummary] = React.useState<{
+    distanceKm: number;
+    elapsedMs: number;
+    paceSecPerKm: number | null;
+    path: RunPoint[][];
+  } | null>(null);
 
   // Menu de contexto (⋯) — qual exercício está aberto
   const [menuId, setMenuId] = React.useState<string | null>(null);
@@ -461,7 +670,40 @@ export function WorkoutSessionDialog({
     setMenuId(null);
   };
 
+  // Concluir a corrida GPS: preenche a próxima série livre do exercício com os
+  // valores medidos e marca como concluída — cardio usa kg=MIN e reps=KM, o
+  // mesmo contrato da tabela de séries (oculta para este exercício), então o
+  // save/histórico/resumo seguem inalterados. Depois abre o resumo com o mapa.
+  const handleRunFinish = async (workoutId: string) => {
+    const result = await stopRun();
+    const min = Math.round((result.elapsedMs / 60000) * 10) / 10;
+    const km = Math.round(result.distanceKm * 100) / 100;
+    setWorkoutSeries((prev) => {
+      const list = prev[workoutId] ?? [];
+      const idx = list.findIndex((s) => !s.completed);
+      const filled = { kg: min, reps: km, completed: min > 0 || km > 0 };
+      if (idx === -1) {
+        return {
+          ...prev,
+          [workoutId]: [...list, { series: list.length + 1, ...filled }],
+        };
+      }
+      return {
+        ...prev,
+        [workoutId]: list.map((s, i) => (i === idx ? { ...s, ...filled } : s)),
+      };
+    });
+    setRunSummary({
+      distanceKm: result.distanceKm,
+      elapsedMs: result.elapsedMs,
+      paceSecPerKm: result.paceSecPerKm,
+      path: result.path,
+    });
+  };
+
   const removeFromSession = (workoutId: string) => {
+    // Se a corrida GPS ativa pertence a este exercício, encerra o watch junto
+    if (getRunState().workoutId === workoutId) void stopRun();
     setWorkoutRemovedIds((prev) => [...new Set([...prev, workoutId])]);
     setMenuId(null);
     if (expandedId === workoutId) setExpandedId(null);
@@ -825,6 +1067,9 @@ export function WorkoutSessionDialog({
       );
 
       setConfirmOpen(false);
+      // Corrida GPS ainda ativa não pode sobreviver ao fim do treino (o watch
+      // de localização vazaria) — encerra sem registrar, no-op quando idle.
+      void stopRun();
       resetWorkoutState();
       onFinished({
         totalSeries,
@@ -1110,6 +1355,9 @@ export function WorkoutSessionDialog({
           const doneSeries = series.filter((s) => s.completed).length;
           const restSecs = workoutExerciseRestTimes[item.workout_id] ?? 60;
           const isCardio = (item.muscle_group ?? "").toLowerCase() === "cardio";
+          // Corrida ao Ar Livre: modo GPS estilo Strava — a tabela de séries
+          // (MIN×KM manual) fica oculta; quem registra é o painel de corrida.
+          const isRunExercise = isOutdoorRun(item.workoutName);
           const noteOpen = noteOpenIds.has(item.workout_id);
           const note = workoutExerciseNotes[item.workout_id] ?? "";
 
@@ -1203,16 +1451,18 @@ export function WorkoutSessionDialog({
                   </svg>
                 </button>
 
-                {/* Badge top-right: séries concluídas */}
-                <div style={{
-                  position: "absolute", top: 10, right: 10,
-                  background: "rgba(0,0,0,0.45)", borderRadius: 8,
-                  padding: "3px 9px", backdropFilter: "blur(6px)",
-                }}>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: "rgba(255,255,255,0.85)" }}>
-                    {doneSeries}/{series.length}
-                  </span>
-                </div>
+                {/* Badge top-right: séries concluídas (sem sentido no modo corrida GPS) */}
+                {!isRunExercise && (
+                  <div style={{
+                    position: "absolute", top: 10, right: 10,
+                    background: "rgba(0,0,0,0.45)", borderRadius: 8,
+                    padding: "3px 9px", backdropFilter: "blur(6px)",
+                  }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: "rgba(255,255,255,0.85)" }}>
+                      {doneSeries}/{series.length}
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* ── VER / FECHAR SÉRIES BAR (sempre visível) ── */}
@@ -1227,12 +1477,16 @@ export function WorkoutSessionDialog({
                 }}
               >
                 <span style={{ fontWeight: 700, fontSize: 13, color: isExpanded ? PRIMARY : FG }}>
-                  {isExpanded ? t("goals_close_series") : t("goals_view_series")}
+                  {isRunExercise
+                    ? (isExpanded ? t("goals_run_close") : t("goals_run_view"))
+                    : (isExpanded ? t("goals_close_series") : t("goals_view_series"))}
                 </span>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: MUTED_FG }}>
-                    {doneSeries}/{series.length}
-                  </span>
+                  {!isRunExercise && (
+                    <span style={{ fontSize: 13, fontWeight: 600, color: MUTED_FG }}>
+                      {doneSeries}/{series.length}
+                    </span>
+                  )}
                   <svg width="14" height="14" viewBox="0 0 14 14" fill="none"
                     style={{ transform: isExpanded ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}>
                     <path d="M3 5l4 4 4-4" stroke={isExpanded ? PRIMARY : MUTED_FG} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
@@ -1272,7 +1526,8 @@ export function WorkoutSessionDialog({
                       </svg>
                     </button>
 
-                    {/* Relógio + preset de descanso */}
+                    {/* Relógio + preset de descanso (sem sentido no modo corrida GPS) */}
+                    {!isRunExercise && (
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -1294,6 +1549,7 @@ export function WorkoutSessionDialog({
                         {fmtRest(restSecs)}
                       </span>
                     </button>
+                    )}
 
                     {/* ⋯ Menu de contexto */}
                     <button
@@ -1381,6 +1637,19 @@ export function WorkoutSessionDialog({
                     </div>
                   )}
 
+                  {/* Corrida ao Ar Livre — painel GPS (km, tempo e ritmo ao vivo).
+                      A tabela de séries fica oculta neste modo: quem registra
+                      MIN×KM (invisível, mesmo contrato de cardio) é o painel. */}
+                  {isRunExercise && (
+                    <RunTrackerPanel
+                      workoutId={item.workout_id}
+                      state={runState}
+                      onFinish={() => { void handleRunFinish(item.workout_id); }}
+                    />
+                  )}
+
+                  {!isRunExercise && (
+                  <>
                   {/* Column headers */}
                   <div style={{
                     display: "grid",
@@ -1573,9 +1842,11 @@ export function WorkoutSessionDialog({
                       }}
                     >
                       <span style={{ fontSize: 16, lineHeight: 1, opacity: 0.6 }}>+</span>
-                      Adicionar Série
+                      {t("goals_add_series")}
                     </button>
                   </div>
+                  </>
+                  )}
                 </>
               )}
             </div>
@@ -2216,6 +2487,102 @@ export function WorkoutSessionDialog({
             zIndex={70}
             onClose={() => setInfoExerciseId(null)}
           />
+        );
+      })()}
+
+      {/* ── RESUMO DA CORRIDA GPS (stats + mapa do trajeto) ──── */}
+      {runSummary && (() => {
+        const min = Math.round((runSummary.elapsedMs / 60000) * 10) / 10;
+        return (
+          <div style={{
+            position: "absolute", inset: 0, zIndex: 85,
+            background: GLASS_ROOT_BG,
+            display: "flex", flexDirection: "column",
+            paddingTop: "max(48px, env(safe-area-inset-top))",
+            paddingBottom: "max(16px, env(safe-area-inset-bottom))",
+            paddingLeft: "max(16px, env(safe-area-inset-left))",
+            paddingRight: "max(16px, env(safe-area-inset-right))",
+          }}>
+            <div style={{
+              flex: 1, overflowY: "auto", overscrollBehavior: "contain",
+              display: "flex", flexDirection: "column",
+              maxWidth: 420, width: "100%", margin: "0 auto",
+            }}>
+              {/* Título */}
+              <div style={{ textAlign: "center", marginBottom: 18 }}>
+                <div style={{ fontSize: 40, lineHeight: 1, marginBottom: 10 }}>🏃</div>
+                <div style={{ fontSize: 21, fontWeight: 800, color: FG }}>
+                  {t("goals_run_done_title")}
+                </div>
+                <div style={{ fontSize: 13, color: MUTED_FG, marginTop: 6, lineHeight: 1.45 }}>
+                  {t("goals_run_done_desc")
+                    .replace("{km}", runSummary.distanceKm.toFixed(2))
+                    .replace("{min}", String(min))}
+                </div>
+              </div>
+
+              {/* Stats finais */}
+              <div style={{
+                display: "flex", padding: "14px 8px", marginBottom: 14,
+                background: CARD, borderRadius: 20, border: `1px solid ${BORDER}`,
+                backdropFilter: GLASS_BLUR, WebkitBackdropFilter: GLASS_BLUR,
+              }}>
+                {[
+                  { label: t("goals_run_distance"), value: runSummary.distanceKm.toFixed(2), unit: "km" },
+                  { label: t("goals_run_time"), value: fmtRunTime(runSummary.elapsedMs), unit: null },
+                  { label: t("goals_run_pace"), value: fmtPace(runSummary.paceSecPerKm), unit: "/km" },
+                ].map(({ label, value, unit }) => (
+                  <div key={label} style={{ flex: 1, textAlign: "center" }}>
+                    <div style={{
+                      fontSize: 10, fontWeight: 700, letterSpacing: 0.7,
+                      textTransform: "uppercase", color: MUTED_FG, opacity: 0.8, marginBottom: 5,
+                    }}>
+                      {label}
+                    </div>
+                    <div style={{
+                      fontSize: 22, fontWeight: 800, color: FG,
+                      fontVariantNumeric: "tabular-nums", lineHeight: 1,
+                    }}>
+                      {value}
+                      {unit && (
+                        <span style={{ fontSize: 12, fontWeight: 600, color: MUTED_FG, marginLeft: 3 }}>
+                          {unit}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Mapa do trajeto */}
+              <div style={{
+                fontSize: 11, fontWeight: 700, letterSpacing: 0.7,
+                textTransform: "uppercase", color: MUTED_FG, marginBottom: 8,
+              }}>
+                {t("goals_run_map_title")}
+              </div>
+              <RouteMap
+                path={runSummary.path}
+                height={260}
+                emptyLabel={t("goals_run_no_route")}
+              />
+            </div>
+
+            {/* Fechar */}
+            <div style={{ maxWidth: 420, width: "100%", margin: "0 auto", paddingTop: 14 }}>
+              <button
+                onClick={() => setRunSummary(null)}
+                style={{
+                  width: "100%", height: 50, borderRadius: 999, border: "none",
+                  background: GLASS_GRADIENT, color: "#fff",
+                  fontSize: 15, fontWeight: 700, cursor: "pointer",
+                  boxShadow: "0 6px 18px rgba(91,140,255,0.35)",
+                }}
+              >
+                {t("goals_run_summary_close")}
+              </button>
+            </div>
+          </div>
         );
       })()}
 

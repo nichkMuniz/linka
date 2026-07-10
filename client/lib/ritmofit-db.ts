@@ -1576,6 +1576,29 @@ export async function bulkUpsertCatalogWorkoutsDb(
   }
 }
 
+/**
+ * Índice nome (PT e EN, minúsculo) → id dos exercícios do catálogo (não-custom).
+ * Usado pelo wizard de programas sugeridos para casar exercícios pelo nome bruto
+ * do banco, independente do idioma da UI — evita criar customs duplicados quando
+ * o app está em inglês (getWorkoutsDb retorna nomes localizados).
+ */
+export async function getWorkoutNameIdIndexDb(): Promise<Map<string, string>> {
+  if (!hasSupabaseConfig || !supabase) return new Map();
+  const { data } = await supabase
+    .from("workouts")
+    .select("id, name, name_eng, created_by_user");
+  const map = new Map<string, string>();
+  for (const row of (data ?? []) as Array<{ id: string; name: string | null; name_eng: string | null; created_by_user: boolean | null }>) {
+    if (row.created_by_user === true) continue;
+    const id = String(row.id);
+    const pt = row.name?.trim().toLowerCase();
+    const en = row.name_eng?.trim().toLowerCase();
+    if (pt && !map.has(pt)) map.set(pt, id);
+    if (en && !map.has(en)) map.set(en, id);
+  }
+  return map;
+}
+
 export async function getCatalogWorkoutsFromDb(): Promise<Array<{
   id: string; name: string; description: string; muscleGroup: string; photo: string | null; wgerId: number | null;
 }>> {
@@ -1722,6 +1745,22 @@ export type Routine = {
   goal_id: string | null;
   name?: string;
   last_summary: RoutineLastSummary | null;
+  program_meta?: RoutineProgramMeta | null;
+};
+
+/**
+ * Metadados do programa que criou a rotina (coluna `routines.program_meta`,
+ * jsonb). Gravado quando a rotina nasce do quiz "Sugerido pelo app": guarda as
+ * séries × reps sugeridas por exercício para o pré-preenchimento da sessão de
+ * treino — programas gerados são únicos por usuário e não existem no catálogo
+ * estático de `suggested-routines-data.ts`. `null` = rotina criada do zero ou
+ * de um programa estático antigo (fallback pelo nome continua funcionando).
+ */
+export type RoutineProgramMeta = {
+  /** origem do programa (hoje sempre "quiz") */
+  origin: string;
+  /** nome bruto PT do exercício no catálogo + séries/reps sugeridas */
+  exercises: Array<{ name: string; muscleGroup: string; series: number; reps: string }>;
 };
 
 /**
@@ -1970,7 +2009,7 @@ export async function getUserRoutinesDb(userId: string): Promise<Routine[]> {
   if (!hasSupabaseConfig || !supabase) return [];
   const { data, error } = await supabase
     .from("routines")
-    .select("id, user_id, type, goal_id, name, last_summary")
+    .select("id, user_id, type, goal_id, name, last_summary, program_meta")
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
@@ -1988,7 +2027,87 @@ export async function getUserRoutinesDb(userId: string): Promise<Routine[]> {
     goal_id: row.goal_id ? String(row.goal_id) : null,
     name: row.name ? String(row.name) : undefined,
     last_summary: row.last_summary ?? null,
+    program_meta: row.program_meta ?? null,
   }));
+}
+
+/**
+ * Grava os metadados do programa gerado (séries × reps sugeridas por
+ * exercício) na rotina recém-criada pelo quiz. Ver {@link RoutineProgramMeta}.
+ */
+export async function updateRoutineProgramMetaDb(
+  routineId: string,
+  meta: RoutineProgramMeta,
+): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+
+  const { error } = await supabase
+    .from("routines")
+    .update({ program_meta: meta })
+    .eq("id", routineId);
+
+  if (error) {
+    console.error("Error saving routine program meta:", error?.message || error);
+  }
+}
+
+/**
+ * Perfil fitness do usuário — respostas do quiz de personalização do
+ * "Sugerido pelo app" (tabela `user_fitness_profile`, uma linha por usuário).
+ * Usado para pré-preencher o quiz na próxima criação de programa.
+ */
+export type FitnessProfile = {
+  goal: string;
+  level: string;
+  /** dias de treino escolhidos, índices Monday-first (0=Seg … 6=Dom) */
+  trainingDays: number[];
+  sessionMinutes: number;
+  emphasis: string;
+  location: string;
+};
+
+export async function getFitnessProfileDb(userId: string): Promise<FitnessProfile | null> {
+  if (!hasSupabaseConfig || !supabase) return null;
+  const { data, error } = await supabase
+    .from("user_fitness_profile")
+    .select("goal, level, training_days, session_minutes, emphasis, location")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error || !data) return null;
+  return {
+    goal: String(data.goal ?? ""),
+    level: String(data.level ?? ""),
+    trainingDays: String(data.training_days ?? "")
+      .split(",")
+      .map(Number)
+      .filter((n) => Number.isInteger(n) && n >= 0 && n <= 6),
+    sessionMinutes: Number(data.session_minutes ?? 0),
+    emphasis: String(data.emphasis ?? ""),
+    location: String(data.location ?? ""),
+  };
+}
+
+export async function upsertFitnessProfileDb(
+  userId: string,
+  profile: FitnessProfile,
+): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+  const { error } = await supabase.from("user_fitness_profile").upsert(
+    {
+      user_id: userId,
+      goal: profile.goal,
+      level: profile.level,
+      training_days: profile.trainingDays.join(","),
+      session_minutes: profile.sessionMinutes,
+      emphasis: profile.emphasis,
+      location: profile.location,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "user_id" },
+  );
+  if (error) {
+    console.error("Error saving fitness profile:", error?.message || error);
+  }
 }
 
 /**

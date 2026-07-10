@@ -12,12 +12,16 @@ const config: CapacitorConfig = {
       presentationStyle: 'popover',
     },
     Keyboard: {
-      // 'native' encolhe o frame do WKWebView quando o teclado abre. Assim,
-      // drawers/inputs fixados em bottom-0 ficam automaticamente acima do
-      // teclado, e caps de altura em dvh / useKeyboardAwareHeight passam a
-      // refletir a área realmente visível. Também impede o WKWebView de
-      // "empurrar" a página inteira para revelar o input focado.
-      resize: 'native',
+      // 'none': o frame do WKWebView NUNCA é redimensionado quando o teclado
+      // abre — o teclado apenas sobrepõe o webview. Isso elimina o relayout/
+      // repaint da página inteira (a "piscada" + delay de ~1s que o modo
+      // 'native' causava: o resize do frame acontece DEPOIS da animação do
+      // teclado e força reflow global).
+      // Quem posiciona a UI acima do teclado é o JS/CSS: client/lib/keyboard.ts
+      // escuta keyboardWillShow/Hide (síncronos com a animação do teclado) e
+      // publica a altura na CSS var --keyboard-height; drawer.tsx/dialog.tsx
+      // usam essa var para erguer sheets e dialogs em sincronia com o teclado.
+      resize: 'none',
     },
     PushNotifications: {
       presentationOptions: ["badge", "sound", "alert"],

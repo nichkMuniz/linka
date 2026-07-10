@@ -319,7 +319,7 @@ export function PromotionCommentsDrawer({
             )}
           </div>
 
-          {/* Input — the native webview resize (Keyboard resize:'native') keeps the sheet above the iOS keyboard */}
+          {/* Input — the lift wrapper in ui/drawer.tsx (--keyboard-height) keeps the sheet above the iOS keyboard */}
           {user ? (
             <div className="space-y-2 shrink-0">
               <Textarea

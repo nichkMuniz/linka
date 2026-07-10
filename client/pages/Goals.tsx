@@ -48,6 +48,7 @@ import {
   buildRoutineCards,
   computeStreak,
   computeWeekCheckins,
+  getSuggestedSetsForCard,
   isCompletedToday,
   isRoutineCompleted,
   type RoutineCard,
@@ -71,7 +72,6 @@ import {
   WorkoutSummaryOverlay,
   type WorkoutSummaryData,
 } from "@/components/goals/workout-summary-overlay";
-import { getSuggestedSetsForRoutine } from "@/components/goals/suggested-routines-data";
 import { BadgeUnlockedDialog } from "@/components/goals/badge-unlocked-dialog";
 import { GoalCompletedDialog } from "@/components/shared/goal-completed-dialog";
 import { InsigniasDrawer } from "@/components/profile/insignias-drawer";
@@ -395,9 +395,10 @@ export default function Goals() {
             }
           }
           // Sem histórico → usa o plano sugerido pelo app (séries + reps recomendadas)
-          // para a rotina, casando exercício pelo nome. Assim o usuário já vê a
-          // quantidade certa de séries e só precisa informar a carga (kg).
-          const suggested = getSuggestedSetsForRoutine(card.name ?? "");
+          // para a rotina: program_meta da rotina (programas do quiz) ou catálogo
+          // estático casado pelo nome. Assim o usuário já vê a quantidade certa
+          // de séries e só precisa informar a carga (kg).
+          const suggested = getSuggestedSetsForCard(card);
           if (suggested.size > 0) {
             for (const item of items) {
               if (series[item.workout_id]) continue; // histórico tem prioridade

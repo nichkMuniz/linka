@@ -1,11 +1,13 @@
 import type {
   Routine,
   RoutineLastSummary,
+  RoutineProgramMeta,
   RoutineTypeCode,
   UserDietWithDetails,
   UserHabitWithDetails,
   UserWorkoutWithDetails,
 } from "@/lib/ritmofit-db";
+import { getSuggestedSetsForRoutine } from "@/components/goals/suggested-routines-data";
 
 export type RoutineItem =
   | (UserWorkoutWithDetails & { kind: "workout" })
@@ -28,7 +30,29 @@ export type RoutineCard = {
   scheduledDays: string | null;
   /** snapshot of the most recently finished workout for this routine; null = never executed */
   lastSummary: RoutineLastSummary | null;
+  /** program metadata when the routine was created by the personalization quiz; null otherwise */
+  programMeta: RoutineProgramMeta | null;
 };
+
+/**
+ * Séries × reps sugeridas para os exercícios de uma rotina. Prioriza o
+ * `program_meta` gravado na rotina (programas gerados pelo quiz — únicos por
+ * usuário); rotinas antigas caem no catálogo estático casado pelo nome
+ * (`getSuggestedSetsForRoutine`). Chaves = nome do exercício em minúsculas.
+ */
+export function getSuggestedSetsForCard(
+  card: Pick<RoutineCard, "name" | "programMeta"> | null,
+): Map<string, { series: number; reps: string }> {
+  const metaExercises = card?.programMeta?.exercises;
+  if (metaExercises && metaExercises.length > 0) {
+    const map = new Map<string, { series: number; reps: string }>();
+    for (const ex of metaExercises) {
+      map.set(ex.name.trim().toLowerCase(), { series: ex.series, reps: ex.reps });
+    }
+    return map;
+  }
+  return getSuggestedSetsForRoutine(card?.name ?? "");
+}
 
 function groupByName<T extends { name?: string | null }>(items: T[]): Map<string | null, T[]> {
   const map = new Map<string | null, T[]>();
@@ -85,6 +109,7 @@ export function buildRoutineCards(
           items.find((i: any) => i.scheduled_days && String(i.scheduled_days).trim())
             ?.scheduled_days ?? null,
         lastSummary: routine?.last_summary ?? null,
+        programMeta: routine?.program_meta ?? null,
       });
     }
   };

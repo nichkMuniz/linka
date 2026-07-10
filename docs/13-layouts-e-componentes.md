@@ -8,7 +8,7 @@
 client/components/
 ├── ui/             ← Shadcn UI (não mexer)
 ├── layout/         ← Componentes estruturais globais (AppLayout, ShotsLayout, ThemeProvider, FloatingActionMenu)
-├── shared/         ← Componentes reutilizáveis em 2+ domínios (ImageWithFallback, AnimatedLoading, PostIncentiveButton, ExerciseImage, DietImage, EmojiPicker, InlineCropPreview)
+├── shared/         ← Componentes reutilizáveis em 2+ domínios (ImageWithFallback, AnimatedLoading, PostIncentiveButton, ExerciseImage, DietImage, EmojiPicker, InlineCropPreview, RouteMap)
 ├── modals/         ← Modais e Dialogs globais (PostCommentsDialog, PostLikesModal, FlowViewerModal, FlowCreationDialog)
 ├── post/           ← Componentes de post (PostCarousel)
 ├── shots/          ← Componentes de shots/flows (FlowCarousel)
@@ -232,6 +232,14 @@ Cada foto tem seu próprio `CropTransform` guardado por índice (`Record<number,
 
 ---
 
+### RouteMap
+**Arquivo:** `client/components/shared/route-map.tsx`
+**Usado em:** WorkoutSessionDialog (resumo pós-corrida GPS da "Corrida ao Ar Livre" — ver `docs/05-metas.md`)
+
+Mapa **estático** do trajeto de uma corrida GPS, sem dependências de biblioteca de mapas: calcula o zoom que enquadra o bbox do trajeto, monta a grade de tiles **CARTO dark** (`basemaps.cartocdn.com/dark_all`, @2x — combina com o tema glass escuro; atribuição "© OpenStreetMap © CARTO" obrigatória no canto) e desenha a **polyline** do percurso numa camada SVG por cima (azul `#5b8cff` com glow; início = ponto verde, fim = laranja). Props: `path: RunPoint[][]` (segmentos — quebra a cada pausa→retomada, sem reta ligando os trechos), `height` e `emptyLabel` (estado vazio quando há < 2 pontos). Estático de propósito (sem pan/zoom): é um resumo pós-corrida, não um mapa navegável. Requer rede para os tiles (sem CSP no app).
+
+---
+
 ### WorkoutDetailButton
 **Arquivo:** `client/components/shared/workout-detail-dialog.tsx`
 **Usado em:** Feed (`PostCard`), Perfil (viewer de post), PostDetail
@@ -398,16 +406,21 @@ Sistema de internacionalização:
 ---
 
 ### DrawerContent (comportamento com teclado iOS)
-**Arquivo:** `client/components/ui/drawer.tsx`
+**Arquivos:** `client/components/ui/drawer.tsx`, `client/lib/keyboard.ts`, `client/hooks/use-keyboard-aware-height.ts`, `client/global.css`
 
-Todos os drawers (bottom sheets) do app são renderizados por `DrawerContent`. Desde 2026-07-03, o teclado do iOS é tratado pelo **resize nativo do WebView**, não por JavaScript:
+Todos os drawers (bottom sheets) do app são renderizados por `DrawerContent`. Desde **2026-07-06**, o teclado do iOS é tratado com **`resize: 'none'` + ergonomia via CSS var** (substituiu o `resize: 'native'` de 2026-07-03, que causava delay de ~1s + piscada — o resize do frame do WKWebView acontecia *depois* da animação do teclado e forçava relayout/repaint da página inteira):
 
-- O plugin `@capacitor/keyboard` está configurado com `resize: 'native'` em `capacitor.config.ts`. Quando o teclado abre, o **frame do WKWebView encolhe** para a área visível acima do teclado.
-- Consequência: qualquer elemento `fixed bottom-0` (drawers, barras de input) fica automaticamente acima do teclado; unidades `dvh`/`vh` e `window.innerHeight` passam a refletir a área visível. Nenhum reposicionamento via JS é necessário.
-- O `repositionInputs` do vaul está **explicitamente desligado** no componente `Drawer` (`repositionInputs={false}`). O mecanismo do vaul depende de eventos de `visualViewport` que são instáveis dentro do WKWebView (altura "travada" obsoleta, movimento duplo) — era a causa dos drawers com input quebrando no iPhone. **Não reativar.**
-- **Importante:** nenhum componente deve rodar handler próprio de `visualViewport` para mover drawers. Dois mecanismos mutando `bottom`/`height` do mesmo elemento brigam entre si. (O hack `releaseDrawerHeightLock` do `CreateWizardDrawer`, que existia para desfazer a altura travada do vaul, foi removido junto.)
-- Consumidores só precisam de um cap de altura que acompanhe o viewport — o padrão do app é `maxHeight: min(XXdvh, ${viewportHeight - 8}px)` com `viewportHeight` vindo de `useKeyboardAwareHeight` — e `flex-1 min-h-0` na área scrollável. Com o viewport encolhendo, o sheet comprime e o input pinado no rodapé permanece visível.
-- **Correção do delay ao focar input (2026-07-06):** dentro do WKWebView o evento `window`/`visualViewport` "resize" que reporta o frame encolhido chega **atrasado** (até ~1s), e unidades `dvh`/`vh` ficam congeladas no valor antigo até lá — por isso um drawer com input focado permanecia em altura cheia por até um segundo antes de saltar para caber acima do teclado. `useKeyboardAwareHeight` agora escuta também os eventos nativos `keyboardWillShow` / `keyboardWillHide` do `@capacitor/keyboard` (que disparam no **início** da animação do teclado e já trazem `keyboardHeight`) e recalcula a altura na hora (`fullHeight - keyboardHeight`), em sincronia com o teclado. Os listeners de `resize`/`orientationchange` permanecem como fallback para web e rotação. **Isso é só dimensionamento (sizing), não reposicionamento** — a regra acima de não mover drawers via `visualViewport` continua valendo.
+- **`capacitor.config.ts` → `Keyboard: { resize: 'none' }`**: o frame do WKWebView **nunca** muda quando o teclado abre — o teclado apenas sobrepõe o webview. Zero reflow global, zero piscada. `window.innerHeight` e unidades `dvh` ficam constantes.
+- **`client/lib/keyboard.ts` (tracker global, singleton iniciado em `App.tsx`)**: escuta os eventos nativos `keyboardWillShow`/`keyboardWillHide` (disparam no **início** da animação do teclado, já com `keyboardHeight`) e publica:
+  - CSS var **`--keyboard-height`** no `<html>` (px; `0px` fechado);
+  - classe **`kb-open`** no `<html>` enquanto o teclado está visível;
+  - subscribers JS (usados por `useKeyboardAwareHeight`);
+  - *scroll assist*: para inputs no fluxo normal da página (fora de drawers/dialogs — ex.: Login, NewPost, Search), rola a janela o suficiente para o campo ficar acima do teclado.
+- **Lift wrapper em `drawer.tsx`**: o sheet do vaul é envolvido por um `div fixed inset-0 pointer-events-none` com `transform: translateY(calc(-1 * var(--keyboard-height)))` + `transition` (curva do teclado iOS, 0.28s). Como um ancestral com transform vira o *containing block* de descendentes `fixed`, o sheet inteiro sobe em sincronia com o teclado, via GPU. **Nunca aplicar transform/transition no elemento do próprio vaul** — o vaul muta `transform`/`transition` inline para abrir/fechar/arrastar e qualquer estilo nosso ali briga com ele.
+- **Clamp em `global.css`**: `html.kb-open [data-vaul-drawer][data-vaul-drawer-direction="bottom"] { max-height: calc(100dvh - var(--keyboard-height) - 12px) !important }` — garante que nenhum sheet erguido estoure o topo da tela, mesmo drawers com `maxHeight: 90dvh` estático.
+- **Dialogs centrados (`dialog.tsx`)**: o wrapper de centralização soma `var(--keyboard-height)` ao padding inferior (com transition), recentralizando o dialog na área visível acima do teclado.
+- **`useKeyboardAwareHeight`** agora retorna `window.innerHeight - getKeyboardHeight()` (do tracker) — continua sendo "a área visível acima do teclado", atualizada em sincronia com a animação. Consumidores não mudam: `maxHeight: min(XXdvh, ${viewportHeight - 8}px)` + `flex-1 min-h-0` na área scrollável.
+- O `repositionInputs` do vaul continua **explicitamente desligado** (`repositionInputs={false}`) — depende de eventos de `visualViewport` instáveis no WKWebView. **Não reativar.** Também continua valendo: nenhum componente deve rodar handler próprio de `visualViewport` para mover drawers.
 
 ---
 

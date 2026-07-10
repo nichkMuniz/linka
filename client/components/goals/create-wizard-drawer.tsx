@@ -41,34 +41,55 @@ import {
   createUserHabitsDb,
   createUserWorkoutsDb,
   getDietsDb,
+  getFitnessProfileDb,
   getHabitsDb,
   getProgrammedGoalsDb,
   getUserRoutinesDb,
   getUserSelectedGoalIdsDb,
+  getWorkoutNameIdIndexDb,
   getWorkoutsDb,
   updateRoutineGoalDb,
   updateRoutineItemsScheduledTimeDb,
   updateRoutineItemsScheduledDaysDb,
   updateRoutineItemScheduledTimeDb,
+  updateRoutineProgramMetaDb,
+  upsertFitnessProfileDb,
   type Diet,
   type Habit,
   type ProgrammedGoal,
+  type RoutineProgramMeta,
   type RoutineTypeCode,
   type UserGoal,
   type UserHabit,
   type Workout,
 } from "@/lib/ritmofit-db";
 import {
-  WEEKLY_PROGRAMS,
   type FitnessLevel,
+  type ProgramWorkout,
   type SuggestedExercise,
   type WeeklyProgram,
 } from "@/components/goals/suggested-routines-data";
+import {
+  generateProgram,
+  MUSCLE_EMPHASES,
+  SESSION_MINUTES_OPTIONS,
+  TRAINING_GOALS,
+  TRAINING_LOCATIONS,
+  type MuscleEmphasis,
+  type SessionMinutes,
+  type TrainingGoal,
+  type TrainingLocation,
+} from "@/components/goals/program-generator";
 
 type WizardStep =
   | "what"
   | "routine-origin"
-  | "suggested"
+  | "quiz-goal"
+  | "quiz-level"
+  | "quiz-days"
+  | "quiz-time"
+  | "quiz-location"
+  | "quiz-emphasis"
   | "suggested-program"
   | "suggested-goal"
   | "build-name"
@@ -135,6 +156,53 @@ const LEVELS: Array<{
   { value: "advanced", emoji: "⚡", labelKey: "goals_level_advanced", descKey: "goals_level_advanced_desc" },
 ];
 
+// ── Opções do quiz de personalização ("Sugerido pelo app") ──────────────────
+
+const QUIZ_GOALS: Array<{
+  value: TrainingGoal;
+  emoji: string;
+  labelKey: TranslationKey;
+  descKey: TranslationKey;
+}> = [
+  { value: "hypertrophy", emoji: "💪", labelKey: "goals_quiz_goal_hypertrophy", descKey: "goals_quiz_goal_hypertrophy_desc" },
+  { value: "fat_loss", emoji: "🔥", labelKey: "goals_quiz_goal_fat_loss", descKey: "goals_quiz_goal_fat_loss_desc" },
+  { value: "strength", emoji: "🏋️", labelKey: "goals_quiz_goal_strength", descKey: "goals_quiz_goal_strength_desc" },
+  { value: "conditioning", emoji: "⚡", labelKey: "goals_quiz_goal_conditioning", descKey: "goals_quiz_goal_conditioning_desc" },
+];
+
+const QUIZ_TIMES: Array<{
+  value: SessionMinutes;
+  emoji: string;
+  labelKey: TranslationKey;
+  descKey: TranslationKey;
+}> = [
+  { value: 30, emoji: "⚡", labelKey: "goals_quiz_time_30", descKey: "goals_quiz_time_30_desc" },
+  { value: 45, emoji: "⏱️", labelKey: "goals_quiz_time_45", descKey: "goals_quiz_time_45_desc" },
+  { value: 60, emoji: "💪", labelKey: "goals_quiz_time_60", descKey: "goals_quiz_time_60_desc" },
+  { value: 75, emoji: "🔥", labelKey: "goals_quiz_time_75", descKey: "goals_quiz_time_75_desc" },
+];
+
+const QUIZ_LOCATIONS: Array<{
+  value: TrainingLocation;
+  emoji: string;
+  labelKey: TranslationKey;
+  descKey: TranslationKey;
+}> = [
+  { value: "gym", emoji: "🏋️", labelKey: "goals_quiz_location_gym", descKey: "goals_quiz_location_gym_desc" },
+  { value: "home", emoji: "🏠", labelKey: "goals_quiz_location_home", descKey: "goals_quiz_location_home_desc" },
+];
+
+const QUIZ_EMPHASES: Array<{
+  value: MuscleEmphasis;
+  emoji: string;
+  labelKey: TranslationKey;
+  descKey: TranslationKey;
+}> = [
+  { value: "balanced", emoji: "⚖️", labelKey: "goals_quiz_emphasis_balanced", descKey: "goals_quiz_emphasis_balanced_desc" },
+  { value: "lower", emoji: "🦵", labelKey: "goals_quiz_emphasis_lower", descKey: "goals_quiz_emphasis_lower_desc" },
+  { value: "upper", emoji: "💪", labelKey: "goals_quiz_emphasis_upper", descKey: "goals_quiz_emphasis_upper_desc" },
+];
+
 export function CreateWizardDrawer({
   open,
   onOpenChange,
@@ -178,8 +246,15 @@ export function CreateWizardDrawer({
   const [habits, setHabits] = React.useState<Habit[]>([]);
   const [catalogLoading, setCatalogLoading] = React.useState(false);
 
-  // suggested weekly program
+  // suggested weekly program — quiz de personalização (respostas → generateProgram)
   const [level, setLevel] = React.useState<FitnessLevel | null>(null);
+  const [quizGoal, setQuizGoal] = React.useState<TrainingGoal | null>(null);
+  const [quizDays, setQuizDays] = React.useState<Set<number>>(new Set());
+  const [quizTime, setQuizTime] = React.useState<SessionMinutes | null>(null);
+  const [quizLocation, setQuizLocation] = React.useState<TrainingLocation | null>(null);
+  const [quizEmphasis, setQuizEmphasis] = React.useState<MuscleEmphasis | null>(null);
+  // perfil fitness salvo (última criação) carregado uma vez para pré-preencher o quiz
+  const [quizProfileLoaded, setQuizProfileLoaded] = React.useState(false);
   const [expandedDay, setExpandedDay] = React.useState<string | null>(null);
   const [addingProgram, setAddingProgram] = React.useState(false);
   // editable copy of the suggested program (exercises + days can be customized before adding)
@@ -220,6 +295,12 @@ export function CreateWizardDrawer({
       setCustomName("");
       setCustomExtra("");
       setLevel(null);
+      setQuizGoal(null);
+      setQuizDays(new Set());
+      setQuizTime(null);
+      setQuizLocation(null);
+      setQuizEmphasis(null);
+      setQuizProfileLoaded(false);
       setExpandedDay(null);
       setProgramDraft(null);
       setEditingWorkoutKey(null);
@@ -288,6 +369,34 @@ export function CreateWizardDrawer({
       .catch(() => toast({ title: t("goals_load_error"), variant: "destructive" }))
       .finally(() => setGoalsLoading(false));
   }, [open, step]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Pré-preenche o quiz com o perfil fitness salvo na última criação de
+  // programa (só preenche o que o usuário ainda não respondeu nesta sessão).
+  React.useEffect(() => {
+    if (!open || step !== "quiz-goal" || quizProfileLoaded) return;
+    setQuizProfileLoaded(true);
+    getFitnessProfileDb(userId)
+      .then((p) => {
+        if (!p) return;
+        if (TRAINING_GOALS.includes(p.goal as TrainingGoal)) {
+          setQuizGoal((prev) => prev ?? (p.goal as TrainingGoal));
+        }
+        if (LEVELS.some((l) => l.value === p.level)) {
+          setLevel((prev) => prev ?? (p.level as FitnessLevel));
+        }
+        setQuizDays((prev) => (prev.size > 0 ? prev : new Set(p.trainingDays)));
+        if (SESSION_MINUTES_OPTIONS.includes(p.sessionMinutes as SessionMinutes)) {
+          setQuizTime((prev) => prev ?? (p.sessionMinutes as SessionMinutes));
+        }
+        if (TRAINING_LOCATIONS.includes(p.location as TrainingLocation)) {
+          setQuizLocation((prev) => prev ?? (p.location as TrainingLocation));
+        }
+        if (MUSCLE_EMPHASES.includes(p.emphasis as MuscleEmphasis)) {
+          setQuizEmphasis((prev) => prev ?? (p.emphasis as MuscleEmphasis));
+        }
+      })
+      .catch(() => {});
+  }, [open, step, quizProfileLoaded, userId]);
 
   const toggleItem = (id: string) => {
     setSelectedIds((prev) => {
@@ -534,10 +643,25 @@ export function CreateWizardDrawer({
     );
   }, [language]);
 
-  const selectedProgram = React.useMemo(
-    () => (level ? WEEKLY_PROGRAMS.find((p) => p.level === level) ?? null : null),
-    [level],
+  // Programa gerado a partir das respostas do quiz — determinístico (mesmas
+  // respostas → mesmo programa). Substitui o catálogo estático por nível.
+  const quizDaysKey = React.useMemo(
+    () => Array.from(quizDays).sort((a, b) => a - b).join(","),
+    [quizDays],
   );
+  const selectedProgram = React.useMemo(() => {
+    if (!quizGoal || !level || !quizTime || !quizLocation || !quizEmphasis || !quizDaysKey) {
+      return null;
+    }
+    return generateProgram({
+      goal: quizGoal,
+      level,
+      days: quizDaysKey.split(",").map(Number),
+      minutes: quizTime,
+      emphasis: quizEmphasis,
+      location: quizLocation,
+    });
+  }, [quizGoal, level, quizTime, quizLocation, quizEmphasis, quizDaysKey]);
 
   // gera uma cópia editável do programa sugerido sempre que o nível muda
   // (o usuário pode alterar exercícios e dias antes de adicionar)
@@ -616,44 +740,70 @@ export function CreateWizardDrawer({
   const handleAddWeeklyProgram = async (program: WeeklyProgram) => {
     setAddingProgram(true);
     try {
-      const catalog = await getWorkoutsDb();
-      const byName = new Map(catalog.map((w) => [w.name.trim().toLowerCase(), w]));
+      // casa pelo nome bruto do banco (PT e EN) — independe do idioma da UI,
+      // senão usuários em inglês criam customs duplicados sem foto
+      const nameIndex = await getWorkoutNameIdIndexDb();
 
-      const createdNames: string[] = [];
+      const created: Array<{ name: string; workout: ProgramWorkout; daysStr: string }> = [];
       for (const workout of program.workouts) {
         const workoutIds: string[] = [];
         for (const ex of workout.exercises) {
           const key = ex.name.trim().toLowerCase();
-          const match = byName.get(key);
-          if (match) {
-            workoutIds.push(match.id);
-          } else {
-            const created = await createCustomWorkoutDb(
+          let workoutId = nameIndex.get(key);
+          if (!workoutId) {
+            const createdWorkout = await createCustomWorkoutDb(
               ex.name,
               `${ex.series}x${ex.reps}`,
               ex.muscleGroup,
             );
-            byName.set(key, created); // reaproveita entre dias do mesmo programa
-            workoutIds.push(created.id);
+            nameIndex.set(key, createdWorkout.id); // reaproveita entre dias do mesmo programa
+            workoutId = createdWorkout.id;
           }
+          workoutIds.push(workoutId);
         }
 
         const name = language === "en" ? workout.name.en : workout.name.pt;
         const inserted = await createUserWorkoutsDb(userId, workoutIds, { name });
         await backfillRoutineIdOnItemsDb(userId, 1, name, inserted.map((i) => i.id)).catch(() => {});
-        createdNames.push(name);
+        // dias da semana deste treino no programa (escolhidos no quiz/preview)
+        const days = program.week
+          .map((k, i) => (k === workout.key ? i : -1))
+          .filter((i) => i >= 0);
+        created.push({ name, workout, daysStr: days.join(",") });
       }
 
-      // vincular cada rotina criada à meta escolhida (opcional)
-      if (linkGoalId) {
-        const userGoal = userGoals.find((g) => g.id === linkGoalId);
-        if (userGoal) {
-          const routines = await getUserRoutinesDb(userId);
-          for (const name of createdNames) {
-            const match = routines.find((r) => r.type === 1 && r.name === name);
-            if (match) await updateRoutineGoalDb(match.id, userGoal.goal_id).catch(() => {});
-          }
+      // scheduled_days + metadados do programa + vínculo de meta por rotina criada
+      const routines = await getUserRoutinesDb(userId);
+      const userGoal = linkGoalId ? (userGoals.find((g) => g.id === linkGoalId) ?? null) : null;
+      for (const c of created) {
+        if (c.daysStr) {
+          await updateRoutineItemsScheduledDaysDb(userId, 1, c.name, c.daysStr).catch(() => {});
         }
+        const match = routines.find((r) => r.type === 1 && r.name === c.name);
+        if (!match) continue;
+        const meta: RoutineProgramMeta = {
+          origin: "quiz",
+          exercises: c.workout.exercises.map((ex) => ({
+            name: ex.name,
+            muscleGroup: ex.muscleGroup,
+            series: ex.series,
+            reps: ex.reps,
+          })),
+        };
+        await updateRoutineProgramMetaDb(match.id, meta).catch(() => {});
+        if (userGoal) await updateRoutineGoalDb(match.id, userGoal.goal_id).catch(() => {});
+      }
+
+      // salva o perfil fitness — pré-preenche o quiz na próxima criação
+      if (quizGoal && level && quizTime && quizLocation && quizEmphasis && quizDays.size > 0) {
+        await upsertFitnessProfileDb(userId, {
+          goal: quizGoal,
+          level,
+          trainingDays: Array.from(quizDays).sort((a, b) => a - b),
+          sessionMinutes: quizTime,
+          emphasis: quizEmphasis,
+          location: quizLocation,
+        }).catch(() => {});
       }
 
       toast({
@@ -727,7 +877,12 @@ export function CreateWizardDrawer({
   const stepTitle: Record<WizardStep, string> = {
     "what": t("goals_wizard_what_title"),
     "routine-origin": t("goals_wizard_origin_title"),
-    "suggested": t("goals_suggest_level_title"),
+    "quiz-goal": t("goals_quiz_goal_title"),
+    "quiz-level": t("goals_suggest_level_title"),
+    "quiz-days": t("goals_quiz_days_title"),
+    "quiz-time": t("goals_quiz_time_title"),
+    "quiz-location": t("goals_quiz_location_title"),
+    "quiz-emphasis": t("goals_quiz_emphasis_title"),
     "suggested-program": t("goals_program_your_week"),
     "suggested-goal": t("goals_link_step_title"),
     "build-name": t("goals_wizard_name_title"),
@@ -759,6 +914,64 @@ export function CreateWizardDrawer({
       <ChevronRight className="h-4 w-4 shrink-0" style={{ color: "rgba(255,255,255,.4)" }} />
     </button>
   );
+
+  // card de opção do quiz (emoji + label + descrição, com estado selecionado
+  // visível quando o usuário volta a um passo já respondido)
+  const quizOptionCard = (
+    key: string,
+    selected: boolean,
+    emoji: string,
+    title: string,
+    desc: string,
+    onClick: () => void,
+  ) => (
+    <button
+      key={key}
+      onClick={onClick}
+      className="w-full flex items-center gap-3 rounded-2xl p-4 text-left active:scale-[0.99] transition-all"
+      style={selected
+        ? { background: "rgba(91,140,255,.1)", border: "1px solid #5b8cff" }
+        : { background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}
+    >
+      <span className="text-2xl shrink-0">{emoji}</span>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-semibold" style={{ color: "#fff" }}>{title}</p>
+        <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>{desc}</p>
+      </div>
+      {selected ? (
+        <Check className="h-4 w-4 shrink-0 text-primary" />
+      ) : (
+        <ChevronRight className="h-4 w-4 shrink-0" style={{ color: "rgba(255,255,255,.4)" }} />
+      )}
+    </button>
+  );
+
+  // "Pergunta {i} de 6" — progresso do quiz
+  const quizStepBadge = (i: number) => (
+    <p className="text-[11px] font-semibold uppercase tracking-wide -mt-1" style={{ color: "rgba(255,255,255,.35)" }}>
+      {t("goals_quiz_step").replace("{i}", String(i)).replace("{n}", "6")}
+    </p>
+  );
+
+  // máx. 6 dias de treino — sempre sobra ao menos 1 dia de descanso
+  const toggleQuizDay = (idx: number) => {
+    setQuizDays((prev) => {
+      const next = new Set(prev);
+      if (next.has(idx)) {
+        next.delete(idx);
+      } else {
+        if (next.size >= 6) {
+          toast({
+            title: t("goals_quiz_days_max_title"),
+            description: t("goals_quiz_days_max_desc"),
+          });
+          return prev;
+        }
+        next.add(idx);
+      }
+      return next;
+    });
+  };
 
   return (
     <>
@@ -816,7 +1029,7 @@ export function CreateWizardDrawer({
           {step === "routine-origin" && (
             <>
               {optionCard(
-                () => goTo("suggested"),
+                () => goTo("quiz-goal"),
                 <Sparkles className="h-5 w-5" />,
                 t("goals_wizard_suggested"),
                 t("goals_wizard_suggested_desc"),
@@ -830,31 +1043,117 @@ export function CreateWizardDrawer({
             </>
           )}
 
-          {/* ── Step: pick fitness level ─────────────────────────── */}
-          {step === "suggested" && (
+          {/* ── Quiz de personalização (1/6): objetivo ───────────── */}
+          {step === "quiz-goal" && (
             <>
+              {quizStepBadge(1)}
+              <p className="text-sm -mt-1" style={{ color: "rgba(255,255,255,.5)" }}>
+                {t("goals_quiz_goal_subtitle")}
+              </p>
+              {QUIZ_GOALS.map((g) =>
+                quizOptionCard(g.value, quizGoal === g.value, g.emoji, t(g.labelKey), t(g.descKey), () => {
+                  setQuizGoal(g.value);
+                  goTo("quiz-level");
+                }),
+              )}
+            </>
+          )}
+
+          {/* ── Quiz (2/6): nível ────────────────────────────────── */}
+          {step === "quiz-level" && (
+            <>
+              {quizStepBadge(2)}
               <p className="text-sm -mt-1" style={{ color: "rgba(255,255,255,.5)" }}>
                 {t("goals_suggest_level_subtitle")}
               </p>
-              {LEVELS.map((l) => (
-                <button
-                  key={l.value}
-                  onClick={() => {
-                    setLevel(l.value);
-                    setExpandedDay(null);
-                    goTo("suggested-program");
-                  }}
-                  className="w-full flex items-center gap-3 rounded-2xl p-4 text-left active:scale-[0.99] transition-all"
-                  style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}
-                >
-                  <span className="text-2xl shrink-0">{l.emoji}</span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold" style={{ color: "#fff" }}>{t(l.labelKey)}</p>
-                    <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>{t(l.descKey)}</p>
-                  </div>
-                  <ChevronRight className="h-4 w-4 shrink-0" style={{ color: "rgba(255,255,255,.4)" }} />
-                </button>
-              ))}
+              {LEVELS.map((l) =>
+                quizOptionCard(l.value, level === l.value, l.emoji, t(l.labelKey), t(l.descKey), () => {
+                  setLevel(l.value);
+                  goTo("quiz-days");
+                }),
+              )}
+            </>
+          )}
+
+          {/* ── Quiz (3/6): dias da semana ───────────────────────── */}
+          {step === "quiz-days" && (
+            <>
+              {quizStepBadge(3)}
+              <p className="text-sm -mt-1" style={{ color: "rgba(255,255,255,.5)" }}>
+                {t("goals_quiz_days_subtitle")}
+              </p>
+              <div className="flex gap-1.5">
+                {WEEKDAY_KEYS.map((key, idx) => {
+                  const active = quizDays.has(idx);
+                  return (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => toggleQuizDay(idx)}
+                      className="flex-1 h-10 rounded-xl text-xs font-semibold transition-all active:scale-95"
+                      style={active
+                        ? { background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff", border: "1px solid transparent" }
+                        : { background: "rgba(255,255,255,.05)", color: "rgba(255,255,255,.6)", border: "1px solid rgba(255,255,255,.1)" }}
+                    >
+                      {t(key)}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>
+                {t("goals_quiz_days_count").replace("{n}", String(quizDays.size))}
+              </p>
+              <Button
+                className="w-full rounded-full h-12"
+                style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}
+                disabled={quizDays.size === 0}
+                onClick={() => goTo("quiz-time")}
+              >
+                {t("goals_continue")}
+              </Button>
+            </>
+          )}
+
+          {/* ── Quiz (4/6): tempo por sessão ─────────────────────── */}
+          {step === "quiz-time" && (
+            <>
+              {quizStepBadge(4)}
+              {QUIZ_TIMES.map((o) =>
+                quizOptionCard(String(o.value), quizTime === o.value, o.emoji, t(o.labelKey), t(o.descKey), () => {
+                  setQuizTime(o.value);
+                  goTo("quiz-location");
+                }),
+              )}
+            </>
+          )}
+
+          {/* ── Quiz (5/6): local de treino ──────────────────────── */}
+          {step === "quiz-location" && (
+            <>
+              {quizStepBadge(5)}
+              {QUIZ_LOCATIONS.map((o) =>
+                quizOptionCard(o.value, quizLocation === o.value, o.emoji, t(o.labelKey), t(o.descKey), () => {
+                  setQuizLocation(o.value);
+                  goTo("quiz-emphasis");
+                }),
+              )}
+            </>
+          )}
+
+          {/* ── Quiz (6/6): ênfase muscular ──────────────────────── */}
+          {step === "quiz-emphasis" && (
+            <>
+              {quizStepBadge(6)}
+              <p className="text-sm -mt-1" style={{ color: "rgba(255,255,255,.5)" }}>
+                {t("goals_quiz_emphasis_subtitle")}
+              </p>
+              {QUIZ_EMPHASES.map((o) =>
+                quizOptionCard(o.value, quizEmphasis === o.value, o.emoji, t(o.labelKey), t(o.descKey), () => {
+                  setQuizEmphasis(o.value);
+                  setExpandedDay(null);
+                  goTo("suggested-program");
+                }),
+              )}
             </>
           )}
 

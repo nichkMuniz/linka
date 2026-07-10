@@ -3,15 +3,28 @@ import { Drawer as DrawerPrimitive } from "vaul";
 
 import { cn } from "@/lib/utils";
 
-// Keyboard handling is delegated entirely to the NATIVE webview resize:
-// @capacitor/keyboard is configured with `resize: 'native'` (capacitor.config.ts),
-// so when the iOS software keyboard opens the WKWebView frame itself shrinks to
-// the area above the keyboard. Fixed `bottom-0` sheets, `dvh`-based height caps
-// and `useKeyboardAwareHeight` all track that resize automatically — no JS
-// repositioning needed. vaul's `repositionInputs` MUST stay disabled here: it
-// mutates the sheet's inline `height`/`bottom` from visualViewport events that
-// are unreliable inside WKWebView (stale height locks, double-movement), which
-// is exactly what used to break every drawer with a text input on iPhone.
+// Keyboard handling (iOS): @capacitor/keyboard runs with `resize: 'none'`
+// (capacitor.config.ts) — the WKWebView frame NEVER resizes when the keyboard
+// opens; the keyboard just overlays the webview. This kills the whole-page
+// relayout/flicker that `resize: 'native'` caused (the frame resize happened
+// AFTER the keyboard animation, with up to ~1s of lag).
+//
+// Sheets are lifted above the keyboard here, in CSS: `client/lib/keyboard.ts`
+// publishes the keyboard height to the `--keyboard-height` CSS var the moment
+// `keyboardWillShow` fires (start of the keyboard animation). DrawerContent
+// wraps the vaul sheet in a *lift wrapper* — a fixed, full-screen div with
+// `transform: translateY(-var(--keyboard-height))` + transition. Because a
+// transformed ancestor becomes the containing block for fixed descendants,
+// translating the wrapper moves the whole sheet up in sync with the keyboard,
+// GPU-accelerated, without ever touching the element vaul animates (vaul owns
+// the sheet's inline transform/transition for open/close/drag — mutating those
+// would fight it). Height caps come from `useKeyboardAwareHeight` +
+// the `html.kb-open` clamp in global.css.
+//
+// vaul's `repositionInputs` MUST stay disabled: it mutates the sheet's inline
+// `height`/`bottom` from visualViewport events that are unreliable inside
+// WKWebView (stale height locks, double-movement), which is exactly what used
+// to break every drawer with a text input on iPhone.
 
 const Drawer = ({
   shouldScaleBackground = true,
@@ -50,24 +63,39 @@ const DrawerContent = React.forwardRef<
   return (
     <DrawerPortal>
       <DrawerOverlay className={overlayClassName} />
-      <DrawerPrimitive.Content
-        ref={ref}
-        className={cn(
-          "fixed bottom-0 z-[310] mt-24 flex h-auto w-full max-w-[680px] flex-col rounded-t-[10px] border bg-background md:rounded-xl",
-          "left-0 right-0 mx-auto",
-          className,
-        )}
+      {/* Lift wrapper: transformed ancestor = containing block for the fixed
+          sheet below. Translating it raises the whole sheet above the iOS
+          keyboard in sync with the keyboard animation (see header comment). */}
+      <div
+        className="pointer-events-none fixed inset-0 z-[310]"
         style={{
-          paddingBottom: "env(safe-area-inset-bottom)",
-          paddingLeft: "env(safe-area-inset-left)",
-          paddingRight: "env(safe-area-inset-right)",
-          ...style,
+          transform: "translateY(calc(-1 * var(--keyboard-height, 0px)))",
+          transition: "transform 0.28s cubic-bezier(0.38, 0.7, 0.125, 1)",
         }}
-        {...props}
       >
-        <div className={cn("mx-auto mt-4 h-2 w-[100px] shrink-0 rounded-full bg-muted", handleClassName)} />
-        {children}
-      </DrawerPrimitive.Content>
+        <DrawerPrimitive.Content
+          ref={ref}
+          className={cn(
+            "fixed bottom-0 z-[310] mt-24 flex h-auto w-full max-w-[680px] flex-col rounded-t-[10px] border bg-background md:rounded-xl",
+            "left-0 right-0 mx-auto",
+            className,
+          )}
+          style={{
+            pointerEvents: "auto",
+            // Com o teclado aberto o sheet fica em cima dele — o inset da home
+            // bar deixa de fazer sentido; o max() zera o padding nesse caso.
+            paddingBottom:
+              "max(0px, calc(env(safe-area-inset-bottom) - var(--keyboard-height, 0px)))",
+            paddingLeft: "env(safe-area-inset-left)",
+            paddingRight: "env(safe-area-inset-right)",
+            ...style,
+          }}
+          {...props}
+        >
+          <div className={cn("mx-auto mt-4 h-2 w-[100px] shrink-0 rounded-full bg-muted", handleClassName)} />
+          {children}
+        </DrawerPrimitive.Content>
+      </div>
     </DrawerPortal>
   );
 });

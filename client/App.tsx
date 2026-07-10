@@ -56,6 +56,11 @@ import { useAuthContext as useAuth, AuthProvider } from "@/lib/auth-context";
 import { useLanguage } from "@/lib/language-context";
 import { useLayoutMode } from "@/hooks/useLayoutMode";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
+import { initKeyboardTracker } from "@/lib/keyboard";
+
+// Teclado iOS (Keyboard resize:'none'): publica --keyboard-height/kb-open no
+// <html> a partir dos eventos nativos. Singleton de app — inicia no bootstrap.
+initKeyboardTracker();
 
 // Lazy-load heavy pages to split the initial bundle
 const Index = React.lazy(() => import("@/pages/Index"));

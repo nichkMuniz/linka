@@ -21,6 +21,7 @@ let package = Package(
         .package(name: "CapacitorPushNotifications", path: "..\..\..\node_modules\.pnpm\@capacitor+push-notifications@7.0.6_@capacitor+core@7.6.2\node_modules\@capacitor\push-notifications"),
         .package(name: "CapacitorShare", path: "..\..\..\node_modules\.pnpm\@capacitor+share@7.0.4_@capacitor+core@7.6.2\node_modules\@capacitor\share"),
         .package(name: "CapacitorStatusBar", path: "..\..\..\node_modules\.pnpm\@capacitor+status-bar@7.0.6_@capacitor+core@7.6.2\node_modules\@capacitor\status-bar"),
+        .package(name: "CapgoBackgroundGeolocation", path: "..\..\..\node_modules\.pnpm\@capgo+background-geolocation@7.2.8_@capacitor+core@7.6.2\node_modules\@capgo\background-geolocation"),
         .package(name: "CapgoCapacitorNativeBiometric", path: "..\..\..\node_modules\.pnpm\@capgo+capacitor-native-bio_58e8312a69844743673a89b9dbf56e22\node_modules\@capgo\capacitor-native-biometric"),
         .package(name: "CapgoCapacitorPhotoLibrary", path: "..\..\..\node_modules\.pnpm\@capgo+capacitor-photo-library@7.2.11_@capacitor+core@7.6.2\node_modules\@capgo\capacitor-photo-library")
     ],
@@ -39,6 +40,7 @@ let package = Package(
                 .product(name: "CapacitorPushNotifications", package: "CapacitorPushNotifications"),
                 .product(name: "CapacitorShare", package: "CapacitorShare"),
                 .product(name: "CapacitorStatusBar", package: "CapacitorStatusBar"),
+                .product(name: "CapgoBackgroundGeolocation", package: "CapgoBackgroundGeolocation"),
                 .product(name: "CapgoCapacitorNativeBiometric", package: "CapgoCapacitorNativeBiometric"),
                 .product(name: "CapgoCapacitorPhotoLibrary", package: "CapgoCapacitorPhotoLibrary")
             ]

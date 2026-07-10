@@ -44,6 +44,9 @@ importers:
       '@capacitor/status-bar':
         specifier: ^7.0.0
         version: 7.0.6(@capacitor/core@7.6.2)
+      '@capgo/background-geolocation':
+        specifier: ^7.2.8
+        version: 7.2.8(@capacitor/core@7.6.2)
       '@capgo/capacitor-native-biometric':
         specifier: ^7.6.0
         version: 7.6.0(@capacitor/core@7.6.2)
@@ -763,6 +766,11 @@ packages:
 
   '@capacitor/synapse@1.0.4':
     resolution: {integrity: sha512-/C1FUo8/OkKuAT4nCIu/34ny9siNHr9qtFezu4kxm6GY1wNFxrCFWjfYx5C1tUhVGz3fxBABegupkpjXvjCHrw==}
+
+  '@capgo/background-geolocation@7.2.8':
+    resolution: {integrity: sha512-8n8RMK6NpkWcLCDSQiJ2WXVbR4BjiBm5o887aQhrMRl8i9e5S6LLrfGPxJBNSmiO0z55Ys35ttxNFKeh2xDy3g==}
+    peerDependencies:
+      '@capacitor/core': '>=7.0.0'
 
   '@capgo/capacitor-native-biometric@7.6.0':
     resolution: {integrity: sha512-ZQ+Nc+uS2sT8TED/REYlmGV34ASFsBe30YdABBQIRL+A2iVbWtdiL0FbX+1sKKXzrS2DGf+mD657Qwl1jGSDLg==}
@@ -4310,6 +4318,10 @@ snapshots:
       '@capacitor/core': 7.6.2
 
   '@capacitor/synapse@1.0.4': {}
+
+  '@capgo/background-geolocation@7.2.8(@capacitor/core@7.6.2)':
+    dependencies:
+      '@capacitor/core': 7.6.2
 
   '@capgo/capacitor-native-biometric@7.6.0(@capacitor/core@7.6.2)':
     dependencies:

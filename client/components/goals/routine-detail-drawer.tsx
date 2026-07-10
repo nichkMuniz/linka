@@ -22,8 +22,7 @@ import { ExerciseImage } from "@/components/shared/exercise-image";
 import { useLanguage } from "@/lib/language-context";
 import type { TranslationKey } from "@/lib/i18n";
 import { formatScheduledTime } from "@/hooks/use-routine-notifications";
-import { isCompletedToday, type RoutineCard, type RoutineItem } from "@/components/goals/goals-helpers";
-import { getSuggestedSetsForRoutine } from "@/components/goals/suggested-routines-data";
+import { getSuggestedSetsForCard, isCompletedToday, type RoutineCard, type RoutineItem } from "@/components/goals/goals-helpers";
 import type { UserGoal } from "@/lib/ritmofit-db";
 
 type EditorMode = null | "rename" | "time" | "goal";
@@ -85,11 +84,12 @@ export function RoutineDetailDrawer({
       return next;
     });
 
-  // Séries × reps sugeridos pelo programa (casado pelo nome da rotina), os
-  // mesmos exibidos no momento da criação. Rotina custom → mapa vazio.
+  // Séries × reps sugeridos pelo programa: program_meta da rotina (programas
+  // gerados pelo quiz) ou catálogo estático casado pelo nome, os mesmos
+  // exibidos no momento da criação. Rotina custom → mapa vazio.
   const suggestedSets = React.useMemo(
-    () => getSuggestedSetsForRoutine(card?.name ?? ""),
-    [card?.name],
+    () => getSuggestedSetsForCard(card),
+    [card],
   );
 
   React.useEffect(() => {
