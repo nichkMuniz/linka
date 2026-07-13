@@ -4,17 +4,6 @@ import {
   getUserPostsDb,
   getUserStatsDb,
   getUserRoutinesDb,
-  createRoutineDb,
-  createUserWorkoutsDb,
-  createCustomWorkoutDb,
-  createCustomDietDb,
-  getWorkoutsDb,
-  getDietsDb,
-  createUserDietsDb,
-  getHabitsDb,
-  createUserHabitsDb,
-  getRoutineTypeName,
-  getGoalByIdDb,
   updateRoutineGoalDb,
   getFollowersDb,
   getFollowingDb,
@@ -26,7 +15,6 @@ import {
   updatePostDb,
   updateUserProfileDb,
   removePostPhotoDb,
-  deleteRoutineDb,
   getPostLikeUsersDb,
   flushPendingIncentivesDb,
   getPostCommentsDb,
@@ -34,7 +22,6 @@ import {
   getCommercialOffersByUserIdDb,
   incrementOfferClickDb,
   type CommercialOffer,
-  getWorkoutHistoryDb,
   getUserActiveStoriesDb,
   getUserPostLikesDb,
   deleteAllUserDataDb,
@@ -42,9 +29,6 @@ import {
   type PostWithUser,
   type UserStats,
   type Routine,
-  type Workout,
-  type Diet,
-  type Habit,
   type UserGoal,
   type ShotWithUser,
   type CommercialProfile,
@@ -58,7 +42,6 @@ import {
   invalidateProfileCache,
 } from "@/lib/ritmofit-db";
 import { formatTimeAgo } from "@/lib/utils";
-import { Card, CardContent } from "@/components/ui/card";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -70,7 +53,6 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { ImageWithFallback } from "@/components/shared/image-with-fallback";
 import { UserAvatar } from "@/components/shared/user-avatar";
@@ -86,17 +68,11 @@ import { FollowButton } from "@/components/shared/follow-button";
 import { FollowListDrawer } from "@/components/profile/follow-list-drawer";
 import { SettingsDrawer } from "@/components/profile/settings-drawer";
 import { ShotEditorDrawer } from "@/components/profile/shot-editor-drawer";
-import { WorkoutHistoryDrawer } from "@/components/profile/workout-history-drawer";
 import { GoalDetailDrawer } from "@/components/goals/goal-detail-drawer";
 import { togglePostLike } from "../services/post.service";
-import { ExerciseImage } from "@/components/shared/exercise-image";
-import { fetchExerciseCatalog, type CatalogExercise } from "@/lib/exercise-catalog";
-import { fetchMealCatalog, type CatalogMeal } from "@/lib/diet-catalog";
-import { DietImage } from "@/components/shared/diet-image";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -105,16 +81,8 @@ import {
   DrawerContent,
   DrawerHeader,
   DrawerTitle,
-  DrawerDescription,
 } from "@/components/ui/drawer";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { ProfileSkeleton } from "@/components/shared/animated-loading";
@@ -123,15 +91,12 @@ import { ImageCropperDrawer } from "@/components/shared/image-cropper-drawer";
 import { profileShareUrl } from "@/lib/share-url";
 import {
   Edit2,
-  Plus,
   ArrowLeft,
   Check,
   Tag,
   Settings,
   Trash2,
   MessageSquare,
-  Filter,
-  Search,
   Share2,
   ArrowRight,
   ExternalLink,
@@ -155,10 +120,14 @@ export default function Profile() {
   const { userId } = useParams<{ userId?: string }>();
   const { t } = useLanguage();
 
-  // Pull-to-refresh state (handlers declared after loadProfile)
+  // Pull-to-refresh (handlers declared after loadProfile). Todo o gesto é
+  // controlado por refs + estilo imperativo no DOM: um setState por touchmove
+  // re-renderizava a árvore inteira do perfil a ~60fps durante o gesto.
   const pullStartY = React.useRef(0);
-  const [pullDistance, setPullDistance] = React.useState(0);
-  const [isPulling, setIsPulling] = React.useState(false);
+  const isPullingRef = React.useRef(false);
+  const pullDistanceRef = React.useRef(0);
+  const pullIndicatorRef = React.useRef<HTMLDivElement>(null);
+  const pullSpinnerRef = React.useRef<HTMLDivElement>(null);
   const PULL_THRESHOLD = 72;
 
   // Centralized confirmation dialog state (replaces native confirm())
@@ -196,10 +165,11 @@ export default function Profile() {
   const [isUpdatingPost, setIsUpdatingPost] = React.useState(false);
   const [removingPhoto, setRemovingPhoto] = React.useState(false);
   const [postLikes, setPostLikes] = React.useState<any[]>([]);
-  const [postComments, setPostComments] = React.useState<any[]>([]);
+  const [postCommentCount, setPostCommentCount] = React.useState(0);
   const [postUserLikes, setPostUserLikes] = React.useState<PostIncentiveType[]>([]);
   const postUserLikesRef = React.useRef<PostIncentiveType[]>([]);
-  const [isTogglingPostLike, setIsTogglingPostLike] = React.useState(false);
+  // Sequência da sincronização de incentivos — descarta respostas fora de ordem
+  const incentiveSyncSeqRef = React.useRef(0);
   const [isLoadingPostData, setIsLoadingPostData] = React.useState(false);
   const [isLikesModalOpen, setIsLikesModalOpen] = React.useState(false);
   const [selectedShot, setSelectedShot] = React.useState<ShotWithUser | null>(null);
@@ -213,55 +183,12 @@ export default function Profile() {
   });
   const [loading, setLoading] = React.useState(true);
   const [profileError, setProfileError] = React.useState(false);
-  const [isCreateRoutineOpen, setIsCreateRoutineOpen] = React.useState(false);
-  const [isCreatingRoutine, setIsCreatingRoutine] = React.useState(false);
-  const [selectedRoutineType, setSelectedRoutineType] = React.useState<
-    1 | 2 | 3 | null
-  >(null);
-  const [workouts, setWorkouts] = React.useState<Workout[]>([]);
-  const [workoutsLoading, setWorkoutsLoading] = React.useState(false);
-  const [selectedWorkoutIds, setSelectedWorkoutIds] = React.useState<
-    Set<string>
-  >(new Set());
-  const [isSavingWorkouts, setIsSavingWorkouts] = React.useState(false);
-  const [searchQueryWorkouts, setSearchQueryWorkouts] = React.useState("");
-  const [catalogExercises, setCatalogExercises] = React.useState<CatalogExercise[]>([]);
-  const [catalogMeals, setCatalogMeals] = React.useState<CatalogMeal[]>([]);
-  const [selectedMuscleGroups, setSelectedMuscleGroups] = React.useState<
-    Set<string>
-  >(new Set());
-  const [diets, setDiets] = React.useState<Diet[]>([]);
-  const [dietsLoading, setDietsLoading] = React.useState(false);
-  const [selectedDietIds, setSelectedDietIds] = React.useState<Set<string>>(
-    new Set(),
-  );
-  const [isSavingDiets, setIsSavingDiets] = React.useState(false);
-  const [searchQueryDiets, setSearchQueryDiets] = React.useState("");
-  const [habits, setHabits] = React.useState<Habit[]>([]);
-  const [habitsLoading, setHabitsLoading] = React.useState(false);
-  const [selectedHabitIds, setSelectedHabitIds] = React.useState<Set<string>>(
-    new Set(),
-  );
-  const [isSavingHabits, setIsSavingHabits] = React.useState(false);
-  const [expandedRoutineType, setExpandedRoutineType] = React.useState<
-    number | null
-  >(null);
-  const [goalIndicatorRoutineId, setGoalIndicatorRoutineId] = React.useState<
-    string | null
-  >(null);
-  const [linkedGoal, setLinkedGoal] = React.useState<UserGoal | null>(null);
+  // Batch 2 concluído — evita mostrar "(0)" nas tabs antes dos dados chegarem
+  const [tabsDataLoaded, setTabsDataLoaded] = React.useState(false);
   const [userGoals, setUserGoals] = React.useState<UserGoal[]>([]);
   const [profileStories, setProfileStories] = React.useState<StoryWithUser[]>([]);
   const [isStoryViewerOpen, setIsStoryViewerOpen] = React.useState(false);
   const [selectedProfileStory, setSelectedProfileStory] = React.useState<StoryWithUser | null>(null);
-  const [isUpdatingGoal, setIsUpdatingGoal] = React.useState(false);
-  const [workoutHistoryModalOpen, setWorkoutHistoryModalOpen] = React.useState(false);
-  const [selectedWorkoutForHistory, setSelectedWorkoutForHistory] = React.useState<Workout | null>(null);
-  const [workoutHistory, setWorkoutHistory] = React.useState<any[]>([]);
-  const [isLoadingWorkoutHistory, setIsLoadingWorkoutHistory] = React.useState(false);
-  const [deleteRoutineId, setDeleteRoutineId] = React.useState<string | null>(null);
-  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = React.useState(false);
-  const [isDeletingRoutine, setIsDeletingRoutine] = React.useState(false);
   const [showFollowersModal, setShowFollowersModal] = React.useState(false);
   const [showFollowingModal, setShowFollowingModal] = React.useState(false);
   // Indica se o usuário logado segue o dono do perfil (para regras de privacidade)
@@ -317,15 +244,27 @@ export default function Profile() {
 
   // Personalization state
 
-  const loadProfile = React.useCallback(async () => {
-    if (!profileUserId) return;
+  // Guard contra respostas fora de ordem: /perfil e /usuario/:id renderizam o
+  // mesmo componente montado, então navegar rápido de um perfil para outro
+  // dispara loads concorrentes — só o mais recente pode gravar estado.
+  const loadSeqRef = React.useRef(0);
 
-    // Reset profile-specific state so stale data from the previous user is never shown
-    setProfile(null);
-    setPosts([]);
-    setShots([]);
-    setRoutines([]);
-    setLoading(true);
+  const loadProfile = React.useCallback(async (opts?: { soft?: boolean }) => {
+    if (!profileUserId) return;
+    const seq = ++loadSeqRef.current;
+    const isStale = () => seq !== loadSeqRef.current;
+
+    setProfileError(false);
+    if (!opts?.soft) {
+      // Reset profile-specific state so stale data from the previous user is never shown.
+      // No refresh manual (soft) o conteúdo atual fica na tela enquanto os dados chegam.
+      setProfile(null);
+      setPosts([]);
+      setShots([]);
+      setRoutines([]);
+      setTabsDataLoaded(false);
+      setLoading(true);
+    }
 
     try {
       // Batch 1 — critical above-the-fold data: show immediately
@@ -334,12 +273,28 @@ export default function Profile() {
         getUserStatsDb(profileUserId),
         getUserPostsDb(profileUserId),
       ]);
+      if (isStale()) return;
       setProfile(profileData);
       setStats(statsData);
       setPosts(postsData);
       setLoading(false); // unblock UI as soon as critical data arrives
+    } catch (err: any) {
+      if (isStale()) return;
+      console.error("Error loading profile:", err);
+      toast({
+        title: t("profile_toast_load_error"),
+        description: t("retry"),
+        variant: "destructive",
+      });
+      setProfileError(true);
+      setLoading(false);
+      return;
+    }
 
-      // Batch 2 — below-the-fold tabs: load in background without blocking render
+    try {
+      // Batch 2 — below-the-fold tabs: load in background without blocking render.
+      // Uma falha aqui não pode derrubar o perfil já exibido pelo batch 1 —
+      // só avisa via toast e mantém a tela.
       const [
         routinesData,
         userGoalsData,
@@ -355,50 +310,65 @@ export default function Profile() {
         getCommercialOffersByUserIdDb(profileUserId),
         getCommercialPlansDb(profileUserId),
       ]);
+      if (isStale()) return;
       setRoutines(routinesData);
       setUserGoals(isViewingOtherProfile ? userGoalsData.filter((g) => g.visibility === 1) : userGoalsData);
       setShots(shotsData);
       setCommercialProfile(commercialProfileData);
       setProfileOffers(offersData.filter((o) => o.is_active));
       setServicePlans(commercialPlansData.map((p) => ({ name: p.name, price: p.price, description: p.description ?? undefined })));
-
-      // Batch 3 — stories: fire-and-forget
-      getUserActiveStoriesDb(profileUserId).then(setProfileStories).catch((err) => console.error("Erro ao carregar stories do perfil:", err));
-
-      // Status de seguimento do visitante (usado nas regras de privacidade)
-      if (isViewingOtherProfile) {
-        isFollowingDb(profileUserId).then(setViewerFollowsProfile).catch(() => setViewerFollowsProfile(false));
-      } else {
-        setViewerFollowsProfile(false);
-      }
+      setTabsDataLoaded(true);
     } catch (err: any) {
-      console.error("Error loading profile:", err);
+      if (isStale()) return;
+      console.error("Error loading profile tabs:", err);
       toast({
         title: t("profile_toast_load_error"),
         description: t("retry"),
         variant: "destructive",
       });
-      setProfileError(true);
-      setLoading(false);
     }
-  }, [profileUserId]);
 
-  // Pull-to-refresh handlers (declared after loadProfile to avoid forward reference)
+    // Batch 3 — stories: fire-and-forget
+    getUserActiveStoriesDb(profileUserId)
+      .then((stories) => { if (!isStale()) setProfileStories(stories); })
+      .catch((err) => console.error("Erro ao carregar stories do perfil:", err));
+
+    // Status de seguimento do visitante (usado nas regras de privacidade)
+    if (isViewingOtherProfile) {
+      isFollowingDb(profileUserId)
+        .then((follows) => { if (!isStale()) setViewerFollowsProfile(follows); })
+        .catch(() => { if (!isStale()) setViewerFollowsProfile(false); });
+    } else {
+      setViewerFollowsProfile(false);
+    }
+  }, [profileUserId, isViewingOtherProfile]);
+
+  // Pull-to-refresh handlers (declared after loadProfile to avoid forward reference).
+  // Atualizam o indicador direto no DOM — nenhum re-render React durante o gesto.
   const onTouchStart = React.useCallback((e: React.TouchEvent) => {
     if (window.scrollY > 0) return;
     pullStartY.current = e.touches[0].clientY;
-    setIsPulling(true);
+    isPullingRef.current = true;
+    pullDistanceRef.current = 0;
+    if (pullIndicatorRef.current) pullIndicatorRef.current.style.transition = "none";
   }, []);
 
   const onTouchMove = React.useCallback((e: React.TouchEvent) => {
-    if (!isPulling) return;
+    if (!isPullingRef.current) return;
     const delta = e.touches[0].clientY - pullStartY.current;
-    if (delta > 0) setPullDistance(Math.min(delta * 0.4, PULL_THRESHOLD + 20));
-  }, [isPulling]);
+    const dist = delta > 0 ? Math.min(delta * 0.4, PULL_THRESHOLD + 20) : 0;
+    pullDistanceRef.current = dist;
+    if (pullIndicatorRef.current) pullIndicatorRef.current.style.height = `${dist}px`;
+    if (pullSpinnerRef.current) {
+      pullSpinnerRef.current.style.transform = `rotate(${(dist / PULL_THRESHOLD) * 360}deg)`;
+      pullSpinnerRef.current.style.opacity = String(Math.min(dist / PULL_THRESHOLD, 1));
+    }
+  }, []);
 
   const onTouchEnd = React.useCallback(() => {
-    if (!isPulling) return;
-    if (pullDistance >= PULL_THRESHOLD) {
+    if (!isPullingRef.current) return;
+    isPullingRef.current = false;
+    if (pullDistanceRef.current >= PULL_THRESHOLD) {
       hapticLight();
       // Profile data is cached (long TTL) so it doesn't refetch on every screen
       // entry — a manual pull-to-refresh explicitly asks for fresh data, so bust
@@ -410,12 +380,18 @@ export default function Profile() {
         invalidateQueryCache(`userShots:${profileUserId}`);
         invalidateQueryCache(`commercialProfile:${profileUserId}`);
         invalidateQueryCache(`userActiveStories:${profileUserId}`);
+        if (user?.id) invalidateQueryCache(`isFollowing:${user.id}:${profileUserId}`);
       }
-      loadProfile();
+      // soft: mantém o conteúdo atual na tela em vez de voltar ao skeleton
+      loadProfile({ soft: true });
     }
-    setPullDistance(0);
-    setIsPulling(false);
-  }, [isPulling, pullDistance, loadProfile, profileUserId]);
+    pullDistanceRef.current = 0;
+    if (pullIndicatorRef.current) {
+      pullIndicatorRef.current.style.transition = "height .2s ease";
+      pullIndicatorRef.current.style.height = "0px";
+    }
+    if (pullSpinnerRef.current) pullSpinnerRef.current.style.opacity = "0";
+  }, [loadProfile, profileUserId, user?.id]);
 
   const handleViewPost = React.useCallback(async (post: PostWithUser) => {
     setSelectedPost(post);
@@ -434,7 +410,7 @@ export default function Profile() {
         getUserPostLikesDb(post.id),
       ]);
       setPostLikes(likes);
-      setPostComments(comments);
+      setPostCommentCount(comments.length);
       setPostUserLikes(userLikes);
     } catch (err) {
       console.error("Error loading post data:", err);
@@ -458,6 +434,13 @@ export default function Profile() {
             ? { ...p, description: editPostDescription, user_goal_id: editPostGoalId || null }
             : p,
         ),
+      );
+      // O drawer volta ao modo visualização lendo selectedPost — sem isso a
+      // descrição/meta antigas continuavam na tela até fechar e reabrir o post
+      setSelectedPost((prev) =>
+        prev && prev.id === selectedPost.id
+          ? { ...prev, description: editPostDescription, user_goal_id: editPostGoalId || null }
+          : prev,
       );
 
       setIsEditingPost(false);
@@ -496,24 +479,28 @@ export default function Profile() {
   // Keep ref always in sync so handleTogglePostIncentive can read current value without closure staleness
   React.useEffect(() => { postUserLikesRef.current = postUserLikes; }, [postUserLikes]);
 
-  const handleTogglePostIncentive = React.useCallback(async (type: PostIncentiveType) => {
-    if (!selectedPost || isTogglingPostLike) return;
-    setIsTogglingPostLike(true);
+  const handleTogglePostIncentive = React.useCallback((type: PostIncentiveType) => {
+    if (!selectedPost) return;
     const previousLikes = postUserLikesRef.current;
     const wasActive = previousLikes.includes(type);
+    // Otimista e não-bloqueante: a UI responde na hora e os botões continuam
+    // liberados; a escrita (debounced) e o refetch do contador rodam em
+    // segundo plano, com guard de sequência contra respostas fora de ordem.
     setPostUserLikes(wasActive ? previousLikes.filter((t) => t !== type) : [...previousLikes, type]);
-    try {
-      togglePostLike(selectedPost.id, type, !wasActive);
-      await flushPendingIncentivesDb(selectedPost.id);
-      const updatedLikes = await getPostLikeUsersDb(selectedPost.id);
-      setPostLikes(updatedLikes);
-    } catch (err) {
-      setPostUserLikes(previousLikes);
-      toast({ title: t("profile_toast_incentive_error"), description: t("retry"), variant: "destructive" });
-    } finally {
-      setIsTogglingPostLike(false);
-    }
-  }, [selectedPost, isTogglingPostLike]);
+    togglePostLike(selectedPost.id, type, !wasActive);
+    const seq = ++incentiveSyncSeqRef.current;
+    (async () => {
+      try {
+        await flushPendingIncentivesDb(selectedPost.id);
+        const updatedLikes = await getPostLikeUsersDb(selectedPost.id);
+        if (seq === incentiveSyncSeqRef.current) setPostLikes(updatedLikes);
+      } catch {
+        if (seq !== incentiveSyncSeqRef.current) return;
+        setPostUserLikes(previousLikes);
+        toast({ title: t("profile_toast_incentive_error"), description: t("retry"), variant: "destructive" });
+      }
+    })();
+  }, [selectedPost]);
 
   const handleDeletePost = React.useCallback(() => {
     if (!selectedPost) return;
@@ -525,6 +512,8 @@ export default function Profile() {
         try {
           await deletePostDb(selectedPost.id);
           setPosts((prevPosts) => prevPosts.filter((p) => p.id !== selectedPost.id));
+          // Reflete no card de stats e no rótulo da tab sem esperar o cache expirar
+          setStats((prev) => ({ ...prev, postsCount: Math.max(0, prev.postsCount - 1) }));
           setIsPostViewerOpen(false);
           setSelectedPost(null);
           toast({ title: t("newpost_success"), description: t("post_deleted_success") });
@@ -608,9 +597,6 @@ export default function Profile() {
     setIsShotEditorOpen(false);
     setIsStoryViewerOpen(false);
     setSelectedProfileStory(null);
-    setWorkoutHistoryModalOpen(false);
-    setSelectedWorkoutForHistory(null);
-    setIsDeleteConfirmOpen(false);
     setShowFollowersModal(false);
     setShowFollowingModal(false);
     setSelectedGoalForDrawer(null);
@@ -653,94 +639,6 @@ export default function Profile() {
     }
   }, [showFollowingModal, loadFollowingData]);
 
-  const openGoalIndicatorModal = async (routine: Routine) => {
-    setGoalIndicatorRoutineId(routine.id);
-
-    if (routine.goal_id) {
-      try {
-        const goal = await getGoalByIdDb(routine.goal_id);
-        setLinkedGoal(goal);
-      } catch (err) {
-        console.error("Error loading linked goal:", err);
-      }
-    } else {
-      setLinkedGoal(null);
-    }
-  };
-
-  const handleLinkGoal = async (goalId: string) => {
-    if (!goalIndicatorRoutineId || !user) return;
-
-    setIsUpdatingGoal(true);
-    try {
-      const updatedRoutine = await updateRoutineGoalDb(
-        goalIndicatorRoutineId,
-        goalId,
-      );
-      if (updatedRoutine) {
-        // Update the routines list
-        setRoutines(
-          routines.map((r) =>
-            r.id === goalIndicatorRoutineId ? updatedRoutine : r,
-          ),
-        );
-
-        // Update the linked goal display
-        const goal = await getGoalByIdDb(goalId);
-        setLinkedGoal(goal);
-
-        toast({
-          title: t("profile_toast_goal_linked"),
-          description: t("profile_toast_goal_linked_desc"),
-        });
-      }
-    } catch (err: any) {
-      console.error("Error linking goal:", err);
-      toast({
-        title: t("profile_toast_goal_link_error"),
-        description: err.message || t("retry"),
-        variant: "destructive",
-      });
-    } finally {
-      setIsUpdatingGoal(false);
-    }
-  };
-
-  const handleUnlinkGoal = async () => {
-    if (!goalIndicatorRoutineId || !user) return;
-
-    setIsUpdatingGoal(true);
-    try {
-      const updatedRoutine = await updateRoutineGoalDb(
-        goalIndicatorRoutineId,
-        null,
-      );
-      if (updatedRoutine) {
-        // Update the routines list
-        setRoutines(
-          routines.map((r) =>
-            r.id === goalIndicatorRoutineId ? updatedRoutine : r,
-          ),
-        );
-        setLinkedGoal(null);
-
-        toast({
-          title: t("profile_toast_goal_unlinked"),
-          description: t("profile_toast_goal_unlinked_desc"),
-        });
-      }
-    } catch (err: any) {
-      console.error("Error unlinking goal:", err);
-      toast({
-        title: t("profile_toast_goal_unlink_error"),
-        description: err.message || t("retry"),
-        variant: "destructive",
-      });
-    } finally {
-      setIsUpdatingGoal(false);
-    }
-  };
-
   const handleProfileEditGoal = async (goal: UserGoal, updates: { duration: number; quantity: number }) => {
     await updateUserGoalDb(goal.id, updates);
     const updated = await getUserGoalsByUserIdDb(profileUserId!);
@@ -762,267 +660,6 @@ export default function Profile() {
     setRoutines(updatedRoutines);
     setUserGoals(updatedGoals);
   };
-
-  const handleOpenWorkoutHistory = async (workout: Workout) => {
-    setSelectedWorkoutForHistory(workout);
-    setWorkoutHistoryModalOpen(true);
-
-    // Fetch workout history
-    setIsLoadingWorkoutHistory(true);
-    try {
-      if (!user) {
-        throw new Error("Usuário não autenticado");
-      }
-      const history = await getWorkoutHistoryDb(user.id, workout.id);
-      setWorkoutHistory(history || []);
-    } catch (err: any) {
-      const errorMsg = err?.message || String(err);
-      console.error("Error loading workout history:", errorMsg);
-      toast({
-        title: t("profile_toast_history_error"),
-        description: errorMsg || t("retry"),
-        variant: "destructive",
-      });
-      setWorkoutHistory([]);
-    } finally {
-      setIsLoadingWorkoutHistory(false);
-    }
-  };
-
-  const handleDeleteRoutine = async () => {
-    if (!deleteRoutineId || !user) return;
-
-    setIsDeletingRoutine(true);
-    try {
-      await deleteRoutineDb(deleteRoutineId, user.id);
-
-      setRoutines(routines.filter((r) => r.id !== deleteRoutineId));
-      setIsDeleteConfirmOpen(false);
-      setDeleteRoutineId(null);
-
-      toast({
-        title: t("profile_toast_routine_removed"),
-        description: t("profile_toast_routine_removed_desc"),
-      });
-    } catch (err: any) {
-      const errorMsg = err?.message || t("retry");
-      console.error("Error deleting routine:", errorMsg);
-      toast({
-        title: t("profile_toast_routine_delete_error"),
-        description: errorMsg,
-        variant: "destructive",
-      });
-    } finally {
-      setIsDeletingRoutine(false);
-    }
-  };
-
-  const handleSelectRoutineType = async (type: 1 | 2 | 3) => {
-    setSelectedRoutineType(type);
-
-    // If Exercicios is selected, load workouts + catalog
-    if (type === 1) {
-      setWorkoutsLoading(true);
-      try {
-        const [workoutsData, catalogData] = await Promise.all([
-          getWorkoutsDb(),
-          fetchExerciseCatalog().catch(() => [] as CatalogExercise[]),
-        ]);
-        setWorkouts(workoutsData);
-        setCatalogExercises(catalogData);
-      } catch (err: any) {
-        console.error("Error loading workouts:", err);
-        toast({
-          title: t("profile_toast_exercises_load_error"),
-          description: t("retry"),
-          variant: "destructive",
-        });
-        setSelectedRoutineType(null);
-      } finally {
-        setWorkoutsLoading(false);
-      }
-    } else if (type === 2) {
-      // If Dietas is selected, load diets + meal catalog
-      setDietsLoading(true);
-      try {
-        const [dietsData, mealCatalogData] = await Promise.all([
-          getDietsDb(),
-          fetchMealCatalog().catch(() => [] as CatalogMeal[]),
-        ]);
-        setDiets(dietsData);
-        setCatalogMeals(mealCatalogData);
-      } catch (err: any) {
-        console.error("Error loading diets:", err);
-        toast({
-          title: t("profile_toast_diets_load_error"),
-          description: t("retry"),
-          variant: "destructive",
-        });
-        setSelectedRoutineType(null);
-      } finally {
-        setDietsLoading(false);
-      }
-    } else if (type === 3) {
-      // If Habitos is selected, load habits
-      setHabitsLoading(true);
-      try {
-        const habitsData = await getHabitsDb();
-        setHabits(habitsData);
-      } catch (err: any) {
-        console.error("Error loading habits:", err);
-        toast({
-          title: t("profile_toast_habits_load_error"),
-          description: t("retry"),
-          variant: "destructive",
-        });
-        setSelectedRoutineType(null);
-      } finally {
-        setHabitsLoading(false);
-      }
-    }
-  };
-
-  const handleToggleMuscleGroup = (muscleGroup: string) => {
-    const newSelected = new Set(selectedMuscleGroups);
-    if (newSelected.has(muscleGroup)) {
-      newSelected.delete(muscleGroup);
-    } else {
-      newSelected.add(muscleGroup);
-    }
-    setSelectedMuscleGroups(newSelected);
-  };
-
-  const handleCreateRoutine = async () => {
-    if (!user || selectedRoutineType === null) return;
-
-    setIsCreatingRoutine(true);
-    try {
-      const newRoutine = await createRoutineDb(
-        user.id,
-        selectedRoutineType,
-      );
-      if (newRoutine) {
-        setRoutines([newRoutine, ...routines]);
-        toast({
-          title: t("profile_toast_routine_created"),
-          description: `"${getRoutineTypeName(selectedRoutineType)}"`,
-        });
-        setIsCreateRoutineOpen(false);
-        setSelectedRoutineType(null);
-        setWorkouts([]);
-      }
-    } catch (err: any) {
-      console.error("Error creating routine:", err);
-      toast({
-        title: t("profile_toast_routine_create_error"),
-        description: err.message || t("retry"),
-        variant: "destructive",
-      });
-    } finally {
-      setIsCreatingRoutine(false);
-    }
-  };
-
-  const handleSaveWorkouts = async () => {
-    if (!user || selectedWorkoutIds.size === 0) return;
-
-    setIsSavingWorkouts(true);
-    try {
-      const workoutIdsArray = Array.from(selectedWorkoutIds);
-      await createUserWorkoutsDb(user.id, workoutIdsArray);
-
-      toast({
-        title: t("profile_toast_exercises_saved"),
-      });
-
-      setIsCreateRoutineOpen(false);
-      setSelectedRoutineType(null);
-      setWorkouts([]);
-      setSelectedWorkoutIds(new Set());
-
-      // Reload routines
-      if (user) {
-        setRoutines(await getUserRoutinesDb(user.id));
-      }
-    } catch (err: any) {
-      console.error("Error saving workouts:", err);
-      toast({
-        title: t("profile_toast_exercises_save_error"),
-        description: err.message || t("retry"),
-        variant: "destructive",
-      });
-    } finally {
-      setIsSavingWorkouts(false);
-    }
-  };
-
-  const handleSaveDiets = async () => {
-    if (!user || selectedDietIds.size === 0) return;
-
-    setIsSavingDiets(true);
-    try {
-      const dietIdsArray = Array.from(selectedDietIds);
-      await createUserDietsDb(user.id, dietIdsArray);
-
-      toast({
-        title: t("profile_toast_diets_saved"),
-      });
-
-      setIsCreateRoutineOpen(false);
-      setSelectedRoutineType(null);
-      setDiets([]);
-      setSelectedDietIds(new Set());
-
-      // Reload routines
-      if (user) {
-        setRoutines(await getUserRoutinesDb(user.id));
-      }
-    } catch (err: any) {
-      console.error("Error saving diets:", err);
-      toast({
-        title: t("profile_toast_diets_save_error"),
-        description: err.message || t("retry"),
-        variant: "destructive",
-      });
-    } finally {
-      setIsSavingDiets(false);
-    }
-  };
-
-  const handleSaveHabits = async () => {
-    if (!user || selectedHabitIds.size === 0) return;
-
-    setIsSavingHabits(true);
-    try {
-      const habitIdsArray = Array.from(selectedHabitIds);
-      await createUserHabitsDb(user.id, habitIdsArray);
-
-      toast({
-        title: t("profile_toast_habits_saved"),
-      });
-
-      setIsCreateRoutineOpen(false);
-      setSelectedRoutineType(null);
-      setHabits([]);
-      setSelectedHabitIds(new Set());
-
-      // Reload routines
-      if (user) {
-        setRoutines(await getUserRoutinesDb(user.id));
-      }
-    } catch (err: any) {
-      console.error("Error saving habits:", err);
-      toast({
-        title: t("profile_toast_habits_save_error"),
-        description: err.message || t("retry"),
-        variant: "destructive",
-      });
-    } finally {
-      setIsSavingHabits(false);
-    }
-  };
-
-  // Phone formatting function for Brazilian format (XX) XXXXX-XXXX
 
   const handleDeleteAccount = async () => {
     if (!user) return;
@@ -1100,7 +737,7 @@ export default function Profile() {
     if (!user) return;
     showConfirm(
       t("profile_remove_cover"),
-      t("profile_remove_cover"),
+      t("profile_remove_cover_desc"),
       async () => {
         setIsSavingCover(true);
         try {
@@ -1147,21 +784,18 @@ export default function Profile() {
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
     >
-      {/* Pull-to-refresh indicator */}
-      {pullDistance > 0 && (
+      {/* Pull-to-refresh indicator — altura/rotação aplicadas via ref (onTouchMove) */}
+      <div
+        ref={pullIndicatorRef}
+        className="flex items-center justify-center overflow-hidden"
+        style={{ height: 0 }}
+      >
         <div
-          className="flex items-center justify-center overflow-hidden transition-all"
-          style={{ height: `${pullDistance}px` }}
-        >
-          <div
-            className="h-6 w-6 rounded-full border-2 border-brand border-t-transparent transition-transform"
-            style={{
-              transform: `rotate(${(pullDistance / PULL_THRESHOLD) * 360}deg)`,
-              opacity: pullDistance / PULL_THRESHOLD,
-            }}
-          />
-        </div>
-      )}
+          className="h-6 w-6 shrink-0 rounded-full border-2 border-brand border-t-transparent"
+          ref={pullSpinnerRef}
+          style={{ opacity: 0 }}
+        />
+      </div>
 
       {/* Profile Header with banner */}
       <div className="relative">
@@ -1240,7 +874,7 @@ export default function Profile() {
         {isViewingOtherProfile && (
           <button
             onClick={() => navigate(-1)}
-            aria-label="Voltar"
+            aria-label={t("goals_back")}
             className="absolute z-30 flex items-center justify-center active:scale-95 transition-transform"
             style={{ top: "8px", left: "12px", width: 40, height: 40, borderRadius: "50%", background: "rgba(0,0,0,.3)", backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)", border: "1px solid rgba(255,255,255,.18)", color: "#fff" }}
           >
@@ -1296,7 +930,12 @@ export default function Profile() {
               <div className="flex gap-2 items-center">
                 <FollowButton
                   targetUserId={profileUserId!}
-                  onFollowChange={() => { getUserStatsDb(profileUserId!).then(setStats); }}
+                  onFollowChange={(isNowFollowing) => {
+                    // Reflete na hora nas regras de privacidade (posts ocultos
+                    // para não-seguidores) — sem esperar recarregar o perfil
+                    setViewerFollowsProfile(isNowFollowing);
+                    getUserStatsDb(profileUserId!).then(setStats);
+                  }}
                 />
                 <button
                   onClick={() => navigate(`/comunidade?user=${profileUserId}`)}
@@ -1452,7 +1091,7 @@ export default function Profile() {
                       <button
                         onClick={() => setIsPlansModalOpen(true)}
                         className="ml-auto flex items-center gap-1 text-xs text-brand hover:text-brand/80 transition-colors"
-                        title="Ver planos e preços"
+                        title={t("profile_plans_tooltip")}
                       >
                         <ListChecks className="h-3.5 w-3.5" />
                         <span>{servicePlans.length} {servicePlans.length === 1 ? t("profile_plan_singular") : t("profile_plan_plural")}</span>
@@ -1562,7 +1201,7 @@ export default function Profile() {
         readOnly={isViewingOtherProfile}
       />
 
-      {/* Posts, Shots, Routines and Store Tabs */}
+      {/* Posts, Shots and Store Tabs */}
       <Tabs defaultValue="posts" className="w-full px-4">
         <TabsList className="w-full justify-start gap-7 !h-auto !bg-transparent !rounded-none !p-0 border-b border-white/10">
           <TabsTrigger
@@ -1575,7 +1214,7 @@ export default function Profile() {
             value="shots"
             className="!rounded-none !bg-transparent !shadow-none !px-0 pb-3 -mb-px border-b-2 border-transparent !text-white/45 data-[state=active]:!border-white data-[state=active]:!text-white text-[14px] font-[640]"
           >
-            {t("nav_clips")} ({shots.length})
+            {t("nav_clips")}{tabsDataLoaded ? ` (${shots.length})` : ""}
           </TabsTrigger>
           {profileOffers.length > 0 && (
             <TabsTrigger
@@ -1606,6 +1245,8 @@ export default function Profile() {
                   <img
                     src={post.photo}
                     alt={post.description}
+                    loading="lazy"
+                    decoding="async"
                     className="h-full w-full object-cover group-hover:scale-110 transition-transform"
                   />
                   <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
@@ -1645,6 +1286,7 @@ export default function Profile() {
                       src={shot.video_url}
                       playsInline
                       muted
+                      preload="metadata"
                       className="h-full w-full object-cover group-hover:scale-110 transition-transform"
                     />
                     <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
@@ -1657,7 +1299,8 @@ export default function Profile() {
                         setSelectedShot(shot);
                         setIsShotEditorOpen(true);
                       }}
-                      className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-lg bg-black/50 hover:bg-black/70"
+                      aria-label={t("edit")}
+                      className="absolute top-2 right-2 p-1.5 rounded-lg bg-black/55 active:scale-95 transition-transform"
                     >
                       <Settings className="h-4 w-4 text-white" />
                     </button>
@@ -1674,823 +1317,6 @@ export default function Profile() {
           )}
         </TabsContent>
 
-        {/* Routines Tab - removed */}
-        {false && <TabsContent value="routines_disabled" className="space-y-4 fade-in">
-          <Drawer
-            open={isCreateRoutineOpen}
-            onOpenChange={(open) => {
-              setIsCreateRoutineOpen(open);
-              if (!open) {
-                setSelectedRoutineType(null);
-                setWorkouts([]);
-                setSelectedWorkoutIds(new Set());
-                setSearchQueryWorkouts("");
-                setSelectedMuscleGroups(new Set());
-                setDiets([]);
-                setSelectedDietIds(new Set());
-                setHabits([]);
-                setSelectedHabitIds(new Set());
-              }
-            }}
-          >
-            <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
-              <DrawerHeader className="shrink-0">
-                <DrawerTitle>Nova Rotina</DrawerTitle>
-              </DrawerHeader>
-              <div className="flex-1 overflow-y-auto px-4 pb-24">
-                {selectedRoutineType === null ? (
-                  <>
-                    <DialogHeader>
-                      <DialogTitle>Nova Rotina</DialogTitle>
-                      <DialogDescription>
-                        Escolha o tipo de rotina que deseja criar
-                      </DialogDescription>
-                    </DialogHeader>
-
-                    <div className="grid grid-cols-1 gap-3">
-                      {[1, 2, 3].map((typeCode) => (
-                        <Button
-                          key={typeCode}
-                          variant="outline"
-                          className="h-auto p-4 justify-start text-base rounded-lg"
-                          onClick={() =>
-                            handleSelectRoutineType(typeCode as 1 | 2 | 3)
-                          }
-                          disabled={isCreatingRoutine}
-                        >
-                          {getRoutineTypeName(typeCode)}
-                        </Button>
-                      ))}
-                    </div>
-                  </>
-                ) : selectedRoutineType === 1 ? (
-                  <>
-                    <DialogHeader>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="w-fit"
-                        onClick={() => setSelectedRoutineType(null)}
-                      >
-                        <ArrowLeft className="h-4 w-4 mr-2" />
-                        Voltar
-                      </Button>
-                      <DialogTitle>Selecione um ou mais Exercícios</DialogTitle>
-                    </DialogHeader>
-
-                    <Input
-                      placeholder="Buscar exercício por nome..."
-                      value={searchQueryWorkouts}
-                      onChange={(e) => setSearchQueryWorkouts(e.target.value)}
-                      className="mb-4"
-                    />
-
-                    {/* Muscle Group Filter */}
-                    {(() => {
-                      // Merge local workouts + catalog into a unified list
-                      const localWorkoutNames = new Set(workouts.map((w) => w.name.toLowerCase()));
-                      const catalogFiltered = catalogExercises.filter(
-                        (c) => !localWorkoutNames.has(c.name.toLowerCase()),
-                      );
-
-                      const unified = [
-                        ...workouts.filter((w) => w.photo).map((w) => ({
-                          key: `local-${w.id}`,
-                          id: w.id,
-                          name: w.name,
-                          description: w.description,
-                          photo: w.photo,
-                          muscleGroup: w.muscle_group || null,
-                          isLocal: true,
-                        })),
-                        ...catalogFiltered.map((c) => ({
-                          key: `catalog-${c.id}`,
-                          id: `catalog-${c.id}`,
-                          name: c.name,
-                          description: c.description,
-                          photo: c.image,
-                          muscleGroup: c.category || null,
-                          isLocal: false,
-                          catalogId: c.id,
-                          catalogImage: c.image,
-                        })),
-                      ];
-
-                      const allMuscleGroups = Array.from(
-                        new Set(unified.map((u) => u.muscleGroup).filter(Boolean)),
-                      ) as string[];
-
-                      const query = searchQueryWorkouts.toLowerCase();
-                      const filtered = unified.filter(
-                        (u) =>
-                          (u.name.toLowerCase().includes(query) ||
-                            (u.description && u.description.toLowerCase().includes(query))) &&
-                          (selectedMuscleGroups.size === 0 ||
-                            selectedMuscleGroups.has(u.muscleGroup || "")),
-                      );
-
-                      return (
-                        <>
-                          {allMuscleGroups.length > 0 && (
-                            <div className="space-y-2 mb-4">
-                              <div className="flex items-center gap-2">
-                                <Filter className="h-4 w-4 text-muted-foreground" />
-                                <p className="text-xs font-medium text-muted-foreground">
-                                  Filtrar por grupo muscular:
-                                </p>
-                              </div>
-                              <div className="flex flex-wrap gap-2">
-                                {allMuscleGroups.map((muscleGroup) => (
-                                  <button
-                                    key={muscleGroup}
-                                    onClick={() => handleToggleMuscleGroup(muscleGroup)}
-                                    className={`px-3 py-1.5 text-xs rounded-full border transition-all ${selectedMuscleGroups.has(muscleGroup)
-                                      ? "border-brand bg-brand/20 text-brand"
-                                      : "border-border/60 text-muted-foreground hover:border-border/80"
-                                      }`}
-                                  >
-                                    {muscleGroup}
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-
-                          {workoutsLoading ? (
-                            <div className="space-y-3">
-                              {Array.from({ length: 4 }).map((_, i) => (
-                                <div key={i} className="h-16 rounded-lg bg-muted animate-pulse" />
-                              ))}
-                            </div>
-                          ) : filtered.length > 0 ? (
-                            <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-2">
-                              {filtered.map((exercise) => {
-                                const isSelected = selectedWorkoutIds.has(exercise.id);
-                                return (
-                                  <button
-                                    key={exercise.key}
-                                    onClick={async () => {
-                                      if (!exercise.isLocal && !selectedWorkoutIds.has(exercise.id)) {
-                                        // Create the catalog exercise in the local DB first
-                                        try {
-                                          const created = await createCustomWorkoutDb(
-                                            exercise.name,
-                                            exercise.description,
-                                            exercise.muscleGroup || "",
-                                            exercise.photo,
-                                          );
-                                          // Update unified list to use the new local ID
-                                          exercise.id = created.id;
-                                          exercise.isLocal = true;
-                                          const newSelected = new Set(selectedWorkoutIds);
-                                          newSelected.add(created.id);
-                                          setSelectedWorkoutIds(newSelected);
-                                        } catch (err: any) {
-                                          console.error("Error creating catalog exercise:", err);
-                                          toast({
-                                            title: "Erro ao adicionar exercício",
-                                            description: err?.message || "Tente novamente.",
-                                            variant: "destructive",
-                                          });
-                                        }
-                                      } else {
-                                        const newSelected = new Set(selectedWorkoutIds);
-                                        if (isSelected) {
-                                          newSelected.delete(exercise.id);
-                                        } else {
-                                          newSelected.add(exercise.id);
-                                        }
-                                        setSelectedWorkoutIds(newSelected);
-                                      }
-                                    }}
-                                    className={`w-full p-3 border-2 rounded-lg transition-all text-left group ${isSelected
-                                      ? "border-brand bg-brand/5"
-                                      : "border-border/60 hover:border-border/80 hover:bg-muted/50"
-                                      }`}
-                                  >
-                                    <div className="flex items-center gap-3">
-                                      <ExerciseImage
-                                        photo={exercise.photo}
-                                        name={exercise.name}
-                                        muscleGroup={exercise.muscleGroup}
-                                      />
-                                      <div className="flex-1 min-w-0">
-                                        <p
-                                          className={`font-medium text-sm transition-colors ${isSelected
-                                            ? "text-brand"
-                                            : "group-hover:text-brand"
-                                            }`}
-                                        >
-                                          {exercise.name}
-                                        </p>
-                                        {exercise.description && (
-                                          <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">
-                                            {exercise.description}
-                                          </p>
-                                        )}
-                                        {exercise.muscleGroup && (
-                                          <span className="inline-block text-[10px] font-medium text-brand bg-brand/10 px-2 py-0.5 rounded-full mt-1">
-                                            {exercise.muscleGroup}
-                                          </span>
-                                        )}
-                                      </div>
-                                      <div className="shrink-0">
-                                        {isSelected ? (
-                                          <Check className="h-5 w-5 text-brand" />
-                                        ) : (
-                                          <div className="h-5 w-5 rounded border border-border/60" />
-                                        )}
-                                      </div>
-                                    </div>
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          ) : (
-                            <div className="text-center py-6 text-sm text-muted-foreground">
-                              Nenhum exercício encontrado.
-                            </div>
-                          )}
-                        </>
-                      );
-                    })()}
-
-                    {/* Floating Save Button */}
-                    {selectedWorkoutIds.size > 0 && (
-                      <div className="sticky bottom-0 left-0 right-0 pt-4 border-t border-border/60 bg-background" style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
-                        <Button
-                          onClick={handleSaveWorkouts}
-                          disabled={isSavingWorkouts}
-                          className="w-full rounded-full"
-                        >
-                          {isSavingWorkouts
-                            ? "Salvando..."
-                            : `Salvar ${selectedWorkoutIds.size} Exercício${selectedWorkoutIds.size > 1 ? "s" : ""}`}
-                        </Button>
-                      </div>
-                    )}
-                  </>
-                ) : selectedRoutineType === 2 ? (
-                  <>
-                    <DialogHeader>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="w-fit"
-                        onClick={() => setSelectedRoutineType(null)}
-                      >
-                        <ArrowLeft className="h-4 w-4 mr-2" />
-                        Voltar
-                      </Button>
-                      <DialogTitle>Selecione uma ou mais Dietas</DialogTitle>
-                    </DialogHeader>
-
-                    {dietsLoading ? (
-                      <div className="space-y-3">
-                        {Array.from({ length: 4 }).map((_, i) => (
-                          <div key={i} className="h-16 rounded-lg bg-muted animate-pulse" />
-                        ))}
-                      </div>
-                    ) : (() => {
-                      const localNames = new Set(diets.map((d) => d.name.toLowerCase()));
-                      const catalogFiltered = catalogMeals.filter((c) => !localNames.has(c.name.toLowerCase()));
-                      const allDiets = [
-                        ...diets.filter((d) => d.photo).map((d) => ({
-                          key: `local-${d.id}`, id: d.id, name: d.name, description: d.description,
-                          photo: d.photo, category: null as string | null, calories: d.calories, isLocal: true,
-                        })),
-                        ...catalogFiltered.map((c) => ({
-                          key: `catalog-${c.id}`, id: `catalog-${c.id}`, name: c.name, description: c.description,
-                          photo: c.image, category: c.category || null, calories: 0, isLocal: false, catalogId: c.id,
-                        })),
-                      ];
-                      const filtered = searchQueryDiets
-                        ? allDiets.filter((d) => d.name.toLowerCase().includes(searchQueryDiets.toLowerCase()))
-                        : allDiets;
-
-                      return filtered.length > 0 ? (
-                        <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-2">
-                          <div className="relative shrink-0">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                            <Input
-                              type="text"
-                              placeholder="Buscar dieta..."
-                              value={searchQueryDiets}
-                              onChange={(e) => setSearchQueryDiets(e.target.value)}
-                              className="pl-10 h-9"
-                            />
-                          </div>
-                          {filtered.map((diet) => {
-                            const isSelected = selectedDietIds.has(diet.id);
-                            return (
-                              <button
-                                key={diet.key}
-                                onClick={async () => {
-                                  if (!diet.isLocal && !selectedDietIds.has(diet.id)) {
-                                    try {
-                                      const created = await createCustomDietDb(
-                                        diet.name, diet.description, diet.photo, diet.calories,
-                                      );
-                                      diet.id = created.id;
-                                      diet.isLocal = true;
-                                      const newSelected = new Set(selectedDietIds);
-                                      newSelected.add(created.id);
-                                      setSelectedDietIds(newSelected);
-                                    } catch (err: any) {
-                                      toast({ title: "Erro ao adicionar dieta", description: err?.message || "Tente novamente.", variant: "destructive" });
-                                    }
-                                  } else {
-                                    const newSelected = new Set(selectedDietIds);
-                                    if (isSelected) newSelected.delete(diet.id);
-                                    else newSelected.add(diet.id);
-                                    setSelectedDietIds(newSelected);
-                                  }
-                                }}
-                                className={`w-full p-4 border-2 rounded-lg transition-all text-left group ${isSelected ? "border-brand bg-brand/5" : "border-border/60 hover:border-border/80 hover:bg-muted/50"
-                                  }`}
-                              >
-                                <div className="flex items-start gap-3">
-                                  <DietImage photo={diet.photo} name={diet.name} category={diet.category} className="h-14 w-14" />
-                                  <div className="flex-1 min-w-0">
-                                    <p className={`font-medium transition-colors ${isSelected ? "text-brand" : "group-hover:text-brand"}`}>
-                                      {diet.name}
-                                    </p>
-                                    {diet.category && (
-                                      <span className="inline-block text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground mt-1">
-                                        {diet.category}
-                                      </span>
-                                    )}
-                                    {diet.calories > 0 && (
-                                      <p className="text-xs font-medium text-brand/80 mt-1">{diet.calories} cal</p>
-                                    )}
-                                  </div>
-                                  {isSelected && (
-                                    <div className="shrink-0 mt-1">
-                                      <Check className="h-5 w-5 text-brand" />
-                                    </div>
-                                  )}
-                                </div>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      ) : (
-                        <div className="text-center py-6 text-sm text-muted-foreground">
-                          Nenhuma dieta disponível.
-                        </div>
-                      );
-                    })()}
-
-                    {/* Floating Save Button */}
-                    {selectedDietIds.size > 0 && (
-                      <div className="sticky bottom-0 left-0 right-0 pt-4 border-t border-border/60 bg-background" style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
-                        <Button
-                          onClick={handleSaveDiets}
-                          disabled={isSavingDiets}
-                          className="w-full rounded-full"
-                        >
-                          {isSavingDiets
-                            ? "Salvando..."
-                            : `Salvar ${selectedDietIds.size} Dieta${selectedDietIds.size > 1 ? "s" : ""}`}
-                        </Button>
-                      </div>
-                    )}
-                  </>
-                ) : selectedRoutineType === 3 ? (
-                  <>
-                    <DialogHeader>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="w-fit"
-                        onClick={() => setSelectedRoutineType(null)}
-                      >
-                        <ArrowLeft className="h-4 w-4 mr-2" />
-                        Voltar
-                      </Button>
-                      <DialogTitle>Selecione um ou mais Hábitos</DialogTitle>
-                    </DialogHeader>
-
-                    {habitsLoading ? (
-                      <div className="space-y-3">
-                        {Array.from({ length: 4 }).map((_, i) => (
-                          <div key={i} className="h-16 rounded-lg bg-muted animate-pulse" />
-                        ))}
-                      </div>
-                    ) : habits.length > 0 ? (
-                      <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-2">
-                        {habits.map((habit) => {
-                          const isSelected = selectedHabitIds.has(habit.id);
-                          return (
-                            <button
-                              key={habit.id}
-                              onClick={() => {
-                                const newSelected = new Set(selectedHabitIds);
-                                if (isSelected) {
-                                  newSelected.delete(habit.id);
-                                } else {
-                                  newSelected.add(habit.id);
-                                }
-                                setSelectedHabitIds(newSelected);
-                              }}
-                              className={`w-full p-4 border-2 rounded-lg transition-all text-left space-y-2 group ${isSelected
-                                ? "border-brand bg-brand/5"
-                                : "border-border/60 hover:border-border/80 hover:bg-muted/50"
-                                }`}
-                            >
-                              <div className="flex items-start gap-3">
-                                <div className="h-16 w-16 rounded bg-muted flex-shrink-0" />
-                                <div className="flex-1 min-w-0">
-                                  <p
-                                    className={`font-medium transition-colors ${isSelected
-                                      ? "text-brand"
-                                      : "group-hover:text-brand"
-                                      }`}
-                                  >
-                                    {habit.name}
-                                  </p>
-                                  {habit.description && (
-                                    <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
-                                      {habit.description}
-                                    </p>
-                                  )}
-                                </div>
-                                {isSelected && (
-                                  <div className="shrink-0 mt-1">
-                                    <Check className="h-5 w-5 text-brand" />
-                                  </div>
-                                )}
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <div className="text-center py-6 text-sm text-muted-foreground">
-                        Nenhum hábito disponível.
-                      </div>
-                    )}
-
-                    {/* Floating Save Button */}
-                    {selectedHabitIds.size > 0 && (
-                      <div className="sticky bottom-0 left-0 right-0 pt-4 border-t border-border/60 bg-background" style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
-                        <Button
-                          onClick={handleSaveHabits}
-                          disabled={isSavingHabits}
-                          className="w-full rounded-full"
-                        >
-                          {isSavingHabits
-                            ? "Salvando..."
-                            : `Salvar ${selectedHabitIds.size} Hábito${selectedHabitIds.size > 1 ? "s" : ""}`}
-                        </Button>
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <>
-                    <DialogHeader>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="w-fit"
-                        onClick={() => setSelectedRoutineType(null)}
-                      >
-                        <ArrowLeft className="h-4 w-4 mr-2" />
-                        Voltar
-                      </Button>
-                      <DialogTitle>
-                        {getRoutineTypeName(selectedRoutineType)}
-                      </DialogTitle>
-                    </DialogHeader>
-
-                    <div className="text-center py-6">
-                      <Button
-                        onClick={() => handleCreateRoutine()}
-                        disabled={isCreatingRoutine}
-                        className="rounded-full"
-                      >
-                        {isCreatingRoutine ? "Criando..." : "Criar Rotina"}
-                      </Button>
-                    </div>
-                  </>
-                )}
-              </div>
-            </DrawerContent>
-          </Drawer>
-
-          {routines.length > 0 ? (
-            <div className="space-y-4">
-              {[1, 2, 3].map((typeCode) => {
-                const routinesOfType = routines.filter(
-                  (r) => r.type === typeCode,
-                );
-                if (routinesOfType.length === 0) return null;
-
-                const isExpanded = expandedRoutineType === typeCode;
-
-                // Get items based on routine type
-                let itemsOfType: any[] = [];
-
-                return (
-                  <div
-                    key={typeCode}
-                    className="border border-border/60 rounded-lg overflow-hidden"
-                  >
-                    <div className="flex items-center justify-between p-4 hover:bg-muted/50 transition-colors">
-                      <button
-                        onClick={() =>
-                          setExpandedRoutineType(isExpanded ? null : typeCode)
-                        }
-                        className="flex-1 flex items-center gap-3"
-                      >
-                        <div className="inline-flex items-center justify-center h-10 w-10 rounded-full bg-brand/10">
-                          <span className="text-xs font-semibold text-brand">
-                            {typeCode}
-                          </span>
-                        </div>
-                        <div className="text-left">
-                          <p className="font-semibold">
-                            {getRoutineTypeName(typeCode)}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {itemsOfType.length}{" "}
-                            {typeCode === 1
-                              ? "exercício"
-                              : typeCode === 2
-                                ? "alimento"
-                                : "hábito"}
-                            {itemsOfType.length !== 1 ? "s" : ""}
-                          </p>
-                        </div>
-                      </button>
-
-                      {/* Goal Indicator */}
-                      <Drawer
-                        open={goalIndicatorRoutineId === routinesOfType[0]?.id}
-                        onOpenChange={(open) => {
-                          if (!open) {
-                            setGoalIndicatorRoutineId(null);
-                            setLinkedGoal(null);
-                          }
-                        }}
-                      >
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openGoalIndicatorModal(routinesOfType[0]);
-                          }}
-                          className={`shrink-0 p-2 rounded-lg transition-all ${routinesOfType[0]?.goal_id
-                            ? "bg-brand/10 text-brand hover:bg-brand/20"
-                            : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                            }`}
-                          title={
-                            routinesOfType[0]?.goal_id
-                              ? t("profile_linked_goal_label")
-                              : t("goals_link_goal")
-                          }
-                        >
-                          <Tag className="h-5 w-5" />
-                        </button>
-
-                        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
-                          <DrawerHeader className="shrink-0">
-                            <DrawerTitle>
-                              {linkedGoal ? t("profile_linked_goal_label") : t("goals_link_goal")}
-                            </DrawerTitle>
-                          </DrawerHeader>
-
-                          <div className="flex-1 overflow-y-auto px-4 pb-6">
-                            {linkedGoal ? (
-                              <div className="space-y-4">
-                                <div className="p-4 border border-border/60 rounded-lg bg-muted/30">
-                                  <p className="text-sm font-medium mb-2">
-                                    {linkedGoal.description}
-                                  </p>
-                                  <div className="grid grid-cols-2 gap-2 text-xs">
-                                    <div>
-                                      <span className="text-muted-foreground">
-                                        {t("goals_duration")}:
-                                      </span>
-                                      <p className="font-medium">
-                                        {linkedGoal.duration} {t("goals_streak_days")}
-                                      </p>
-                                    </div>
-                                    <div>
-                                      <span className="text-muted-foreground">
-                                        {t("goals_quantity")}:
-                                      </span>
-                                      <p className="font-medium">
-                                        {linkedGoal.quantity}
-                                      </p>
-                                    </div>
-                                  </div>
-                                </div>
-
-                                <Button
-                                  onClick={handleUnlinkGoal}
-                                  disabled={isUpdatingGoal}
-                                  variant="outline"
-                                  className="w-full rounded-full"
-                                >
-                                  {isUpdatingGoal
-                                    ? t("profile_unlinking_goal")
-                                    : t("profile_unlink_goal_btn")}
-                                </Button>
-                              </div>
-                            ) : (
-                              <div className="space-y-3">
-                                {userGoals.length > 0 ? (
-                                  userGoals.map((goal) => (
-                                    <button
-                                      key={goal.id}
-                                      onClick={() => handleLinkGoal(goal.goal_id)}
-                                      disabled={isUpdatingGoal}
-                                      className="w-full p-3 border border-border/60 rounded-lg hover:border-brand/60 hover:bg-brand/5 transition-all text-left"
-                                    >
-                                      <p className="font-medium text-sm">
-                                        {goal.description}
-                                      </p>
-                                      <div className="flex gap-3 mt-1 text-xs text-muted-foreground">
-                                        <span>{t("goals_duration")}: {goal.duration} {t("goals_streak_days")}</span>
-                                        <span>{t("goals_quantity")}: {goal.quantity}</span>
-                                      </div>
-                                    </button>
-                                  ))
-                                ) : (
-                                  <p className="text-sm text-muted-foreground text-center py-6">
-                                    {t("profile_no_linked_goals")}
-                                  </p>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        </DrawerContent>
-                      </Drawer>
-
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setDeleteRoutineId(routinesOfType[0]?.id || null);
-                          setIsDeleteConfirmOpen(true);
-                        }}
-                        className="shrink-0 p-2 rounded-lg text-muted-foreground hover:bg-red-500/10 hover:text-red-500 transition-all"
-                        title="Deletar rotina"
-                      >
-                        <Trash2 className="h-5 w-5" />
-                      </button>
-
-                      <div
-                        className={`transform transition-transform ${isExpanded ? "rotate-180" : ""
-                          }`}
-                      >
-                        <svg
-                          className="w-5 h-5"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M19 14l-7 7m0 0l-7-7m7 7V3"
-                          />
-                        </svg>
-                      </div>
-                    </div>
-
-                    {isExpanded && (
-                      <div className="border-t border-border/60 p-4 space-y-3 bg-muted/20">
-                        {itemsOfType.length > 0 ? (
-                          <div className="space-y-3">
-                            {itemsOfType.map((item) => (
-                              <Card
-                                key={item.id}
-                                className="border-border/60 bg-background cursor-pointer hover:bg-muted/30 transition-colors"
-                                onClick={() => {
-                                  if (typeCode === 1) {
-                                    handleOpenWorkoutHistory({
-                                      id: item.workout_id,
-                                      name: item.workoutName,
-                                      description: item.workoutDescription || undefined,
-                                      photo: item.workoutPhoto || undefined,
-                                    } as any);
-                                  }
-                                }}
-                              >
-                                <CardContent className="p-4">
-                                  <p className="font-medium text-sm">
-                                    {typeCode === 1
-                                      ? item.workoutName
-                                      : typeCode === 2
-                                        ? item.dietName
-                                        : item.habitName}
-                                  </p>
-                                  {typeCode === 1 &&
-                                    item.workoutDescription && (
-                                      <p className="text-xs text-muted-foreground line-clamp-1 mt-1">
-                                        {item.workoutDescription}
-                                      </p>
-                                    )}
-                                  {typeCode === 2 &&
-                                    item.dietDescription && (
-                                      <p className="text-xs text-muted-foreground line-clamp-1 mt-1">
-                                        {item.dietDescription}
-                                      </p>
-                                    )}
-                                  {typeCode === 3 &&
-                                    item.habitDescription && (
-                                      <p className="text-xs text-muted-foreground line-clamp-1 mt-1">
-                                        {item.habitDescription}
-                                      </p>
-                                    )}
-                                  <div className="flex gap-3 mt-2 text-xs text-muted-foreground">
-                                    {typeCode === 1 && (
-                                      <>
-                                        {item.series && (
-                                          <span>Séries: {item.series}</span>
-                                        )}
-                                        {item.duration && (
-                                          <span>
-                                            Duração: {item.duration}min
-                                          </span>
-                                        )}
-                                        {item.volume && (
-                                          <span>
-                                            Volume: {item.volume}kg
-                                          </span>
-                                        )}
-                                      </>
-                                    )}
-                                    {typeCode === 2 && (
-                                      <>
-                                        {item.dietCalories && (
-                                          <span>
-                                            {item.dietCalories} cal
-                                          </span>
-                                        )}
-                                        {item.calories && (
-                                          <span>
-                                            Total: {item.calories} cal
-                                          </span>
-                                        )}
-                                      </>
-                                    )}
-                                  </div>
-                                </CardContent>
-                              </Card>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="text-sm text-muted-foreground text-center py-4">
-                            Nenhum{" "}
-                            {typeCode === 1
-                              ? "exercício"
-                              : typeCode === 2
-                                ? "alimento"
-                                : "hábito"}{" "}
-                            vinculado
-                          </p>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="space-y-4">
-              <div className="rounded-lg border border-border/60 bg-muted/30 p-6 text-center">
-                <p className="text-sm text-muted-foreground">
-                  Nenhuma rotina criada ainda.
-                </p>
-              </div>
-              <div className="flex justify-center">
-                <Button
-                  onClick={() => setIsCreateRoutineOpen(true)}
-                  className="rounded-full"
-                >
-                  <Plus className="h-4 w-4 mr-2" />
-                  Rotina
-                </Button>
-              </div>
-            </div>
-          )}
-
-          {/* Add routine button when routines exist */}
-          {routines.length > 0 && (
-            <div className="flex justify-center pt-4">
-              <Button
-                onClick={() => setIsCreateRoutineOpen(true)}
-                className="rounded-full"
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Rotina
-              </Button>
-            </div>
-          )}
-        </TabsContent>}
-
         {/* Serviços / Vitrine Tab */}
         {profileOffers.length > 0 && (
           <TabsContent value="vitrine" className="space-y-4">
@@ -2499,7 +1325,7 @@ export default function Profile() {
               <div className="rounded-2xl bg-card border border-border/50 overflow-hidden">
                 {commercialProfile.business_banner_url && (
                   <div className="h-24 w-full overflow-hidden">
-                    <img src={commercialProfile.business_banner_url} alt="Banner" className="w-full h-full object-cover" />
+                    <img src={commercialProfile.business_banner_url} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" />
                   </div>
                 )}
                 <div className="flex items-center gap-3 p-4">
@@ -2552,6 +1378,8 @@ export default function Profile() {
                         <img
                           src={offer.image_url}
                           alt={offer.title}
+                          loading="lazy"
+                          decoding="async"
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                         />
                       </div>
@@ -2591,7 +1419,7 @@ export default function Profile() {
                           )}
                           <button
                             onClick={() => {
-                              incrementOfferClickDb(offer.id, offer.user_id);
+                              incrementOfferClickDb(offer.id, offer.user_id).catch(() => { });
                               if (offer.link_url) Browser.open({ url: offer.link_url });
                             }}
                             className="flex items-center gap-1.5 h-9 px-4 rounded-xl bg-brand text-white text-xs font-bold hover:bg-brand/90 transition-colors shrink-0"
@@ -2812,14 +1640,14 @@ export default function Profile() {
                               type={type}
                               isActive={postUserLikes.includes(type)}
                               onClick={() => handleTogglePostIncentive(type)}
-                              loading={isTogglingPostLike}
                             />
                           ))}
                           {!isEditingPost && selectedPost && (
                             <div className="ml-auto">
                               <PostCommentsDialog
                                 postId={selectedPost.id}
-                                commentCount={postComments.length}
+                                commentCount={postCommentCount}
+                                onCountChange={setPostCommentCount}
                                 isPostOwner={!isViewingOtherProfile}
                               />
                             </div>
@@ -2940,46 +1768,6 @@ export default function Profile() {
         text={shareDrawerText}
         url={shareDrawerUrl}
         title={t("profile_share_title")}
-      />
-
-      {/* Delete Routine Confirmation Dialog */}
-      <Dialog open={isDeleteConfirmOpen} onOpenChange={setIsDeleteConfirmOpen}>
-        <DialogContent className="max-w-sm" onOpenAutoFocus={(e) => e.preventDefault()}>
-          <DialogHeader>
-            <DialogTitle>{t("profile_delete_routine_title")}</DialogTitle>
-            <DialogDescription>
-              {t("profile_delete_routine_desc")}
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="flex gap-3 mt-6">
-            <Button
-              variant="outline"
-              className="flex-1"
-              onClick={() => setIsDeleteConfirmOpen(false)}
-              disabled={isDeletingRoutine}
-            >
-              {t("cancel")}
-            </Button>
-            <Button
-              variant="destructive"
-              className="flex-1"
-              onClick={handleDeleteRoutine}
-              disabled={isDeletingRoutine}
-            >
-              {isDeletingRoutine ? t("profile_deleting") : t("delete")}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Workout History Modal */}
-      <WorkoutHistoryDrawer
-        open={workoutHistoryModalOpen}
-        onOpenChange={setWorkoutHistoryModalOpen}
-        workout={selectedWorkoutForHistory}
-        history={workoutHistory}
-        isLoading={isLoadingWorkoutHistory}
       />
 
       {/* Flow Viewer Modal */}

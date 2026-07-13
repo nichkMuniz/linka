@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/use-toast";
 import { followUserDb, unfollowUserDb, isFollowingDb } from "@/lib/ritmofit-db";
 import { useAuth } from "@/hooks/useAuth";
+import { useLanguage } from "@/lib/language-context";
 
 interface FollowButtonProps {
   targetUserId: string;
@@ -24,6 +25,7 @@ export function FollowButton({
   onFollowChange,
 }: FollowButtonProps) {
   const { user } = useAuth();
+  const { t } = useLanguage();
   const [isFollowing, setIsFollowing] = React.useState(initialIsFollowing ?? false);
   const [isLoading, setIsLoading] = React.useState(false);
 
@@ -45,8 +47,8 @@ export function FollowButton({
 
       if (!user) {
         toast({
-          title: "Faça login",
-          description: "Você precisa estar logado para seguir usuários.",
+          title: t("follow_login_title"),
+          description: t("follow_login_desc"),
         });
         return;
       }
@@ -64,28 +66,28 @@ export function FollowButton({
 
         if (!success) {
           setIsFollowing(wasFollowing);
-          toast({ title: "Erro", description: "Tente novamente.", variant: "destructive" });
+          toast({ title: t("error"), description: t("retry"), variant: "destructive" });
         } else {
           onFollowChange?.(!wasFollowing);
           toast({
-            title: wasFollowing ? "Deixado de seguir" : "Seguindo",
+            title: wasFollowing ? t("follow_toast_unfollowed_title") : t("follow_btn_following"),
             description: wasFollowing
-              ? "Você deixou de seguir este usuário."
-              : "Você começou a seguir este usuário.",
+              ? t("follow_toast_unfollowed_desc")
+              : t("follow_toast_followed_desc"),
           });
         }
       } catch (err: any) {
         setIsFollowing(wasFollowing);
         toast({
-          title: "Erro",
-          description: err?.message || "Não foi possível atualizar o seguimento.",
+          title: t("error"),
+          description: err?.message || t("retry"),
           variant: "destructive",
         });
       } finally {
         setIsLoading(false);
       }
     },
-    [user, isFollowing, isLoading, targetUserId, onFollowChange]
+    [user, isFollowing, isLoading, targetUserId, onFollowChange, t]
   );
 
   if (variant === "overlay") {
@@ -97,7 +99,7 @@ export function FollowButton({
         className="flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold transition-all disabled:opacity-50 bg-white text-black hover:bg-white/90"
       >
         <UserPlus className="h-3 w-3" />
-        Seguir
+        {t("follow_btn_follow")}
       </button>
     );
   }
@@ -113,12 +115,12 @@ export function FollowButton({
       {isFollowing ? (
         <>
           <Check className="h-4 w-4" />
-          Seguindo
+          {t("follow_btn_following")}
         </>
       ) : (
         <>
           <UserPlus className="h-4 w-4" />
-          Seguir
+          {t("follow_btn_follow")}
         </>
       )}
     </Button>

@@ -60,15 +60,19 @@ Como a tela sempre exibe exatamente **1 post**, ela não tem scroll de página �
 
 ### Menu de Opções (⋮) — topo-direita, sobreposto
 - Botão circular translúcido (`backdrop-blur`), visível apenas para o dono do post
-- **Editar** — abre `EditPostDrawer`
+- **Editar** — abre `EditPostDrawer` (descrição, meta vinculada e **pessoas marcadas** — ver `docs/01-feed.md`). O `onSaved` devolve `(newDescription, newTaggedUsers)` e a tela atualiza o post em memória sem refetch
 - **Excluir** — `AlertDialog` de confirmação → `deletePostDb`
 
 ### Descrição (com truncamento — igual ao feed)
 - Sobreposta na parte inferior da foto, texto branco com `textShadow` para legibilidade
 - Trunca em **80 caracteres** (ou na primeira quebra de linha) com botão "ver mais" (`feed_description_more`)
 - Ao expandir, o texto completo ganha um fundo `glass` (`rgba(0,0,0,.45)` + blur) e botão "ver menos" (`feed_description_less`) para recolher
-- Hashtags (`#token`) são destacadas em azul claro (`renderWithHashtags`, `client/lib/post-visuals.tsx`) — mesma função usada no feed
+- Hashtags (`#token`) são destacadas em azul claro (`renderWithHashtags`, `client/lib/post-visuals.tsx`) — mesma função usada no feed. **Clicáveis:** tocar numa hashtag navega para `/tag/:tag` (ver `docs/16-hashtag.md`). `renderWithHashtags` aceita um callback opcional `onHashtagClick(tag)`; feed e PostDetail passam `(tag) => navigate('/tag/'+tag)`. Só a parte `#tag` do token é clicável (pontuação final fica fora do link)
 - Constante `DESC_MAX_CHARS = 80` compartilhada com o `PostCard` via `client/lib/post-visuals.tsx`
+
+### Pessoas Marcadas (linha "com fulano")
+- Quando o post tem pessoas marcadas (`post.taggedUsers`, carregado por `getPostByIdDb` a partir de `post_tags`), uma linha "👥 com {nick}" (ícone `UsersRound`) aparece no overlay inferior, **acima da descrição** — mesmo padrão do feed
+- 1 pessoa marcada → toque navega direto para `/usuario/:id`; 2+ → rótulo "com {nick} e mais {n}" e o toque abre o `FollowListDrawer` (título "Pessoas marcadas", cada linha navega ao perfil e tem `FollowButton`)
 
 ### Pill "Ver treino" (só em posts de resumo de treino)
 - Quando o post carrega um `workout_summary`, renderiza o `WorkoutDetailButton` (`client/components/shared/workout-detail-dialog.tsx`) no overlay inferior, acima do indicador de carrossel
@@ -83,6 +87,7 @@ Como a tela sempre exibe exatamente **1 post**, ela não tem scroll de página �
 | Incentivos (6 tipos) | Esquerda | `PostIncentiveButton` |
 | Contagem de incentivos | Direita (antes do separador) | Abre `PostLikesModal` |
 | Comentários | Direita | `PostCommentsDialog` |
+| Enviar para amigo (avião de papel, 2026-07-12) | Direita | Abre `SendToFriendDrawer` — envia o post via mensagem privada (prefixo `[post]:<postId>`) |
 
 Fundo com efeito vidro (`GLASS_ACTION` de `client/lib/post-visuals.tsx`), mesma barra usada no feed.
 
@@ -118,7 +123,7 @@ Ao chegar via notificação com `location.state = { openLikes: true }`, o modal 
 
 | Dado | Função DB |
 |---|---|
-| Post | `getPostByIdDb(postId)` |
+| Post (inclui `taggedUsers` de `post_tags`) | `getPostByIdDb(postId)` |
 | Estatísticas de incentivo | `getPostLikesDb(postId)` |
 | Incentivos do usuário logado | `getUserPostLikesDb(postId)` |
 | Meta vinculada (se houver) | `getUserGoalByIdDb(post.user_goal_id)` |

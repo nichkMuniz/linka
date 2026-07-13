@@ -32,6 +32,7 @@ Documentação técnica de todas as tabelas do banco de dados público (`public`
 | [messages](#messages) | Mensagens diretas entre usuários |
 | [notifications](#notifications) | Notificações de usuários |
 | [post_complaint](#post_complaint) | Denúncias de posts |
+| [post_tags](#post_tags) | Pessoas marcadas em posts (estilo Instagram) |
 | [posts](#posts) | Posts do feed |
 | [promotion_comments](#promotion_comments) | Comentários em promoções da Vitrine |
 | [promotion_likes](#promotion_likes) | Curtidas em promoções |
@@ -657,6 +658,7 @@ Notificações geradas para os usuários (follows, likes, comentários, duelos).
 | 6 | Reação em comentário | `follower_id`, `post_id` ou `shots_id` ou `flow_id` |
 | 7 | Reação em check-in de duelo | `follower_id`, `duel_check_in_id` |
 | 8 | Comentário em promoção | `follower_id`, `post_id` (= promotion_id) |
+| 9 | Marcado em um post | `follower_id` (autor do post), `post_id` |
 
 **Como as notificações são criadas:** por **triggers AFTER INSERT** nas tabelas de origem (não pelo código do cliente). Funções `SECURITY DEFINER` que buscam o dono do conteúdo e inserem em `notifications`:
 
@@ -669,6 +671,7 @@ Notificações geradas para os usuários (follows, likes, comentários, duelos).
 | `comments` | `trigger_notify_post_comment` | `notify_post_comment()` | type 3 (post) |
 | `shots_comments` | `notify_shots_comment` | `notify_shots_comment()` | type 3 (shot) |
 | `flow_comments` | `trg_notify_flow_comment` | `notify_flow_comment()` | type 3 (flow) |
+| `post_tags` | `trg_notify_post_tag` | `notify_post_tag()` | type 9 (marcado em post) |
 
 > A trigger `notify-push-on-notification` (AFTER INSERT em `notifications`) chama a edge function `send-push-notification` para qualquer linha inserida — ou seja, o push é automático.
 > As triggers de flow foram adicionadas em `docs/migrations/20260521-flow-notifications.sql`.
@@ -688,6 +691,30 @@ Denúncias de posts do feed por usuários.
 | `post_id` | uuid | — | — | Post denunciado |
 | `reason` | text | — | — | Motivo da denúncia |
 | `created_at` | timestamptz | ✓ | `now()` | Data da denúncia |
+
+---
+
+## post_tags
+
+Pessoas marcadas em posts do feed (estilo Instagram — "marcar quem está junto"). Criada na migração `docs/migrations/20260710-post-tags.sql`.
+
+| Coluna | Tipo | Obrigatório | Padrão | Descrição |
+|---|---|---|---|---|
+| `id` | uuid | PK | `gen_random_uuid()` | Identificador único |
+| `post_id` | uuid | FK → `posts.id` ON DELETE CASCADE | — | Post onde a pessoa foi marcada |
+| `user_id` | uuid | FK → `auth.users` ON DELETE CASCADE | — | Pessoa marcada |
+| `created_at` | timestamptz | ✓ | `now()` | Data da marcação |
+
+**Constraint:** `unique(post_id, user_id)` — uma marcação por pessoa por post.
+**Índices:** `post_tags_post_id_idx (post_id)`, `post_tags_user_id_idx (user_id)`.
+**RLS:**
+- **SELECT:** pública (`true`) — marcações aparecem no feed para qualquer usuário.
+- **INSERT:** apenas o dono do post (`EXISTS` em `posts` com `user_id = auth.uid()`).
+- **DELETE:** o dono do post ou a própria pessoa marcada (pode se desmarcar).
+
+**Trigger:** `trg_notify_post_tag` (AFTER INSERT) → `notify_post_tag()` (SECURITY DEFINER) insere notificação **type 9** para a pessoa marcada (ignora auto-marcação); o push é automático via `notify-push-on-notification`.
+
+**Funções relacionadas (`ritmofit-db.ts`):** `createPostDb` (5º parâmetro `taggedUserIds`), `getPostTagsBatchDb` (batch por lista de posts — usado pelo feed e por `getPostByIdDb`) e `setPostTagsDb` (edição — aplica o **diff**: insere só os novos marcados, para a trigger notificar apenas eles, e remove quem saiu; invalida o cache `post:{id}`).
 
 ---
 
@@ -1051,6 +1078,26 @@ Perfil fitness do usuário — respostas do **quiz de personalização** do flux
 **RLS:** `fitness_profile_manage_own` — usuário só lê/escreve a própria linha (`auth.uid() = user_id`).
 
 > Migration: `docs/migrations/20260708-fitness-profile-and-program-meta.sql`
+
+---
+
+## user_weight_logs
+
+Histórico de **peso corporal** do usuário — alimenta o card "Peso corporal" e o gráfico de tendência na tela de Metas (`weight-tracker-card.tsx`, ver `docs/05-metas.md`). Um registro por usuário por dia (upsert por `(user_id, logged_at)`).
+
+| Coluna | Tipo | Obrigatório | Padrão | Descrição |
+|---|---|---|---|---|
+| `id` | uuid | PK | `gen_random_uuid()` | Identificador único |
+| `user_id` | uuid | FK → `auth.users` (on delete cascade) | — | Usuário |
+| `weight` | numeric(6,2) | ✓ | — | Peso em kg (`> 0 and < 1000`, check constraint) |
+| `logged_at` | date | ✓ | `current_date` | Dia do registro (único por usuário) |
+| `created_at` | timestamptz | — | `now()` | Data de criação |
+
+- **UNIQUE** `(user_id, logged_at)` — registrar de novo no mesmo dia **atualiza** o valor (upsert).
+- **RLS:** `weight_logs_select_own` / `_insert_own` / `_update_own` / `_delete_own` — usuário só lê/escreve/apaga os próprios registros (`auth.uid() = user_id`).
+- Funções: `getWeightLogsDb(limit)` (ordena asc para o gráfico), `addWeightLogDb(weight, loggedAt?)` (upsert + sincroniza `profiles.weight`), `deleteWeightLogDb(id)`.
+
+> Migration: `docs/migrations/20260713-user-weight-logs.sql`
 
 ---
 

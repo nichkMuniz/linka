@@ -51,7 +51,7 @@ export function getNetworkStatus(): NetworkStatus {
   return { ...networkStatus };
 }
 
-function isTransientNetworkError(err: unknown): boolean {
+export function isTransientNetworkError(err: unknown): boolean {
   if (!err) return false;
   const anyErr = err as any;
   const name = String(anyErr?.name ?? "").toLowerCase();

@@ -13,6 +13,7 @@ import {
   createShotDb,
   type UserGoal,
   type UserProfile,
+  type SearchUser,
   incrementGoalProgressDb,
 } from "@/lib/ritmofit-db";
 import {
@@ -39,12 +40,14 @@ import {
   ChevronDown,
   Images,
   FolderOpen,
+  UserRoundPlus,
 } from "lucide-react";
 import { useLanguage } from "@/lib/language-context";
 import { PhotoLibrary, type PhotoLibraryAsset, type PhotoLibraryAlbum } from "@capgo/capacitor-photo-library";
 import { Geolocation } from "@capacitor/geolocation";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { EmojiPickerDrawer } from "@/components/shared/emoji-picker-drawer";
+import { TagPeopleDrawer } from "@/components/shared/tag-people-drawer";
 import {
   InlineCropPreview,
   CroppedThumb,
@@ -131,6 +134,15 @@ export default function NewPost() {
   const [selectedGoalId, setSelectedGoalId] = React.useState<string>(
     () => sessionStorage.getItem("newpost_goal_id") || "",
   );
+  // ── Marcação de pessoas (estilo Instagram) ──
+  const [taggedUsers, setTaggedUsers] = React.useState<SearchUser[]>(() => {
+    try {
+      return JSON.parse(sessionStorage.getItem("newpost_tagged_users") || "[]");
+    } catch {
+      return [];
+    }
+  });
+  const [tagPeopleOpen, setTagPeopleOpen] = React.useState(false);
 
   const [selectedVideoFile, setSelectedVideoFile] = React.useState<File | null>(
     () => videoDraft.file,
@@ -193,6 +205,7 @@ export default function NewPost() {
   React.useEffect(() => { sessionStorage.setItem("newpost_step", step); }, [step]);
   React.useEffect(() => { sessionStorage.setItem("newpost_description", description); }, [description]);
   React.useEffect(() => { sessionStorage.setItem("newpost_goal_id", selectedGoalId); }, [selectedGoalId]);
+  React.useEffect(() => { sessionStorage.setItem("newpost_tagged_users", JSON.stringify(taggedUsers)); }, [taggedUsers]);
   React.useEffect(() => { sessionStorage.setItem("newpost_video_description", videoDescription); }, [videoDescription]);
   React.useEffect(() => { sessionStorage.setItem("newpost_tab", mediaType === "shot" ? "video" : "images"); }, [mediaType]);
 
@@ -788,7 +801,9 @@ export default function NewPost() {
         const { data: urlData } = supabase.storage.from("posts").getPublicUrl(filePath);
         uploadedUrls.push(urlData.publicUrl);
       }
-      await withNetworkRetry(() => createPostDb(uploadedUrls, description, selectedGoalId || null));
+      await withNetworkRetry(() =>
+        createPostDb(uploadedUrls, description, selectedGoalId || null, null, taggedUsers.map((u) => u.id)),
+      );
       if (selectedGoalId) {
         try { await incrementGoalProgressDb(selectedGoalId); } catch {}
       }
@@ -802,9 +817,11 @@ export default function NewPost() {
       setCurrentPreviewIndex(0);
       setDescription("");
       setSelectedGoalId("");
+      setTaggedUsers([]);
       setStep("select");
       sessionStorage.removeItem("newpost_description");
       sessionStorage.removeItem("newpost_goal_id");
+      sessionStorage.removeItem("newpost_tagged_users");
       sessionStorage.removeItem("newpost_step");
       navigate("/", { state: { refreshFeed: true } });
     } catch (err: any) {
@@ -813,7 +830,7 @@ export default function NewPost() {
     } finally {
       setIsSubmitting(false);
     }
-  }, [user, selectedFiles, previewUrls, cropTransforms, description, selectedGoalId, navigate, t]);
+  }, [user, selectedFiles, previewUrls, cropTransforms, description, selectedGoalId, taggedUsers, navigate, t]);
 
   const handleVideoSubmit = React.useCallback(async () => {
     if (!user || !selectedVideoFile) {
@@ -1538,6 +1555,48 @@ export default function NewPost() {
                 {t("newpost_goal_progress_hint")}
               </div>
             )}
+
+            {/* Marcar pessoas (estilo Instagram) */}
+            <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".06em", color: "rgba(255,255,255,.45)", margin: "22px 4px 10px" }}>
+              {t("newpost_tag_people_section")}
+            </div>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+              {taggedUsers.map((u) => (
+                <span
+                  key={u.id}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 8,
+                    padding: "6px 10px 6px 6px", borderRadius: 18,
+                    background: "linear-gradient(rgba(91,140,255,.16),rgba(157,107,255,.08))",
+                    border: "1px solid rgba(123,99,242,.4)",
+                  }}
+                >
+                  <UserAvatar photo={u.photo} nickname={u.nickname} size="sm" />
+                  <span style={{ fontSize: 13, fontWeight: 620, color: "#fff", maxWidth: 110, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {u.nickname}
+                  </span>
+                  <button
+                    onClick={() => setTaggedUsers((prev) => prev.filter((s) => s.id !== u.id))}
+                    aria-label={t("tag_people_remove").replace("{name}", u.nickname)}
+                    style={{ display: "flex", alignItems: "center", color: "rgba(255,255,255,.6)" }}
+                  >
+                    <X width={14} height={14} />
+                  </button>
+                </span>
+              ))}
+              <button
+                onClick={() => setTagPeopleOpen(true)}
+                style={{
+                  display: "flex", alignItems: "center", gap: 8,
+                  padding: "12px 18px", borderRadius: 18,
+                  border: "1px dashed rgba(255,255,255,.2)",
+                  color: "rgba(255,255,255,.6)", fontSize: 13, fontWeight: 600,
+                }}
+              >
+                <UserRoundPlus width={15} height={15} strokeWidth={2.2} />
+                {t("newpost_tag_people_add")}
+              </button>
+            </div>
           </>
         )}
       </div>
@@ -1645,6 +1704,13 @@ export default function NewPost() {
         open={emojiPickerOpen}
         onOpenChange={setEmojiPickerOpen}
         onSelect={handleSelectEmoji}
+      />
+
+      <TagPeopleDrawer
+        open={tagPeopleOpen}
+        onOpenChange={setTagPeopleOpen}
+        selected={taggedUsers}
+        onChange={setTaggedUsers}
       />
     </div>
   );

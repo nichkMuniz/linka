@@ -44,6 +44,8 @@ ETAPA 2 — Legenda e publicação
 ├──────────────────────────────────┤
 │  Vincular a uma meta (opcional)  │
 ├──────────────────────────────────┤
+│  Marcar pessoas (opcional)       │  ← chips dos marcados + botão "Marcar"
+├──────────────────────────────────┤
 │  [     Publicar / Pub. Shot    ] │  ← botão principal
 └──────────────────────────────────┘
 ```
@@ -128,6 +130,16 @@ Logo abaixo da `Textarea`, três atalhos que inserem texto **na posição do cur
 - Se sem metas ou pelo atalho "+ Nova meta": navega para `/metas?tab=metas&action=create-goal` — o parâmetro `action=create-goal` faz a tela de Metas **já abrir o wizard de criação direto no passo `goal-origin`** (ver `docs/05-metas.md`), em vez de só cair na tela
 - Hint verde com ícone `Sparkles` quando meta selecionada
 
+### Marcar Pessoas (somente POST) — estilo Instagram
+Seção "MARCAR PESSOAS · OPCIONAL" logo abaixo da seção de metas, para marcar quem está junto no post:
+
+- Botão tracejado **"Marcar"** (ícone `UserRoundPlus`) abre o **`TagPeopleDrawer`** (`client/components/shared/tag-people-drawer.tsx`): lista quem o usuário segue (`getFollowingDb`) e, ao digitar na busca, também procura qualquer pessoa do app (`searchUsersDb`, debounce de 300ms, resultados mesclados sem duplicatas e sem o próprio usuário). Seleção por toque (check com gradiente da marca), botão "Concluir" fecha o drawer
+- Máximo de **10 pessoas por post** (`MAX_TAGGED_PEOPLE`); ao exceder, toast destrutivo (`tag_people_max_title`/`tag_people_max_desc`)
+- Cada pessoa selecionada vira um **chip** (avatar + nickname + `X` para remover) ao lado do botão "Marcar"
+- A seleção persiste na sessão (`newpost_tagged_users`) junto com o restante do rascunho e é limpa ao publicar
+- Ao publicar, os IDs vão no 5º parâmetro de `createPostDb`, que insere em `post_tags` **após** criar o post (falha na marcação não derruba o post). A trigger `trg_notify_post_tag` gera notificação **type 9** ("marcou você em uma publicação") para cada marcado — ver `docs/14-database-schema.md` e `docs/10-notificacoes.md`
+- Não disponível para SHOT
+
 ### Botão Publicar
 - Fixo no rodapé com `env(safe-area-inset-bottom)`
 - "Publicar" (POST) ou "Publicar Shot" (SHOT)
@@ -143,6 +155,7 @@ Campos automaticamente salvos na sessão:
 |---|---|
 | `newpost_description` | Texto da descrição do post |
 | `newpost_goal_id` | ID da meta selecionada para o post |
+| `newpost_tagged_users` | Array JSON das pessoas marcadas (`SearchUser[]`) |
 | `newpost_video_description` | Texto da descrição do vídeo |
 | `newpost_video_goal_id` | ID da meta selecionada para o vídeo |
 | `newpost_tab` | Aba ativa ao sair da tela |
@@ -178,6 +191,8 @@ Campos automaticamente salvos na sessão:
 | Dado | Função DB |
 |---|---|
 | Metas do usuário | `getUserGoalsDb()` |
+| Pessoas que o usuário segue (drawer de marcação) | `getFollowingDb()` |
+| Busca global de pessoas (drawer de marcação) | `searchUsersDb(query)` |
 
 ---
 

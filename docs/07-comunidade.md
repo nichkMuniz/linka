@@ -132,6 +132,8 @@ Exibe:
 - Mensagens de imagem: prefixo `[image]:url` → renderizadas como `<img>` clicável. Ao tocar, abre um **visualizador fullscreen in-app** (overlay preto via portal, botão de fechar e fechar ao tocar fora) — a URL do Supabase Storage **não** é exposta ao usuário (não usa mais o `Browser` do Capacitor)
 - Mensagens de áudio: prefixo `[audio]:url` → renderizadas como player `<audio controls>` com `preload="auto"` (pré-carrega o arquivo assim que a bolha monta, para que a reprodução comece instantaneamente ao tocar play, sem o atraso de buffering do `preload="metadata"`); gravação usa MediaRecorder API priorizando **MP4/AAC** (`audio/mp4;codecs=mp4a.40.2` → `audio/mp4` → `audio/aac`), com WebM/Opus apenas como fallback — MP4/AAC é reproduzível nativamente no WebView do iOS (alvo do app), evitando atraso/falha que o WebM causa no iOS; upload para `posts/message-audio/` no Supabase Storage (extensão `.mp4`/`.webm` conforme o tipo do blob)
 - Permissão de microfone já declarada no `Info.plist` iOS (`NSMicrophoneUsageDescription`)
+- **Posts/Shots compartilhados (2026-07-12):** prefixos `[post]:<postId>` e `[shot]:<shotId>` → renderizados como **card rico clicável** (`SharedContentMessage` em `components/community/`): avatar + nome do autor, thumbnail (foto do post ou frame do vídeo do shot com ícone play), descrição truncada em 2 linhas e rótulo "Ver post"/"Ver shot". Tocar navega para `/post/:id` ou `/shots` (com `state.shotId` para scroll direto ao shot). Conteúdo apagado exibe estado "Conteúdo indisponível" (estilo Instagram). O envio parte do `SendToFriendDrawer` (ver `docs/13-layouts-e-componentes.md`)
+- Em previews (última mensagem na lista de conversas, citação de reply e banner de resposta), mensagens especiais exibem rótulo curto traduzido em vez do texto bruto: `🎤 Áudio`, `🖼️ Imagem`, `📤 Post`, `🎬 Shot` (helper `specialMessageLabel` em `Community.tsx`)
 
 **Realtime:**
 - Novas mensagens aparecem em tempo real via Supabase Realtime (canal `messages-{userId}`, evento `INSERT` na tabela `messages`)
@@ -370,6 +372,8 @@ Dados carregados via `getRankingDb()`
 ---
 
 ## Observações Técnicas
+
+> **Refatoração incremental (2026-07-13):** `Community.tsx` era um monolito de ~5.000 linhas (quase tudo dentro de um único componente). Primeira fatia **segura** de extração, sem mudança de comportamento: helpers puros e constantes (`specialMessageLabel`, `formatTimeAgo`, `DEFAULT_CHECKIN_PHOTO`, `DUEL_SCORING_TYPE_OPTIONS`, tipo `ViewMode`) foram para `client/components/community/community-helpers.ts`, e a **aba Ranking** (puramente apresentacional) virou `client/components/community/ranking-tab.tsx` (`<RankingTab ranking followers currentUserId onScroll />`). As abas **Mensagens** e **Duelos** continuam inline por serem profundamente acopladas ao estado do componente — sua extração deve ser feita de forma incremental e validada em device (o app é iOS/Capacitor, sem verificação de runtime local).
 
 - `viewMode` controla se exibe lista de conversas ou uma conversa individual
 - Tab ativa pode ser controlada via `searchParams` (ex: `?tab=duelos`)

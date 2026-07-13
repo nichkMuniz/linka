@@ -28,7 +28,8 @@ import {
   updateUserPersonalDataDb,
   deletePushTokenDb,
   recordAccessSessionDb,
-  recordScreenTimeDb,
+  bufferScreenTime,
+  flushScreenTimeDb,
   type UserProfile,
   type UserStats,
   type CommercialProfile,
@@ -608,12 +609,16 @@ export function SettingsDrawer({
         }
       }
 
-      // Record screen time for the current screen before signing out
+      // Contabiliza a tela atual e despeja o buffer acumulado num único insert.
+      // Precisa rodar ANTES do signOut — depois a sessão cai e o RLS barra a escrita.
       const screenStartRaw = sessionStorage.getItem("ritmofit_screen_start");
       const currentScreen = sessionStorage.getItem("ritmofit_current_screen");
       if (screenStartRaw && currentScreen && userId) {
         const screenSeconds = Math.floor((Date.now() - parseInt(screenStartRaw, 10)) / 1000);
-        await recordScreenTimeDb(userId, currentScreen, screenSeconds).catch(() => {});
+        bufferScreenTime(currentScreen, screenSeconds);
+      }
+      if (userId) {
+        await flushScreenTimeDb(userId).catch(() => {});
       }
 
       // Remove device token before signing out so this device stops receiving
@@ -1606,6 +1611,8 @@ export function SettingsDrawer({
                         localStorage.removeItem("ritmofit_daily_limit_minutes");
                         localStorage.removeItem("ritmofit_daily_limit_date");
                       }
+                      // Avisa o AppLayout na hora — substitui o antigo polling de 5s.
+                      window.dispatchEvent(new Event("lk:daily-limit-changed"));
                       toast({ title: t("settings_time_saved"), description: dailyUsageLimit > 0 ? t("settings_time_limit_set").replace("{n}", String(dailyUsageLimit)) : t("settings_time_limit_removed") });
                       setIsTimeManagementOpen(false);
                     }} className="w-full rounded-full" style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}>

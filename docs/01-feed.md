@@ -91,8 +91,12 @@ Dois modos disponíveis (Select dropdown ou botões toggle):
 
 | Modo | Descrição |
 |---|---|
-| **Seguindo** | Posts dos usuários que o usuário segue |
-| **Descobrir** | Posts de toda a plataforma |
+| **Seguindo** | Posts dos usuários que o usuário segue (ordem cronológica) |
+| **Descobrir** | Posts de toda a plataforma, **ranqueados por engajamento × recência** |
+
+**Ranking do Descobrir (`rankDiscoverPosts` em `client/services/post.service.ts`):** o Descobrir **não é mais cronológico puro**. Cada página buscada (janela recente, paginada por cursor de `created_at`) é reordenada por um score `(1 + engajamento) × recência × bônus_de_mídia`, onde `engajamento = totalDeIncentivos + 2×comentários`, `recência = 0.5^(idadeEmHoras / 36)` (decaimento exponencial, meia-vida 36h) e `bônus_de_mídia = 1.15` quando o post tem foto. Como todos os candidatos de uma página já vêm de uma faixa recente (via cursor), o efeito é "**entre os posts recentes, mostra os mais engajados primeiro**" — sem starvar conteúdo novo globalmente. Escolha conservadora de propósito para base pequena; um ranking agressivo por likes concentraria o feed nos mesmos poucos posts. _(O modo **Seguindo** continua cronológico — `getFeedPosts` não passa por esse ranking.)_ Match por objetivo do usuário ficou de fora do v1 (posts não têm categoria/tópico no schema).
+
+**Scroll infinito nos dois modos:** tanto **Seguindo** quanto **Descobrir** paginam por cursor de `created_at` via uma **sentinela de fundo** (`IntersectionObserver`, `rootMargin: 800px`). Seguindo usa `getFeedPosts({ before })` (`FEED_PAGE_SIZE = 20`) com o cursor sendo o `created_at` do último post (lista cronológica). Descobrir usa `getDiscoverPosts({ before })` (`DISCOVER_PAGE_SIZE = 20`); como o Descobrir é **ranqueado** (não cronológico — ver acima), o cursor é o `created_at` **mínimo** já carregado, não o último item exibido, garantindo que a próxima página traga posts mais antigos que toda a janela atual (sem sobreposição). Ao mesclar cada nova página, há **dedup por id** (`Set` dos ids já presentes) para nunca repetir um post que já está na tela — importante porque os posts carregam estado otimístico de incentivo. Quando uma página volta com menos itens que o tamanho de página, `hasMoreFeed`/`hasMoreDiscover` viram `false` e a sentinela some. Ambos os flags são persistidos no `feedCache` de módulo (sobrevivem à navegação) e resetados para `true` em todo refresh explícito (toque no logo, pull-to-refresh). Antes, o Descobrir carregava só uma leva fixa de 30 posts e travava ali — dando a sensação de app pequeno.
 
 ---
 
@@ -108,6 +112,7 @@ Cada post exibe:
 | **Menu de contexto** (⋮) | Opções: Editar, Excluir, Denunciar, Compartilhar |
 | **Imagem(ns)** | Componente `PostCarousel` para múltiplas imagens |
 | **Descrição** | Texto do post — truncada em até 30 caracteres ou 1 linha; com botão clicável **"mais"** para expandir e **"menos"** para recolher (estilo Instagram) |
+| **Pessoas marcadas** | Linha "👥 com {nick}" (ícone `UsersRound`) logo acima da descrição, quando o autor marcou pessoas no post (`post.taggedUsers`, tabela `post_tags`). 1 pessoa → toque navega direto ao perfil; 2+ → rótulo "com {nick} e mais {n}" e o toque abre o `FollowListDrawer` com título "Pessoas marcadas" (cada linha navega ao perfil e tem `FollowButton`) |
 | **Pill "Ver treino"** | Só em posts de **resumo de treino** (posts com `workout_summary`). Selo tocável 🏋️ no overlay inferior (acima da barra de incentivos) que abre o `WorkoutDetailButton`/drawer **simplificado** com a lista de exercícios — miniatura do exercício + nome/grupo muscular + as séries em chips `{kg}kg × {reps}`. Ver "Detalhe do treino" abaixo |
 | **Meta vinculada** | Card mostrando a meta associada ao post (se houver) |
 | **Rotinas vinculadas** | Lista expansível das rotinas da meta |
@@ -120,7 +125,7 @@ Cada post exibe:
 ## Ações Disponíveis
 
 ### Sobre o próprio post (dono)
-- **Editar post** — Drawer com textarea para editar descrição + seletor de meta ativa (vincula/desvincula meta do post)
+- **Editar post** — Drawer (`EditPostDrawer`) com textarea para editar descrição + seletor de meta ativa (vincula/desvincula meta do post) + seção **"Pessoas marcadas"** (chips com X para remover + botão "Marcar" que abre o `TagPeopleDrawer`). Ao salvar, `setPostTagsDb` aplica o diff das marcações (insere só os novos → a trigger notifica apenas quem acabou de ser marcado; remove quem saiu). Após salvar, o feed recarrega (`handlePostSaved` → `loadFeed(false)`)
 - **Excluir post** — AlertDialog de confirmação → deleta via `deletePostDb`
 
 ### Sobre post de outro usuário
@@ -132,6 +137,7 @@ Cada post exibe:
 - **Comentar** — Abre drawer/dialog de comentários
 - **Ver curtidas** — Modal com lista de usuários que curtiram
 - **Copiar meta** — Se o post tiver meta, botão para copiar para o próprio perfil
+- **Compartilhar** (menu ⋮) — Abre o `ShareDrawer` com link externo (`postShareUrl`) **e** botão "Amigos" como primeira opção (2026-07-12): abre o `SendToFriendDrawer`, que envia o post via mensagem privada (prefixo `[post]:<postId>`, renderizado como card rico na conversa da Comunidade)
 
 ---
 
@@ -160,6 +166,7 @@ Telas que navegam para `/` disparando esse refresh:
 | Dado | Função DB |
 |---|---|
 | Posts do feed | `getFeedPosts()` / `getDiscoverPosts()` |
+| Pessoas marcadas nos posts | `getPostTagsBatchDb()` (em lote, interno de `getFeedPosts`/`getDiscoverPosts`) |
 | Stories ativos | `getActiveStoriesDb()` |
 | Perfil do usuário | `getUserProfileDb()` |
 | Rotinas de uma meta | `getRoutinesByGoalIdDb()` |
@@ -181,6 +188,7 @@ Telas que navegam para `/` disparando esse refresh:
 | `PostCommentsDialog` | Dialog de comentários |
 | `PostLikesModal` | Modal de quem curtiu |
 | `WorkoutDetailButton` | Pill "Ver treino" + drawer de detalhe do treino (só em posts de resumo) |
+| `FollowListDrawer` | Lista de pessoas marcadas no post (2+), com título customizado via prop `title` |
 | `ImageWithFallback` | Imagem com fallback |
 | `UserInsignias` | Badges do usuário |
 | `PostSkeleton` | Loading state |
@@ -192,7 +200,7 @@ Telas que navegam para `/` disparando esse refresh:
 
 - Feed não tem realtime
 - **Feed estático entre navegações (cache de módulo):** o feed **não recarrega** ao voltar de outra tela. Um cache singleton em nível de módulo (`feedCache` em `Index.tsx`) persiste o estado completo entre montagens — posts, posts de Descobrir, stories, rings (`viewedStoryIds`), aba ativa (Seguindo/Descobrir), `hasMoreFeed` e a posição de scroll. Ao remontar, os estados do React são inicializados a partir do cache (sem skeleton, sem refetch), de modo que a tela aparece exatamente como o usuário a deixou — sem o flash de rings desatualizados que ocorria no reload. Um **refresh real de rede** só acontece em 3 situações: (1) primeira carga, (2) toque no ícone **home**/logo (evento `ritmofit-refresh-feed`), (3) gesto de **pull-to-refresh**. O cache é invalidado quando o `user.id` logado muda (login de outro usuário força recarga).
-- **Cache de flows sempre invalidado no refresh manual (`loadFeed` em `Index.tsx`):** `getActiveStoriesDb()` (em `ritmofit-db.ts`) usa cache stale-while-revalidate (TTL de 60s, com fallback persistido em `localStorage` por até 24h) — sem cuidado, um refresh manual dentro da janela de TTL devolvia a mesma lista antiga na hora e só disparava um refetch em segundo plano (sem re-render), exigindo repetir o refresh 2-3 vezes até o flow novo de um seguidor aparecer. `loadFeed` agora chama `invalidateQueryCache("activeStories")` antes de buscar, garantindo que toda vez que o usuário força um refresh (home/logo, pull-to-refresh, ou após publicar) os flows vêm sempre frescos do banco na primeira tentativa.
+- **Cache de flows invalidado apenas no refresh EXPLÍCITO (`loadFeed(showLoading, force)` em `Index.tsx`):** `getActiveStoriesDb()` (em `ritmofit-db.ts`) usa cache stale-while-revalidate (TTL de 60s, com fallback persistido em `localStorage` por até 24h) — sem cuidado, um refresh manual dentro da janela de TTL devolvia a mesma lista antiga na hora e só disparava um refetch em segundo plano (sem re-render), exigindo repetir o refresh 2-3 vezes até o flow novo de um seguidor aparecer. `loadFeed` chama `invalidateQueryCache("activeStories")` **somente quando `force = true`**, o que cobre os 4 refreshes pedidos pelo usuário (home/logo, pull-to-refresh, após publicar, `state.refreshFeed`) — os flows vêm frescos do banco na primeira tentativa. Na **carga inicial** (`force = false`) o cache é preservado: invalidar ali descartava uma entrada ainda válida e forçava uma query de flows a **cada abertura do app**, sem que ninguém tivesse pedido dados novos.
 - **Rings otimistas:** ao abrir um flow pelo carrossel, o `story.id` é marcado como visto na hora (`onStoryView` → `viewedStoryIds`), acinzentando o ring imediatamente sem precisar recarregar o feed.
 - **Ring reflete TODOS os flows do usuário, não só o mais antigo (`FlowCarousel`):** o carrossel agrupa os flows de cada usuário num único ring, usando sempre o **mais antigo** como representante para abrir a sequência a partir do início. O estado "visto" do ring, porém, é calculado sobre **todos** os flows ativos daquele usuário (`storiesByUserId`) — o ring só fica acinzentado quando todos eles já foram vistos; se o usuário postar um novo flow depois de o anterior já ter sido visto, o ring volta a colorir automaticamente. Ao tocar no ring, todos os flows daquele usuário (não só o representante) são marcados como vistos de uma vez, mantendo o comportamento otimista consistente.
 - Clicar no logo **LinKa** no header (quando já está na tela `/`) faz scroll para o topo e recarrega o feed silenciosamente (sem skeleton de loading) via evento `ritmofit-refresh-feed`
@@ -208,6 +216,7 @@ Telas que navegam para `/` disparando esse refresh:
 - Rotinas vinculadas a posts carregam sob demanda (lazy load) ao expandir
 - Stories do usuário logado mostram contagem de visualizadores
 - Descrições de posts usam `whitespace-pre-wrap` para preservar quebras de linha
+- **Hashtags clicáveis:** as hashtags destacadas na legenda (`renderWithHashtags`, `client/lib/post-visuals.tsx`) são tocáveis — o `PostCard` passa `(tag) => navigate('/tag/'+tag)`, abrindo a página da hashtag (grade de posts, ver `docs/16-hashtag.md`). O `stopPropagation` no clique evita disparar o toggle de expandir/recolher a legenda
 - Descrições com mais de 30 caracteres ou múltiplas linhas são truncadas exibindo apenas a primeira linha (até 30 chars) seguida de `...` e botão **"mais"** (chave i18n `feed_description_more`); ao expandir, exibe-se o texto completo com botão **"menos"** (`feed_description_less`) para recolher. Estado de expansão é local ao `PostCard`
 - O `body` tem `padding-right: 0 !important` no CSS global para evitar layout shift ao abrir modals/drawers (Radix UI injeta padding-right ao bloquear scroll)
 - **Pinch-to-zoom em todos os posts:** Toda imagem de post (feed Seguindo, Descobrir e PostDetail) é renderizada via `PostCarousel`, que usa o componente interno `ZoomableImage` com gesto de pinça (dois dedos). Escala de 1x até 5x, origem do zoom segue o ponto médio entre os dedos; ao soltar, retorna a 1x com transição suave. Funciona inclusive para posts legados com campo único `post.photo` (encapsulado como `[post.photo]` no carrossel)

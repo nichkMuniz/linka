@@ -8,6 +8,7 @@ import {
 import { FollowButton } from "@/components/shared/follow-button";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { useAuth } from "@/hooks/useAuth";
+import { useLanguage } from "@/lib/language-context";
 
 interface FollowUser {
   id: string;
@@ -23,6 +24,10 @@ interface FollowListDrawerProps {
   isLoading: boolean;
   /** Status inicial de seguimento por userId (carregado em batch pelo pai) */
   followStatus?: Record<string, boolean>;
+  /** Sobrescreve o título derivado de `type` (ex.: "Pessoas marcadas" num post) */
+  title?: string;
+  /** Sobrescreve a mensagem de lista vazia derivada de `type` */
+  emptyMessage?: string;
 }
 
 export function FollowListDrawer({
@@ -32,13 +37,17 @@ export function FollowListDrawer({
   users,
   isLoading,
   followStatus = {},
+  title: titleProp,
+  emptyMessage: emptyMessageProp,
 }: FollowListDrawerProps) {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { t } = useLanguage();
 
-  const title = type === "followers" ? "Seguidores" : "Seguindo";
+  const title = titleProp ?? (type === "followers" ? t("profile_followers") : t("profile_following"));
   const emptyMessage =
-    type === "followers" ? "Nenhum seguidor ainda" : "Não está seguindo ninguém";
+    emptyMessageProp ??
+    (type === "followers" ? t("follow_list_empty_followers") : t("follow_list_empty_following"));
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
@@ -95,9 +104,10 @@ export function FollowListDrawer({
                 </button>
                 {u.id !== user?.id && (
                   <div className="shrink-0">
+                    {/* Sem status em batch → undefined deixa o FollowButton buscar sozinho */}
                     <FollowButton
                       targetUserId={u.id}
-                      initialIsFollowing={followStatus[u.id] ?? false}
+                      initialIsFollowing={followStatus[u.id]}
                     />
                   </div>
                 )}

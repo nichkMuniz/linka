@@ -15,7 +15,8 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { MoreVertical, Flag, Trash2, Share2, Edit2, Target } from "lucide-react";
+import { MoreVertical, Flag, Trash2, Share2, Edit2, Target, UsersRound } from "lucide-react";
+import { FollowListDrawer } from "@/components/profile/follow-list-drawer";
 import { formatTimeAgo, cn } from "@/lib/utils";
 import type { PostWithStats } from "@/services/post.service";
 import type { PostIncentiveType } from "@/lib/ritmofit-db";
@@ -68,7 +69,9 @@ export function PostCard({
   const badgeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const [descExpanded, setDescExpanded] = React.useState(false);
   const [carouselIndex, setCarouselIndex] = React.useState(0);
+  const [taggedOpen, setTaggedOpen] = React.useState(false);
 
+  const taggedUsers = post.taggedUsers ?? [];
   const description = post.description ?? "";
   const isDescTruncatable = description.includes("\n") || description.length > DESC_MAX_CHARS;
   const truncatedDescription = description.length > DESC_MAX_CHARS
@@ -232,6 +235,29 @@ export function PostCard({
           className="absolute bottom-3 left-3 right-3 z-10 pointer-events-auto"
           onClick={(e) => e.stopPropagation()}
         >
+          {/* Pessoas marcadas — "com fulano" (1) navega ao perfil; 2+ abre a lista */}
+          {taggedUsers.length > 0 && (
+            <button
+              type="button"
+              className="flex items-center gap-1.5 mb-2 px-1 active:opacity-70 transition-opacity"
+              style={{ textShadow: "0 1px 8px rgba(0,0,0,.5)" }}
+              onClick={() => {
+                hapticLight();
+                if (taggedUsers.length === 1) navigate(`/usuario/${taggedUsers[0].id}`);
+                else setTaggedOpen(true);
+              }}
+            >
+              <UsersRound className="h-3.5 w-3.5 text-white/70 flex-shrink-0" />
+              <span className="text-[12px] text-white/85 truncate">
+                {taggedUsers.length === 1
+                  ? t("post_with_person").replace("{name}", taggedUsers[0].nickname)
+                  : t("post_with_others")
+                      .replace("{name}", taggedUsers[0].nickname)
+                      .replace("{n}", String(taggedUsers.length - 1))}
+              </span>
+            </button>
+          )}
+
           {/* Description */}
           {description && (
             <p
@@ -251,7 +277,7 @@ export function PostCard({
             >
               {!isDescTruncatable || descExpanded ? (
                 <>
-                  {renderWithHashtags(description)}
+                  {renderWithHashtags(description, (tag) => navigate(`/tag/${encodeURIComponent(tag)}`))}
                   {isDescTruncatable && descExpanded && (
                     <> <button
                       type="button"
@@ -264,7 +290,7 @@ export function PostCard({
                 </>
               ) : (
                 <>
-                  {renderWithHashtags(truncatedDescription)}
+                  {renderWithHashtags(truncatedDescription, (tag) => navigate(`/tag/${encodeURIComponent(tag)}`))}
                   {"... "}
                   <button
                     type="button"
@@ -407,6 +433,19 @@ export function PostCard({
           )}
         </AnimatePresence>
       </div>
+
+      {/* Lista de pessoas marcadas (2+) */}
+      {taggedUsers.length > 1 && (
+        <FollowListDrawer
+          open={taggedOpen}
+          onOpenChange={setTaggedOpen}
+          type="following"
+          title={t("post_tagged_title")}
+          emptyMessage={t("post_tagged_title")}
+          users={taggedUsers}
+          isLoading={false}
+        />
+      )}
     </div>
   );
 }

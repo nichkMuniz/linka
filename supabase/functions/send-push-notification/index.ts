@@ -57,6 +57,8 @@ const NOTIF_CONTENT: Record<number, { title: string; body: string }> = {
   5: { title: "Pedido de entrada 👊", body: "Alguém quer entrar no seu grupo." },
   6: { title: "Reação no comentário ❤️", body: "Alguém reagiu ao seu comentário." },
   7: { title: "Reação no check-in 🏆", body: "Alguém reagiu ao seu check-in." },
+  8: { title: "Comentário na promoção 🛍️", body: "Alguém comentou na sua promoção." },
+  9: { title: "Você foi marcado 📸", body: "Alguém marcou você em uma publicação." },
 };
 
 // ─── Handler ──────────────────────────────────────────────────────────────────

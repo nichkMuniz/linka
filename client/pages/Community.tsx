@@ -65,7 +65,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 // Tabs component replaced by custom underline tabs
 import { toast } from "@/components/ui/use-toast";
-import { ArrowLeft, Send, Check, CheckCheck, Trophy, TrendingUp, Plus, X, ChevronRight, Trash2, Edit3, Search, PenSquare, MessageCircle, Users, ChevronLeft, Swords, BarChart2, Camera, Image, Mic, Crop, CheckCircle2, XCircle, Pencil } from "lucide-react";
+import { ArrowLeft, Send, Check, CheckCheck, Plus, X, ChevronRight, Trash2, Edit3, Search, PenSquare, MessageCircle, Users, ChevronLeft, Swords, BarChart2, Camera, Image, Mic, Crop, CheckCircle2, XCircle, Pencil } from "lucide-react";
 import { CommentReactions } from "@/components/shared/comment-reactions";
 import { ClassificationsDrawer } from "@/components/community/classifications-drawer";
 import { NewConversationDrawer } from "@/components/community/new-conversation-drawer";
@@ -113,27 +113,22 @@ import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { CommunitySkeleton } from "@/components/shared/animated-loading";
 import { useLanguage } from "@/lib/language-context";
-import type { TranslationKey } from "@/lib/i18n";
 import { UserInsignias } from "@/components/profile/user-insignias";
 import { ImageWithFallback } from "@/components/shared/image-with-fallback";
 import { UserAvatar } from "@/components/shared/user-avatar";
+import { SharedContentMessage } from "@/components/community/shared-content-message";
+import { RankingTab } from "@/components/community/ranking-tab";
+import {
+  specialMessageLabel,
+  formatTimeAgo,
+  DEFAULT_CHECKIN_PHOTO,
+  DUEL_SCORING_TYPE_OPTIONS,
+  type ViewMode,
+} from "@/components/community/community-helpers";
 
-type ViewMode = "conversations" | "conversation";
-
-// Fallback photo for check-ins posted without a photo, so the card/detail
-// never renders with an empty image slot.
-const DEFAULT_CHECKIN_PHOTO = "/Monstrinho_segurando_pesinho_202603301834.jpeg";
-
-const DUEL_SCORING_TYPE_OPTIONS: { value: import("@/lib/ritmofit-db").DuelScoringType; icon: string; titleKey: TranslationKey; descKey: TranslationKey }[] = [
-  { value: "check_in_count", icon: "#", titleKey: "duels_scoring_check_in_count", descKey: "duels_scoring_check_in_count_desc" },
-  { value: "active_days", icon: "📅", titleKey: "duels_scoring_active_days", descKey: "duels_scoring_active_days_desc" },
-  { value: "hustle_points", icon: "⭐", titleKey: "duels_scoring_hustle_points", descKey: "duels_scoring_hustle_points_desc" },
-  { value: "duration", icon: "⏱", titleKey: "duels_scoring_duration", descKey: "duels_scoring_duration_desc" },
-  { value: "distance", icon: "🗺", titleKey: "duels_scoring_distance", descKey: "duels_scoring_distance_desc" },
-  { value: "steps", icon: "👟", titleKey: "duels_scoring_steps", descKey: "duels_scoring_steps_desc" },
-  { value: "calories", icon: "🔥", titleKey: "duels_scoring_calories", descKey: "duels_scoring_calories_desc" },
-  { value: "memes", icon: "🎭", titleKey: "duels_scoring_memes", descKey: "duels_scoring_memes_desc" },
-];
+// Helpers puros (specialMessageLabel, formatTimeAgo), constantes (DEFAULT_CHECKIN_PHOTO,
+// DUEL_SCORING_TYPE_OPTIONS) e o tipo ViewMode foram extraídos para
+// `@/components/community/community-helpers` (ver imports acima).
 
 export default function Community() {
   const { user } = useAuth();
@@ -1194,10 +1189,14 @@ export default function Community() {
                     >
                       {replyQuote && (
                         <div className={`text-xs px-2 py-1 rounded mb-1 border-l-2 ${isOwn ? "bg-white/10 border-white/50 text-white/80" : "bg-white/10 border-white/40 text-white/70"}`}>
-                          <p className="truncate">{replyQuote?.startsWith("[audio]:") ? "🎤 Áudio" : replyQuote}</p>
+                          <p className="truncate">{specialMessageLabel(replyQuote, t) ?? replyQuote}</p>
                         </div>
                       )}
-                      {mainText.startsWith("[image]:") ? (
+                      {mainText.startsWith("[post]:") ? (
+                        <SharedContentMessage kind="post" contentId={mainText.replace("[post]:", "").trim()} />
+                      ) : mainText.startsWith("[shot]:") ? (
+                        <SharedContentMessage kind="shot" contentId={mainText.replace("[shot]:", "").trim()} />
+                      ) : mainText.startsWith("[image]:") ? (
                         <img
                           src={mainText.replace("[image]:", "")}
                           alt="Imagem"
@@ -1260,7 +1259,9 @@ export default function Community() {
           <div className="flex-shrink-0 px-4 py-2 flex items-center gap-2" style={{ background: "rgba(255,255,255,.05)", borderTop: "1px solid rgba(255,255,255,.08)" }}>
             <div className="flex-1 min-w-0">
               <p className="text-xs text-white/50 mb-0.5">{t("community_replying")}</p>
-              <p className="text-xs truncate text-white/80">{replyingTo.text.replace(/^↩ .+?\n\n/, "")}</p>
+              <p className="text-xs truncate text-white/80">
+                {specialMessageLabel(replyingTo.text.replace(/^↩ .+?\n\n/, ""), t) ?? replyingTo.text.replace(/^↩ .+?\n\n/, "")}
+              </p>
             </div>
             <button onClick={() => setReplyingTo(null)} className="text-white/50 hover:text-white flex-shrink-0">
               <X className="h-4 w-4" />
@@ -1437,8 +1438,10 @@ export default function Community() {
               >
                 {/* Preview da mensagem */}
                 <div className="px-4 py-3 border-b border-border/60">
-                  <p className="text-xs text-muted-foreground mb-1">Mensagem</p>
-                  <p className="text-sm line-clamp-2">{longPressedMessage.text.replace(/^↩ .+?\n\n/, "")}</p>
+                  <p className="text-xs text-muted-foreground mb-1">{t("community_message_label")}</p>
+                  <p className="text-sm line-clamp-2">
+                    {specialMessageLabel(longPressedMessage.text.replace(/^↩ .+?\n\n/, ""), t) ?? longPressedMessage.text.replace(/^↩ .+?\n\n/, "")}
+                  </p>
                 </div>
 
                 {/* Emoji rápido */}
@@ -1727,7 +1730,7 @@ export default function Community() {
                             </p>
                           </div>
                           <p className={`text-sm truncate ${conversation.unreadCount > 0 ? "font-medium text-white/80" : "text-white/55"}`}>
-                            {conversation.lastMessage?.startsWith("[audio]:") ? "🎤 Áudio" : conversation.lastMessage?.startsWith("[image]:") ? "🖼️ Imagem" : conversation.lastMessage || t("community_start_conversation")}
+                            {specialMessageLabel(conversation.lastMessage, t) ?? (conversation.lastMessage || t("community_start_conversation"))}
                           </p>
                         </div>
                       </button>
@@ -2673,93 +2676,12 @@ export default function Community() {
 
       {/* Ranking Tab */}
       {activeTab === "ranking" && (
-        <>
-          {/* Single scrollable container */}
-          <div data-community-scroll-container onScroll={handleTabsScrollContainerScroll} className="flex-1 overflow-y-auto px-4 pb-4 space-y-3 pt-4">
-            <h1 className="text-2xl font-bold tracking-tight pb-1">{t("community_ranking")}</h1>
-            {ranking.length > 0 ? (
-              <div className="space-y-2">
-                {ranking.filter((rankUser) => {
-                  if (rankUser.userId === user?.id) return true;
-                  return followers.some((f) => f.id === rankUser.userId);
-                }).map((rankUser, index) => {
-                  const medalEmoji =
-                    index === 0
-                      ? "🥇"
-                      : index === 1
-                        ? "🥈"
-                        : index === 2
-                          ? "🥉"
-                          : "";
-
-                  const isCurrentUser = rankUser.userId === user?.id;
-
-                  return (
-                    <div
-                      key={rankUser.userId}
-                      className="rounded-xl p-4"
-                      style={{
-                        background: "linear-gradient(rgba(255,255,255,.09),rgba(255,255,255,.03))",
-                        backdropFilter: "blur(20px) saturate(170%)",
-                        WebkitBackdropFilter: "blur(20px) saturate(170%)",
-                        border: isCurrentUser ? "1px solid rgba(91,140,255,.4)" : "1px solid rgba(255,255,255,.10)",
-                        boxShadow: isCurrentUser ? "0 0 0 1px rgba(91,140,255,.2)" : "inset 0 1px 0 rgba(255,255,255,.18)",
-                      }}
-                    >
-                      <div className="flex items-center gap-4">
-                          <div className="flex-shrink-0 w-12 text-center">
-                            {medalEmoji ? (
-                              <span className="text-2xl">{medalEmoji}</span>
-                            ) : (
-                              <span className="text-lg font-bold text-white/40">
-                                #{index + 1}
-                              </span>
-                            )}
-                          </div>
-
-                          <div className="flex items-center gap-3 flex-1">
-                            <UserAvatar
-                              photo={rankUser.userPhoto}
-                              nickname={rankUser.userNickname}
-                              size="lg"
-                            />
-
-                            <div className="flex-1">
-                              <p className="font-semibold text-sm">
-                                {rankUser.userNickname}
-                                {isCurrentUser && <span className="ml-1 text-xs text-brand">({t("ranking_you")})</span>}
-                              </p>
-
-                            </div>
-                          </div>
-
-                          <div className="flex-shrink-0 text-right">
-                            <div className="flex items-center gap-1">
-                              <TrendingUp className="h-4 w-4 text-brand" />
-                              <span className="font-bold text-brand">
-                                {rankUser.points}
-                              </span>
-                            </div>
-                            <p className="text-xs text-white/40">
-                              {t("ranking_points")}
-                            </p>
-                          </div>
-                        </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="rounded-xl p-6 text-center" style={{ background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.08)" }}>
-                <Trophy className="h-12 w-12 text-white/30 mx-auto mb-3" />
-                <p className="text-sm font-medium mb-1">{t("ranking_empty")}</p>
-                <p className="text-sm text-white/50">
-                  {t("ranking_empty_desc")}
-                </p>
-              </div>
-            )}
-          </div>
-        </>
+        <RankingTab
+          ranking={ranking}
+          followers={followers}
+          currentUserId={user?.id}
+          onScroll={handleTabsScrollContainerScroll}
+        />
       )}
 
       {/* Solicitações (Pending Invites + Group Join Requests) Tab */}
@@ -4963,21 +4885,4 @@ export default function Community() {
   );
 }
 
-function formatTimeAgo(date: string): string {
-  const now = new Date();
-  const msgTime = new Date(date);
-  const diffMs = now.getTime() - msgTime.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = Math.floor(diffMs / 86400000);
-
-  if (diffMins < 1) return "agora";
-  if (diffMins < 60) return `${diffMins}m`;
-  if (diffHours < 24) return `${diffHours}h`;
-  if (diffDays < 7) return `${diffDays}d`;
-
-  return msgTime.toLocaleDateString("pt-BR", {
-    month: "short",
-    day: "numeric",
-  });
-}
+// formatTimeAgo foi movido para `@/components/community/community-helpers`.

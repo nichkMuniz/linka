@@ -59,6 +59,7 @@ export function PostCommentsDialog({
   isPostOwner = false,
   hasUnreadComments = false,
   defaultOpen = false,
+  onCountChange,
 }: {
   postId: string;
   commentCount: number;
@@ -66,6 +67,8 @@ export function PostCommentsDialog({
   isPostOwner?: boolean;
   hasUnreadComments?: boolean;
   defaultOpen?: boolean;
+  /** Notifica o pai quando a contagem real de comentários muda (carregar/adicionar/excluir) */
+  onCountChange?: (count: number) => void;
 }) {
   const { user } = useAuth();
   const { t } = useLanguage();
@@ -124,6 +127,13 @@ export function PostCommentsDialog({
   }, [defaultOpen, postId]);
 
   const [comments, setComments] = React.useState<PostComment[]>([]);
+  // Só reporta a contagem ao pai depois do primeiro load real — senão o []
+  // inicial zeraria o contador exibido no trigger antes dos dados chegarem
+  const hasLoadedCommentsRef = React.useRef(false);
+  React.useEffect(() => { hasLoadedCommentsRef.current = false; }, [postId]);
+  React.useEffect(() => {
+    if (hasLoadedCommentsRef.current) onCountChange?.(comments.length);
+  }, [comments, onCountChange]);
   const [loading, setLoading] = React.useState(false);
   const [draft, setDraft] = React.useState("");
   const commentsListRef = React.useRef<HTMLDivElement>(null);
@@ -160,7 +170,10 @@ export function PostCommentsDialog({
     }
 
     getPostCommentsDb(postId)
-      .then((data) => setComments(data))
+      .then((data) => {
+        hasLoadedCommentsRef.current = true;
+        setComments(data);
+      })
       .catch((err) => {
         console.error("Error loading comments:", err);
         toast({

@@ -19,11 +19,12 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { ExerciseImage } from "@/components/shared/exercise-image";
+import { TrendChart } from "@/components/shared/trend-chart";
 import { useLanguage } from "@/lib/language-context";
 import type { TranslationKey } from "@/lib/i18n";
 import { formatScheduledTime } from "@/hooks/use-routine-notifications";
 import { getSuggestedSetsForCard, isCompletedToday, type RoutineCard, type RoutineItem } from "@/components/goals/goals-helpers";
-import type { UserGoal } from "@/lib/ritmofit-db";
+import { getExerciseProgressionDb, type ExerciseProgressPoint, type UserGoal } from "@/lib/ritmofit-db";
 
 type EditorMode = null | "rename" | "time" | "goal";
 
@@ -76,6 +77,28 @@ export function RoutineDetailDrawer({
   const [isBusy, setIsBusy] = React.useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = React.useState(false);
   const [expandedItem, setExpandedItem] = React.useState<string | null>(null);
+  // Progressão de carga por exercício (lazy: carrega ao expandir a linha)
+  const [progressByItem, setProgressByItem] = React.useState<Record<string, ExerciseProgressPoint[]>>({});
+
+  // Reset da progressão ao trocar de rotina (ids de item podem colidir entre cards)
+  React.useEffect(() => {
+    setProgressByItem({});
+  }, [card?.key]);
+
+  // Carrega a progressão do exercício expandido (uma vez por item; ignora cardio)
+  React.useEffect(() => {
+    if (!expandedItem || !card) return;
+    if (progressByItem[expandedItem] !== undefined) return;
+    const item = card.items.find((i) => i.id === expandedItem);
+    if (!item || item.kind !== "workout") return;
+    const isCardio = (item.muscle_group || "").toLowerCase().includes("cardio");
+    if (isCardio || !item.workout_id) return;
+    let cancelled = false;
+    getExerciseProgressionDb(item.workout_id)
+      .then((pts) => { if (!cancelled) setProgressByItem((m) => ({ ...m, [expandedItem]: pts })); })
+      .catch(() => { if (!cancelled) setProgressByItem((m) => ({ ...m, [expandedItem]: [] })); });
+    return () => { cancelled = true; };
+  }, [expandedItem, card, progressByItem]);
 
   const toggleDay = (idx: number) =>
     setSelectedDays((prev) => {
@@ -199,6 +222,8 @@ export function RoutineDetailDrawer({
                 ? suggestedSets.get((item.workoutName || "").trim().toLowerCase())
                 : undefined;
               const expanded = isWorkout && expandedItem === item.id;
+              const isCardio = item.kind === "workout" && (item.muscle_group || "").toLowerCase().includes("cardio");
+              const progressPts = isWorkout ? progressByItem[item.id] : undefined;
               const subtitle =
                 item.kind === "workout"
                   ? item.muscle_group || ""
@@ -286,6 +311,27 @@ export function RoutineDetailDrawer({
                           </span>
                         )}
                       </div>
+
+                      {!isCardio && progressPts && progressPts.length >= 2 && (
+                        <div
+                          className="mt-2 rounded-xl px-3 py-2.5"
+                          style={{ background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.08)" }}
+                        >
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>
+                              {t("goals_progress_title")}
+                            </span>
+                            <span className="text-xs tabular-nums" style={{ color: "rgba(255,255,255,.7)" }}>
+                              {t("goals_progress_best").replace("{n}", String(Math.max(...progressPts.map((p) => p.maxKg))))}
+                            </span>
+                          </div>
+                          <TrendChart
+                            points={progressPts.map((p) => ({ label: p.date, value: p.maxKg }))}
+                            color="#3ddc84"
+                            height={72}
+                          />
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

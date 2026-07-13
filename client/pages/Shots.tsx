@@ -13,6 +13,7 @@ import { FollowButton } from "@/components/shared/follow-button";
 import { toast } from "@/components/ui/use-toast";
 import {
   getShotsDb,
+  getShotByIdDb,
   toggleShotIncentiveDb,
   getShotLikeUsersDb,
   recordShotViewDb,
@@ -49,6 +50,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { EditShotDescriptionDrawer } from "@/components/shots/edit-shot-description-drawer";
+import { SendToFriendDrawer } from "@/components/shared/send-to-friend-drawer";
 import { CommentReactions } from "@/components/shared/comment-reactions";
 import { useAuth } from "@/hooks/useAuth";
 import { useNavigate, useLocation } from "react-router-dom";
@@ -118,6 +120,7 @@ export default function Shots() {
   }, []);
   const [editShotOpen, setEditShotOpen] = React.useState(false);
   const [editingShot, setEditingShot] = React.useState<ShotWithUser | null>(null);
+  const [sendToFriendShot, setSendToFriendShot] = React.useState<ShotWithUser | null>(null);
   const [deleteShotDialogOpen, setDeleteShotDialogOpen] = React.useState(false);
   const [deletingShot, setDeletingShot] = React.useState<ShotWithUser | null>(null);
   const [isDeletingShot, setIsDeletingShot] = React.useState(false);
@@ -409,7 +412,15 @@ export default function Shots() {
   React.useEffect(() => {
     (async () => {
       try {
-        const shotsData = await getShotsDb();
+        let shotsData = await getShotsDb();
+
+        // Shot aberto via mensagem compartilhada pode não estar entre os 50 do
+        // feed — busca individualmente e coloca no topo para o scroll-to achar.
+        const requestedShotId = (location.state as { shotId?: string } | null)?.shotId;
+        if (requestedShotId && !shotsData.some((s) => s.id === requestedShotId)) {
+          const requested = await getShotByIdDb(requestedShotId).catch(() => null);
+          if (requested) shotsData = [requested, ...shotsData];
+        }
         setShots(shotsData);
 
         // Load follow status for all shot creators in a single batch query
@@ -1191,6 +1202,14 @@ export default function Shots() {
                       )}
                     </div>
                   </button>
+                  {/* Enviar para amigo (mensagem privada) */}
+                  <button
+                    onClick={() => { hapticLight(); setSendToFriendShot(shot); }}
+                    aria-label={t("send_to_friend_title")}
+                    className="inline-flex shrink-0 items-center justify-center transition-opacity hover:opacity-80 min-h-[44px] min-w-[44px]"
+                  >
+                    <Send className="h-[18px] w-[18px] text-white hover:scale-110 transition-transform" />
+                  </button>
                 </div>
               </div>
 
@@ -1227,6 +1246,22 @@ export default function Shots() {
           </button>
         </div>
       )}
+
+      {/* Enviar shot para amigo (mensagem privada) */}
+      <SendToFriendDrawer
+        open={sendToFriendShot !== null}
+        onOpenChange={(open) => { if (!open) setSendToFriendShot(null); }}
+        content={
+          sendToFriendShot
+            ? {
+                kind: "shot",
+                id: sendToFriendShot.id,
+                previewImage: sendToFriendShot.video_url,
+                authorNickname: sendToFriendShot.userNickname,
+              }
+            : null
+        }
+      />
 
       {/* Edit Shot Drawer */}
       <EditShotDescriptionDrawer

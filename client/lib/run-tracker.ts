@@ -324,6 +324,25 @@ export function getRunState(): RunState {
   return snapshot();
 }
 
+/** "27:30" ou "1:02:07" — usado no painel da sessão e no resumo/mapa */
+export function formatRunTime(ms: number): string {
+  const total = Math.floor(ms / 1000);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const mm = String(m).padStart(h > 0 ? 2 : 1, "0");
+  const ss = String(s).padStart(2, "0");
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
+/** ritmo "5:29" (min/km) — "—" quando a distância ainda é irrelevante */
+export function formatRunPace(secPerKm: number | null): string {
+  if (secPerKm == null || !isFinite(secPerKm) || secPerKm > 3600) return "—";
+  const m = Math.floor(secPerKm / 60);
+  const s = Math.round(secPerKm % 60);
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
 export function subscribeRun(listener: (s: RunState) => void): () => void {
   listeners.add(listener);
   listener(snapshot());

@@ -33,10 +33,37 @@ export const GLASS_ACTION: React.CSSProperties = {
 // Caption description truncation — same limit used everywhere a post caption renders
 export const DESC_MAX_CHARS = 80;
 
-export function renderWithHashtags(text: string) {
-  return text.split(/(\s+)/).map((token, i) =>
-    token.startsWith("#") && token.length > 1 ? (
-      <span key={i} className="text-[#9db8ff] font-medium">{token}</span>
-    ) : token
-  );
+// Renderiza a legenda destacando hashtags em azul. Quando `onHashtagClick` é
+// fornecido, cada hashtag vira clicável (navega para a página da hashtag). O token
+// pode carregar pontuação no fim (ex.: "#fit,") — só a parte "#tag" fica clicável.
+export function renderWithHashtags(
+  text: string,
+  onHashtagClick?: (tag: string) => void,
+) {
+  return text.split(/(\s+)/).map((token, i) => {
+    if (!token.startsWith("#") || token.length <= 1) return token;
+    const m = token.match(/^#([\p{L}\p{N}_]+)/u);
+    if (!m) return token;
+    const tag = m[1];
+    if (!onHashtagClick) {
+      return <span key={i} className="text-[#9db8ff] font-medium">{token}</span>;
+    }
+    const rest = token.slice(1 + tag.length);
+    return (
+      <React.Fragment key={i}>
+        <span
+          role="button"
+          tabIndex={0}
+          className="text-[#9db8ff] font-medium cursor-pointer"
+          onClick={(e) => {
+            e.stopPropagation();
+            onHashtagClick(tag);
+          }}
+        >
+          {"#" + tag}
+        </span>
+        {rest}
+      </React.Fragment>
+    );
+  });
 }

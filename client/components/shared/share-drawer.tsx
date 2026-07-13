@@ -5,7 +5,7 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import { toast } from "@/components/ui/use-toast";
-import { Copy, Link, ExternalLink } from "lucide-react";
+import { Copy, Link, ExternalLink, SendHorizontal } from "lucide-react";
 import { Share } from "@capacitor/share";
 import { useLanguage } from "@/lib/language-context";
 import { SHARE_BASE_URL } from "@/lib/share-url";
@@ -18,6 +18,11 @@ interface ShareDrawerProps {
   url?: string;
   /** Título do drawer */
   title?: string;
+  /**
+   * Envio interno via mensagem privada (estilo Instagram). Quando fornecido,
+   * exibe o botão "Amigos" como primeira opção — o pai abre o SendToFriendDrawer.
+   */
+  onSendToFriend?: () => void;
 }
 
 export function ShareDrawer({
@@ -26,6 +31,7 @@ export function ShareDrawer({
   text,
   url,
   title,
+  onSendToFriend,
 }: ShareDrawerProps) {
   const { t } = useLanguage();
   // Dentro do WebView do Capacitor, window.location.href é "capacitor://localhost",
@@ -135,6 +141,25 @@ export function ShareDrawer({
 
         {/* App share buttons */}
         <div className="flex gap-4 px-4 py-3 overflow-x-auto">
+          {/* Enviar para amigos no LinKa (mensagem privada) */}
+          {onSendToFriend && (
+            <button
+              onClick={() => {
+                onOpenChange(false);
+                onSendToFriend();
+              }}
+              className="flex flex-col items-center gap-1.5 min-w-[60px]"
+            >
+              <div
+                className="w-14 h-14 rounded-2xl flex items-center justify-center shadow-md"
+                style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)" }}
+              >
+                <SendHorizontal className="w-7 h-7 text-white" />
+              </div>
+              <span className="text-xs text-center" style={{ color: "rgba(255,255,255,.7)" }}>{t("share_btn_send_friend")}</span>
+            </button>
+          )}
+
           {/* WhatsApp */}
           <button onClick={shareWhatsApp} className="flex flex-col items-center gap-1.5 min-w-[60px]">
             <div className="w-14 h-14 rounded-2xl bg-[#25D366] flex items-center justify-center shadow-md">

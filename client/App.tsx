@@ -74,6 +74,9 @@ const Notifications = React.lazy(() => import("@/pages/Notifications"));
 const Store = React.lazy(() => import("@/pages/Store"));
 const Shots = React.lazy(() => import("@/pages/Shots"));
 const FlowViewer = React.lazy(() => import("@/pages/FlowViewer"));
+const Hashtag = React.lazy(() => import("@/pages/Hashtag"));
+// Admin: só 3 usuários acessam. Eager, entrava no bundle inicial de TODO mundo.
+const Admin = React.lazy(() => import("@/pages/Admin"));
 
 import {
   CommunitySkeleton,
@@ -133,7 +136,6 @@ function Lazy({ skeleton, children }: { skeleton: React.ReactNode; children: Rea
 import Login from "@/pages/Login";
 import ResetPassword from "@/pages/ResetPassword";
 import NotFound from "@/pages/NotFound";
-import Admin from "@/pages/Admin";
 
 const ADMIN_USER_IDS = [
   "c954d5ab-9d72-4785-bc21-bf469a5e8052",
@@ -337,6 +339,7 @@ const App = () => {
                       <Route path="/perfil" element={<Lazy skeleton={<ProfileSkeleton />}><Profile /></Lazy>} />
                       <Route path="/usuario/:userId" element={<Lazy skeleton={<ProfileSkeleton />}><Profile /></Lazy>} />
                       <Route path="/post/:postId" element={<Lazy skeleton={<PostDetailSkeleton />}><PostDetail /></Lazy>} />
+                      <Route path="/tag/:tag" element={<Lazy skeleton={<GenericPageSkeleton />}><Hashtag /></Lazy>} />
                       <Route path="/buscar" element={<Lazy skeleton={<GenericPageSkeleton />}><Search /></Lazy>} />
                       <Route path="/comunidade" element={<Lazy skeleton={<CommunitySkeleton />}><Community /></Lazy>} />
                       <Route path="/mensagens" element={<Navigate to="/comunidade" replace />} />
@@ -353,7 +356,7 @@ const App = () => {
                   </Route>
 
                   <Route element={<RequireAdmin />}>
-                    <Route path="/admin" element={<Admin />} />
+                    <Route path="/admin" element={<Lazy skeleton={<GenericPageSkeleton />}><Admin /></Lazy>} />
                   </Route>
                 </Routes>
               </BrowserRouter>

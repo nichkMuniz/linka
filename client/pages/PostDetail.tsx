@@ -5,8 +5,10 @@ import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { useLanguage } from "@/lib/language-context";
-import { ArrowLeft, Edit2, Trash2, MoreVertical } from "lucide-react";
+import { ArrowLeft, Edit2, Trash2, MoreVertical, UsersRound, SendHorizontal } from "lucide-react";
 import { UserAvatar } from "@/components/shared/user-avatar";
+import { SendToFriendDrawer } from "@/components/shared/send-to-friend-drawer";
+import { FollowListDrawer } from "@/components/profile/follow-list-drawer";
 import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
 import { PostCarousel } from "@/components/post/post-carousel";
 import { WorkoutDetailButton } from "@/components/shared/workout-detail-dialog";
@@ -51,6 +53,8 @@ export default function PostDetail() {
   const [togglingIncentives, setTogglingIncentives] = React.useState<Set<number>>(new Set());
   const [descExpanded, setDescExpanded] = React.useState(false);
   const [carouselIndex, setCarouselIndex] = React.useState(0);
+  const [taggedOpen, setTaggedOpen] = React.useState(false);
+  const [sendToFriendOpen, setSendToFriendOpen] = React.useState(false);
 
   // Edit post state
   const [editDialogOpen, setEditDialogOpen] = React.useState(false);
@@ -305,6 +309,28 @@ export default function PostDetail() {
 
           {/* Bottom: description + glass action bar */}
           <div className="absolute bottom-3 left-3 right-3 z-10 pointer-events-auto">
+            {/* Pessoas marcadas — "com fulano" (1) navega ao perfil; 2+ abre a lista */}
+            {(post.taggedUsers?.length ?? 0) > 0 && (
+              <button
+                type="button"
+                className="flex items-center gap-1.5 mb-2 px-1 active:opacity-70 transition-opacity"
+                style={{ textShadow: "0 1px 8px rgba(0,0,0,.5)" }}
+                onClick={() => {
+                  if (post.taggedUsers!.length === 1) navigate(`/usuario/${post.taggedUsers![0].id}`);
+                  else setTaggedOpen(true);
+                }}
+              >
+                <UsersRound className="h-3.5 w-3.5 text-white/70 flex-shrink-0" />
+                <span className="text-[12px] text-white/85 truncate">
+                  {post.taggedUsers!.length === 1
+                    ? t("post_with_person").replace("{name}", post.taggedUsers![0].nickname)
+                    : t("post_with_others")
+                        .replace("{name}", post.taggedUsers![0].nickname)
+                        .replace("{n}", String(post.taggedUsers!.length - 1))}
+                </span>
+              </button>
+            )}
+
             {/* Description */}
             {description && (
               <p
@@ -328,7 +354,7 @@ export default function PostDetail() {
               >
                 {!isDescTruncatable || descExpanded ? (
                   <>
-                    {renderWithHashtags(description)}
+                    {renderWithHashtags(description, (tag) => navigate(`/tag/${encodeURIComponent(tag)}`))}
                     {isDescTruncatable && descExpanded && (
                       <> <button
                         type="button"
@@ -341,7 +367,7 @@ export default function PostDetail() {
                   </>
                 ) : (
                   <>
-                    {renderWithHashtags(truncatedDescription)}
+                    {renderWithHashtags(truncatedDescription, (tag) => navigate(`/tag/${encodeURIComponent(tag)}`))}
                     {"... "}
                     <button
                       type="button"
@@ -414,6 +440,14 @@ export default function PostDetail() {
                     defaultOpen={navState?.openComments === true}
                   />
                 </div>
+                <button
+                  type="button"
+                  onClick={() => setSendToFriendOpen(true)}
+                  className="flex items-center justify-center text-white active:scale-90 transition-transform"
+                  aria-label={t("send_to_friend_title")}
+                >
+                  <SendHorizontal className="h-5 w-5" />
+                </button>
               </div>
             </div>
           </div>
@@ -426,13 +460,41 @@ export default function PostDetail() {
         likes={postLikes}
       />
 
+      <SendToFriendDrawer
+        open={sendToFriendOpen}
+        onOpenChange={setSendToFriendOpen}
+        content={{
+          kind: "post",
+          id: post.id,
+          previewImage: post.photos?.length ? String(post.photos[0]) : post.photo || null,
+          authorNickname: post.userNickname,
+        }}
+      />
+
+      {/* Lista de pessoas marcadas (2+) */}
+      {(post.taggedUsers?.length ?? 0) > 1 && (
+        <FollowListDrawer
+          open={taggedOpen}
+          onOpenChange={setTaggedOpen}
+          type="following"
+          title={t("post_tagged_title")}
+          emptyMessage={t("post_tagged_title")}
+          users={post.taggedUsers!}
+          isLoading={false}
+        />
+      )}
+
       <EditPostDrawer
         open={editDialogOpen}
         onOpenChange={setEditDialogOpen}
         post={post}
-        onSaved={(newDescription) => {
-          if (newDescription !== undefined) {
-            setPost((prev) => prev ? { ...prev, description: newDescription } : prev);
+        onSaved={(newDescription, newTaggedUsers) => {
+          if (newDescription !== undefined || newTaggedUsers !== undefined) {
+            setPost((prev) => prev ? {
+              ...prev,
+              ...(newDescription !== undefined ? { description: newDescription } : {}),
+              ...(newTaggedUsers !== undefined ? { taggedUsers: newTaggedUsers } : {}),
+            } : prev);
           }
         }}
       />

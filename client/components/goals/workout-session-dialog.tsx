@@ -4,11 +4,12 @@ import { useWorkout } from "@/lib/workout-context";
 import { useLanguage } from "@/lib/language-context";
 import {
   subscribeRun, getRunState, startRun, pauseRun, resumeRun, stopRun,
-  openLocationSettings,
+  openLocationSettings, formatRunTime, formatRunPace,
   type RunState, type RunPoint, type StartRunLabels,
 } from "@/lib/run-tracker";
 import { RouteMap } from "@/components/shared/route-map";
 import { ExerciseImage } from "@/components/shared/exercise-image";
+import { getNetworkStatus } from "@/lib/network-status";
 import { toast } from "@/components/ui/use-toast";
 import {
   saveWorkoutHistoryDb,
@@ -44,6 +45,14 @@ export type WorkoutSessionSummary = {
   }>;
   // PR where bestKg >= 100 — "zerando a máquina"
   machinedExercises: Array<{ name: string; kg: number }>;
+  // Corrida GPS concluída nesta sessão (Corrida ao Ar Livre) — alimenta o
+  // slide de mapa compartilhável no resumo do treino. null quando não correu.
+  run: {
+    distanceKm: number;
+    elapsedMs: number;
+    paceSecPerKm: number | null;
+    path: RunPoint[][];
+  } | null;
 };
 
 interface WorkoutSessionDialogProps {
@@ -103,23 +112,6 @@ const isOutdoorRun = (name?: string | null) =>
   OUTDOOR_RUN_NAMES.has(
     name.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim(),
   );
-
-function fmtRunTime(ms: number): string {
-  const total = Math.floor(ms / 1000);
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  const s = total % 60;
-  const mm = String(m).padStart(h > 0 ? 2 : 1, "0");
-  const ss = String(s).padStart(2, "0");
-  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
-}
-
-function fmtPace(secPerKm: number | null): string {
-  if (secPerKm == null || !isFinite(secPerKm) || secPerKm > 3600) return "—";
-  const m = Math.floor(secPerKm / 60);
-  const s = Math.round(secPerKm % 60);
-  return `${m}:${String(s).padStart(2, "0")}`;
-}
 
 // Painel de corrida GPS — renderizado no card expandido do exercício
 // "Corrida ao Ar Livre". Estados: parado (CTA iniciar) → buscando sinal →
@@ -212,8 +204,8 @@ function RunTrackerPanel({
       <div style={{ display: "flex", marginBottom: 12 }}>
         {[
           { label: t("goals_run_distance"), value: state.distanceKm.toFixed(2), unit: "km" },
-          { label: t("goals_run_time"), value: fmtRunTime(state.elapsedMs), unit: null },
-          { label: t("goals_run_pace"), value: fmtPace(state.paceSecPerKm), unit: "/km" },
+          { label: t("goals_run_time"), value: formatRunTime(state.elapsedMs), unit: null },
+          { label: t("goals_run_pace"), value: formatRunPace(state.paceSecPerKm), unit: "/km" },
         ].map(({ label, value, unit }) => (
           <div key={label} style={{ flex: 1, textAlign: "center" }}>
             <div style={{
@@ -443,6 +435,10 @@ export function WorkoutSessionDialog({
     paceSecPerKm: number | null;
     path: RunPoint[][];
   } | null>(null);
+  // Última corrida concluída na sessão — sobrevive ao fechar do overlay de
+  // resumo da corrida e segue no WorkoutSessionSummary ao finalizar o treino
+  // (vira o slide de mapa compartilhável no resumo do treino).
+  const lastRunRef = React.useRef<WorkoutSessionSummary["run"]>(null);
 
   // Menu de contexto (⋯) — qual exercício está aberto
   const [menuId, setMenuId] = React.useState<string | null>(null);
@@ -693,12 +689,14 @@ export function WorkoutSessionDialog({
         [workoutId]: list.map((s, i) => (i === idx ? { ...s, ...filled } : s)),
       };
     });
-    setRunSummary({
+    const summary = {
       distanceKm: result.distanceKm,
       elapsedMs: result.elapsedMs,
       paceSecPerKm: result.paceSecPerKm,
       path: result.path,
-    });
+    };
+    setRunSummary(summary);
+    lastRunRef.current = summary;
   };
 
   const removeFromSession = (workoutId: string) => {
@@ -992,18 +990,25 @@ export function WorkoutSessionDialog({
       const sessionBaseMs = Date.now();
       let seriesSaveIndex = 0;
 
-      // Query previous bests before saving (so we compare against pre-session records)
+      // Query previous bests before saving (so we compare against pre-session records).
+      // Offline, getPreviousBestKgDb devolveria 0 e TODO exercício com carga
+      // viraria um falso PR — sem rede, a detecção de PR all-time é pulada
+      // (o aviso de PR em tempo real, baseado na coluna ANTERIOR, segue normal).
+      const netStatus = getNetworkStatus();
+      const canDetectAllTimePR = netStatus.isOnline && netStatus.isSupabaseReachable;
       const prevBests = new Map<string, number>();
-      await Promise.all(
-        exerciseEntries.map(async ([workoutId]) => {
-          const row = allItemsForSave.find((w) => w.workout_id === workoutId);
-          const isCardio = (row?.muscle_group || "").toLowerCase() === "cardio";
-          if (!isCardio) {
-            const prev = await getPreviousBestKgDb(userId, workoutId).catch(() => 0);
-            prevBests.set(workoutId, prev);
-          }
-        }),
-      );
+      if (canDetectAllTimePR) {
+        await Promise.all(
+          exerciseEntries.map(async ([workoutId]) => {
+            const row = allItemsForSave.find((w) => w.workout_id === workoutId);
+            const isCardio = (row?.muscle_group || "").toLowerCase() === "cardio";
+            if (!isCardio) {
+              const prev = await getPreviousBestKgDb(userId, workoutId).catch(() => 0);
+              prevBests.set(workoutId, prev);
+            }
+          }),
+        );
+      }
 
       for (const [workoutId, series] of exerciseEntries) {
         const completed = series.filter((s) => s.completed);
@@ -1041,7 +1046,7 @@ export function WorkoutSessionDialog({
           sets: completed.map((s) => ({ kg: s.kg || 0, reps: s.reps || 0 })),
         });
 
-        if (!isCardio && bestKg > 0) {
+        if (!isCardio && bestKg > 0 && canDetectAllTimePR) {
           const prev = prevBests.get(workoutId) ?? 0;
           if (bestKg > prev) {
             const name = row?.workoutName ?? workoutId;
@@ -1078,7 +1083,9 @@ export function WorkoutSessionDialog({
         completedExercises,
         prExercises,
         machinedExercises,
+        run: lastRunRef.current,
       });
+      lastRunRef.current = null;
     } catch (err: any) {
       setSaveError(err?.message || t("goals_create_error_retry"));
     } finally {
@@ -2529,8 +2536,8 @@ export function WorkoutSessionDialog({
               }}>
                 {[
                   { label: t("goals_run_distance"), value: runSummary.distanceKm.toFixed(2), unit: "km" },
-                  { label: t("goals_run_time"), value: fmtRunTime(runSummary.elapsedMs), unit: null },
-                  { label: t("goals_run_pace"), value: fmtPace(runSummary.paceSecPerKm), unit: "/km" },
+                  { label: t("goals_run_time"), value: formatRunTime(runSummary.elapsedMs), unit: null },
+                  { label: t("goals_run_pace"), value: formatRunPace(runSummary.paceSecPerKm), unit: "/km" },
                 ].map(({ label, value, unit }) => (
                   <div key={label} style={{ flex: 1, textAlign: "center" }}>
                     <div style={{

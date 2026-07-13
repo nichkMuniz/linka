@@ -1,5 +1,5 @@
 import * as React from "react";
-import { getFeedPosts, getDiscoverPosts, togglePostLike, FEED_PAGE_SIZE } from "../services/post.service";
+import { getFeedPosts, getDiscoverPosts, togglePostLike, FEED_PAGE_SIZE, DISCOVER_PAGE_SIZE } from "../services/post.service";
 import { withNetworkRetry, checkSupabaseReachability } from "@/lib/network-status";
 import {
   Drawer,
@@ -33,6 +33,7 @@ import { PostLikesModal } from "@/components/modals/post-likes-modal";
 import { ReportDrawer } from "@/components/shared/report-drawer";
 import { GoalCompletedDialog } from "@/components/shared/goal-completed-dialog";
 import { ShareDrawer } from "@/components/shared/share-drawer";
+import { SendToFriendDrawer, type SendableContent } from "@/components/shared/send-to-friend-drawer";
 import { postShareUrl } from "@/lib/share-url";
 import { EditPostDrawer } from "@/components/post/edit-post-drawer";
 import { PostCard } from "@/components/feed/post-card";
@@ -78,6 +79,7 @@ interface FeedCache {
   feedTab: "following" | "discover";
   discoverLoaded: boolean;
   hasMoreFeed: boolean;
+  hasMoreDiscover: boolean;
   scrollY: number;
 }
 
@@ -93,6 +95,7 @@ const feedCache: FeedCache = {
   feedTab: "following",
   discoverLoaded: false,
   hasMoreFeed: true,
+  hasMoreDiscover: true,
   scrollY: 0,
 };
 
@@ -117,6 +120,8 @@ export default function Index() {
   const [discoverLoaded, setDiscoverLoaded] = React.useState(() => (cacheValid ? feedCache.discoverLoaded : false));
   const [hasMoreFeed, setHasMoreFeed] = React.useState(() => (cacheValid ? feedCache.hasMoreFeed : true));
   const [loadingMoreFeed, setLoadingMoreFeed] = React.useState(false);
+  const [hasMoreDiscover, setHasMoreDiscover] = React.useState(() => (cacheValid ? feedCache.hasMoreDiscover : true));
+  const [loadingMoreDiscover, setLoadingMoreDiscover] = React.useState(false);
   const [feedTab, setFeedTab] = React.useState<"following" | "discover">(() => (cacheValid ? feedCache.feedTab : "following"));
 
   const togglingIncentivesRef = React.useRef<Set<string>>(new Set());
@@ -139,6 +144,8 @@ export default function Index() {
   const [shareDrawerOpen, setShareDrawerOpen] = React.useState(false);
   const [shareDrawerText, setShareDrawerText] = React.useState("");
   const [shareDrawerUrl, setShareDrawerUrl] = React.useState<string | undefined>(undefined);
+  const [sendToFriendOpen, setSendToFriendOpen] = React.useState(false);
+  const [sendToFriendContent, setSendToFriendContent] = React.useState<SendableContent | null>(null);
 
   const [reportDialogOpen, setReportDialogOpen] = React.useState(false);
   const [reportType, setReportType] = React.useState<"user" | "post" | null>(null);
@@ -177,14 +184,17 @@ export default function Index() {
     [],
   );
 
-  const loadFeed = React.useCallback(async (showLoading = true) => {
+  const loadFeed = React.useCallback(async (showLoading = true, force = false) => {
     if (showLoading) setLoading(true);
     try {
       // Os flows/stories têm cache interno (stale-while-revalidate, TTL de 60s) em
-      // `getActiveStoriesDb`. Sem invalidar aqui, um refresh manual (pull-to-refresh,
+      // `getActiveStoriesDb`. Sem invalidar, um refresh manual (pull-to-refresh,
       // tocar no logo, etc.) podia devolver a mesma lista antiga por até 2 ciclos de
       // TTL — exigindo vários refreshs seguidos até o flow novo de um seguidor aparecer.
-      invalidateQueryCache("activeStories");
+      //
+      // Só invalida quando o refresh é EXPLÍCITO do usuário: na carga inicial isso
+      // descartava um cache ainda válido e forçava uma query a cada abertura do app.
+      if (force) invalidateQueryCache("activeStories");
       const [postsData, storiesData] = await Promise.all([
         getFeedPosts(),
         getActiveStoriesDb(),
@@ -236,7 +246,8 @@ export default function Index() {
     feedCache.feedTab = feedTab;
     feedCache.discoverLoaded = discoverLoaded;
     feedCache.hasMoreFeed = hasMoreFeed;
-  }, [posts, discoverPosts, stories, viewedStoryIds, currentUserPhoto, currentUserNickname, feedTab, discoverLoaded, hasMoreFeed]);
+    feedCache.hasMoreDiscover = hasMoreDiscover;
+  }, [posts, discoverPosts, stories, viewedStoryIds, currentUserPhoto, currentUserNickname, feedTab, discoverLoaded, hasMoreFeed, hasMoreDiscover]);
 
   // Restaura (no mount) e salva (no unmount) a posição de scroll entre navegações.
   React.useEffect(() => {
@@ -290,7 +301,8 @@ export default function Index() {
       window.scrollTo({ top: 0, behavior: "smooth" });
       feedCache.scrollY = 0;
       setDiscoverLoaded(false);
-      loadFeed(false);
+      setHasMoreDiscover(true);
+      loadFeed(false, true);
     };
     window.addEventListener("ritmofit-refresh-feed", handler);
     return () => window.removeEventListener("ritmofit-refresh-feed", handler);
@@ -304,7 +316,7 @@ export default function Index() {
     navigate(location.pathname, { replace: true, state: {} });
     window.scrollTo({ top: 0, behavior: "auto" });
     feedCache.scrollY = 0;
-    loadFeed(false);
+    loadFeed(false, true);
   }, [location.state?.refreshFeed, loadFeed, navigate, location.pathname]);
 
   // Infinite scroll: load more following-feed posts as the user approaches the
@@ -354,6 +366,7 @@ export default function Index() {
   // initial render from paying for an extra ~30-post enrichment query that
   // most users never see on first visit.
   const discoverSentinelRef = React.useRef<HTMLDivElement | null>(null);
+  const discoverBottomSentinelRef = React.useRef<HTMLDivElement | null>(null);
   const loadDiscover = React.useCallback(() => {
     if (discoverLoaded || discoverLoading) return;
     setDiscoverLoading(true);
@@ -361,10 +374,58 @@ export default function Index() {
       .then((data) => {
         setDiscoverPosts(data);
         setDiscoverLoaded(true);
+        setHasMoreDiscover(data.length >= DISCOVER_PAGE_SIZE);
       })
       .catch((err) => console.error("Erro ao carregar posts populares:", err))
       .finally(() => setDiscoverLoading(false));
   }, [discoverLoaded, discoverLoading]);
+
+  // Scroll infinito do Discover: carrega a próxima página (posts mais antigos) usando o
+  // created_at do último post já exibido como cursor, mesclando com dedup por id.
+  const loadMoreDiscover = React.useCallback(async () => {
+    if (loadingMoreDiscover || !hasMoreDiscover || !discoverLoaded) return;
+    // O Discover é ranqueado (não cronológico), então o cursor de paginação é o
+    // created_at MÍNIMO já carregado — não o último item exibido. Strings ISO 8601
+    // comparam corretamente por ordem lexicográfica.
+    let oldestCreatedAt: string | undefined;
+    for (const p of discoverPostsRef.current) {
+      if (!oldestCreatedAt || p.created_at < oldestCreatedAt) oldestCreatedAt = p.created_at;
+    }
+    if (!oldestCreatedAt) return;
+    setLoadingMoreDiscover(true);
+    try {
+      const more = await getDiscoverPosts({ before: oldestCreatedAt });
+      if (more.length === 0) {
+        setHasMoreDiscover(false);
+      } else {
+        setDiscoverPosts((prev) => {
+          const seen = new Set(prev.map((p) => p.id));
+          const merged = [...prev];
+          for (const p of more) if (!seen.has(p.id)) merged.push(p);
+          return merged;
+        });
+        if (more.length < DISCOVER_PAGE_SIZE) setHasMoreDiscover(false);
+      }
+    } catch (err) {
+      console.error("Erro ao carregar mais posts populares:", err);
+    } finally {
+      setLoadingMoreDiscover(false);
+    }
+  }, [loadingMoreDiscover, hasMoreDiscover, discoverLoaded]);
+
+  React.useEffect(() => {
+    if (feedTab !== "discover" || !discoverLoaded || !hasMoreDiscover) return;
+    const node = discoverBottomSentinelRef.current;
+    if (!node || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) loadMoreDiscover();
+      },
+      { rootMargin: "800px 0px" },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [feedTab, discoverLoaded, hasMoreDiscover, loadMoreDiscover]);
 
   React.useEffect(() => {
     if (loading || discoverLoaded) return;
@@ -696,6 +757,12 @@ export default function Index() {
     const text = post.description ? `${base}\n"${post.description}"` : base;
     setShareDrawerText(text);
     setShareDrawerUrl(postShareUrl(post.id));
+    setSendToFriendContent({
+      kind: "post",
+      id: post.id,
+      previewImage: post.photos?.length ? String(post.photos[0]) : post.photo || null,
+      authorNickname: post.userNickname,
+    });
     setShareDrawerOpen(true);
   }, [t]);
 
@@ -758,10 +825,13 @@ export default function Index() {
   }, []);
 
   const handlePostSaved = React.useCallback(async () => {
-    await loadFeed(false);
+    await loadFeed(false, true);
     // Also refresh discover so edited post description updates there too
     getDiscoverPosts()
-      .then(setDiscoverPosts)
+      .then((data) => {
+        setDiscoverPosts(data);
+        setHasMoreDiscover(data.length >= DISCOVER_PAGE_SIZE);
+      })
       .catch(console.error);
   }, [loadFeed]);
 
@@ -807,7 +877,8 @@ export default function Index() {
     if (pullDistance >= PULL_THRESHOLD) {
       hapticLight();
       setDiscoverLoaded(false);
-      loadFeed(true);
+      setHasMoreDiscover(true);
+      loadFeed(true, true);
       // Refresh de badges (mensagens/notificações) — o AppLayout escuta este
       // evento para refazer o fetch, cobrindo o caso da subscription realtime
       // ter caído silenciosamente.
@@ -994,14 +1065,25 @@ export default function Index() {
                 </Button>
               </div>
             ) : (
-              discoverPosts.map((post) => (
-                <PostCard
-                  key={`seed-${post.id}`}
-                  post={post}
-                  {...sharedCardProps}
-                  showFollowButton
-                />
-              ))
+              <>
+                {discoverPosts.map((post) => (
+                  <PostCard
+                    key={`seed-${post.id}`}
+                    post={post}
+                    {...sharedCardProps}
+                    showFollowButton
+                  />
+                ))}
+                {hasMoreDiscover && discoverPosts.length > 0 && (
+                  <div ref={discoverBottomSentinelRef}>
+                    {loadingMoreDiscover && (
+                      <div className="flex flex-col">
+                        {[1, 2].map((i) => <PostSkeleton key={`more-disc-${i}`} tall />)}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
             )}
           </>
         )}
@@ -1196,6 +1278,13 @@ export default function Index() {
         text={shareDrawerText}
         url={shareDrawerUrl}
         title={t("feed_share_post_title")}
+        onSendToFriend={() => setSendToFriendOpen(true)}
+      />
+
+      <SendToFriendDrawer
+        open={sendToFriendOpen}
+        onOpenChange={setSendToFriendOpen}
+        content={sendToFriendContent}
       />
 
       <PostLikesModal

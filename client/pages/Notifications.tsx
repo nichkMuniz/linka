@@ -1,9 +1,9 @@
 import * as React from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
-import { MessageCircle, UserPlus, Zap, Swords, SmilePlus, ChevronLeft } from "lucide-react";
+import { MessageCircle, UserPlus, Zap, Swords, SmilePlus, ChevronLeft, AtSign } from "lucide-react";
 import { INCENTIVE_CONFIG } from "@/lib/incentive-config";
-import { getNotificationsDb, markNotificationsAsReadDb, clearNotificationsDb, getFollowingIdsDb, type NotificationItem } from "@/lib/ritmofit-db";
+import { getNotificationsDb, markNotificationsAsReadDb, clearNotificationsDb, getFollowingIdsDb, invalidateQueryCache, type NotificationItem } from "@/lib/ritmofit-db";
 import { supabase } from "@/lib/supabase";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { NotificationsSkeleton } from "@/components/shared/animated-loading";
@@ -101,6 +101,9 @@ export default function Notifications() {
           if (realtimeDebounce) clearTimeout(realtimeDebounce);
           realtimeDebounce = setTimeout(async () => {
             if (!isMounted) return;
+            // getNotificationsDb() é cacheado (60s): sem invalidar, a nova
+            // notificação que acabou de chegar não apareceria na lista.
+            invalidateQueryCache("notifications");
             const data = await getNotificationsDb();
             if (isMounted) setNotifications(data);
           }, 1000);
@@ -243,6 +246,14 @@ export default function Notifications() {
           description: `${notification.userNickname} comentou na sua promoção`,
           bgColor: "bg-brand/10",
           borderColor: "border-brand/30",
+        };
+      case 9:
+        return {
+          icon: <AtSign className="h-5 w-5 text-cyan-400" />,
+          title: t("notif_title_post_tag"),
+          description: t("notif_desc_post_tag").replace("{name}", notification.userNickname),
+          bgColor: "bg-cyan-400/10",
+          borderColor: "border-cyan-200/50",
         };
       default:
         return {
@@ -490,6 +501,7 @@ export default function Notifications() {
       case 6:
       case 7: return { iconBg: "rgba(255,122,180,.16)", iconColor: "#ff8cb4" };
       case 8: return { iconBg: "rgba(249,115,22,.16)", iconColor: "#f97316" };
+      case 9: return { iconBg: "rgba(34,211,238,.16)", iconColor: "#22d3ee" };
       default: return { iconBg: "rgba(255,255,255,.1)", iconColor: "rgba(255,255,255,.7)" };
     }
   };
@@ -549,6 +561,7 @@ export default function Notifications() {
       case 6: return t("notif_desc_reaction_comment").replace("{name}", name);
       case 7: return t("notif_desc_reaction_checkin").replace("{name}", name);
       case 8: return t("notif_desc_promo_comment").replace("{name}", name);
+      case 9: return t("notif_desc_post_tag").replace("{name}", name);
       default: return t("notif_body_default");
     }
   };
@@ -568,11 +581,12 @@ export default function Notifications() {
       case 6:
       case 7:  return { background: "#ff8cb4" };
       case 8:  return { background: "#f97316" };
+      case 9:  return { background: "#22d3ee" };
       default: return { background: "rgba(255,255,255,.5)" };
     }
   };
 
-  const isUserBased = (type: number) => [1, 2, 3, 6, 7, 8].includes(type);
+  const isUserBased = (type: number) => [1, 2, 3, 6, 7, 8, 9].includes(type);
 
   return (
     <>
@@ -693,7 +707,7 @@ export default function Notifications() {
                           const groupedUsers = notification.groupedUsers ?? [];
                           const isGrouped = (notification.groupedCount ?? 1) > 1;
                           const isFollow = notification.type === 1;
-                          const hasThumbnail = (notification.type === 2 || notification.type === 3) && notification.postPhoto;
+                          const hasThumbnail = (notification.type === 2 || notification.type === 3 || notification.type === 9) && notification.postPhoto;
 
                           return (
                             <button

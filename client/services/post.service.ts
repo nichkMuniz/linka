@@ -3,10 +3,12 @@ import {
   getPostLikesWithViewerBatchDb,
   getCommentCountsBatchDb,
   getProfilesBatchDb,
+  getPostTagsBatchDb,
   togglePostIncentiveDb,
   getFollowingIdsDb,
   type PostWithLikes,
   type PostIncentiveType,
+  type SearchUser,
 } from "@/lib/ritmofit-db";
 import type { PostWorkoutSummary } from "@/lib/workout-summary-types";
 
@@ -17,6 +19,7 @@ export type PostWithStats = PostWithLikes & {
   userPhoto: string | null;
   isVerified?: boolean;
   workoutSummary?: PostWorkoutSummary | null;
+  taggedUsers?: SearchUser[];
   userGoal?: {
     id: string;
     goal_id: string;
@@ -31,6 +34,7 @@ export type PostWithStats = PostWithLikes & {
 };
 
 export const FEED_PAGE_SIZE = 20;
+export const DISCOVER_PAGE_SIZE = 20;
 
 export const getFeedPosts = async (
   options: { limit?: number; before?: string } = {},
@@ -75,10 +79,11 @@ export const getFeedPosts = async (
   )];
 
   // Batch-fetch ALL enrichment data in parallel (3 queries total — likes + viewer-likes merged into one round-trip)
-  const [likesBundle, commentCountsMap, profilesMap, goalMap] = await Promise.all([
+  const [likesBundle, commentCountsMap, profilesMap, tagsMap, goalMap] = await Promise.all([
     getPostLikesWithViewerBatchDb(postIds),
     getCommentCountsBatchDb(postIds),
     getProfilesBatchDb(userIds),
+    getPostTagsBatchDb(postIds),
     (async () => {
       const map = new Map<string, any>();
       if (goalIds.length > 0) {
@@ -130,6 +135,7 @@ export const getFeedPosts = async (
       userPhoto: profile?.photo || null,
       isVerified: profile?.is_verified === true,
       workoutSummary: (post.workout_summary as PostWorkoutSummary | null) ?? null,
+      taggedUsers: tagsMap.get(post.id) ?? [],
       userGoal,
     };
   });
@@ -137,9 +143,13 @@ export const getFeedPosts = async (
   return posts;
 };
 
-export const getDiscoverPosts = async (): Promise<PostWithStats[]> => {
+export const getDiscoverPosts = async (
+  options: { limit?: number; before?: string } = {},
+): Promise<PostWithStats[]> => {
   if (!hasSupabaseConfig || !supabase)
     throw new Error("Supabase não configurado");
+
+  const limit = options.limit ?? DISCOVER_PAGE_SIZE;
 
   const [currentUser, followingIds] = await Promise.all([
     getUserSafe(),
@@ -150,12 +160,17 @@ export const getDiscoverPosts = async (): Promise<PostWithStats[]> => {
   // Exclude current user and followed users
   const excludedIds = [currentUser.id, ...followingIds];
 
-  const { data, error } = await supabase
+  let query = supabase
     .from("posts")
     .select("id, description, photo, photos, created_at, user_id, user_goal_id, workout_summary")
     .not("user_id", "in", `(${excludedIds.join(",")})`)
     .order("created_at", { ascending: false })
-    .limit(30);
+    .limit(limit);
+  // Cursor de paginação (scroll infinito): busca posts mais antigos que o último já exibido.
+  if (options.before) {
+    query = query.lt("created_at", options.before);
+  }
+  const { data, error } = await query;
 
   if (error) throw error;
 
@@ -166,10 +181,11 @@ export const getDiscoverPosts = async (): Promise<PostWithStats[]> => {
   const userIds = [...new Set(rows.map((p: any) => p.user_id))];
   const goalIds = [...new Set(rows.map((p: any) => p.user_goal_id).filter(Boolean))];
 
-  const [likesBundle, commentCountsMap, profilesMap, goalMap] = await Promise.all([
+  const [likesBundle, commentCountsMap, profilesMap, tagsMap, goalMap] = await Promise.all([
     getPostLikesWithViewerBatchDb(postIds),
     getCommentCountsBatchDb(postIds),
     getProfilesBatchDb(userIds),
+    getPostTagsBatchDb(postIds),
     (async () => {
       const map = new Map<string, any>();
       if (goalIds.length > 0) {
@@ -220,15 +236,37 @@ export const getDiscoverPosts = async (): Promise<PostWithStats[]> => {
       userPhoto: profile?.photo || null,
       isVerified: profile?.is_verified === true,
       workoutSummary: (post.workout_summary as PostWorkoutSummary | null) ?? null,
+      taggedUsers: tagsMap.get(post.id) ?? [],
       userGoal,
     };
   });
 
-  // Sort by recency (most recent first)
-  posts.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-
-  return posts;
+  // Ranking do Discover: entre os posts da janela recente buscada (paginada por
+  // cursor de created_at), prioriza os mais ENGAJADOS. A recência entra como
+  // decaimento suave (meia-vida ~36h) e é o fator dominante entre janelas — dentro
+  // de uma mesma página os posts têm idades próximas, então o engajamento manda.
+  // Conservador de propósito: como todos os candidatos já são recentes, conteúdo
+  // novo nunca é "starvado" globalmente; só é ordenado por qualidade dentro da faixa.
+  return rankDiscoverPosts(posts);
 };
+
+const DISCOVER_HALF_LIFE_HOURS = 36;
+
+function rankDiscoverPosts(posts: PostWithStats[]): PostWithStats[] {
+  const now = Date.now();
+  return posts
+    .map((p) => {
+      const ageH = Math.max(0, (now - new Date(p.created_at).getTime()) / 3_600_000);
+      const recency = Math.pow(0.5, ageH / DISCOVER_HALF_LIFE_HOURS);
+      const totalLikes = (Object.values(p.likes) as number[]).reduce((a, b) => a + b, 0);
+      const engagement = totalLikes + 2 * p.commentCount;
+      const hasMedia = !!(p.photo || (p.photos && p.photos.length > 0));
+      const score = (1 + engagement) * recency * (hasMedia ? 1.15 : 1);
+      return { p, score };
+    })
+    .sort((a, b) => b.score - a.score)
+    .map((s) => s.p);
+}
 
 export const togglePostLike = async (
   postId: string,

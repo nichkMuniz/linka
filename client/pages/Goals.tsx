@@ -17,6 +17,9 @@ import {
   getUserBadgesDb,
   getAllBadgesDb,
   getTotalCheckInsDb,
+  getWeightLogsDb,
+  addWeightLogDb,
+  deleteWeightLogDb,
   createCheckInDb,
   awardBadgesForCheckInsDb,
   incrementGoalProgressDb,
@@ -43,6 +46,7 @@ import {
   type Badge,
   type UserBadge,
   type RoutineTypeCode,
+  type WeightLog,
 } from "@/lib/ritmofit-db";
 import {
   buildRoutineCards,
@@ -56,9 +60,13 @@ import {
   type WeekDayState,
 } from "@/components/goals/goals-helpers";
 import { GoalsSkeleton } from "@/components/shared/animated-loading";
+import { addNetworkStatusListener, getNetworkStatus } from "@/lib/network-status";
+import { OUTBOX_SYNCED_EVENT } from "@/lib/offline-outbox";
+import { WifiOff } from "lucide-react";
 import { StreakBadgesCard } from "@/components/goals/streak-badges-card";
 import { TodayDashboard } from "@/components/goals/today-dashboard";
 import { RoutineTypeCards, type RoutineTypeProgress } from "@/components/goals/routine-type-cards";
+import { WeightTrackerCard } from "@/components/goals/weight-tracker-card";
 import { LifeGoalsSection } from "@/components/goals/life-goals-section";
 import { CreateWizardDrawer } from "@/components/goals/create-wizard-drawer";
 import { RoutineListDrawer } from "@/components/goals/routine-list-drawer";
@@ -185,6 +193,7 @@ export default function Goals() {
   const [badgesOpen, setBadgesOpen] = React.useState(false);
   const [calendarOpen, setCalendarOpen] = React.useState(false);
   const [checkInDates, setCheckInDates] = React.useState<string[]>([]);
+  const [weightLogs, setWeightLogs] = React.useState<WeightLog[]>([]);
   const [summaryData, setSummaryData] = React.useState<WorkoutSummaryData | null>(null);
   const [unlockedBadges, setUnlockedBadges] = React.useState<Badge[]>([]);
   const [completedGoalDesc, setCompletedGoalDesc] = React.useState<string | null>(null);
@@ -199,7 +208,7 @@ export default function Goals() {
   const loadData = React.useCallback(async () => {
     if (!user) return;
     try {
-      const [rts, ws, ds, hs, gs, hist, badges, allB, totalCi] = await Promise.all([
+      const [rts, ws, ds, hs, gs, hist, badges, allB, totalCi, wl] = await Promise.all([
         getUserRoutinesDb(user.id),
         getUserWorkoutsDb(user.id),
         getUserDietsDb(user.id),
@@ -209,6 +218,7 @@ export default function Goals() {
         getUserBadgesDb(user.id),
         getAllBadgesDb(),
         getTotalCheckInsDb(user.id),
+        getWeightLogsDb(90),
       ]);
       setRoutines(rts);
       setWorkouts(ws);
@@ -222,6 +232,7 @@ export default function Goals() {
       setUserBadges(badges);
       setAllBadges(allB);
       setTotalCheckIns(totalCi);
+      setWeightLogs(wl);
       const lastDates = await getRoutineLastDatesBatchDb(user.id, ws.map((w) => w.id));
       setRoutineLastDates(lastDates);
     } catch {
@@ -233,6 +244,46 @@ export default function Goals() {
 
   React.useEffect(() => {
     loadData();
+  }, [loadData]);
+
+  const handleAddWeight = React.useCallback(async (weight: number) => {
+    try {
+      await addWeightLogDb(weight);
+      const wl = await getWeightLogsDb(90);
+      setWeightLogs(wl);
+      // Sucesso é confirmado visualmente pelo próprio card (estado "Peso registrado!").
+    } catch {
+      toast({ title: t("goals_weight_error"), variant: "destructive" });
+    }
+  }, [t]);
+
+  const handleDeleteWeight = React.useCallback(async (id: string) => {
+    try {
+      await deleteWeightLogDb(id);
+      setWeightLogs((prev) => prev.filter((l) => l.id !== id));
+    } catch {
+      toast({ title: t("goals_weight_error"), variant: "destructive" });
+    }
+  }, [t]);
+
+  // ── Modo offline ──
+  // Banner quando sem internet/Supabase inalcançável; ao sincronizar a fila
+  // offline (evento global do outbox), recarrega para refletir o estado real.
+  const [isOffline, setIsOffline] = React.useState(() => {
+    const s = getNetworkStatus();
+    return !s.isOnline || !s.isSupabaseReachable;
+  });
+  React.useEffect(
+    () =>
+      addNetworkStatusListener((s) =>
+        setIsOffline(!s.isOnline || !s.isSupabaseReachable),
+      ),
+    [],
+  );
+  React.useEffect(() => {
+    const onSynced = () => loadData();
+    window.addEventListener(OUTBOX_SYNCED_EVENT, onSynced);
+    return () => window.removeEventListener(OUTBOX_SYNCED_EVENT, onSynced);
   }, [loadData]);
 
   // Reabrir o modal de treino quando a barra global disparar pendingReopen
@@ -444,6 +495,10 @@ export default function Goals() {
       prExercises: summary.prExercises,
       machinedExercises: summary.machinedExercises,
       userGroups: [],
+      // Corrida GPS da sessão (se houve) — vira o slide de mapa compartilhável
+      // no resumo. Não entra no snapshot persistido (updateRoutineLastSummaryDb):
+      // o path pode ter milhares de pontos e o resumo salvo não renderiza mapa.
+      run: summary.run,
     });
 
     // Snapshot persistido na rotina — sobrescreve o resumo anterior (sempre o
@@ -692,6 +747,31 @@ export default function Goals() {
       </div>
 
       <div className="relative px-4 pb-4 space-y-5">
+        {isOffline && (
+          <div
+            className="flex items-center gap-3"
+            style={{
+              borderRadius: "18px",
+              padding: "12px 16px",
+              background: "linear-gradient(rgba(255,138,42,.14),rgba(255,138,42,.06))",
+              backdropFilter: "blur(24px)",
+              WebkitBackdropFilter: "blur(24px)",
+              border: "1px solid rgba(255,138,42,.28)",
+              boxShadow: "inset 0 1px 0 rgba(255,255,255,.12)",
+            }}
+          >
+            <WifiOff className="h-4 w-4 shrink-0" style={{ color: "#ff8a2a" }} />
+            <div className="min-w-0">
+              <p className="text-sm font-semibold leading-tight">
+                {t("goals_offline_banner")}
+              </p>
+              <p className="text-xs text-muted-foreground leading-snug">
+                {t("goals_offline_banner_desc")}
+              </p>
+            </div>
+          </div>
+        )}
+
         <StreakBadgesCard
           streakCount={streak}
           weekDone={week.doneCount}
@@ -714,6 +794,12 @@ export default function Goals() {
         <RoutineTypeCards
           items={routineTypeItems}
           onOpen={openTypeRoutine}
+        />
+
+        <WeightTrackerCard
+          logs={weightLogs}
+          onAddWeight={handleAddWeight}
+          onDeleteWeight={handleDeleteWeight}
         />
 
         <LifeGoalsSection

@@ -43,6 +43,10 @@ client/components/
 - **Badge de notificações:** Contador no ícone de Notificações
 - **Vibração ao receber notificação:** A subscription realtime (`app-layout-notif-push`, canal `notifications`) dispara `hapticSuccess()` (`client/lib/haptics.ts`) para qualquer INSERT na tabela `notifications` do usuário logado — independentemente do tipo (follow, incentivo, comentário, duelo, reação) e da tela em que o usuário está, inclusive na própria tela de Notificações. Roda antes da checagem que pula a notificação local visual (`LocalNotifications.schedule`) quando o usuário já está em `/notificacoes`, então a vibração sempre ocorre mesmo quando o banner é suprimido. Sem efeito fora do runtime nativo (Capacitor) — `hapticSuccess()` é no-op no browser.
 - **Refetch de badges no refresh do feed:** contadores são carregados no mount e mantidos via subscription realtime do Supabase (que pode cair silenciosamente em background no iOS). Para evitar badge desatualizado, o `AppLayout` também escuta os eventos `ritmofit-refresh-feed` (toque no logo/home) e `ritmofit-refresh-badges` (disparado pelo pull-to-refresh em `Index.tsx`) e refaz o fetch de `getUnreadMessageCountDb`/`getUnreadNotificationsCountDb` a cada um deles
+- **Invalidação no realtime dos badges (performance):** os handlers realtime chamam `invalidateQueryCache("unreadMsgCount"/"conversations")` **antes** de reler o contador. `getUnreadMessageCountDb`/`getUnreadNotificationsCountDb` são cacheadas (30s); sem invalidar, o evento realtime relia a própria entrada em cache e o badge só acertava quando o TTL vencia — o realtime virava no-op
+- **Tempo de tela bufferizado (performance):** a troca de rota **não vai mais ao banco**. `bufferScreenTime(tela, segundos)` acumula em `localStorage` (somado por dia+tela) e `flushScreenTimeDb(userId)` envia tudo num **único insert em lote** quando o app vai para background (`appStateChange`/`visibilitychange`), no logout (`settings-drawer`, antes do `signOut` por causa do RLS) e na abertura seguinte (resíduo de sessão encerrada abruptamente). Antes: 1 INSERT por navegação
+- **Limite diário sem polling (performance):** a mudança do limite é sinalizada pelo evento `lk:daily-limit-changed` (disparado pelo `settings-drawer` ao salvar) + revalidação no `visibilitychange` (cobre a virada do dia). Substituiu um `setInterval` de 5s que rodava em toda tela, para sempre, só para vigiar uma chave de `localStorage` — o evento nativo `storage` não serve, pois só dispara em outra aba
+- **Toast de sincronização offline (2026-07-11):** escuta o evento global `linka-offline-synced` (`OUTBOX_SYNCED_EVENT` de `client/lib/offline-outbox.ts`) e mostra o toast `goals_sync_done_title/desc` em qualquer tela quando a fila de escritas feitas sem internet (treinos/check-ins da tela de Metas) termina de sincronizar — ver "Modo offline" em `docs/05-metas.md`
 - **Foto de perfil:** Carregada dinamicamente no ícone de Perfil
 - **Bottom Navigation (mobile):** 5 itens fixos na parte inferior
 - **Side Navigation (desktop):** Navegação lateral em telas grandes (244px fixo)
@@ -156,6 +160,7 @@ Dialog de comentários de um post:
 - Contagem de comentários no botão trigger
 - Badge de comentário não lido (para o dono do post)
 - Deletar comentário próprio — abre um **`AlertDialog` de confirmação** (título `comments_delete_title`, descrição `comments_delete_desc`, botão de ação em `bg-destructive` com estado de carregamento `comments_deleting`), padronizado para ser idêntico ao modal de exclusão de comentário da tela de Shots. Não usa mais o `confirm()` nativo do navegador
+- **`onCountChange?: (count: number) => void`** — callback opcional que reporta ao pai a contagem real de comentários sempre que ela muda (após o load inicial, ao adicionar e ao excluir). Só dispara depois do primeiro load real, para não zerar o contador do trigger com o `[]` inicial. Usado pelo Perfil para manter o contador do post viewer sincronizado
 - **Altura fixa** (`height: min(60dvh, viewportHeight - 8px)`, não apenas `maxHeight`) — o drawer sempre nasce no mesmo tamanho, com ou sem comentários, para evitar que o drawer "pule" de tamanho quando o primeiro comentário é postado (o novo comentário nascia atrás do input). A lista interna centraliza o estado vazio/loading verticalmente quando não há comentários. `PromotionCommentsDrawer` segue o mesmo padrão.
 
 ---
@@ -232,11 +237,15 @@ Cada foto tem seu próprio `CropTransform` guardado por índice (`Record<number,
 
 ---
 
-### RouteMap
+### RouteMap / renderRouteMapImage
 **Arquivo:** `client/components/shared/route-map.tsx`
-**Usado em:** WorkoutSessionDialog (resumo pós-corrida GPS da "Corrida ao Ar Livre" — ver `docs/05-metas.md`)
+**Usado em:** WorkoutSessionDialog (resumo pós-corrida GPS da "Corrida ao Ar Livre") e WorkoutSummaryOverlay (slide de mapa compartilhável no resumo do treino) — ver `docs/05-metas.md`
 
-Mapa **estático** do trajeto de uma corrida GPS, sem dependências de biblioteca de mapas: calcula o zoom que enquadra o bbox do trajeto, monta a grade de tiles **CARTO dark** (`basemaps.cartocdn.com/dark_all`, @2x — combina com o tema glass escuro; atribuição "© OpenStreetMap © CARTO" obrigatória no canto) e desenha a **polyline** do percurso numa camada SVG por cima (azul `#5b8cff` com glow; início = ponto verde, fim = laranja). Props: `path: RunPoint[][]` (segmentos — quebra a cada pausa→retomada, sem reta ligando os trechos), `height` e `emptyLabel` (estado vazio quando há < 2 pontos). Estático de propósito (sem pan/zoom): é um resumo pós-corrida, não um mapa navegável. Requer rede para os tiles (sem CSP no app).
+Mapa **estático** do trajeto de uma corrida GPS, sem dependências de biblioteca de mapas: `computeRouteLayout` calcula o zoom que enquadra o bbox do trajeto e a grade de tiles **CARTO dark** (`basemaps.cartocdn.com/dark_all`, @2x — combina com o tema glass escuro; atribuição "© OpenStreetMap © CARTO" obrigatória no canto). A mesma matemática alimenta **duas saídas**:
+- **`<RouteMap/>`** (DOM): tiles em `<img>` + **polyline** SVG por cima (azul `#5b8cff` com glow; início = ponto verde, fim = laranja). Props: `path: RunPoint[][]` (segmentos — quebra a cada pausa→retomada, sem reta ligando os trechos), `height` e `emptyLabel` (estado vazio quando há < 2 pontos).
+- **`renderRouteMapImage(path, stats, size=1080)`** (async → `Blob | null`): desenha o mapa num **canvas quadrado** e devolve **JPEG pronto para upload** (slide compartilhável do resumo do treino). Tiles carregados com `crossOrigin:"anonymous"` para não "sujar" o canvas (tile sem CORS é pulado); rodapé com **distância/tempo/ritmo** sobre gradiente escuro (rótulos localizados vêm em `stats.labels`; valores formatados por `formatRunTime`/`formatRunPace` de `run-tracker.ts`) e atribuição no canto. Se `toBlob` falhar por canvas tainted, **redesenha sem tiles** (rota sobre fundo escuro) — a imagem continua válida offline.
+
+Estático de propósito (sem pan/zoom): é um resumo pós-corrida, não um mapa navegável. Requer rede para os tiles (sem CSP no app).
 
 ---
 
@@ -245,6 +254,42 @@ Mapa **estático** do trajeto de uma corrida GPS, sem dependências de bibliotec
 **Usado em:** Feed (`PostCard`), Perfil (viewer de post), PostDetail
 
 Pill **"Ver treino"** + drawer glass **simplificado** de detalhe do treino, renderizado apenas em posts que carregam um `workout_summary` (posts de resumo de treino compartilhados no feed). Props: `summary: PostWorkoutSummary` (tipo em `client/lib/workout-summary-types.ts`) e `className` (posicionamento do pill). O drawer (padrão glass §9.4) mostra **só** a lista de exercícios: cada linha com a **miniatura do exercício** (`ExerciseImage`, fallback gradiente/emoji por grupo quando sem foto), nome + grupo muscular e as **séries em chips `{kg}kg × {reps}`** — sem stats/banners (o overlay completo é o `WorkoutSummaryOverlay` na tela de Metas). Optou-se por pill dedicado em vez de tornar a imagem inteira clicável, para não conflitar com o duplo-toque de incentivo, o pinch-zoom e o swipe de carrossel já existentes na imagem do post. Ver `docs/01-feed.md` (Detalhe do treino) e `docs/14-database-schema.md` (`posts.workout_summary`).
+
+---
+
+### TagPeopleDrawer
+**Arquivo:** `client/components/shared/tag-people-drawer.tsx`
+**Usado em:** NewPost (Etapa 2 — "Marcar pessoas") e EditPostDrawer (seção "Pessoas marcadas" — abre por cima do drawer de edição)
+
+Drawer glass de **marcação de pessoas em um post** (estilo Instagram). Seleção controlada pelo pai via `selected: SearchUser[]` / `onChange`:
+- Ao abrir, lista quem o usuário segue (`getFollowingDb`); a busca filtra os seguidos **e** procura qualquer pessoa do app (`searchUsersDb`, debounce 300ms), mesclando sem duplicatas e excluindo o próprio usuário
+- Cada linha: `UserAvatar` + nickname + check circular (gradiente azul→roxo quando selecionado)
+- Limite exportado `MAX_TAGGED_PEOPLE = 10` — exceder mostra toast destrutivo
+- Botão "Concluir (n)" apenas fecha (a seleção já está no pai)
+- Props: `open`, `onOpenChange`, `selected`, `onChange`
+
+---
+
+### SendToFriendDrawer (2026-07-12)
+**Arquivo:** `client/components/shared/send-to-friend-drawer.tsx`
+**Usado em:** Feed (via `ShareDrawer` → botão "Amigos"), PostDetail (avião de papel na barra de ações) e Shots (avião de papel na coluna de ações)
+
+Drawer glass de **envio de post/shot para amigos via mensagem privada** (estilo Instagram):
+- Ao abrir, lista **conversas recentes primeiro** (`getConversationsDb`) seguidas de quem o usuário segue (`getFollowingDb`), sem duplicatas; busca global via `searchUsersDb` (debounce 300ms) permite enviar para quem não é seguido
+- Preview compacto do conteúdo no topo (thumbnail do post ou frame do vídeo do shot + @autor)
+- Multi-seleção (mesmo padrão visual do `TagPeopleDrawer`, limite 10 destinatários) + campo de **mensagem opcional**
+- Ao enviar: `sendMessageDb(recipientId, "[post]:<id>" | "[shot]:<id>")` por destinatário (em paralelo); se houver texto opcional, é enviado como segunda mensagem; toast de sucesso/erro
+- Props: `open`, `onOpenChange`, `content: SendableContent | null` (`{ kind: "post" | "shot", id, previewImage?, authorNickname? }`)
+- No chat da Comunidade, essas mensagens são renderizadas pelo **`SharedContentMessage`** (`client/components/community/shared-content-message.tsx`): card clicável com autor, thumbnail, descrição e "Ver post"/"Ver shot"; conteúdo apagado mostra "Conteúdo indisponível". Ver `docs/07-comunidade.md`
+- **`ShareDrawer`** ganhou a prop opcional `onSendToFriend?: () => void` — quando presente, exibe o botão "Amigos" (gradiente do app + `SendHorizontal`) como primeira opção da fileira de apps; o pai fecha o share e abre este drawer
+
+---
+
+### FollowListDrawer (estendido para listas genéricas de usuários)
+**Arquivo:** `client/components/profile/follow-list-drawer.tsx`
+**Usado em:** Perfil (seguidores/seguindo), Feed (`PostCard`) e PostDetail (lista "Pessoas marcadas" de um post)
+
+Além do uso original com `type: "followers" | "following"`, aceita `title` e `emptyMessage` opcionais que sobrescrevem os textos derivados de `type` — é assim que o feed/detalhe reutilizam o drawer para mostrar os marcados de um post (2+ pessoas). Quando o pai não passa `followStatus` em batch, o `FollowButton` de cada linha busca o próprio status (`initialIsFollowing` fica `undefined`). Strings padrão traduzidas via `t()` (`profile_followers`, `profile_following`, `follow_list_empty_*`).
 
 ---
 

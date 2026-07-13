@@ -3,7 +3,7 @@
 **Rota:** `/perfil` (próprio) | `/usuario/:userId` (outro usuário)
 **Arquivo:** `client/pages/Profile.tsx`
 **Layout:** AppLayout
-**Tamanho:** ~3.896 linhas (segunda maior tela)
+**Tamanho:** ~1.850 linhas (após a remoção do código morto da antiga aba Rotinas em 2026-07)
 
 ---
 
@@ -25,7 +25,7 @@ Página de perfil do usuário. Exibe informações pessoais, estatísticas, cont
 ├──────────────────────────────────┤
 │  🎯 Metas (scroll horizontal)    │  ← condicional: só aparece se há metas públicas
 ├──────────────────────────────────┤
-│  Tabs: [Posts][Shots][Rotinas]   │
+│  Tabs: [Posts][Shots][Vitrine]   │  ← Vitrine só aparece se há ofertas ativas
 ├──────────────────────────────────┤
 │  Conteúdo da Tab ativa           │
 └──────────────────────────────────┘
@@ -113,17 +113,21 @@ Exibe conquistas e badges desbloqueadas pelo usuário:
 
 Grade de imagens dos posts do usuário.
 
-**Layout:** Grid 2 colunas (mobile) / 3 colunas (desktop)
+**Layout:** Grid 3 colunas (mobile) / 4–6 colunas (telas maiores), `gap-[5px]`, itens `rounded-[14px]`
 
 Cada post na grade:
-- Thumbnail da primeira imagem
-- Ao clicar → abre post em modal ou navega para `/post/:postId`
+- Thumbnail da primeira imagem (`loading="lazy"` + `decoding="async"` — até 100 posts não carregam todos de uma vez)
+- Ao clicar → abre o post no drawer (Post Viewer)
 
 **Menu de contexto (próprio perfil apenas):**
 - `Editar` → Drawer com textarea para editar descrição
 - `Excluir` → AlertDialog de confirmação
 
 **Ao expandir um post:**
+- Ao salvar uma edição, o `selectedPost` local também é atualizado — a descrição/meta novas aparecem imediatamente no modo visualização (antes ficava o texto antigo até reabrir)
+- Ao excluir, o contador de posts (stats + rótulo da tab) é decrementado localmente e o cache `userPosts`/`userStats` é invalidado no banco (`deletePostDb`)
+- Incentivos são **não-bloqueantes**: o toque atualiza a UI na hora (optimistic) e a escrita/refetch rodam em segundo plano com guard de sequência — os 6 botões não ficam mais desabilitados durante o toggle
+- O contador de comentários é sincronizado em tempo real via prop `onCountChange` do `PostCommentsDialog`
 - Carrossel de imagens (`PostCarousel`)
 - Descrição — truncada em até 30 caracteres ou 1 linha; exibe `...` + botão clicável **"mais"** (chave i18n `feed_description_more`) para expandir o texto completo, e botão **"menos"** (`feed_description_less`) para recolher. Estado de expansão é resetado ao abrir um novo post
 - **Pill "Ver treino"** (`WorkoutDetailButton`) — só em posts de **resumo de treino** (com `workout_summary`), abaixo da descrição em modo visualização. Abre o drawer simplificado com a lista de exercícios (miniatura + grupo + séries em chips `{kg}kg × {reps}`; mesmo componente do feed/PostDetail). Ver `docs/01-feed.md` (Detalhe do treino)
@@ -158,35 +162,23 @@ Cada card de oferta exibe:
 
 Grade de thumbnails dos clipes do usuário.
 
-**Layout:** Grid 2 colunas com proporção 9:16 (portrait)
+**Layout:** Grid 3 colunas (mesmo grid dos posts), itens quadrados
 
 Cada shot na grade:
-- Thumbnail de preview do vídeo
-- Ícone de play centralizado
-- Ao clicar → abre o shot em um player modal
+- Preview do vídeo via `<video muted playsInline preload="metadata">` — só os metadados são baixados, não o vídeo inteiro
+- Ao clicar → navega para `/shots` com o shot aberto
+- O rótulo da tab só mostra a contagem `(n)` depois que o batch 2 termina (evita o flicker "Shots (0)")
 
-**Menu de contexto (próprio perfil apenas):**
-- `Editar` → Drawer para editar descrição do shot
-- `Excluir` → AlertDialog de confirmação
+**Botão de edição (próprio perfil apenas):**
+- Botão de engrenagem **sempre visível** no canto do tile (antes era `opacity-0 group-hover` — invisível no iOS, onde não há hover) → abre `ShotEditorDrawer` (editar descrição / excluir)
 
 ---
 
-## Tab: Rotinas
+## ~~Tab: Rotinas~~ (removida)
 
-Lista das rotinas públicas do usuário.
+A aba Rotinas foi **removida do perfil** — a gestão de rotinas vive na tela de Metas (`docs/05-metas.md`). Em 2026-07 o código morto correspondente (~1.000 linhas de JSX desativado com `{false && ...}`, estados e handlers de criação de rotina/histórico de treino) foi excluído do `Profile.tsx`.
 
-Cada rotina exibe:
-- Nome da rotina
-- Tipo (treino / dieta / hábito)
-- Lista de itens (exercícios / refeições)
-- Itens carregados via `getRoutineItemsForViewDb`
-
-**Perfil próprio — Gestão de Rotinas:**
-- Criar nova rotina
-- Editar rotina existente
-- Excluir rotina
-- Adicionar/remover exercícios de uma rotina
-- Adicionar/remover dietas de uma rotina
+As rotinas ainda são carregadas no batch 2 (`getUserRoutinesDb`) porque alimentam o `GoalDetailDrawer` (vincular/desvincular rotinas a uma meta pela strip de metas).
 
 ---
 
@@ -245,7 +237,7 @@ Dois toggles que salvam imediatamente em `profiles` via `updateUserProfileDb` (a
 | Ocultar seguidores e seguindo | `hide_follow_lists` | No perfil visto por **outros** usuários, os cards de Seguidores/Seguindo exibem um cadeado e, ao tocar, mostram "Esta lista é privada" em vez de abrir a lista. No próprio perfil continua tudo acessível. |
 | Ocultar posts de quem não te segue | `hide_posts_from_non_followers` | A aba **Posts** do perfil só é exibida a quem **segue** o dono. Para não seguidores aparece um estado bloqueado ("Publicações privadas" + cadeado). O dono e seus seguidores veem normalmente. |
 
-O status de seguimento do visitante é carregado com `isFollowingDb(profileUserId)` no carregamento do perfil. O gating é client-side (consistente com o filtro de visibilidade das metas).
+O status de seguimento do visitante é carregado com `isFollowingDb(profileUserId)` no carregamento do perfil. O gating é client-side (consistente com o filtro de visibilidade das metas). Ao tocar em **Seguir/Deixar de seguir**, o `onFollowChange` do `FollowButton` atualiza `viewerFollowsProfile` imediatamente — a aba Posts destrava/trava na hora, sem precisar recarregar o perfil.
 
 ### Seção: Outros
 
@@ -310,10 +302,7 @@ Aberto ao clicar nas estatísticas:
 | Seguidores | `getFollowersDb(userId)` |
 | Seguindo | `getFollowingDb(userId)` |
 | Status de seguimento | `isFollowingDb(userId)` / `getFollowingStatusBatchDb` |
-| Rotinas | `getUserRoutinesDb(userId)` |
-| Treinos | `getUserWorkoutsDb()` |
-| Dietas | `getUserDietsDb()` |
-| Hábitos | `getUserHabitsDb()` |
+| Rotinas (para o GoalDetailDrawer) | `getUserRoutinesDb(userId)` |
 | Metas do usuário | `getUserGoalsByUserIdDb(userId)` |
 | Perfil comercial | `getCommercialProfileDb()` |
 | Stories ativos | `getUserActiveStoriesDb(userId)` |
@@ -344,12 +333,10 @@ Exibida entre o card de perfil e as tabs, **apenas quando o usuário tem metas**
 | Configurações | ✅ | ❌ |
 | Excluir posts/shots | ✅ | ❌ |
 | Editar posts/shots | ✅ | ❌ |
-| Gerenciar rotinas | ✅ | ❌ |
 | Botão Seguir | ❌ | ✅ |
 | Botão Mensagem | ❌ | ✅ |
-| Ver posts | ✅ | ✅ |
+| Ver posts | ✅ | ✅ (respeitando privacidade) |
 | Ver shots | ✅ | ✅ |
-| Ver rotinas | ✅ | ✅ |
 | Ver vitrine (se tem ofertas) | ✅ | ✅ |
 
 ---
@@ -360,7 +347,9 @@ Exibida entre o card de perfil e as tabs, **apenas quando o usuário tem metas**
 - O hook `useAuth()` determina se é o próprio perfil ou não
 - **Header some ao rolar (scroll hide):** igual ao feed/shots/vitrine/comunidade/metas, o header flutuante do `AppLayout` (mobile) se esconde ao rolar para baixo e reaparece ao rolar para cima, controlado pela lista `isScrollHidePage` em `app-layout.tsx`
 - **Fecha drawers/modais ao trocar de perfil:** `/perfil` e `/usuario/:userId` renderizam o mesmo componente `Profile.tsx`, então navegar de um perfil para outro (ex.: tocar no nome de um usuário dentro dos comentários/incentivos de um post aberto) **não remonta a tela** — sem tratamento, o drawer do post (ou qualquer outro drawer/modal) permanecia aberto sobre o novo perfil carregado. Um efeito dedicado (`prevProfileUserIdRef`) compara o `profileUserId` anterior com o atual e, quando muda (ignorando a montagem inicial, para não quebrar a abertura do Settings vinda de notificação via `openFlowArchive`), fecha todos os drawers/modais: post, likes, shot, story, histórico de treino, exclusão de rotina, seguidores/seguindo, meta, planos, configurações e compartilhamento
-- `Collapsible` é usado para seções expansíveis de rotina
+- **Guard de corrida no `loadProfile`:** como o componente fica montado ao navegar entre perfis, loads concorrentes podem resolver fora de ordem. Um contador (`loadSeqRef`) garante que só a requisição mais recente grava estado — a mais antiga é descartada silenciosamente
+- **Batch 2 não é fatal:** se o batch 1 (perfil/stats/posts) sucede e o batch 2 (rotinas/metas/shots/comercial) falha, a tela permanece com o perfil carregado e só exibe um toast — antes a tela inteira era trocada pela tela de erro. `profileError` também é resetado no início de todo load
+- **Pull-to-refresh imperativo:** o gesto atualiza o indicador direto no DOM via refs (sem `setState` por `touchmove`, que re-renderizava a árvore inteira a ~60fps). Ao soltar, o refresh é **soft** — invalida os caches e recarrega mantendo o conteúdo atual na tela, sem voltar ao skeleton
 - Imagens de banner e avatar são hospedadas no Supabase Storage
 
 ### Cache de Dados
@@ -379,5 +368,7 @@ O perfil não é uma tela que muda com frequência, então as queries de carrega
 
 - Ao reentrar na tela dentro do TTL, os dados vêm da memória sem round-trip de rede. Após o TTL expirar (mas dentro de 24h), o valor persistido em `localStorage` é exibido imediatamente enquanto uma atualização roda em segundo plano — por isso a tela nunca fica "travada" esperando a rede em revisitas.
 - `updateUserProfileDb` chama `invalidateProfileCache(userId)` para garantir que uma edição de perfil não fique presa ao cache antigo.
-- **Pull-to-refresh** invalida explicitamente todas as chaves acima antes de chamar `loadProfile()`, já que puxar para atualizar é um pedido explícito de dados frescos — não deve reaproveitar cache.
+- **`deletePostDb` invalida `userPosts`, `post:` e `userStats:{userId}`; `updatePostDb` invalida `userPosts` e `post:`** — a invalidação roda ANTES do `return` (bug corrigido em 2026-07: as chamadas estavam depois do `try/catch` com `return`, código inalcançável, e o post excluído "ressuscitava" do cache ao reentrar no perfil).
+- **`getTopUserBadgeDb` (`topUserBadge:{userId}`) e `getTotalCheckInsDb` (`totalCheckIns:{userId}`) são cacheados (30s)** — o `UserInsignias` monta no header e a cada post aberto no drawer; sem cache eram 2 queries extras por post visualizado. Invalidam em `createCheckInDb` (check-in novo) e `setSelectedBadgeDb` (troca de insígnia).
+- **Pull-to-refresh** invalida explicitamente todas as chaves acima (incluindo `isFollowing:{viewerId}:{profileUserId}`) antes de chamar `loadProfile({ soft: true })`, já que puxar para atualizar é um pedido explícito de dados frescos — não deve reaproveitar cache.
 - **`getUserRoutinesDb` não é cacheado** (ver `docs/05-metas.md`) — sempre busca direto do Supabase, então o resumo de rotinas do perfil também reflete criações/edições feitas em Metas sem esperar TTL nem pull-to-refresh.

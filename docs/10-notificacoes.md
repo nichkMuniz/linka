@@ -54,6 +54,7 @@ Cada item exibe:
 | 5 `join_request` | `Swords` | Amarelo | Solicitação de entrada no duelo |
 | 6 `comment_reaction` | `SmilePlus` | Rosa | Alguém reagiu ao seu comentário |
 | 7 `checkin_reaction` | `SmilePlus` | Laranja | Alguém reagiu ao seu check-in de duelo |
+| 9 `post_tag` | `AtSign` | Ciano | Alguém marcou você em uma publicação (tabela `post_tags`, trigger `trg_notify_post_tag`) |
 
 ### Tipos de Incentivo (subtipo)
 Quando o tipo é incentivo, o ícone exibido é o do incentivo específico (não um ícone genérico):
@@ -95,6 +96,7 @@ Quando o tipo é incentivo, o ícone exibido é o do incentivo específico (não
   - Notificação de reação em comentário de **check-in** (tipo 6, `checkInId`) → `/comunidade` com `state.openCheckIn = checkInId` (abre drawer do check-in)
   - Notificação de duelo (tipo 4 ou 5) → `/comunidade?tab=requests` (abre aba "Solicitações")
   - Notificação de reação em check-in de duelo (tipo 7) → `/comunidade` com `state.openCheckIn = checkInId` (abre drawer do check-in)
+  - Notificação de marcação em post (tipo 9, `postId`) → `/post/:postId` (fallback genérico por `postId` no `handleNotificationClick`); o card mostra a thumbnail do post quando disponível
 
 ---
 
@@ -111,7 +113,8 @@ supabase
     table: "notifications",
     filter: `user_id=eq.${user.id}`
   }, () => {
-    // Re-fetches full list on new notification
+    // Invalida ANTES de reler — getNotificationsDb() é cacheada (60s)
+    invalidateQueryCache("notifications");
     getNotificationsDb().then(setNotifications)
   })
   .subscribe()
@@ -119,6 +122,7 @@ supabase
 
 - Sem polling — usa Supabase Realtime
 - Ao receber nova notificação, recarrega a lista completa
+- **Invalidação obrigatória antes do refetch:** `getNotificationsDb()` passa pelo cache (`CACHE_TTL_MEDIUM`, 60s). Sem `invalidateQueryCache("notifications")` no handler, o refetch disparado pelo realtime relia a **própria entrada em cache** e a notificação recém-chegada só aparecia quando o TTL vencesse — o realtime era efetivamente um no-op. Mesma regra vale para os badges no `AppLayout` (`unreadNotifCount`, `unreadMsgCount`)
 
 ---
 
@@ -140,6 +144,23 @@ supabase
 | Lista de notificações | `getNotificationsDb()` |
 | Marcar como lidas | `markNotificationsAsReadDb()` |
 | Limpar todas | `clearNotificationsDb()` |
+
+---
+
+## Push de Re-engajamento (proativo, agendado)
+
+Além do push **reativo** (evento social → trigger/webhook → `send-push-notification`), há um push **proativo de retenção**, enviado por uma Edge Function **agendada** (`supabase/functions/reengagement-push`), 1x/dia via **pg_cron** (19:00 BRT):
+
+| Gatilho | Condição | Mensagem (PT) | Destino |
+|---|---|---|---|
+| **Sequência em risco** | Fez check-in **ontem** mas ainda não **hoje**, e streak ≥ 3 | "🔥 Sua sequência está em risco! Você está há {n} dias seguidos…" | `/metas` |
+| **Inatividade** | Último check-in foi há **exatamente 3 ou 7 dias** | "Sentimos sua falta 💪 Faz {n} dias que você não treina…" | `/metas` |
+
+- **Não cria card in-app:** ao contrário das notificações sociais, o re-engajamento **não** insere linha em `notifications` — é um lembrete efêmero que vira só o push do iOS (não polui a lista nem o badge de não lidas). Envia APNs direto, reaproveitando os mesmos secrets/JWT do `send-push-notification`.
+- **Datas em America/Sao_Paulo** (público majoritariamente BR) — mesma premissa do resto do app. Copy em PT, igual ao push social.
+- **Dedup sem tabela de controle:** os limiares são de **dia exato** (ontem / há 3 / há 7 dias), então cada usuário recebe no máximo um nudge por dia (cron diário) sem precisar registrar "já enviado".
+- **Só usuários com push ativo** entram no cálculo (join com `push_tokens`); tokens inválidos (`BadDeviceToken`/`Unregistered`) são removidos na hora, como no push social.
+- **Deploy:** `supabase functions deploy reengagement-push` + rodar `docs/migrations/20260713-reengagement-cron.sql` (habilita `pg_cron`/`pg_net` e agenda o job; requer preencher `PROJECT_REF`/`SERVICE_ROLE_KEY`/`CRON_SECRET`).
 
 ---
 

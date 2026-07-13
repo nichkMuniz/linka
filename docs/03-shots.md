@@ -52,6 +52,7 @@ Feed de vídeos curtos no estilo TikTok/Reels. O usuário rola verticalmente ent
 | Botão Mudo/Som | Superior direito | Toggle de áudio |
 | Botões de Incentivo | Lateral direita | 6 tipos de reação |
 | Botão Comentários | Lateral direita | Ícone de balão + contagem |
+| Botão Enviar (avião de papel) | Lateral direita | Abre `SendToFriendDrawer` para enviar o shot a amigos via mensagem privada |
 | Botão de Incentivos (dono) | Lateral direita | ❤️ + total de incentivos recebidos — visível apenas para o dono do shot |
 
 ---
@@ -73,6 +74,12 @@ Feed de vídeos curtos no estilo TikTok/Reels. O usuário rola verticalmente ent
 - Campo para digitar novo comentário + botão Send
 - Botão para deletar comentário (apenas o autor pode deletar o próprio)
 - Suporte a **resposta a comentários** (reply)
+
+### Enviar para Amigo (2026-07-12)
+- Ícone `Send` (avião de papel) abaixo do botão de comentários
+- Abre o `SendToFriendDrawer` (`components/shared/`) com preview do shot (frame do vídeo)
+- Envia mensagem privada com prefixo `[shot]:<shotId>` para até 10 pessoas de uma vez, com texto opcional
+- **Deep link de shot compartilhado:** ao abrir `/shots` com `location.state.shotId`, a tela reutiliza o scroll-to existente; se o shot não estiver entre os 50 do feed, é buscado individualmente via `getShotByIdDb` e inserido no topo da lista
 
 ### Seguir / Deixar de Seguir
 - Botão `UserPlus` (não seguindo) ou `UserCheck` (seguindo)

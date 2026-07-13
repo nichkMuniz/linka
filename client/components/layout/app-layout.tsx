@@ -36,7 +36,9 @@ import {
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { IncentiveConfirmToast } from "@/components/shared/incentive-confirm-toast";
 import { RoutineCompletedToast } from "@/components/shared/routine-completed-toast";
-import { getUnreadMessageCountDb, getUnreadNotificationsCountDb, getUserProfileDb, subscribeToUnreadNotificationsDb, recordAccessSessionDb, recordScreenTimeDb } from "@/lib/ritmofit-db";
+import { getUnreadMessageCountDb, getUnreadNotificationsCountDb, getUserProfileDb, subscribeToUnreadNotificationsDb, recordAccessSessionDb, bufferScreenTime, flushScreenTimeDb, invalidateQueryCache } from "@/lib/ritmofit-db";
+import { OUTBOX_SYNCED_EVENT } from "@/lib/offline-outbox";
+import { toast } from "@/components/ui/use-toast";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
 import { useRoutineNotifications } from "@/hooks/use-routine-notifications";
@@ -106,6 +108,16 @@ export function AppLayout() {
     }
   }, [pendingReopen]);
 
+  // Fila offline sincronizada (treinos/check-ins feitos sem internet foram
+  // enviados) → avisa o usuário em qualquer tela. O evento vem do offline-outbox.
+  React.useEffect(() => {
+    const onSynced = () => {
+      toast({ title: t("goals_sync_done_title"), description: t("goals_sync_done_desc") });
+    };
+    window.addEventListener(OUTBOX_SYNCED_EVENT, onSynced);
+    return () => window.removeEventListener(OUTBOX_SYNCED_EVENT, onSynced);
+  }, [t]);
+
   const [sidebarExpanded, setSidebarExpanded] = React.useState(() => {
     const stored = localStorage.getItem("ritmofit_sidebar_expanded");
     if (stored !== null) return stored === "true";
@@ -159,8 +171,10 @@ export function AppLayout() {
     const enteredAt = screenEnteredAtRef.current;
     const durationSeconds = Math.floor((Date.now() - enteredAt) / 1000);
 
+    // Só acumula localmente — o envio ao banco acontece em lote no flush
+    // (app indo para background), não a cada navegação.
     if (user && durationSeconds >= 3) {
-      recordScreenTimeDb(user.id, prev, durationSeconds).catch(() => {});
+      bufferScreenTime(prev, durationSeconds);
     }
 
     currentScreenRef.current = location.pathname;
@@ -198,10 +212,19 @@ export function AppLayout() {
         setLimitIgnoredToday(false);
       }
     };
+    // O evento nativo `storage` só dispara em OUTRA aba — inútil num app
+    // Capacitor de webview única. Antes isso era coberto por um setInterval de
+    // 5s rodando em toda tela, para sempre, só para vigiar um valor que muda
+    // quando o usuário mexe nas Configurações. Agora o próprio settings-drawer
+    // avisa por evento, e revalidamos na volta do background (vira o dia).
     window.addEventListener("storage", handleStorage);
-    // Also poll every 5s to catch same-tab changes
-    const poll = setInterval(handleStorage, 5000);
-    return () => { window.removeEventListener("storage", handleStorage); clearInterval(poll); };
+    window.addEventListener("lk:daily-limit-changed", handleStorage);
+    document.addEventListener("visibilitychange", handleStorage);
+    return () => {
+      window.removeEventListener("storage", handleStorage);
+      window.removeEventListener("lk:daily-limit-changed", handleStorage);
+      document.removeEventListener("visibilitychange", handleStorage);
+    };
   }, []);
 
   // Always record access session on app background/close — independent of daily limit
@@ -210,11 +233,22 @@ export function AppLayout() {
     sessionStartRef.current = Date.now();
     sessionStorage.setItem("ritmofit_session_start", String(sessionStartRef.current));
 
+    // Sobrou buffer de uma sessão anterior (app morto sem passar por background)?
+    // Envia agora, na abertura.
+    flushScreenTimeDb(user.id).catch(() => {});
+
     const flush = () => {
       const sessionSeconds = Math.floor((Date.now() - sessionStartRef.current) / 1000);
       if (sessionSeconds >= 10) {
         recordAccessSessionDb(user.id, sessionSeconds).catch(() => {});
       }
+      // Contabiliza a tela em que o usuário estava ao sair e despeja o buffer
+      // inteiro num único insert em lote.
+      const screenSeconds = Math.floor((Date.now() - screenEnteredAtRef.current) / 1000);
+      bufferScreenTime(currentScreenRef.current, screenSeconds);
+      screenEnteredAtRef.current = Date.now();
+      flushScreenTimeDb(user.id).catch(() => {});
+
       sessionStartRef.current = Date.now();
       sessionStorage.setItem("ritmofit_session_start", String(sessionStartRef.current));
     };
@@ -335,6 +369,10 @@ export function AppLayout() {
           // Debounce: if multiple messages arrive in quick succession, only query once
           if (msgDebounceTimer) clearTimeout(msgDebounceTimer);
           msgDebounceTimer = setTimeout(() => {
+            // Derruba o cache antes de reler: getUnreadMessageCountDb() é cacheado
+            // (30s) e, sem isto, o realtime devolvia a contagem antiga.
+            invalidateQueryCache("unreadMsgCount");
+            invalidateQueryCache("conversations");
             getUnreadMessageCountDb()
               .then(setUnreadCount)
               .catch((err) => console.error("Error loading unread message count:", err));

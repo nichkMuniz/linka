@@ -253,6 +253,41 @@ Sem borda:            border-0 ou remover a classe border
 - Estados `disabled`: opacity-50 é aplicado automaticamente — não force visualmente
 - Gap entre ícone e texto: sempre `gap-2`
 
+### 6.5 Seletor de Estilo (fileira de chips horizontais)
+
+Padrão para deixar o usuário escolher entre **variações visuais do mesmo conteúdo** (ex.: qual template de card compartilhar) sem abrir um drawer/dialog — introduzido no seletor de estilo do card gerado no resumo de treino (`workout-summary-overlay.tsx`, `goals_canvas_style_label`).
+
+```tsx
+<div style={{ display: "flex", gap: 8, overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+  {options.map((opt) => {
+    const selected = value === opt.id;
+    return (
+      <button
+        key={opt.id}
+        onClick={() => setValue(opt.id)}
+        style={{
+          flexShrink: 0, padding: "9px 14px", borderRadius: 20,
+          background: selected ? `${opt.accent}22` : CARD,
+          border: `1.5px solid ${selected ? `${opt.accent}66` : BORDER}`,
+          color: selected ? opt.accent : MUTED,
+          fontSize: 13, fontWeight: 700,
+          display: "flex", alignItems: "center", gap: 6,
+        }}
+      >
+        <span aria-hidden>{opt.emoji}</span>
+        {opt.label}
+      </button>
+    );
+  })}
+</div>
+```
+
+- Container com `overflowX:auto` + `WebkitOverflowScrolling:"touch"` (nunca quebra linha) e `::-webkit-scrollbar{display:none}` para esconder a barra de rolagem no iOS.
+- Chip selecionado: fundo e borda tingidos pela cor de acento da própria opção (`${accent}22` / `${accent}66`), texto na cor de acento. Chip não selecionado: `CARD`/`BORDER`/`MUTED` padrão (glass).
+- `flexShrink: 0` em cada chip — obrigatório, senão o flex container espreme os últimos itens em vez de rolar.
+- Emoji como indicador visual rápido da opção, à esquerda do label.
+- Só liste opções que fazem sentido para os dados disponíveis (ex.: esconder uma opção que precisa de um valor > 0 quando esse valor é zero) em vez de mostrá-la desabilitada.
+
 ---
 
 ## 7. Componentes — Cards

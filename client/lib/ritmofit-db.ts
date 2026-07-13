@@ -1,5 +1,16 @@
 import { getUserSafe, hasSupabaseConfig, supabase, registerViewerCacheInvalidator, registerAuthUserReadyHandler } from "@/lib/supabase";
 import type { PostWorkoutSummary } from "@/lib/workout-summary-types";
+import {
+  getNetworkStatus,
+  isTransientNetworkError,
+  checkSupabaseReachability,
+} from "@/lib/network-status";
+import {
+  enqueueOutbox,
+  registerOutboxExecutor,
+  clearOutbox,
+  flushOutbox,
+} from "@/lib/offline-outbox";
 
 // ─── Auth helpers ─────────────────────────────────────────────────────────────
 
@@ -38,6 +49,9 @@ function invalidateViewerCache() {
   _queryCache.clear();
   // Drop persisted entries too — they may contain data from a previous user.
   persistDelete();
+  // Cópias offline e fila de sincronização pertencem ao usuário que saiu.
+  offlineCopyDeleteAll();
+  clearOutbox();
 }
 
 function cleanHandle(raw: string) {
@@ -87,13 +101,21 @@ const CACHE_OWNER_KEY = "lk:cacheOwner"; // fora do prefixo lk:q: para sobrevive
 registerAuthUserReadyHandler((userId: string) => {
   _viewerCache = null;
   try {
-    if (localStorage.getItem(CACHE_OWNER_KEY) === userId) return;
-    _queryCache.clear();
-    persistDelete();
-    localStorage.setItem(CACHE_OWNER_KEY, userId);
+    if (localStorage.getItem(CACHE_OWNER_KEY) !== userId) {
+      _queryCache.clear();
+      persistDelete();
+      // Usuário mudou: cópias offline e fila pendente são de outro contexto.
+      offlineCopyDeleteAll();
+      clearOutbox();
+      localStorage.setItem(CACHE_OWNER_KEY, userId);
+    }
   } catch {
     _queryCache.clear();
   }
+  // Sessão disponível + internet → bom momento para drenar a fila offline
+  // (alguns replays, como o de progresso de meta, precisam do viewer). Roda
+  // DEPOIS da checagem de troca de usuário para nunca drenar fila de outro.
+  if (!isLikelyOffline()) void flushOutbox();
 });
 
 // ─── Generic query cache ──────────────────────────────────────────────────────
@@ -108,9 +130,26 @@ registerAuthUserReadyHandler((userId: string) => {
 const _queryCache = new Map<string, { data: unknown; expiry: number }>();
 const _inflight = new Map<string, Promise<unknown>>();
 
-const CACHE_TTL_SHORT = 30_000;   // 30s — user-specific data that changes often
-const CACHE_TTL_MEDIUM = 60_000;  // 60s — lists, feeds
-const CACHE_TTL_LONG = 300_000;   // 5min — catalogs, programmed goals, badges
+// TTL por MUTABILIDADE do dado — quem pode escrever nele, e não "quão importante
+// ele é". Regra que define o tier:
+//
+//   Escrito por TERCEIROS (curtidas, comentários, mensagens, notificações,
+//   ranking, seguidores) → o app não tem como saber que mudou, então o TTL é a
+//   única defesa contra dado velho. Fica curto (SHORT/MEDIUM).
+//
+//   Escrito SÓ pelo próprio usuário neste device (metas, histórico de treino,
+//   peso, progressão) → toda escrita já chama invalidateQueryCache(), então o
+//   cache NUNCA fica velho por conta própria. O TTL aqui só existiria para
+//   cobrir edição em outro device — cenário raro. Fica longo (OWN).
+//
+//   Catálogo global (exercícios, dietas, hábitos, metas programadas) → muda
+//   quando NÓS publicamos conteúdo novo, semanas de intervalo. Fica muito
+//   longo (STATIC); mudanças do usuário no catálogo já invalidam.
+const CACHE_TTL_SHORT = 30_000;    // 30s — escrito por terceiros, muda o tempo todo
+const CACHE_TTL_MEDIUM = 60_000;   // 60s — listas e feeds com escrita de terceiros
+const CACHE_TTL_LONG = 300_000;    // 5min — perfis (mudam raro, mas não são só nossos)
+const CACHE_TTL_OWN = 900_000;     // 15min — só o próprio usuário escreve; escrita invalida
+const CACHE_TTL_STATIC = 43_200_000; // 12h — catálogo global, praticamente imutável
 
 // Persisted entries older than this are ignored (treated as cold miss).
 // Long enough that a returning user gets instant first paint; short enough
@@ -118,7 +157,11 @@ const CACHE_TTL_LONG = 300_000;   // 5min — catalogs, programmed goals, badges
 const PERSIST_STALE_MAX_MS = 24 * 60 * 60 * 1000; // 24h
 
 // Skip persisting payloads larger than this to protect the ~5MB localStorage quota.
-const PERSIST_MAX_BYTES = 100_000; // ~100KB per entry
+// 250KB (era 100KB): os catálogos de exercícios/dietas passavam do teto antigo e
+// caíam fora do disco — logo o TTL longo deles não sobrevivia ao fechar o app, e
+// eram rebuscados a cada abertura. São exatamente as chaves que mais compensam
+// persistir. Quota continua folgada: poucas chaves chegam perto disso.
+const PERSIST_MAX_BYTES = 250_000; // ~250KB per entry
 
 // Bump when the shape of cached payloads changes incompatibly so old entries are ignored.
 const PERSIST_VERSION = 1;
@@ -175,6 +218,89 @@ function persistDelete(prefix?: string) {
   }
 }
 
+// ─── Cópias offline (Metas offline) ───────────────────────────────────────────
+// Cópia local durável das leituras da tela de Metas, no padrão NETWORK-FIRST:
+// online, cada leitura bem-sucedida sobrescreve a cópia (nada muda no fluxo
+// normal — preserva a correção de 06/07 que removeu o cache das rotinas); sem
+// rede, a cópia é servida no lugar do erro. Diferente do lk:q: (stale-while-
+// revalidate com teto de 24h), a cópia NÃO expira — o usuário pode ficar dias
+// offline e ainda abrir a tela e treinar. Purga no sign-out/troca de usuário.
+
+const OFFLINE_PREFIX = "lk:off:";
+const OFFLINE_MAX_BYTES = 512_000;
+
+function offlineCopyRead<T>(key: string): T | null {
+  try {
+    const raw = localStorage.getItem(OFFLINE_PREFIX + key);
+    if (!raw) return null;
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
+function offlineCopyWrite(key: string, data: unknown) {
+  try {
+    const payload = JSON.stringify(data);
+    if (payload.length > OFFLINE_MAX_BYTES) return;
+    localStorage.setItem(OFFLINE_PREFIX + key, payload);
+  } catch {
+    // Quota exceeded ou serialização falhou — non-fatal.
+  }
+}
+
+// Atualização otimista: aplica `patch` sobre a cópia existente (ou `initial`,
+// quando fornecido) para a UI refletir a ação offline imediatamente.
+function offlineCopyPatch<T>(key: string, patch: (current: T) => T, initial?: T) {
+  const current = offlineCopyRead<T>(key) ?? initial;
+  if (current === undefined || current === null) return;
+  offlineCopyWrite(key, patch(current));
+}
+
+function offlineCopyDeleteAll() {
+  try {
+    const toRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith(OFFLINE_PREFIX)) toRemove.push(k);
+    }
+    toRemove.forEach((k) => localStorage.removeItem(k));
+  } catch {
+    // ignore
+  }
+}
+
+// Dono das cópias offline — o último usuário autenticado neste aparelho
+// (lk:cacheOwner, gravado quando a sessão fica pronta). Permite servir dados
+// user-scoped mesmo quando o token expirou e getViewer() falha sem rede.
+function getOfflineOwnerId(): string | null {
+  try {
+    return localStorage.getItem(CACHE_OWNER_KEY);
+  } catch {
+    return null;
+  }
+}
+
+// Sem internet (ou Supabase inalcançável): escritas vão direto para a fila
+// offline em vez de esperar o timeout de um fetch fadado a falhar.
+function isLikelyOffline(): boolean {
+  try {
+    const s = getNetworkStatus();
+    return !s.isOnline || !s.isSupabaseReachable;
+  } catch {
+    return false;
+  }
+}
+
+// Falha de escrita por rede → true (e dispara um recheck de reachability para
+// que as PRÓXIMAS escritas da mesma rajada tomem o fast-path da fila, sem
+// esperar N timeouts — ex.: as séries de um treino são gravadas em sequência).
+function isOfflineWriteError(err: unknown): boolean {
+  if (!isTransientNetworkError(err)) return false;
+  void checkSupabaseReachability().catch(() => {});
+  return true;
+}
+
 async function cached<T>(key: string, ttl: number, fn: () => Promise<T>): Promise<T> {
   // L1 — fresh memory hit.
   const hit = _queryCache.get(key);
@@ -198,13 +324,25 @@ async function cached<T>(key: string, ttl: number, fn: () => Promise<T>): Promis
     return p;
   };
 
-  // L2 — stale persisted hit: serve immediately, refetch in background.
   const persisted = persistRead<T>(key);
   if (persisted) {
-    // Seed memory with the stale value (with a short fresh window so synchronous
-    // re-reads in the same tick don't trigger another fetch).
+    const age = Date.now() - persisted.storedAt;
+
+    // L2a — persisted AINDA DENTRO DO TTL: é fresco, não só "melhor que nada".
+    // Promove para a memória com o tempo de vida restante e NÃO vai à rede.
+    // É isto que faz o TTL valer entre aberturas do app: sem este ramo, todo
+    // cold start revalidava TODAS as chaves (inclusive catálogos imutáveis),
+    // e o TTL só evitava refetch dentro da mesma sessão.
+    if (age < ttl) {
+      _queryCache.set(key, { data: persisted.data, expiry: persisted.storedAt + ttl });
+      return persisted.data;
+    }
+
+    // L2b — persisted vencido: stale-while-revalidate. Serve na hora (first
+    // paint instantâneo) e revalida em background.
+    // Janela curta de frescor na memória para que re-leituras no mesmo tick
+    // não disparem outro fetch.
     _queryCache.set(key, { data: persisted.data, expiry: Date.now() + 1_000 });
-    // Kick off background refresh but don't await it.
     fetchAndStore().catch(() => { /* background error already logged by fn */ });
     return persisted.data;
   }
@@ -823,7 +961,7 @@ export type ProgrammedGoal = {
 
 export async function getProgrammedGoalsDb(): Promise<ProgrammedGoal[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-  return cached("programmedGoals", CACHE_TTL_LONG, async () => {
+  return cached("programmedGoals", CACHE_TTL_STATIC, async () => {
   const { data, error } = await supabase
     .from("goals")
     .select("id, description, duration, quantity, type, created_by_user")
@@ -1070,6 +1208,12 @@ export async function getUserGoalsByUserIdDb(
       } satisfies UserGoal;
     });
 
+  // Grava a cópia offline a cada leitura bem-sucedida (network-first)
+  const finish = (rows: UserGoal[]): UserGoal[] => {
+    offlineCopyWrite(`userGoals:${userId}`, rows);
+    return rows;
+  };
+
   // Try with embedded join first
   const { data, error } = await supabase
     .from("user_goals")
@@ -1078,7 +1222,7 @@ export async function getUserGoalsByUserIdDb(
     .order("created_at", { ascending: false });
 
   if (!error) {
-    return mapRows(data ?? [], new Map());
+    return finish(mapRows(data ?? [], new Map()));
   }
 
   // Fallback (any error): fetch without join + manual batch lookup
@@ -1091,6 +1235,11 @@ export async function getUserGoalsByUserIdDb(
 
   if (fbError) {
     console.error(`Error fetching user goals [${fbError.code}]:`, fbError.message);
+    // Sem rede: serve a última cópia local em vez de esconder as metas
+    if (isTransientNetworkError(fbError)) {
+      const off = offlineCopyRead<UserGoal[]>(`userGoals:${userId}`);
+      if (off) return off;
+    }
     return [];
   }
 
@@ -1101,7 +1250,7 @@ export async function getUserGoalsByUserIdDb(
     (goalsData ?? []).forEach((g: any) => descMap.set(String(g.id), String(g.description ?? "")));
   }
 
-  return mapRows(fallback ?? [], descMap);
+  return finish(mapRows(fallback ?? [], descMap));
 }
 
 export async function getUserGoalsDb(): Promise<UserGoal[]> {
@@ -1110,8 +1259,18 @@ export async function getUserGoalsDb(): Promise<UserGoal[]> {
   // falha transitória de auth) retornamos vazio SEM gravar no cache — antes,
   // o vazio era persistido e servido por até 24h (stale-while-revalidate).
   const viewer = await getViewer();
-  if (!viewer) return [];
-  return cached(`userGoals:${viewer.id}`, CACHE_TTL_MEDIUM, async () => {
+  if (!viewer) {
+    // Offline com token expirado: getSession() falha e o viewer vem null mesmo
+    // com um usuário local. Serve a cópia offline do dono do aparelho — no
+    // sign-out real ela é purgada, então não há risco de vazar dados de outro.
+    const ownerId = getOfflineOwnerId();
+    if (ownerId) {
+      const off = offlineCopyRead<UserGoal[]>(`userGoals:${ownerId}`);
+      if (off) return off;
+    }
+    return [];
+  }
+  return cached(`userGoals:${viewer.id}`, CACHE_TTL_OWN, async () => {
   return getUserGoalsByUserIdDb(viewer.id);
 
   });
@@ -1165,31 +1324,25 @@ export async function getUserGoalByIdDb(
   return buildGoal(fb, String(goalData?.description ?? ""));
 }
 
-export async function incrementGoalProgressDb(
+// Caminho online puro (lança erro de rede) — usado pela função pública e pelo
+// replay da fila offline, que passa a DATA ORIGINAL da execução. `progressDate`
+// permite replays de dias passados sem distorcer a regra de "1x por dia".
+async function applyGoalProgressOnlineDb(
   userGoalId: string,
+  progressDate: string,
+  viewerId: string,
 ): Promise<UserGoal | null> {
-  if (!hasSupabaseConfig || !supabase) return null;
-
-  const viewer = await getViewer();
-  if (!viewer) return null;
-
-  const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
-
-  const { data: currentData, error: fetchError } = await supabase
+  const { data: currentData, error: fetchError } = await supabase!
     .from("user_goals")
     .select("days_completed, duration, last_progress_date")
     .eq("id", userGoalId)
     .maybeSingle();
 
-  if (fetchError || !currentData) {
-    const errorMsg = fetchError?.message || "Unknown error";
-    const errorCode = fetchError?.code || "UNKNOWN";
-    console.error(`Error fetching goal progress [${errorCode}]:`, errorMsg);
-    return null;
-  }
+  if (fetchError) throw fetchError;
+  if (!currentData) return null;
 
-  // Já foi incrementada hoje (por qualquer rotina vinculada) — só a primeira do dia conta
-  if (currentData.last_progress_date === today) return null;
+  // Já foi incrementada neste dia (por qualquer rotina vinculada) — só a primeira conta
+  if (currentData.last_progress_date === progressDate) return null;
 
   const currentDaysCompleted = Number(currentData.days_completed ?? 0);
   const duration = Number(currentData.duration ?? 1);
@@ -1198,11 +1351,17 @@ export async function incrementGoalProgressDb(
   // Calculate percentage for perc field based on the NEW value
   const perc = duration > 0 ? (newDaysCompleted / duration) * 100 : 0;
 
-  const { data, error } = await supabase
+  // Nunca regride last_progress_date: um replay de segunda-feira depois de um
+  // treino online de terça soma o dia, mas mantém a data mais recente (senão a
+  // regra de 1x/dia deixaria terça contar de novo).
+  const currentLast = currentData.last_progress_date ? String(currentData.last_progress_date) : "";
+  const newLastDate = currentLast > progressDate ? currentLast : progressDate;
+
+  const { data, error } = await supabase!
     .from("user_goals")
-    .update({ days_completed: newDaysCompleted, perc: Math.round(perc), last_progress_date: today })
+    .update({ days_completed: newDaysCompleted, perc: Math.round(perc), last_progress_date: newLastDate })
     .eq("id", userGoalId)
-    .eq("user_id", viewer.id)
+    .eq("user_id", viewerId)
     .select("id, goal_id, duration, quantity, type_goal, days_completed, perc, visibility")
     .maybeSingle();
 
@@ -1210,7 +1369,7 @@ export async function incrementGoalProgressDb(
     const errorMsg = error?.message || String(error);
     const errorCode = error?.code || "UNKNOWN";
     console.error(`Error updating goal progress [${errorCode}]:`, errorMsg);
-    throw new Error(`Erro ao atualizar progresso: ${errorMsg}`);
+    throw error;
   }
 
   if (!data) return null;
@@ -1230,11 +1389,71 @@ export async function incrementGoalProgressDb(
   };
 }
 
+export async function incrementGoalProgressDb(
+  userGoalId: string,
+  progressDate?: string,
+): Promise<UserGoal | null> {
+  if (!hasSupabaseConfig || !supabase) return null;
+
+  const date = progressDate ?? new Date().toISOString().split("T")[0]; // YYYY-MM-DD
+
+  // Offline: incrementa otimisticamente a cópia local das metas (a barra de
+  // progresso e o diálogo de "meta concluída" funcionam na hora) e enfileira o
+  // incremento com a data de hoje. O dedupe local (goalProgressDates) replica a
+  // regra de 1x/dia; o replay ainda revalida no servidor.
+  const offlineIncrement = (): UserGoal | null => {
+    const ownerId = getOfflineOwnerId();
+    if (!ownerId) return null;
+    const marksKey = `goalProgressDates:${ownerId}`;
+    const marks = offlineCopyRead<Record<string, string>>(marksKey) ?? {};
+    if (marks[userGoalId] === date) return null;
+    let updated: UserGoal | null = null;
+    offlineCopyPatch<UserGoal[]>(`userGoals:${ownerId}`, (goals) =>
+      goals.map((g) => {
+        if (g.id !== userGoalId) return g;
+        const duration = g.duration > 0 ? g.duration : 1;
+        const days = Math.min((g.days_completed ?? 0) + 1, duration);
+        updated = { ...g, days_completed: days, perc: Math.round((days / duration) * 100) };
+        return updated;
+      }),
+    );
+    if (!updated) return null; // meta fora da cópia local — sem base para o otimismo
+    enqueueOutbox("goal_progress", { userGoalId, date });
+    offlineCopyWrite(marksKey, { ...marks, [userGoalId]: date });
+    invalidateQueryCache("userGoals");
+    return updated;
+  };
+
+  if (isLikelyOffline()) return offlineIncrement();
+
+  const viewer = await getViewer();
+  if (!viewer) return null;
+
+  try {
+    const result = await applyGoalProgressOnlineDb(userGoalId, date, viewer.id);
+    // Marca o dia também no dedupe local — se o usuário ficar offline logo em
+    // seguida e concluir outra rotina da mesma meta, não soma duas vezes.
+    if (result) {
+      offlineCopyPatch<Record<string, string>>(
+        `goalProgressDates:${viewer.id}`,
+        (m) => ({ ...m, [userGoalId]: date }),
+        {},
+      );
+    }
+    return result;
+  } catch (err: any) {
+    if (isOfflineWriteError(err)) return offlineIncrement();
+    const errorMsg = err?.message || String(err);
+    console.error("Error updating goal progress:", errorMsg);
+    throw new Error(`Erro ao atualizar progresso: ${errorMsg}`);
+  }
+}
+
 export async function getUserSelectedGoalIdsDb(): Promise<string[]> {
   if (!hasSupabaseConfig || !supabase) return [];
   const viewer = await getViewer();
   if (!viewer) return [];
-  return cached(`selectedGoalIds:${viewer.id}`, CACHE_TTL_MEDIUM, async () => {
+  return cached(`selectedGoalIds:${viewer.id}`, CACHE_TTL_OWN, async () => {
 
   const { data, error } = await supabase
     .from("user_goals")
@@ -1395,6 +1614,7 @@ export type PostWithUser = {
   userPhoto: string | null;
   isVerified?: boolean;
   workoutSummary?: PostWorkoutSummary | null;
+  taggedUsers?: SearchUser[];
 };
 
 export async function getUserPostsDb(userId: string): Promise<PostWithUser[]> {
@@ -1453,7 +1673,10 @@ export async function getPostByIdDb(postId: string): Promise<PostWithUser | null
 
   if (error || !data) return null;
 
-  const userProfile = await getUserProfileDb(String(data.user_id));
+  const [userProfile, tagsMap] = await Promise.all([
+    getUserProfileDb(String(data.user_id)),
+    getPostTagsBatchDb([String(data.id)]),
+  ]);
   return {
     id: String(data.id),
     description: String(data.description ?? ""),
@@ -1466,9 +1689,134 @@ export async function getPostByIdDb(postId: string): Promise<PostWithUser | null
     userPhoto: userProfile?.photo || null,
     isVerified: userProfile?.is_verified === true,
     workoutSummary: (data.workout_summary as PostWorkoutSummary | null) ?? null,
+    taggedUsers: tagsMap.get(String(data.id)) ?? [],
   };
 
   });
+}
+
+export type HashtagPost = {
+  id: string;
+  photo: string;
+  photos: string[] | null;
+  description: string;
+  created_at: string;
+  user_id: string;
+};
+
+// Busca posts que contenham a hashtag (#tag) na descrição. O filtro do banco é
+// amplo (ILIKE %#tag%) e refinado no cliente por regex com fronteira de palavra,
+// para "#fit" não casar com "#fitness". Ordenado do mais recente para o mais antigo.
+export async function searchPostsByHashtagDb(tag: string): Promise<HashtagPost[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+  const clean = tag.replace(/^#/, "").trim();
+  if (!clean) return [];
+
+  const { data, error } = await supabase
+    .from("posts")
+    .select("id, photo, photos, description, created_at, user_id")
+    .ilike("description", `%#${clean}%`)
+    .order("created_at", { ascending: false })
+    .limit(120);
+
+  if (error || !data) return [];
+
+  const escaped = clean.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(`#${escaped}(?![\\p{L}\\p{N}_])`, "iu");
+  return data
+    .filter((p: any) => typeof p.description === "string" && re.test(p.description))
+    .map((p: any) => ({
+      id: String(p.id),
+      photo: String(p.photo ?? ""),
+      photos: Array.isArray(p.photos) ? p.photos : null,
+      description: String(p.description ?? ""),
+      created_at: String(p.created_at ?? ""),
+      user_id: String(p.user_id),
+    }));
+}
+
+// ── Marcação de pessoas em posts (post_tags) ────────────────────────────────
+
+// Busca em lote as pessoas marcadas de vários posts (feed) — 2 queries no total.
+// Retorna Map<postId, SearchUser[]>; posts sem marcação não aparecem no Map.
+export async function getPostTagsBatchDb(
+  postIds: string[],
+): Promise<Map<string, SearchUser[]>> {
+  const result = new Map<string, SearchUser[]>();
+  if (!postIds.length || !hasSupabaseConfig || !supabase) return result;
+
+  try {
+    const { data: tagRows, error } = await supabase
+      .from("post_tags")
+      .select("post_id, user_id, created_at")
+      .in("post_id", postIds)
+      .order("created_at", { ascending: true });
+
+    // Tabela pode ainda não existir (migração pendente) — degrada sem marcações
+    if (error || !tagRows || tagRows.length === 0) return result;
+
+    const taggedIds = [...new Set(tagRows.map((r: any) => String(r.user_id)))];
+    const profilesMap = await getProfilesBatchDb(taggedIds);
+
+    for (const row of tagRows) {
+      const postId = String(row.post_id);
+      const userId = String(row.user_id);
+      const profile = profilesMap.get(userId);
+      if (!profile) continue;
+      if (!result.has(postId)) result.set(postId, []);
+      result.get(postId)!.push({
+        id: userId,
+        nickname: profile.nickname,
+        photo: profile.photo,
+      });
+    }
+  } catch (err) {
+    console.error("Error fetching post tags:", err);
+  }
+  return result;
+}
+
+// Substitui as marcações de um post (edição) — aplica o diff em vez de recriar
+// tudo: remove quem saiu e insere só os novos, para a trigger notify_post_tag
+// notificar apenas quem acabou de ser marcado (sem re-notificar os existentes).
+export async function setPostTagsDb(
+  postId: string,
+  taggedUserIds: string[],
+): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) throw new Error("Supabase não configurado");
+
+  const viewer = await getViewer();
+  if (!viewer) throw new Error("Usuário não autenticado");
+
+  const wanted = [...new Set(taggedUserIds.filter((id) => id && id !== viewer.id))];
+
+  const { data: currentRows, error } = await supabase
+    .from("post_tags")
+    .select("user_id")
+    .eq("post_id", postId);
+  if (error) throw error;
+
+  const current = new Set((currentRows ?? []).map((r: any) => String(r.user_id)));
+  const toAdd = wanted.filter((id) => !current.has(id));
+  const toRemove = [...current].filter((id) => !wanted.includes(id));
+
+  if (toRemove.length > 0) {
+    const { error: delError } = await supabase
+      .from("post_tags")
+      .delete()
+      .eq("post_id", postId)
+      .in("user_id", toRemove);
+    if (delError) throw delError;
+  }
+
+  if (toAdd.length > 0) {
+    const { error: insError } = await supabase
+      .from("post_tags")
+      .insert(toAdd.map((userId) => ({ post_id: postId, user_id: userId })));
+    if (insError) throw insError;
+  }
+
+  invalidateQueryCache(`post:${postId}`);
 }
 
 export type UserStats = {
@@ -1499,7 +1847,7 @@ export async function getWorkoutsDb(): Promise<Workout[]> {
   if (!hasSupabaseConfig || !supabase) return [];
   const viewer = await getViewer();
   const userId = viewer?.id ?? null;
-  return cached(`workouts:${getUiLanguage()}:${userId ?? "anon"}`, CACHE_TTL_LONG, async () => {
+  return cached(`workouts:${getUiLanguage()}:${userId ?? "anon"}`, CACHE_TTL_STATIC, async () => {
   const mapRow = (row: any): Workout => ({
     id: String(row.id ?? ""),
     name: pickLocalized(row.name, row.name_eng),
@@ -1605,7 +1953,7 @@ export async function getCatalogWorkoutsFromDb(): Promise<Array<{
   if (!hasSupabaseConfig || !supabase) return [];
   const viewer = await getViewer();
   const userId = viewer?.id ?? null;
-  return cached(`catalogWorkouts:${getUiLanguage()}:${userId ?? "anon"}`, CACHE_TTL_LONG, async () => {
+  return cached(`catalogWorkouts:${getUiLanguage()}:${userId ?? "anon"}`, CACHE_TTL_STATIC, async () => {
   const mapRow = (row: any) => ({
     id: String(row.id),
     name: pickLocalized(row.name, row.name_eng),
@@ -1818,7 +2166,7 @@ export async function getDietsDb(): Promise<Diet[]> {
   if (!hasSupabaseConfig || !supabase) return [];
   const viewer = await getViewer();
   const userId = viewer?.id ?? null;
-  return cached(`diets:${getUiLanguage()}:${userId ?? "anon"}`, CACHE_TTL_LONG, async () => {
+  return cached(`diets:${getUiLanguage()}:${userId ?? "anon"}`, CACHE_TTL_STATIC, async () => {
   const mapRow = (row: any): Diet => ({
     id: String(row.id ?? ""),
     name: pickLocalized(row.name, row.name_eng),
@@ -1867,7 +2215,7 @@ export async function getCatalogDietsFromDb(): Promise<Array<{
   id: string; name: string; description: string; category: string; photo: string | null; mealdbId: number | null;
 }>> {
   if (!hasSupabaseConfig || !supabase) return [];
-  return cached(`catalogDiets:${getUiLanguage()}`, CACHE_TTL_LONG, async () => {
+  return cached(`catalogDiets:${getUiLanguage()}`, CACHE_TTL_STATIC, async () => {
   const { data } = await supabase
     .from("diets")
     .select("id, name, description, name_eng, description_eng, photo, category, mealdb_id")
@@ -1944,7 +2292,7 @@ export async function getHabitsDb(): Promise<Habit[]> {
   if (!hasSupabaseConfig || !supabase) return [];
   const viewer = await getViewer();
   const userId = viewer?.id ?? null;
-  return cached(`habits:${getUiLanguage()}:${userId ?? "anon"}`, CACHE_TTL_LONG, async () => {
+  return cached(`habits:${getUiLanguage()}:${userId ?? "anon"}`, CACHE_TTL_STATIC, async () => {
   const mapRow = (row: any): Habit => ({
     id: String(row.id ?? ""),
     name: pickLocalized(row.name, row.name_eng),
@@ -2017,10 +2365,15 @@ export async function getUserRoutinesDb(userId: string): Promise<Routine[]> {
     const errorMsg = error?.message || String(error);
     const errorCode = error?.code || "UNKNOWN";
     console.error(`Error fetching user routines [${errorCode}]:`, errorMsg);
+    // Sem rede: última cópia local (a tela de Metas continua funcionando offline)
+    if (isTransientNetworkError(error)) {
+      const off = offlineCopyRead<Routine[]>(`userRoutines:${userId}`);
+      if (off) return off;
+    }
     return [];
   }
 
-  return (data ?? []).map((row: any) => ({
+  const rows = (data ?? []).map((row: any) => ({
     id: String(row.id ?? ""),
     user_id: String(row.user_id ?? ""),
     type: Number(row.type ?? 1),
@@ -2029,6 +2382,8 @@ export async function getUserRoutinesDb(userId: string): Promise<Routine[]> {
     last_summary: row.last_summary ?? null,
     program_meta: row.program_meta ?? null,
   }));
+  offlineCopyWrite(`userRoutines:${userId}`, rows);
+  return rows;
 }
 
 /**
@@ -2120,12 +2475,33 @@ export async function updateRoutineLastSummaryDb(
 ): Promise<void> {
   if (!hasSupabaseConfig || !supabase) return;
 
+  // Offline: guarda o resumo na fila e na cópia local das rotinas — o ícone de
+  // "resumo do último treino" já funciona antes mesmo da sincronização.
+  const enqueueOffline = () => {
+    enqueueOutbox("routine_summary", { routineId, summary });
+    const ownerId = getOfflineOwnerId();
+    if (ownerId) {
+      offlineCopyPatch<Routine[]>(`userRoutines:${ownerId}`, (rts) =>
+        rts.map((r) => (r.id === routineId ? { ...r, last_summary: summary } : r)),
+      );
+    }
+  };
+
+  if (isLikelyOffline()) {
+    enqueueOffline();
+    return;
+  }
+
   const { error } = await supabase
     .from("routines")
     .update({ last_summary: summary })
     .eq("id", routineId);
 
   if (error) {
+    if (isOfflineWriteError(error)) {
+      enqueueOffline();
+      return;
+    }
     console.error("Error saving routine last summary:", error?.message || error);
     return;
   }
@@ -2615,6 +2991,25 @@ export async function updateUserWorkoutNotesDb(
   notes: string | null,
 ): Promise<void> {
   if (!hasSupabaseConfig || !supabase) return;
+
+  // Offline: nota vai para a fila e para a cópia local dos exercícios — a
+  // próxima abertura do treino (ainda offline) já mostra a nota salva.
+  const enqueueOffline = () => {
+    enqueueOutbox("workout_notes", { userId, workoutId, routineId, notes });
+    offlineCopyPatch<UserWorkoutWithDetails[]>(`userWorkouts:${userId}`, (rows) =>
+      rows.map((r) =>
+        r.workout_id === workoutId && (routineId == null || r.routine_id === String(routineId))
+          ? { ...r, notes }
+          : r,
+      ),
+    );
+  };
+
+  if (isLikelyOffline()) {
+    enqueueOffline();
+    return;
+  }
+
   let query = supabase
     .from("user_workouts")
     .update({ notes })
@@ -2623,6 +3018,10 @@ export async function updateUserWorkoutNotesDb(
   if (routineId != null) query = query.eq("routine_id", Number(routineId));
   const { error } = await query;
   if (error) {
+    if (isOfflineWriteError(error)) {
+      enqueueOffline();
+      return;
+    }
     console.error("Error updating workout note:", error);
     throw error;
   }
@@ -2730,10 +3129,15 @@ export async function getUserWorkoutsDb(
     }
 
     console.error(`Error fetching user workouts [${errorCode}]:`, errorMsg);
+    // Sem rede: última cópia local (a tela de Metas continua funcionando offline)
+    if (isTransientNetworkError(error)) {
+      const off = offlineCopyRead<UserWorkoutWithDetails[]>(`userWorkouts:${userId}`);
+      if (off) return off;
+    }
     return [];
   }
 
-  return (data ?? []).map((row: any) => ({
+  const rows = (data ?? []).map((row: any) => ({
     id: String(row.id ?? ""),
     workout_id: String(row.workout_id ?? ""),
     user_id: String(row.user_id ?? ""),
@@ -2749,6 +3153,8 @@ export async function getUserWorkoutsDb(
     routine_id: row.routine_id != null ? String(row.routine_id) : null,
     time_to_rest: row.time_to_rest != null ? Number(row.time_to_rest) : null,
   }));
+  offlineCopyWrite(`userWorkouts:${userId}`, rows);
+  return rows;
 }
 
 export type UserDiet = {
@@ -2935,10 +3341,15 @@ export async function getUserDietsDb(
     }
 
     console.error(`Error fetching user diets [${errorCode}]:`, errorMsg);
+    // Sem rede: última cópia local (a tela de Metas continua funcionando offline)
+    if (isTransientNetworkError(error)) {
+      const off = offlineCopyRead<UserDietWithDetails[]>(`userDiets:${userId}`);
+      if (off) return off;
+    }
     return [];
   }
 
-  return (data ?? []).map((row: any) => ({
+  const rows = (data ?? []).map((row: any) => ({
     id: String(row.id ?? ""),
     diet_id: String(row.diet_id ?? ""),
     user_id: String(row.user_id ?? ""),
@@ -2959,6 +3370,8 @@ export async function getUserDietsDb(
     scheduled_days: row.scheduled_days ? String(row.scheduled_days) : null,
     routine_id: row.routine_id != null ? String(row.routine_id) : null,
   }));
+  offlineCopyWrite(`userDiets:${userId}`, rows);
+  return rows;
 }
 
 export type UserHabit = {
@@ -3140,10 +3553,15 @@ export async function getUserHabitsDb(
     }
 
     console.error(`Error fetching user habits [${errorCode}]:`, errorMsg);
+    // Sem rede: última cópia local (a tela de Metas continua funcionando offline)
+    if (isTransientNetworkError(error)) {
+      const off = offlineCopyRead<UserHabitWithDetails[]>(`userHabits:${userId}`);
+      if (off) return off;
+    }
     return [];
   }
 
-  return (data ?? []).map((row: any) => ({
+  const rows = (data ?? []).map((row: any) => ({
     id: String(row.id ?? ""),
     habit_id: String(row.habit_id ?? ""),
     user_id: String(row.user_id ?? ""),
@@ -3156,6 +3574,8 @@ export async function getUserHabitsDb(
     scheduled_days: row.scheduled_days ? String(row.scheduled_days) : null,
     routine_id: row.routine_id != null ? String(row.routine_id) : null,
   }));
+  offlineCopyWrite(`userHabits:${userId}`, rows);
+  return rows;
 }
 
 // Routine Scheduled Time
@@ -5258,6 +5678,66 @@ export async function getShotsDb(): Promise<ShotWithUser[]> {
   });
 }
 
+// Busca um shot específico por id — usado por mensagens compartilhadas e pelo
+// deep link ?shot=<id> da tela de Shots (shot pode não estar entre os 50 do feed).
+export async function getShotByIdDb(shotId: string): Promise<ShotWithUser | null> {
+  if (!hasSupabaseConfig || !supabase) return null;
+  return cached(`shot:${shotId}`, CACHE_TTL_SHORT, async () => {
+  assertUUID(shotId, "ID do shot");
+
+  const viewer = await getViewer();
+  if (!viewer) return null;
+
+  try {
+    const { data: shot, error } = await supabase
+      .from("shots")
+      .select("id, user_id, video_url, description, created_at")
+      .eq("id", shotId)
+      .maybeSingle();
+
+    if (error || !shot || !shot.video_url) return null;
+
+    const [userProfile, likesResult, commentsResult] = await Promise.all([
+      getUserProfileDb(String(shot.user_id)),
+      supabase.from("shots_likes").select("type, user_id").eq("shots_id", shotId),
+      supabase.from("shots_comments").select("id", { count: "exact", head: true }).eq("shots_id", shotId),
+    ]);
+
+    const likes: PostLikeStats = { apoio: 0, continua: 0, ganhador: 0, consegueMais: 0, limiteMaior: 0, maisAlgum: 0 };
+    const userLikes: PostIncentiveType[] = [];
+    (likesResult.data ?? []).forEach((like: any) => {
+      const type = Number(like.type) as PostIncentiveType;
+      if (type === 1) likes.apoio += 1;
+      else if (type === 2) likes.continua += 1;
+      else if (type === 3) likes.ganhador += 1;
+      else if (type === 4) likes.consegueMais += 1;
+      else if (type === 5) likes.limiteMaior += 1;
+      else if (type === 6) likes.maisAlgum += 1;
+      if (like.user_id === viewer.id) userLikes.push(type);
+    });
+
+    return {
+      id: String(shot.id),
+      user_id: String(shot.user_id),
+      video_url: String(shot.video_url ?? ""),
+      description: String(shot.description ?? ""),
+      created_at: String(shot.created_at ?? new Date().toISOString()),
+      likes,
+      userLikes,
+      commentCount: commentsResult.count ?? 0,
+      userNickname: userProfile?.nickname || "Usuário",
+      userHandle: userProfile?.handle ? String(userProfile.handle) : null,
+      userPhoto: userProfile?.photo || null,
+      isVerified: userProfile?.is_verified === true,
+    };
+  } catch (err: any) {
+    console.error("Error getting shot by id:", err?.message || String(err));
+    return null;
+  }
+
+  });
+}
+
 export async function createShotDb(
   videoUrl: string,
   description: string,
@@ -5751,19 +6231,32 @@ export async function toggleUserDietCompletionDb(
 ): Promise<boolean> {
   if (!hasSupabaseConfig || !supabase) return false;
 
-  const updatePayload: Record<string, any> = { is_completed: isCompleted };
-  if (isCompleted) {
-    updatePayload.completed_at = new Date().toISOString();
-  } else {
-    updatePayload.completed_at = null;
-  }
+  const completedAt = isCompleted ? new Date().toISOString() : null;
+
+  // Offline: check/uncheck vai para a fila (com o horário original) e para a
+  // cópia local — o item aparece concluído na hora, sem internet.
+  const enqueueOffline = (): boolean => {
+    enqueueOutbox("diet_toggle", { userDietId, isCompleted, completedAt });
+    const ownerId = getOfflineOwnerId();
+    if (ownerId) {
+      offlineCopyPatch<UserDietWithDetails[]>(`userDiets:${ownerId}`, (rows) =>
+        rows.map((r) =>
+          r.id === userDietId ? { ...r, is_completed: isCompleted, completed_at: completedAt } : r,
+        ),
+      );
+    }
+    return true;
+  };
+
+  if (isLikelyOffline()) return enqueueOffline();
 
   const { error } = await supabase
     .from("user_diets")
-    .update(updatePayload)
+    .update({ is_completed: isCompleted, completed_at: completedAt })
     .eq("id", userDietId);
 
   if (error) {
+    if (isOfflineWriteError(error)) return enqueueOffline();
     console.error("Error updating user diet:", error);
     return false;
   }
@@ -5778,19 +6271,31 @@ export async function toggleUserHabitCompletionDb(
 ): Promise<boolean> {
   if (!hasSupabaseConfig || !supabase) return false;
 
-  const updatePayload: Record<string, any> = { is_completed: isCompleted };
-  if (isCompleted) {
-    updatePayload.completed_at = new Date().toISOString();
-  } else {
-    updatePayload.completed_at = null;
-  }
+  const completedAt = isCompleted ? new Date().toISOString() : null;
+
+  // Offline: mesmo contrato do toggle de dieta (fila + cópia local).
+  const enqueueOffline = (): boolean => {
+    enqueueOutbox("habit_toggle", { userHabitId, isCompleted, completedAt });
+    const ownerId = getOfflineOwnerId();
+    if (ownerId) {
+      offlineCopyPatch<UserHabitWithDetails[]>(`userHabits:${ownerId}`, (rows) =>
+        rows.map((r) =>
+          r.id === userHabitId ? { ...r, is_completed: isCompleted, completed_at: completedAt } : r,
+        ),
+      );
+    }
+    return true;
+  };
+
+  if (isLikelyOffline()) return enqueueOffline();
 
   const { error } = await supabase
     .from("user_habits")
-    .update(updatePayload)
+    .update({ is_completed: isCompleted, completed_at: completedAt })
     .eq("id", userHabitId);
 
   if (error) {
+    if (isOfflineWriteError(error)) return enqueueOffline();
     console.error("Error updating user habit:", error);
     return false;
   }
@@ -5801,7 +6306,7 @@ export async function toggleUserHabitCompletionDb(
 // Notifications functionality
 export type NotificationItem = {
   id: string;
-  type: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8; // 1 = new follower, 2 = incentive, 3 = comment, 4 = duel invite, 5 = join request, 6 = comment reaction, 7 = check-in reaction, 8 = promotion comment
+  type: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9; // 1 = new follower, 2 = incentive, 3 = comment, 4 = duel invite, 5 = join request, 6 = comment reaction, 7 = check-in reaction, 8 = promotion comment, 9 = tagged in post
   userId: string;
   userNickname: string;
   userPhoto: string | null;
@@ -6348,7 +6853,11 @@ export function subscribeToUnreadNotificationsDb(
           },
           async () => {
             if (!isSubscribed) return;
-            // Fetch updated unread count
+            // O realtime é a prova de que o dado mudou — sem derrubar o cache
+            // antes, getUnreadNotificationsCountDb() releria a própria entrada
+            // velha e o badge só acertaria quando o TTL vencesse.
+            invalidateQueryCache(`unreadNotifCount:${viewer.id}`);
+            invalidateQueryCache(`notifications:${viewer.id}`);
             const count = await getUnreadNotificationsCountDb();
             onNewNotification(count);
           }
@@ -6377,6 +6886,7 @@ export async function createPostDb(
   description: string,
   userGoalId?: string | null,
   workoutSummary?: PostWorkoutSummary | null,
+  taggedUserIds?: string[] | null,
 ): Promise<string> {
   if (!supabase) throw new Error("Supabase não configurado");
 
@@ -6407,7 +6917,19 @@ export async function createPostDb(
     if (error) throw error;
     if (!data || data.length === 0) throw new Error("Failed to create post");
 
-    return data[0].id;
+    const postId = data[0].id;
+
+    // Marcação de pessoas (post_tags) — falha aqui não derruba o post já criado;
+    // a trigger notify_post_tag gera a notificação type 9 para cada marcado.
+    const tagIds = [...new Set((taggedUserIds ?? []).filter((id) => id && id !== viewer.id))];
+    if (tagIds.length > 0) {
+      const { error: tagsError } = await supabase
+        .from("post_tags")
+        .insert(tagIds.map((userId) => ({ post_id: postId, user_id: userId })));
+      if (tagsError) console.error("Error tagging users in post:", tagsError);
+    }
+
+    return postId;
   } catch (err: any) {
     console.error("Error creating post:", err);
     throw err;
@@ -6488,13 +7010,17 @@ export async function deletePostDb(postId: string): Promise<boolean> {
       }
     }
 
+    // Invalidar ANTES do return — o post excluído não pode continuar sendo
+    // servido pelo cache (memória/localStorage) na grade do perfil, e o
+    // contador de posts (userStats) muda junto.
+    invalidateQueryCache("userPosts");
+    invalidateQueryCache("post:");
+    invalidateQueryCache(`userStats:${viewer.id}`);
     return true;
   } catch (err: any) {
     console.error("Error deleting post:", err);
     throw err;
   }
-
-  invalidateQueryCache("userPosts"); invalidateQueryCache("post:");
 }
 
 export async function updatePostDb(
@@ -6532,13 +7058,14 @@ export async function updatePostDb(
       .eq("id", postId);
 
     if (error) throw error;
+    // Invalidar ANTES do return — senão o cache continua servindo a descrição antiga
+    invalidateQueryCache("userPosts");
+    invalidateQueryCache("post:");
     return true;
   } catch (err: any) {
     console.error("Error updating post:", err);
     throw err;
   }
-
-  invalidateQueryCache("userPosts"); invalidateQueryCache("post:");
 }
 
 export async function removePostPhotoDb(
@@ -6755,94 +7282,129 @@ export type CheckIn = {
   updated_at: string;
 };
 
-export async function createCheckInDb(userId: string): Promise<CheckIn> {
+// Caminho online puro (lança erro de rede) — usado pela função pública e pelo
+// replay da fila offline, que passa a DATA ORIGINAL do check-in.
+async function insertCheckInOnlineDb(userId: string, checkInDate: string): Promise<CheckIn> {
   if (!supabase) throw new Error("Supabase não configurado");
 
+  // Já existe check-in nesta data? Evita o 409 do constraint sem depender do
+  // registro mais recente (o replay pode gravar datas passadas).
+  const { data: existing } = await supabase
+    .from("check_ins")
+    .select()
+    .eq("user_id", userId)
+    .eq("check_in_date", checkInDate)
+    .maybeSingle();
+  if (existing) return existing as CheckIn;
+
+  const dayOfWeek = new Date(checkInDate + "T12:00:00").getDay();
+
+  const { data: inserted, error: insertError } = await supabase
+    .from("check_ins")
+    .insert({ user_id: userId, check_in_date: checkInDate, day_of_week: dayOfWeek })
+    .select()
+    .single();
+
+  if (insertError) {
+    // 23505 / 409 = unique constraint violation — either check-in already exists
+    // for today, or a DB trigger on check_ins failed due to a duplicate in user_badges.
+    if (insertError.code === '23505' || (insertError as any).status === 409) {
+      const { data: existingToday } = await supabase
+        .from("check_ins")
+        .select()
+        .eq("user_id", userId)
+        .eq("check_in_date", checkInDate)
+        .maybeSingle();
+      if (existingToday) return existingToday as CheckIn;
+
+      // If the check-in doesn't exist but we got 23505, the violation came from a
+      // DB trigger (e.g. awarding badges) rather than from the check_ins constraint.
+      // Log it but don't surface it as a check-in failure — the trigger should be
+      // removed via the 20260422-fix-badge-trigger.sql migration.
+      if (insertError.message?.includes('user_badges')) {
+        console.warn('createCheckInDb: 23505 from user_badges trigger — run migration 20260422-fix-badge-trigger.sql');
+        throw new Error('Trigger de badges causou conflito. Execute a migration 20260422-fix-badge-trigger.sql no Supabase.');
+      }
+    }
+    throw insertError;
+  }
+
+  invalidateQueryCache("todayCheckIn"); invalidateQueryCache("weekCheckIns"); invalidateQueryCache("checkInHistory"); invalidateQueryCache("completedRoutines");
+  // Contagem total e insígnia derivada (triggers podem conceder badge no check-in)
+  invalidateQueryCache(`totalCheckIns:${userId}`); invalidateQueryCache(`topUserBadge:${userId}`); invalidateQueryCache(`userBadges:${userId}`);
+  return inserted as CheckIn;
+}
+
+export async function createCheckInDb(userId: string, checkInDate?: string): Promise<CheckIn> {
+  if (!supabase) throw new Error("Supabase não configurado");
+
+  const now = new Date();
+  const dateStr =
+    checkInDate ??
+    `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+  // Offline: registra o check-in na fila (com a data de HOJE) e na cópia local
+  // do histórico — streak/anel/calendário refletem na hora, e o replay grava a
+  // data correta quando a internet voltar.
+  const offlineCheckIn = (): CheckIn => {
+    const copy = offlineCopyRead<CheckIn[]>(`checkInHistory:${userId}`) ?? [];
+    const existing = copy.find((c) => c.check_in_date === dateStr);
+    const synthetic: CheckIn = existing ?? {
+      id: `offline-${Date.now()}`,
+      user_id: userId,
+      check_in_date: dateStr,
+      day_of_week: new Date(dateStr + "T12:00:00").getDay(),
+      created_at: now.toISOString(),
+      updated_at: now.toISOString(),
+    };
+    if (!existing) {
+      enqueueOutbox("check_in", { userId, checkInDate: dateStr });
+      offlineCopyWrite(`checkInHistory:${userId}`, [synthetic, ...copy]);
+      offlineCopyPatch<number>(`totalCheckIns:${userId}`, (n) => n + 1);
+      invalidateQueryCache("todayCheckIn"); invalidateQueryCache("weekCheckIns"); invalidateQueryCache("checkInHistory"); invalidateQueryCache("completedRoutines");
+    }
+    return synthetic;
+  };
+
+  if (isLikelyOffline()) return offlineCheckIn();
+
   try {
-    // Check if already checked in today (using most recent record within last 24h)
-    // Avoids triggering the bank's duplicate constraint (409) by not attempting a redundant insert
-    const { data: existing } = await supabase
-      .from("check_ins")
-      .select()
-      .eq("user_id", userId)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (existing) {
-      // Verify the existing record is actually from today (local date)
-      const today = new Date();
-      const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-      if (existing.check_in_date === todayStr) {
-        return existing as CheckIn;
-      }
-    }
-
-    const today = new Date();
-    const checkInDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-    const dayOfWeek = today.getDay();
-
-    const { data: inserted, error: insertError } = await supabase
-      .from("check_ins")
-      .insert({ user_id: userId, check_in_date: checkInDate, day_of_week: dayOfWeek })
-      .select()
-      .single();
-
-    if (insertError) {
-      // 23505 / 409 = unique constraint violation — either check-in already exists
-      // for today, or a DB trigger on check_ins failed due to a duplicate in user_badges.
-      if (insertError.code === '23505' || (insertError as any).status === 409) {
-        const { data: existingToday } = await supabase
-          .from("check_ins")
-          .select()
-          .eq("user_id", userId)
-          .eq("check_in_date", checkInDate)
-          .maybeSingle();
-        if (existingToday) return existingToday as CheckIn;
-
-        // If the check-in doesn't exist but we got 23505, the violation came from a
-        // DB trigger (e.g. awarding badges) rather than from the check_ins constraint.
-        // Log it but don't surface it as a check-in failure — the trigger should be
-        // removed via the 20260422-fix-badge-trigger.sql migration.
-        if (insertError.message?.includes('user_badges')) {
-          console.warn('createCheckInDb: 23505 from user_badges trigger — run migration 20260422-fix-badge-trigger.sql');
-          throw new Error('Trigger de badges causou conflito. Execute a migration 20260422-fix-badge-trigger.sql no Supabase.');
-        }
-      }
-      throw insertError;
-    }
-
-    invalidateQueryCache("todayCheckIn"); invalidateQueryCache("weekCheckIns"); invalidateQueryCache("checkInHistory"); invalidateQueryCache("completedRoutines");
-    return inserted as CheckIn;
+    return await insertCheckInOnlineDb(userId, dateStr);
   } catch (err: any) {
+    if (isOfflineWriteError(err)) return offlineCheckIn();
     console.error("Error creating check-in:", err);
     throw err;
   }
 }
 
 export async function getCheckInHistoryDb(userId: string, days: number = 30): Promise<CheckIn[]> {
-  return cached(`checkInHistory:${userId}`, CACHE_TTL_SHORT, async () => {  if (!supabase) throw new Error("Supabase não configurado");
-
   try {
-    const sinceDate = new Date();
-    sinceDate.setDate(sinceDate.getDate() - days);
-    const sinceDateStr = sinceDate.toISOString().split('T')[0];
+    return await cached(`checkInHistory:${userId}`, CACHE_TTL_SHORT, async () => {
+      if (!supabase) throw new Error("Supabase não configurado");
 
-    const { data, error } = await supabase
-      .from("check_ins")
-      .select()
-      .eq("user_id", userId)
-      .gte("check_in_date", sinceDateStr)
-      .order("check_in_date", { ascending: false });
+      const sinceDate = new Date();
+      sinceDate.setDate(sinceDate.getDate() - days);
+      const sinceDateStr = sinceDate.toISOString().split('T')[0];
 
-    if (error) throw error;
-    return (data ?? []) as CheckIn[];
+      const { data, error } = await supabase
+        .from("check_ins")
+        .select()
+        .eq("user_id", userId)
+        .gte("check_in_date", sinceDateStr)
+        .order("check_in_date", { ascending: false });
+
+      if (error) throw error;
+      const rows = (data ?? []) as CheckIn[];
+      offlineCopyWrite(`checkInHistory:${userId}`, rows);
+      return rows;
+    });
   } catch (err: any) {
+    // Sem rede: cópia local (streak/anel/calendário continuam corretos offline).
+    // O erro deixou de ser engolido DENTRO do cached() de propósito — antes um
+    // [] transitório era persistido e servido por até 24h.
     console.error("Error getting check-in history:", err);
-    return [];
+    return offlineCopyRead<CheckIn[]>(`checkInHistory:${userId}`) ?? [];
   }
-
-  });
 }
 
 // Commercial Profile Functions
@@ -7170,6 +7732,34 @@ export type WorkoutHistoryRecord = {
   createdAt: string;
 };
 
+// Insert puro (lança erro de rede) — usado pela função pública E pelo replay
+// da fila offline. O replay NÃO pode passar pelo caminho com fallback offline,
+// senão uma falha seria confundida com sucesso e a entrada se perderia.
+async function insertWorkoutHistRowDb(p: {
+  userId: string;
+  userWorkoutId: number | null;
+  workoutId: string;
+  kilos: number | null;
+  volume: string | null;
+  routineId: string | null;
+  dateCompleted: string;
+}): Promise<void> {
+  const { error } = await supabase!
+    .from("user_workouts_hist")
+    .insert([
+      {
+        user_id: p.userId,
+        user_workout_id: p.userWorkoutId,
+        workout_id: p.workoutId,
+        kilos: p.kilos,
+        volume: p.volume,
+        routine_id: p.routineId != null ? Number(p.routineId) : null,
+        date_completed: p.dateCompleted,
+      },
+    ]);
+  if (error) throw error;
+}
+
 export async function saveWorkoutHistoryDb(
   userId: string,
   userWorkoutId: number | null,
@@ -7185,28 +7775,43 @@ export async function saveWorkoutHistoryDb(
 ): Promise<void> {
   if (!hasSupabaseConfig || !supabase) return;
 
-  try {
-    const { error } = await supabase
-      .from("user_workouts_hist")
-      .insert([
-        {
-          user_id: userId,
-          user_workout_id: userWorkoutId,
-          workout_id: workoutId,
-          kilos,
-          volume,
-          routine_id: routineId != null ? Number(routineId) : null,
-          date_completed: dateCompleted ?? new Date().toISOString(),
-        },
-      ]);
+  const stamp = dateCompleted ?? new Date().toISOString();
+  const payload = { userId, userWorkoutId, workoutId, kilos, volume, routineId, dateCompleted: stamp };
 
-    if (error) throw error;
+  // Offline: a série vai para a fila (com a data original) e a rotina passa a
+  // constar como executada agora na cópia local — Hub do Hoje, anel semanal e
+  // linha "Ontem" continuam corretos sem internet.
+  const enqueueOffline = () => {
+    enqueueOutbox("workout_hist", payload);
+    if (userWorkoutId != null) {
+      offlineCopyPatch<Record<string, string>>(
+        `routineLastDates:${userId}`,
+        (cur) => ({ ...cur, [String(userWorkoutId)]: stamp }),
+        {},
+      );
+    }
+  };
+
+  if (isLikelyOffline()) {
+    enqueueOffline();
+    return;
+  }
+
+  try {
+    await insertWorkoutHistRowDb(payload);
   } catch (err: any) {
+    if (isOfflineWriteError(err)) {
+      enqueueOffline();
+      return;
+    }
     console.error("Error saving workout history:", err);
     throw err;
   }
 
   invalidateQueryCache("workoutHistory");
+  // Mesma origem (user_workouts_hist): o gráfico de progressão precisa cair
+  // junto com o histórico, senão fica velho durante todo o TTL.
+  invalidateQueryCache("exerciseProgress");
 }
 
 export async function getPreviousBestKgDb(userId: string, workoutId: string): Promise<number> {
@@ -7226,6 +7831,43 @@ export async function getPreviousBestKgDb(userId: string, workoutId: string): Pr
   }
 }
 
+export type ExerciseProgressPoint = { date: string; maxKg: number; volume: number };
+
+// Progressão de carga de UM exercício, agregada por dia (data → maior kg do dia e
+// volume somado), ascendente por data. Alimenta o mini-gráfico de progresso no
+// detalhe da rotina (Hevy-parity). Considera as últimas ~300 séries registradas.
+export async function getExerciseProgressionDb(
+  workoutId: string,
+  limit = 300,
+): Promise<ExerciseProgressPoint[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+  const viewer = await getViewer();
+  if (!viewer) return [];
+  return cached(`exerciseProgress:${viewer.id}:${workoutId}`, CACHE_TTL_OWN, async () => {
+    const { data, error } = await supabase!
+      .from("user_workouts_hist")
+      .select("kilos, volume, date_completed")
+      .eq("user_id", viewer.id)
+      .eq("workout_id", workoutId)
+      .order("date_completed", { ascending: false })
+      .limit(limit);
+    if (error || !data) return [];
+    const byDay = new Map<string, { maxKg: number; volume: number }>();
+    for (const r of data as any[]) {
+      const day = String(r.date_completed).slice(0, 10);
+      const kg = Number(r.kilos ?? 0);
+      const vol = Number(r.volume ?? 0);
+      const cur = byDay.get(day) ?? { maxKg: 0, volume: 0 };
+      if (kg > cur.maxKg) cur.maxKg = kg;
+      cur.volume += vol;
+      byDay.set(day, cur);
+    }
+    return [...byDay.entries()]
+      .map(([date, v]) => ({ date, maxKg: v.maxKg, volume: v.volume }))
+      .sort((a, b) => (a.date < b.date ? -1 : 1));
+  });
+}
+
 export async function uploadWorkoutImageDb(userId: string, blob: Blob): Promise<string> {
   if (!hasSupabaseConfig || !supabase) throw new Error("Supabase não configurado");
   const ext = blob.type.includes("png") ? "png" : "jpg";
@@ -7243,7 +7885,7 @@ export async function getWorkoutHistoryDb(
   workoutId: string
 ): Promise<WorkoutHistoryRecord[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-  return cached(`workoutHistory:${getUiLanguage()}:${userId}`, CACHE_TTL_SHORT, async () => {
+  return cached(`workoutHistory:${getUiLanguage()}:${userId}`, CACHE_TTL_OWN, async () => {
   try {
     const { data, error } = await supabase
       .from("user_workouts_hist")
@@ -7294,6 +7936,10 @@ export async function getLastWorkoutSessionSeriesDb(
 ): Promise<Record<string, Array<{ kg: number; reps: number }>>> {
   if (!hasSupabaseConfig || !supabase || workoutIds.length === 0) return {};
 
+  // Cópia offline por conjunto de exercícios (= por rotina): o pré-preenchimento
+  // das séries/coluna ANTERIOR funciona igual sem internet.
+  const offKey = `lastSeries:${userId}:${workoutIds.slice().sort().join("|")}`;
+
   try {
     const { data, error } = await supabase
       .from("user_workouts_hist")
@@ -7304,7 +7950,13 @@ export async function getLastWorkoutSessionSeriesDb(
       .order("id", { ascending: false })
       .limit(workoutIds.length * 20);
 
-    if (error || !data) return {};
+    if (error || !data) {
+      if (error && isTransientNetworkError(error)) {
+        const off = offlineCopyRead<Record<string, Array<{ kg: number; reps: number }>>>(offKey);
+        if (off) return off;
+      }
+      return {};
+    }
 
     // Agrupa por workout_id e isola APENAS a sessão mais recente de cada um.
     // Uma sessão = as séries gravadas em um mesmo "Finalizar", carimbadas em
@@ -7341,8 +7993,13 @@ export async function getLastWorkoutSessionSeriesDb(
       });
     }
 
+    offlineCopyWrite(offKey, result);
     return result;
-  } catch {
+  } catch (err) {
+    if (isTransientNetworkError(err)) {
+      const off = offlineCopyRead<Record<string, Array<{ kg: number; reps: number }>>>(offKey);
+      if (off) return off;
+    }
     return {};
   }
 }
@@ -7376,9 +8033,16 @@ export async function getRoutineLastDatesBatchDb(
       }
     });
 
+    offlineCopyWrite(`routineLastDates:${userId}`, result);
     return result;
   } catch (err: any) {
     console.error("Error fetching routine last dates:", err);
+    // Sem rede: cópia local — inclui os patches otimistas de treinos concluídos
+    // offline, então "concluído hoje"/anel semanal continuam corretos.
+    if (isTransientNetworkError(err)) {
+      const off = offlineCopyRead<Record<string, string>>(`routineLastDates:${userId}`);
+      if (off) return off;
+    }
     return {};
   }
 }
@@ -7413,6 +8077,27 @@ export async function getFollowingStatusBatchDb(
 }
 
 // Save diet history record
+async function insertDietHistRowDb(p: {
+  userId: string;
+  userDietId: string | null;
+  dietId: number;
+  quantity: number | null;
+  createdAt: string;
+}): Promise<void> {
+  const { error } = await supabase!
+    .from("user_diets_hist")
+    .insert([
+      {
+        user_id: p.userId,
+        user_diet_id: p.userDietId,
+        diet_id: p.dietId,
+        quantity: p.quantity,
+        created_at: p.createdAt,
+      },
+    ]);
+  if (error) throw error;
+}
+
 export async function saveDietHistoryDb(
   userId: string,
   userDietId: string | null,
@@ -7421,26 +8106,51 @@ export async function saveDietHistoryDb(
 ): Promise<void> {
   if (!hasSupabaseConfig || !supabase) return;
 
-  try {
-    const { error } = await supabase
-      .from("user_diets_hist")
-      .insert([
-        {
-          user_id: userId,
-          user_diet_id: userDietId,
-          diet_id: dietId,
-          quantity,
-          created_at: new Date().toISOString(),
-        },
-      ]);
+  const payload = { userId, userDietId, dietId, quantity, createdAt: new Date().toISOString() };
 
-    if (error) throw error;
+  if (isLikelyOffline()) {
+    enqueueOutbox("diet_hist", payload);
+    return;
+  }
+
+  try {
+    await insertDietHistRowDb(payload);
   } catch (err: any) {
+    if (isOfflineWriteError(err)) {
+      enqueueOutbox("diet_hist", payload);
+      return;
+    }
     console.error("Error saving diet history:", err);
     throw err;
   }
 
   invalidateQueryCache("workoutHistory");
+  // Mesma origem (user_workouts_hist): o gráfico de progressão precisa cair
+  // junto com o histórico, senão fica velho durante todo o TTL.
+  invalidateQueryCache("exerciseProgress");
+}
+
+async function insertHabitHistRowDb(p: {
+  userId: string;
+  userHabitId: string | null;
+  habitId: number;
+  quantity: number | null;
+  frequency: number | null;
+  createdAt: string;
+}): Promise<void> {
+  const { error } = await supabase!
+    .from("user_habits_hist")
+    .insert([
+      {
+        user_id: p.userId,
+        user_habit_id: p.userHabitId,
+        habit_id: p.habitId,
+        quantity: p.quantity,
+        frequency: p.frequency,
+        created_at: p.createdAt,
+      },
+    ]);
+  if (error) throw error;
 }
 
 // Save habit history record
@@ -7453,27 +8163,28 @@ export async function saveHabitHistoryDb(
 ): Promise<void> {
   if (!hasSupabaseConfig || !supabase) return;
 
-  try {
-    const { error } = await supabase
-      .from("user_habits_hist")
-      .insert([
-        {
-          user_id: userId,
-          user_habit_id: userHabitId,
-          habit_id: habitId,
-          quantity,
-          frequency,
-          created_at: new Date().toISOString(),
-        },
-      ]);
+  const payload = { userId, userHabitId, habitId, quantity, frequency, createdAt: new Date().toISOString() };
 
-    if (error) throw error;
+  if (isLikelyOffline()) {
+    enqueueOutbox("habit_hist", payload);
+    return;
+  }
+
+  try {
+    await insertHabitHistRowDb(payload);
   } catch (err: any) {
+    if (isOfflineWriteError(err)) {
+      enqueueOutbox("habit_hist", payload);
+      return;
+    }
     console.error("Error saving habit history:", err);
     throw err;
   }
 
   invalidateQueryCache("workoutHistory");
+  // Mesma origem (user_workouts_hist): o gráfico de progressão precisa cair
+  // junto com o histórico, senão fica velho durante todo o TTL.
+  invalidateQueryCache("exerciseProgress");
 }
 
 // Group and Check-in Types
@@ -7541,7 +8252,7 @@ export type CompletedRoutine = {
  */
 export async function getRecentCompletedRoutinesDb(userId: string): Promise<CompletedRoutine[]> {
   if (!hasSupabaseConfig || !supabase || !userId) return [];
-  return cached(`completedRoutines:${getUiLanguage()}:${userId}`, CACHE_TTL_SHORT, async () => {
+  return cached(`completedRoutines:${getUiLanguage()}:${userId}`, CACHE_TTL_OWN, async () => {
   try {
     // Fetch completed workouts from the last 7 days (including today)
     const since = new Date();
@@ -8620,22 +9331,72 @@ export async function deleteGroupDb(groupId: string): Promise<void> {
 
 // ─── Access Session Tracking ────────────────────────────────────────────────
 
-export async function recordScreenTimeDb(
-  userId: string,
-  screen: string,
-  durationSeconds: number
-): Promise<void> {
-  if (!hasSupabaseConfig || !supabase) return;
+// ─── Telemetria de tempo de tela (bufferizada) ────────────────────────────────
+// Antes: 1 INSERT por troca de rota. Um usuário que navega 80x na sessão gerava
+// 80 round-trips e 80 linhas — puro custo de escrita, num dado que ninguém lê em
+// tempo real (a tabela é só analytics).
+//
+// Agora: a duração é acumulada em localStorage, somada por (dia, tela), e vai ao
+// banco num único insert em lote no flush (app indo para background / próxima
+// abertura). A semântica do dado é preservada — duration_seconds continua sendo o
+// total do usuário naquela tela naquele dia, só que somado no cliente em vez de
+// espalhado em dezenas de linhas.
+
+const SCREEN_TIME_BUFFER_KEY = "lk:screenTimeBuf";
+
+type ScreenTimeBuffer = Record<string, number>; // "YYYY-MM-DD|/rota" → segundos
+
+function readScreenTimeBuffer(): ScreenTimeBuffer {
+  try {
+    const raw = localStorage.getItem(SCREEN_TIME_BUFFER_KEY);
+    return raw ? (JSON.parse(raw) as ScreenTimeBuffer) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Acumula tempo de tela localmente. Não faz rede. */
+export function bufferScreenTime(screen: string, durationSeconds: number): void {
   if (durationSeconds < 3) return;
   try {
-    await supabase.from("screen_time_logs").insert({
+    const buf = readScreenTimeBuffer();
+    const key = `${new Date().toISOString().split("T")[0]}|${screen}`;
+    buf[key] = (buf[key] ?? 0) + durationSeconds;
+    localStorage.setItem(SCREEN_TIME_BUFFER_KEY, JSON.stringify(buf));
+  } catch {
+    // Quota/serialização — telemetria é best-effort, nunca quebra a navegação.
+  }
+}
+
+/** Envia o buffer acumulado num único insert em lote e limpa. */
+export async function flushScreenTimeDb(userId: string): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+  const buf = readScreenTimeBuffer();
+  const entries = Object.entries(buf);
+  if (entries.length === 0) return;
+
+  // Limpa ANTES do await: se o insert falhar, perdemos telemetria (aceitável),
+  // mas nunca reenviamos em dobro nem crescemos o buffer indefinidamente.
+  try {
+    localStorage.removeItem(SCREEN_TIME_BUFFER_KEY);
+  } catch {
+    // ignore
+  }
+
+  const rows = entries.map(([key, seconds]) => {
+    const sep = key.indexOf("|");
+    return {
       user_id: userId,
-      screen,
-      duration_seconds: durationSeconds,
-      log_date: new Date().toISOString().split("T")[0],
-    });
+      screen: key.slice(sep + 1),
+      duration_seconds: Math.round(seconds),
+      log_date: key.slice(0, sep),
+    };
+  });
+
+  try {
+    await supabase.from("screen_time_logs").insert(rows);
   } catch (err) {
-    console.error("Error recording screen time:", err);
+    console.error("Error flushing screen time:", err);
   }
 }
 
@@ -9273,14 +10034,24 @@ export type UserBadge = {
 export async function getTotalCheckInsDb(userId: string): Promise<number> {
   if (!hasSupabaseConfig || !supabase) return 0;
   try {
-    const { count, error } = await supabase
-      .from("check_ins")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", userId);
-    if (error) throw error;
-    return count ?? 0;
+    // Cacheado pelo mesmo motivo de getTopUserBadgeDb (UserInsignias remonta
+    // a cada post aberto). Check-ins novos invalidam via createCheckInDb.
+    return await cached(`totalCheckIns:${userId}`, CACHE_TTL_SHORT, async () => {
+      const { count, error } = await supabase!
+        .from("check_ins")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", userId);
+      if (error) throw error;
+      const total = count ?? 0;
+      offlineCopyWrite(`totalCheckIns:${userId}`, total);
+      return total;
+    });
   } catch (err) {
     console.error("Error fetching total check-ins:", err);
+    if (isTransientNetworkError(err)) {
+      const off = offlineCopyRead<number>(`totalCheckIns:${userId}`);
+      if (off != null) return off;
+    }
     return 0;
   }
 }
@@ -9288,48 +10059,104 @@ export async function getTotalCheckInsDb(userId: string): Promise<number> {
 /** Retorna todos os badges do catálogo ordenados por sort_order */
 export async function getAllBadgesDb(): Promise<Badge[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-  return cached("allBadges", CACHE_TTL_LONG, async () => {  try {
-    const { data, error } = await supabase
-      .from("badges")
-      .select("id, key, name, emoji, description, required_checkins, sort_order, condition_type, condition_metadata")
-      .order("sort_order", { ascending: true });
-    if (error) throw error;
-    return (data ?? []) as Badge[];
+  try {
+    return await cached("allBadges", CACHE_TTL_LONG, async () => {
+      const { data, error } = await supabase!
+        .from("badges")
+        .select("id, key, name, emoji, description, required_checkins, sort_order, condition_type, condition_metadata")
+        .order("sort_order", { ascending: true });
+      if (error) throw error;
+      const rows = (data ?? []) as Badge[];
+      offlineCopyWrite("allBadges", rows);
+      return rows;
+    });
   } catch (err) {
     console.error("Error fetching badges:", err);
-    return [];
+    return offlineCopyRead<Badge[]>("allBadges") ?? [];
   }
-
-  });
 }
 
 /** Retorna as insígnias conquistadas por um usuário */
 export async function getUserBadgesDb(userId: string): Promise<UserBadge[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-  return cached(`userBadges:${userId}`, CACHE_TTL_SHORT, async () => {  try {
-    const { data, error } = await supabase
-      .from("user_badges")
-      .select("badge_id, earned_at, badges(id, key, name, emoji, description, required_checkins, sort_order, condition_type, condition_metadata)")
-      .eq("user_id", userId)
-      .order("earned_at", { ascending: false });
-    if (error) throw error;
-    return (data ?? []).map((row: any) => ({
-      badge_id: String(row.badge_id),
-      earned_at: String(row.earned_at),
-      badge: row.badges as Badge,
-    }));
+  try {
+    return await cached(`userBadges:${userId}`, CACHE_TTL_SHORT, async () => {
+      const { data, error } = await supabase!
+        .from("user_badges")
+        .select("badge_id, earned_at, badges(id, key, name, emoji, description, required_checkins, sort_order, condition_type, condition_metadata)")
+        .eq("user_id", userId)
+        .order("earned_at", { ascending: false });
+      if (error) throw error;
+      const rows = (data ?? []).map((row: any) => ({
+        badge_id: String(row.badge_id),
+        earned_at: String(row.earned_at),
+        badge: row.badges as Badge,
+      }));
+      offlineCopyWrite(`userBadges:${userId}`, rows);
+      return rows;
+    });
   } catch (err) {
     console.error("Error fetching user badges:", err);
-    return [];
+    return offlineCopyRead<UserBadge[]>(`userBadges:${userId}`) ?? [];
   }
-
-  });
 }
 
 /**
  * Define manualmente qual insígnia o usuário quer exibir.
  * Valida se o usuário já tem o requisito de check-ins necessário.
  */
+// ── Peso corporal (user_weight_logs) ────────────────────────────────────────
+
+export type WeightLog = { id: string; weight: number; logged_at: string };
+
+// Histórico de peso ordenado do mais ANTIGO para o mais recente (pronto para o gráfico).
+export async function getWeightLogsDb(limit = 90): Promise<WeightLog[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+  const viewer = await getViewer();
+  if (!viewer) return [];
+  return cached(`weightLogs:${viewer.id}`, CACHE_TTL_OWN, async () => {
+    const { data, error } = await supabase!
+      .from("user_weight_logs")
+      .select("id, weight, logged_at")
+      .eq("user_id", viewer.id)
+      .order("logged_at", { ascending: false })
+      .limit(limit);
+    if (error || !data) return [];
+    return data
+      .map((r: any) => ({ id: String(r.id), weight: Number(r.weight), logged_at: String(r.logged_at) }))
+      .reverse();
+  });
+}
+
+// Registra (ou atualiza) o peso de um dia. Um registro por dia (upsert por user+data).
+// Sincroniza profiles.weight com o valor informado (é o peso "atual" do perfil).
+export async function addWeightLogDb(weight: number, loggedAt?: string): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+  const viewer = await getViewer();
+  if (!viewer) throw new Error("Não autenticado");
+  const day = loggedAt ?? new Date().toISOString().slice(0, 10);
+  const { error } = await supabase
+    .from("user_weight_logs")
+    .upsert({ user_id: viewer.id, weight, logged_at: day }, { onConflict: "user_id,logged_at" });
+  if (error) throw error;
+  await supabase.from("profiles").update({ weight }).eq("user_id", viewer.id);
+  invalidateQueryCache(`weightLogs:${viewer.id}`);
+  invalidateProfileCache(viewer.id);
+}
+
+export async function deleteWeightLogDb(id: string): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+  const viewer = await getViewer();
+  if (!viewer) throw new Error("Não autenticado");
+  const { error } = await supabase
+    .from("user_weight_logs")
+    .delete()
+    .eq("id", id)
+    .eq("user_id", viewer.id);
+  if (error) throw error;
+  invalidateQueryCache(`weightLogs:${viewer.id}`);
+}
+
 export async function setSelectedBadgeDb(badgeId: string): Promise<void> {
   if (!hasSupabaseConfig || !supabase) return;
   const viewer = await getViewer();
@@ -9361,6 +10188,7 @@ export async function setSelectedBadgeDb(badgeId: string): Promise<void> {
   }
 
   invalidateQueryCache(`userBadges:${viewer.id}`);
+  invalidateQueryCache(`topUserBadge:${viewer.id}`);
 }
 
 /**
@@ -9548,6 +10376,11 @@ export async function awardBadgesForCheckInsDb(
   checkinAt: Date = new Date()
 ): Promise<Badge[]> {
   if (!hasSupabaseConfig || !supabase) return [];
+  // Avaliar insígnias exige o estado REAL do servidor (check-ins totais, streak,
+  // badges já conquistadas). Offline, as cópias locais responderiam e a lista de
+  // "já conquistadas" viria vazia — celebrando de novo badges antigas sem
+  // persistir nada. Sem rede, a avaliação fica para o replay do check-in.
+  if (isLikelyOffline()) return [];
   try {
     // Buscar dados em paralelo para minimizar latência
     const [totalCheckIns, allBadges, existingRows, weekCount, streak, prevCheckinDate, weekWorkouts] =
@@ -9560,6 +10393,10 @@ export async function awardBadgesForCheckInsDb(
         _getPreviousCheckinDateDb(userId),
         _getWeekWorkoutCountDb(userId),
       ]);
+
+    // Falha ao ler as badges existentes (ex.: rede caiu no meio) → aborta em
+    // vez de tratar como "nenhuma conquistada" e premiar duplicado.
+    if (existingRows.error) throw existingRows.error;
 
     const alreadyEarnedIds = new Set(
       ((existingRows.data ?? []) as any[]).map((r) => String(r.badge_id))
@@ -9592,12 +10429,14 @@ export async function awardBadgesForCheckInsDb(
     }
 
     if (newBadges.length > 0) {
-      await supabase
+      const { error: upsertError } = await supabase
         .from("user_badges")
         .upsert(
           newBadges.map((b) => ({ user_id: userId, badge_id: b.id })),
           { onConflict: "user_id,badge_id", ignoreDuplicates: true }
         );
+      // Não celebrou se não persistiu (ex.: rede caiu entre a avaliação e o upsert)
+      if (upsertError) throw upsertError;
       invalidateQueryCache(`userBadges:${userId}`);
       invalidateQueryCache("allBadges");
     }
@@ -9619,21 +10458,25 @@ export async function awardBadgesForCheckInsDb(
 export async function getTopUserBadgeDb(userId: string): Promise<Badge | null> {
   if (!hasSupabaseConfig || !supabase) return null;
   try {
-    const { data, error } = await supabase
-      .from("user_badges")
-      .select("badges(id, key, name, emoji, description, required_checkins, sort_order, condition_type, condition_metadata)")
-      .eq("user_id", userId);
-    if (error) throw error;
-    if (!data || data.length === 0) return null;
+    // Cacheado: UserInsignias monta no header do perfil E a cada post aberto
+    // no drawer — sem cache eram 2 queries extras por post visualizado.
+    return await cached(`topUserBadge:${userId}`, CACHE_TTL_SHORT, async () => {
+      const { data, error } = await supabase!
+        .from("user_badges")
+        .select("badges(id, key, name, emoji, description, required_checkins, sort_order, condition_type, condition_metadata)")
+        .eq("user_id", userId);
+      if (error) throw error;
+      if (!data || data.length === 0) return null;
 
-    // Pega o badge com maior sort_order (mais alto nível)
-    const top = data.reduce((best: any, row: any) => {
-      const b = row.badges as Badge;
-      if (!best) return b;
-      return (b?.sort_order ?? 0) > (best?.sort_order ?? 0) ? b : best;
-    }, null);
+      // Pega o badge com maior sort_order (mais alto nível)
+      const top = data.reduce((best: any, row: any) => {
+        const b = row.badges as Badge;
+        if (!best) return b;
+        return (b?.sort_order ?? 0) > (best?.sort_order ?? 0) ? b : best;
+      }, null);
 
-    return top ?? null;
+      return top ?? null;
+    });
   } catch (err) {
     console.error("Error fetching top user badge:", err);
     return null;
@@ -10464,3 +11307,112 @@ export async function getVerifiedAccountsDb(): Promise<{ userId: string; nicknam
   }));
 }
 
+
+// ─── Replay da fila offline (Metas offline) ───────────────────────────────────
+// Executores registrados no offline-outbox: quando a internet volta, cada
+// entrada enfileirada sem rede é regravada no banco COM A DATA ORIGINAL da
+// ação. Importante: todos usam os caminhos "online puros" (que lançam erro de
+// rede) — nunca as funções públicas com fallback offline, senão uma falha no
+// replay seria confundida com sucesso e a entrada se perderia.
+
+registerOutboxExecutor("workout_hist", async (p: any) => {
+  await insertWorkoutHistRowDb({
+    userId: String(p.userId),
+    userWorkoutId: p.userWorkoutId != null ? Number(p.userWorkoutId) : null,
+    workoutId: String(p.workoutId),
+    kilos: p.kilos != null ? Number(p.kilos) : null,
+    volume: p.volume != null ? String(p.volume) : null,
+    routineId: p.routineId != null ? String(p.routineId) : null,
+    dateCompleted: String(p.dateCompleted),
+  });
+  invalidateQueryCache("workoutHistory");
+  // Mesma origem (user_workouts_hist): o gráfico de progressão precisa cair
+  // junto com o histórico, senão fica velho durante todo o TTL.
+  invalidateQueryCache("exerciseProgress");
+});
+
+registerOutboxExecutor("check_in", async (p: any) => {
+  await insertCheckInOnlineDb(String(p.userId), String(p.checkInDate));
+  // Insígnias que dependiam deste check-in (streak, total…) são avaliadas na
+  // sincronização; a celebração visual fica para a próxima tela que carregá-las.
+  await awardBadgesForCheckInsDb(
+    String(p.userId),
+    new Date(String(p.checkInDate) + "T12:00:00"),
+  ).catch(() => { /* best-effort */ });
+});
+
+registerOutboxExecutor("goal_progress", async (p: any) => {
+  const viewer = await getViewer();
+  if (!viewer) throw new Error("Sem sessão para sincronizar progresso de meta");
+  await applyGoalProgressOnlineDb(String(p.userGoalId), String(p.date), viewer.id);
+});
+
+registerOutboxExecutor("routine_summary", async (p: any) => {
+  const { error } = await supabase!
+    .from("routines")
+    .update({ last_summary: p.summary })
+    .eq("id", String(p.routineId));
+  if (error) throw error;
+});
+
+registerOutboxExecutor("workout_notes", async (p: any) => {
+  let query = supabase!
+    .from("user_workouts")
+    .update({ notes: p.notes != null ? String(p.notes) : null })
+    .eq("user_id", String(p.userId))
+    .eq("workout_id", String(p.workoutId));
+  if (p.routineId != null) query = query.eq("routine_id", Number(p.routineId));
+  const { error } = await query;
+  if (error) throw error;
+});
+
+registerOutboxExecutor("diet_toggle", async (p: any) => {
+  const { error } = await supabase!
+    .from("user_diets")
+    .update({
+      is_completed: Boolean(p.isCompleted),
+      completed_at: p.completedAt != null ? String(p.completedAt) : null,
+    })
+    .eq("id", String(p.userDietId));
+  if (error) throw error;
+});
+
+registerOutboxExecutor("habit_toggle", async (p: any) => {
+  const { error } = await supabase!
+    .from("user_habits")
+    .update({
+      is_completed: Boolean(p.isCompleted),
+      completed_at: p.completedAt != null ? String(p.completedAt) : null,
+    })
+    .eq("id", String(p.userHabitId));
+  if (error) throw error;
+});
+
+registerOutboxExecutor("diet_hist", async (p: any) => {
+  await insertDietHistRowDb({
+    userId: String(p.userId),
+    userDietId: p.userDietId != null ? String(p.userDietId) : null,
+    dietId: Number(p.dietId),
+    quantity: p.quantity != null ? Number(p.quantity) : null,
+    createdAt: String(p.createdAt),
+  });
+});
+
+registerOutboxExecutor("habit_hist", async (p: any) => {
+  await insertHabitHistRowDb({
+    userId: String(p.userId),
+    userHabitId: p.userHabitId != null ? String(p.userHabitId) : null,
+    habitId: Number(p.habitId),
+    quantity: p.quantity != null ? Number(p.quantity) : null,
+    frequency: p.frequency != null ? Number(p.frequency) : null,
+    createdAt: String(p.createdAt),
+  });
+});
+
+// Executores prontos: se o app abriu online com entradas pendentes de uma
+// sessão offline anterior, tenta drenar já (além dos gatilhos do outbox).
+if (typeof window !== "undefined") {
+  setTimeout(() => {
+    if (!isLikelyOffline()) void flushOutbox();
+  }, 1500);
+}
