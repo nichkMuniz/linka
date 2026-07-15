@@ -11,6 +11,7 @@ import {
   Trash2,
   PanelLeftOpen,
   PanelLeftClose,
+  Crown,
 } from "lucide-react";
 import * as React from "react";
 import { LocalNotifications } from "@capacitor/local-notifications";
@@ -36,6 +37,8 @@ import {
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { IncentiveConfirmToast } from "@/components/shared/incentive-confirm-toast";
 import { RoutineCompletedToast } from "@/components/shared/routine-completed-toast";
+import { PaywallDrawer } from "@/components/shared/paywall-drawer";
+import { usePremium } from "@/lib/premium-context";
 import { getUnreadMessageCountDb, getUnreadNotificationsCountDb, getUserProfileDb, subscribeToUnreadNotificationsDb, recordAccessSessionDb, bufferScreenTime, flushScreenTimeDb, invalidateQueryCache } from "@/lib/ritmofit-db";
 import { OUTBOX_SYNCED_EVENT } from "@/lib/offline-outbox";
 import { toast } from "@/components/ui/use-toast";
@@ -70,6 +73,8 @@ export function AppLayout() {
   useRoutineNotifications(user?.id ?? null);
   const { layoutMode } = useLayoutMode();
   const { t } = useLanguage();
+  const { isPremium } = usePremium();
+  const [premiumPaywallOpen, setPremiumPaywallOpen] = React.useState(false);
   const {
     workoutMinimized, setWorkoutMinimized, pendingReopen, setPendingReopen,
     globalRestTimerRemaining, globalRestTimerActive, globalRestTimerTotal, setGlobalRestTimerTotal,
@@ -510,19 +515,22 @@ export function AppLayout() {
     }
   }, [timerExpired, limitIgnoredToday]);
 
+  // Comunidade (mensagens + duelos + ranking) é a superfície social mais rica do
+  // app — vive no bottom nav. A Vitrine, sendo consulta ocasional, saiu do nav
+  // principal para o header, junto de busca e notificações.
   const mainNavItems: NavItem[] = React.useMemo(() => [
     { to: "/", label: t("nav_home"), icon: Home },
     { to: "/shots", label: t("nav_clips"), icon: Video },
     { to: "/postar", label: t("nav_new"), icon: PlusSquare },
     { to: "/metas", label: t("nav_goals"), icon: Dumbbell },
-    { to: "/vitrine", label: t("nav_store"), icon: ShoppingBag },
-  ], [t]);
+    { to: "/comunidade", label: t("nav_community") ?? "Comunidade", icon: Users2, badge: unreadCount },
+  ], [t, unreadCount]);
 
   const sidebarExtraItems: NavItem[] = React.useMemo(() => [
     { to: "/buscar", label: t("nav_search") ?? "Buscar", icon: Search },
     { to: "/notificacoes", label: t("settings_notifications"), icon: Bell, badge: unreadNotificationsCount },
-    { to: "/comunidade", label: t("nav_community") ?? "Comunidade", icon: Users2, badge: unreadCount },
-  ], [t, unreadNotificationsCount, unreadCount]);
+    { to: "/vitrine", label: t("nav_store"), icon: ShoppingBag },
+  ], [t, unreadNotificationsCount]);
 
   const allSidebarItems = [...mainNavItems, ...sidebarExtraItems];
 
@@ -545,7 +553,7 @@ export function AppLayout() {
             if (location.pathname === "/") {
               window.dispatchEvent(new CustomEvent("ritmofit-refresh-feed"));
             } else {
-              window.location.href = "/";
+              navigate("/");
             }
           }}
           aria-label="Ir para Home"
@@ -598,6 +606,25 @@ export function AppLayout() {
             );
           })}
         </nav>
+
+        {/* Seja Premium */}
+        {!isPremium && (
+          <button
+            onClick={() => {
+              hapticLight();
+              setPremiumPaywallOpen(true);
+            }}
+            aria-label={t("premium_nav_label")}
+            title={!sidebarExpanded ? t("premium_nav_label") : undefined}
+            className={cn(
+              "flex items-center rounded-xl py-3 mb-1 text-[15px] font-medium text-amber-400 hover:bg-amber-400/10 transition-colors",
+              sidebarExpanded ? "gap-4 px-3" : "justify-center px-0",
+            )}
+          >
+            <Crown className="h-6 w-6 flex-shrink-0" />
+            {sidebarExpanded && <span>{t("premium_nav_label")}</span>}
+          </button>
+        )}
 
         {/* Usage timer */}
         {showTimer && (
@@ -687,12 +714,13 @@ export function AppLayout() {
             </Link>
             <button
               onClick={() => {
+                hapticLight();
                 if (location.pathname === "/") {
                   window.dispatchEvent(new CustomEvent("ritmofit-refresh-feed"));
                   const feedContainer = document.querySelector('[data-feed-container]');
                   if (feedContainer) feedContainer.scrollTop = 0;
                 } else {
-                  window.location.href = "/";
+                  navigate("/");
                 }
               }}
               aria-label="Ir para Home ou Atualizar Feed"
@@ -713,44 +741,53 @@ export function AppLayout() {
                 {timerLabel}
               </div>
             )}
-            <Link to="/buscar" aria-label="Buscar" onClick={() => hapticLight()}>
+            {!isPremium && (
               <button
-                type="button"
-                className="w-9 h-9 rounded-full flex items-center justify-center text-white active:scale-90 transition-transform"
-                style={{ background: "rgba(255,255,255,.1)", border: "1px solid rgba(255,255,255,.12)" }}
+                onClick={() => {
+                  hapticLight();
+                  setPremiumPaywallOpen(true);
+                }}
+                aria-label={t("premium_nav_label")}
+                className="w-10 h-10 rounded-full flex items-center justify-center text-amber-400 active:scale-90 transition-transform"
+                style={{ background: "rgba(251,191,36,.14)", border: "1px solid rgba(251,191,36,.3)" }}
               >
-                <Search className="h-4 w-4" />
+                <Crown className="h-[18px] w-[18px]" />
               </button>
+            )}
+            <Link
+              to="/buscar"
+              aria-label={t("nav_search") ?? "Buscar"}
+              onClick={() => hapticLight()}
+              className="w-10 h-10 rounded-full flex items-center justify-center text-white active:scale-90 transition-transform"
+              style={{ background: "rgba(255,255,255,.1)", border: "1px solid rgba(255,255,255,.12)" }}
+            >
+              <Search className="h-[18px] w-[18px]" />
             </Link>
-            <Link to="/comunidade" aria-label="Comunidade" onClick={() => hapticLight()}>
-              <button
-                type="button"
-                className="relative w-9 h-9 rounded-full flex items-center justify-center text-white active:scale-90 transition-transform"
-                style={{ background: "rgba(255,255,255,.1)", border: "1px solid rgba(255,255,255,.12)" }}
-              >
-                <Users2 className="h-4 w-4" />
-                {unreadCount > 0 && (
-                  <span
-                    className="absolute top-1 right-1.5 w-[7px] h-[7px] rounded-full"
-                    style={{ background: "#5b8cff", border: "1.5px solid #06070c" }}
-                  />
-                )}
-              </button>
+            <Link
+              to="/vitrine"
+              aria-label={t("nav_store")}
+              onClick={() => hapticLight()}
+              className="w-10 h-10 rounded-full flex items-center justify-center text-white active:scale-90 transition-transform"
+              style={{ background: "rgba(255,255,255,.1)", border: "1px solid rgba(255,255,255,.12)" }}
+            >
+              <ShoppingBag className="h-[18px] w-[18px]" />
             </Link>
-            <Link to="/notificacoes" aria-label="Notificações" onClick={() => hapticLight()}>
-              <button
-                type="button"
-                className="relative w-9 h-9 rounded-full flex items-center justify-center text-white active:scale-90 transition-transform"
-                style={{ background: "rgba(255,255,255,.1)", border: "1px solid rgba(255,255,255,.12)" }}
-              >
-                <Bell className="h-4 w-4" />
-                {unreadNotificationsCount > 0 && (
-                  <span
-                    className="absolute top-1 right-1.5 w-[7px] h-[7px] rounded-full"
-                    style={{ background: "#ff7a59", border: "1.5px solid #06070c" }}
-                  />
-                )}
-              </button>
+            <Link
+              to="/notificacoes"
+              aria-label={t("settings_notifications")}
+              onClick={() => hapticLight()}
+              className="relative w-10 h-10 rounded-full flex items-center justify-center text-white active:scale-90 transition-transform"
+              style={{ background: "rgba(255,255,255,.1)", border: "1px solid rgba(255,255,255,.12)" }}
+            >
+              <Bell className="h-[18px] w-[18px]" />
+              {unreadNotificationsCount > 0 && (
+                <span
+                  className="absolute -top-0.5 -right-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1 text-[10px] font-bold text-white"
+                  style={{ background: "#ff7a59", border: "1.5px solid #06070c" }}
+                >
+                  {unreadNotificationsCount > 9 ? "9+" : unreadNotificationsCount}
+                </span>
+              )}
             </Link>
           </div>
         </header>
@@ -838,10 +875,18 @@ export function AppLayout() {
                     whileTap={{ scale: 0.82 }}
                     animate={active && !isCenter ? { y: -2, scale: 1 } : { y: 0, scale: 1 }}
                     transition={{ type: "spring", stiffness: 500, damping: 22 }}
-                    className="grid place-items-center"
+                    className="relative grid place-items-center"
                     style={isCenter ? { width: 44, height: 44, borderRadius: "50%", background: "linear-gradient(135deg,#ff9d6c,#d8567a 50%,#7b3ff2)", boxShadow: "0 4px 14px -4px rgba(216,86,122,.6)" } : { width: 32, height: 32 }}
                   >
                     <Icon className={isCenter ? "h-5 w-5 text-white" : "h-[22px] w-[22px]"} />
+                    {item.badge && item.badge > 0 ? (
+                      <span
+                        className="absolute -top-0.5 -right-0.5 flex h-[17px] min-w-[17px] items-center justify-center rounded-full px-1 text-[10px] font-bold text-white"
+                        style={{ background: "#5b8cff", border: "1.5px solid #0a0b12" }}
+                      >
+                        {item.badge > 9 ? "9+" : item.badge}
+                      </span>
+                    ) : null}
                   </motion.span>
                   {active && !isCenter && (
                     <motion.span
@@ -906,7 +951,7 @@ export function AppLayout() {
                   navigate("/metas");
                 }
               }}
-              className="flex items-center gap-2 text-white rounded-full px-4 py-3 font-semibold text-sm transition-all active:scale-95 animate-pulse relative overflow-hidden"
+              className="flex items-center gap-2 text-white rounded-full px-4 py-3 font-semibold text-sm transition-all active:scale-95 relative overflow-hidden"
               style={{
                 background: "linear-gradient(rgba(255,255,255,.16),rgba(255,255,255,.06))",
                 backdropFilter: "blur(26px) saturate(180%)",
@@ -955,6 +1000,9 @@ export function AppLayout() {
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* Seja Premium — acessível pelo ícone de coroa no header/sidebar */}
+      <PaywallDrawer open={premiumPaywallOpen} onOpenChange={setPremiumPaywallOpen} />
+
       {/* Global incentive confirmation toast */}
       <IncentiveConfirmToast />
 
@@ -987,8 +1035,11 @@ export function AppLayout() {
                 {label}
               </Button>
             ))}
+            {/* "Ignorar hoje" derrota o propósito do limite — fica como ação
+                terciária, nunca como CTA em destaque. */}
             <Button
-              className="w-full rounded-full"
+              variant="ghost"
+              className="w-full rounded-full text-muted-foreground"
               onClick={() => {
                 localStorage.setItem("ritmofit_limit_ignored_date", new Date().toDateString());
                 setLimitIgnoredToday(true);

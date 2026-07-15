@@ -18,7 +18,7 @@ Tela de descoberta. Permite ao usuário encontrar outros usuários para seguir e
 ┌──────────────────────────────────┐
 │  [Campo de busca]                │
 ├──────────────────────────────────┤
-│  Tabs: [Pessoas][Exercícios][Dietas] │
+│  Tabs: [Pessoas][Exercícios][Dietas][Tags]│
 ├──────────────────────────────────┤
 │  Lista de resultados             │
 └──────────────────────────────────┘
@@ -30,8 +30,27 @@ As abas usam o **segmented control de vidro**, padronizado com a tela de Comunid
 - Container `rounded-xl` com fundo glass (`linear-gradient` + `backdrop-filter blur(20px) saturate(160%)`) e borda `rgba(255,255,255,.10)`
 - Cada aba é um `<button>` com ícone Lucide + label
 - Aba ativa: `bg-brand text-white`; inativa: `text-white/50 hover:text-white/80`
-- Ícones: `Users` (Pessoas), `Dumbbell` (Exercícios), `Salad` (Dietas)
+- Ícones: `Users` (Pessoas), `Dumbbell` (Exercícios), `Salad` (Dietas), `Hash` (Tags)
 - Não usa mais o `TabsList`/`TabsTrigger` do Shadcn — apenas o wrapper `Tabs` + `TabsContent` para alternar o conteúdo
+
+---
+
+## Tab: Hashtags (2026-07-13)
+
+Fecha o ciclo da feature de hashtags: elas já eram clicáveis nas legendas e já tinham página própria (`/tag/:tag`, `docs/16-hashtag.md`), mas **não eram buscáveis** — não havia como encontrar uma tag sem antes topar com ela num post.
+
+- Campo de busca aceita `#treino` ou `treino` (o `#` é removido antes de consultar)
+- Consulta: `searchPostsByHashtagDb(tag)` — a mesma da página da hashtag
+- Resultado: **grade de miniaturas** `grid-cols-3`, idêntica à de `/tag/:tag`; cada thumb navega para `/post/:id`
+- Sem busca digitada: estado inicial convidativo ("Busque por hashtags"), não um vazio seco
+
+---
+
+## Estados de Carregamento
+
+Todas as abas usam **skeleton**, nunca o texto "Carregando…" (exigência do design system, §10.2):
+- Pessoas / Exercícios / Dietas → `SearchResultsSkeleton` (`client/components/shared/animated-loading.tsx`)
+- Tags → `GridSkeleton` (grade de quadrados)
 
 ---
 

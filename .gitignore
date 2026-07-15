@@ -25,9 +25,15 @@ dist-ssr
 
 .config/
 .env
+.env.*
+!.env.example
 node_modules/
 dist/
 *.log
-*.sql
 *.db
 linka
+
+# Migrações (docs/migrations, supabase/migrations) SÃO versionadas: são a
+# fonte de verdade das policies RLS. Ignore apenas dumps locais do banco.
+*.dump
+*.sqldump

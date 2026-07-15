@@ -24,11 +24,15 @@ import {
   getPostLikeUsersDb,
   flushPendingIncentivesDb,
   copyRoutineToUserDb,
+  getAllUsersDb,
+  type SearchUser,
   type PostIncentiveType,
   type StoryWithUser,
   invalidateProfileCache,
   invalidateQueryCache,
 } from "@/lib/ritmofit-db";
+import { UserAvatar } from "@/components/shared/user-avatar";
+import { FollowButton } from "@/components/shared/follow-button";
 import { PostLikesModal } from "@/components/modals/post-likes-modal";
 import { ReportDrawer } from "@/components/shared/report-drawer";
 import { GoalCompletedDialog } from "@/components/shared/goal-completed-dialog";
@@ -157,6 +161,16 @@ export default function Index() {
   const [completedGoalDescription, setCompletedGoalDescription] = React.useState<string | null>(null);
   const [copyingRoutineKeys, setCopyingRoutineKeys] = React.useState<Set<string>>(new Set());
   const [copiedRoutineKeys, setCopiedRoutineKeys] = React.useState<Set<string>>(new Set());
+
+  // Perfis sugeridos do empty state do feed — só carregados quando o usuário
+  // realmente cai nele (não segue ninguém ainda).
+  const [suggestedUsers, setSuggestedUsers] = React.useState<SearchUser[]>([]);
+  React.useEffect(() => {
+    if (loading || posts.length > 0 || !user?.id || suggestedUsers.length > 0) return;
+    getAllUsersDb(user.id)
+      .then((users) => setSuggestedUsers(users.slice(0, 5)))
+      .catch((err) => console.error("Erro ao carregar perfis sugeridos:", err));
+  }, [loading, posts.length, user?.id, suggestedUsers.length]);
 
   const [likesModalOpen, setLikesModalOpen] = React.useState(false);
   const [likesLoading, setLikesLoading] = React.useState(false);
@@ -852,10 +866,14 @@ export default function Index() {
 
   const feedScrollRef = React.useRef<HTMLDivElement>(null);
 
-  // Pull-to-refresh
+  // Pull-to-refresh — conduzido por refs + estilo imperativo no DOM. Um setState
+  // por touchmove re-renderizava a lista inteira de posts a ~60fps durante o
+  // arrasto, que é justamente o momento em que o frame não pode cair.
   const pullStartY = React.useRef(0);
-  const [pullDistance, setPullDistance] = React.useState(0);
-  const [isPulling, setIsPulling] = React.useState(false);
+  const isPullingRef = React.useRef(false);
+  const pullDistanceRef = React.useRef(0);
+  const pullIndicatorRef = React.useRef<HTMLDivElement>(null);
+  const pullSpinnerRef = React.useRef<HTMLDivElement>(null);
   const PULL_THRESHOLD = 72;
 
   const onTouchStart = React.useCallback((e: React.TouchEvent) => {
@@ -863,18 +881,27 @@ export default function Index() {
     const scrollTop = scrollEl ? scrollEl.scrollTop : window.scrollY;
     if (scrollTop > 0) return;
     pullStartY.current = e.touches[0].clientY;
-    setIsPulling(true);
+    isPullingRef.current = true;
+    pullDistanceRef.current = 0;
+    if (pullIndicatorRef.current) pullIndicatorRef.current.style.transition = "none";
   }, []);
 
   const onTouchMove = React.useCallback((e: React.TouchEvent) => {
-    if (!isPulling) return;
+    if (!isPullingRef.current) return;
     const delta = e.touches[0].clientY - pullStartY.current;
-    if (delta > 0) setPullDistance(Math.min(delta * 0.4, PULL_THRESHOLD + 20));
-  }, [isPulling]);
+    const dist = delta > 0 ? Math.min(delta * 0.4, PULL_THRESHOLD + 20) : 0;
+    pullDistanceRef.current = dist;
+    if (pullIndicatorRef.current) pullIndicatorRef.current.style.height = `${dist}px`;
+    if (pullSpinnerRef.current) {
+      pullSpinnerRef.current.style.transform = `rotate(${(dist / PULL_THRESHOLD) * 360}deg)`;
+      pullSpinnerRef.current.style.opacity = String(Math.min(dist / PULL_THRESHOLD, 1));
+    }
+  }, []);
 
   const onTouchEnd = React.useCallback(() => {
-    if (!isPulling) return;
-    if (pullDistance >= PULL_THRESHOLD) {
+    if (!isPullingRef.current) return;
+    isPullingRef.current = false;
+    if (pullDistanceRef.current >= PULL_THRESHOLD) {
       hapticLight();
       setDiscoverLoaded(false);
       setHasMoreDiscover(true);
@@ -884,9 +911,13 @@ export default function Index() {
       // ter caído silenciosamente.
       window.dispatchEvent(new CustomEvent("ritmofit-refresh-badges"));
     }
-    setPullDistance(0);
-    setIsPulling(false);
-  }, [isPulling, pullDistance, loadFeed]);
+    pullDistanceRef.current = 0;
+    if (pullIndicatorRef.current) {
+      pullIndicatorRef.current.style.transition = "height .2s ease";
+      pullIndicatorRef.current.style.height = "0px";
+    }
+    if (pullSpinnerRef.current) pullSpinnerRef.current.style.opacity = "0";
+  }, [loadFeed]);
 
   if (loading) {
     return (
@@ -919,37 +950,33 @@ export default function Index() {
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
     >
-      {/* Ambient orbs — decorative background glow */}
-      <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
+      {/* Ambient glow — um único elemento com gradientes pintados diretamente.
+          Antes eram 3 divs com filter: blur(65px), que o WebKit precisa
+          re-compor a cada frame de scroll junto com todos os backdrop-filter
+          da tela. radial-gradient já entrega o mesmo visual sem filtro. */}
+      <div
+        aria-hidden
+        className="pointer-events-none fixed inset-0 -z-10"
+        style={{
+          background:
+            "radial-gradient(340px 340px at 10% 14%, rgba(216,86,122,.34), transparent 70%)," +
+            "radial-gradient(300px 300px at 92% 42%, rgba(63,127,230,.30), transparent 70%)," +
+            "radial-gradient(280px 280px at 26% 74%, rgba(123,63,242,.26), transparent 70%)",
+        }}
+      />
+
+      {/* Pull-to-refresh indicator — altura/rotação escritas direto no DOM pelos handlers */}
+      <div
+        ref={pullIndicatorRef}
+        className="flex items-center justify-center overflow-hidden"
+        style={{ height: 0 }}
+      >
         <div
-          className="absolute rounded-full animate-aura-drift"
-          style={{ width: 340, height: 340, left: -60, top: 90, background: "radial-gradient(circle,#d8567a,transparent 70%)", filter: "blur(65px)", opacity: 0.4 }}
-        />
-        <div
-          className="absolute rounded-full"
-          style={{ width: 300, height: 300, right: -70, top: 430, background: "radial-gradient(circle,#3f7fe6,transparent 70%)", filter: "blur(65px)", opacity: 0.35 }}
-        />
-        <div
-          className="absolute rounded-full"
-          style={{ width: 280, height: 280, left: 30, top: 820, background: "radial-gradient(circle,#7b3ff2,transparent 70%)", filter: "blur(65px)", opacity: 0.3 }}
+          ref={pullSpinnerRef}
+          className="h-6 w-6 rounded-full border-2 border-brand border-t-transparent"
+          style={{ opacity: 0 }}
         />
       </div>
-
-      {/* Pull-to-refresh indicator */}
-      {pullDistance > 0 && (
-        <div
-          className="flex items-center justify-center overflow-hidden transition-all"
-          style={{ height: `${pullDistance}px` }}
-        >
-          <div
-            className="h-6 w-6 rounded-full border-2 border-brand border-t-transparent transition-transform"
-            style={{
-              transform: `rotate(${(pullDistance / PULL_THRESHOLD) * 360}deg)`,
-              opacity: pullDistance / PULL_THRESHOLD,
-            }}
-          />
-        </div>
-      )}
 
       {/* Stories Carousel — no border wrapper in glass design */}
       <div className="pb-1">
@@ -1018,15 +1045,46 @@ export default function Index() {
               <PostCard key={post.id} post={post} {...sharedCardProps} />
             ))}
 
+            {/* Feed vazio = primeira tela de todo usuário novo. Em vez de um link
+                para outra tela, as pessoas sugeridas são seguíveis aqui mesmo. */}
             {posts.length === 0 && (
-              <div className="flex flex-col items-center gap-2 text-center pt-4 pb-1">
-                <p className="text-xs text-muted-foreground">
-                  {t("feed_follow_cta")}
-                </p>
+              <div className="mx-3 mb-4 p-4 rounded-2xl" style={GLASS_PANEL_STYLE}>
+                <p className="text-base font-semibold text-white">{t("feed_empty_title")}</p>
+                <p className="text-sm text-white/60 mt-1 mb-4">{t("feed_follow_cta")}</p>
+
+                {suggestedUsers.length === 0 ? (
+                  <div className="flex flex-col gap-2">
+                    {Array.from({ length: 3 }).map((_, i) => (
+                      <div key={i} className="flex items-center gap-3 py-1.5">
+                        <div className="h-10 w-10 rounded-full bg-white/10 animate-pulse" />
+                        <div className="h-3 w-28 rounded bg-white/10 animate-pulse" />
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex flex-col divide-y divide-white/10">
+                    {suggestedUsers.map((u) => (
+                      <div key={u.id} className="flex items-center gap-3 py-2.5">
+                        <button
+                          className="flex items-center gap-3 flex-1 min-w-0 text-left active:opacity-70"
+                          onClick={() => navigate(`/usuario/${u.id}`)}
+                        >
+                          <UserAvatar photo={u.photo} nickname={u.nickname} className="h-10 w-10 flex-shrink-0" />
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-white truncate">{u.nickname}</p>
+                            {u.bio && <p className="text-xs text-white/50 truncate">{u.bio}</p>}
+                          </div>
+                        </button>
+                        <FollowButton targetUserId={u.id} />
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 <Button
+                  variant="outline"
                   size="sm"
-                  variant="ghost"
-                  className="rounded-full text-xs h-7 px-3"
+                  className="w-full rounded-full mt-4 bg-transparent border-white/20 text-white hover:bg-white/10 hover:text-white"
                   onClick={() => navigate("/buscar")}
                 >
                   {t("feed_find_people")}

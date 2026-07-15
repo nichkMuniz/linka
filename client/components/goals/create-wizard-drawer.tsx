@@ -27,6 +27,8 @@ import { toast } from "@/components/ui/use-toast";
 import { ExerciseImage } from "@/components/shared/exercise-image";
 import { DietImage } from "@/components/shared/diet-image";
 import { ItemDetailDrawer, type ItemDetailData } from "@/components/goals/item-detail-drawer";
+import { PaywallDrawer } from "@/components/shared/paywall-drawer";
+import { usePremium } from "@/lib/premium-context";
 import { useLanguage } from "@/lib/language-context";
 import type { TranslationKey } from "@/lib/i18n";
 import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
@@ -128,6 +130,8 @@ interface CreateWizardDrawerProps {
   onOpenChange: (open: boolean) => void;
   userId: string;
   userGoals: UserGoal[];
+  /** nº de rotinas ativas do usuário — grátis cria só 1 (gate premium) */
+  activeRoutineCount: number;
   /** opens directly on a given step (e.g. empty states) */
   initialStep?: WizardStep;
   /** pre-selects the routine type when opening at the "build" step */
@@ -208,17 +212,32 @@ export function CreateWizardDrawer({
   onOpenChange,
   userId,
   userGoals,
+  activeRoutineCount,
   initialStep = "what",
   initialRoutineType = 1,
   editRoutine = null,
   onCreated,
 }: CreateWizardDrawerProps) {
   const { t, language } = useLanguage();
+  const { isPremium } = usePremium();
   const viewportHeight = useKeyboardAwareHeight();
 
   const [step, setStep] = React.useState<WizardStep>(initialStep);
   const [history, setHistory] = React.useState<WizardStep[]>([]);
   const [isSaving, setIsSaving] = React.useState(false);
+
+  // ── Gate premium: grátis mantém 1 rotina ativa ─────────────────────────────
+  // Bloqueia CRIAR nova rotina (nunca "adicionar itens" a uma existente, nem
+  // metas). Backstops nos handlers de salvar cobrem qualquer caminho de UI.
+  const routineGateBlocked = !isPremium && !editRoutine && activeRoutineCount >= 1;
+  const [paywallOpen, setPaywallOpen] = React.useState(false);
+  // Abertura direta já no fluxo de rotina (ex: botão "+" da lista de rotinas):
+  // mostra o paywall por cima; ao dispensá-lo, fecha o wizard junto.
+  const paywallClosesWizard =
+    routineGateBlocked && (step === "routine-origin" || step === "build-name" || step === "build");
+  React.useEffect(() => {
+    if (open && paywallClosesWizard) setPaywallOpen(true);
+  }, [open, paywallClosesWizard]);
 
   // routine state
   const [routineType, setRoutineType] = React.useState<RoutineTypeCode>(1);
@@ -467,6 +486,10 @@ export function CreateWizardDrawer({
   };
 
   const handleSaveRoutine = async () => {
+    if (routineGateBlocked) {
+      setPaywallOpen(true);
+      return;
+    }
     if (selectedIds.size === 0) {
       toast({
         title: t("goals_select_at_least_one"),
@@ -738,6 +761,10 @@ export function CreateWizardDrawer({
 
   /** cria todas as rotinas de um programa semanal de uma vez */
   const handleAddWeeklyProgram = async (program: WeeklyProgram) => {
+    if (routineGateBlocked) {
+      setPaywallOpen(true);
+      return;
+    }
     setAddingProgram(true);
     try {
       // casa pelo nome bruto do banco (PT e EN) — independe do idioma da UI,
@@ -1011,7 +1038,14 @@ export function CreateWizardDrawer({
           {step === "what" && (
             <>
               {optionCard(
-                () => { setRoutineType(1); goTo("routine-origin"); },
+                () => {
+                  if (routineGateBlocked) {
+                    setPaywallOpen(true);
+                    return;
+                  }
+                  setRoutineType(1);
+                  goTo("routine-origin");
+                },
                 <Dumbbell className="h-5 w-5" />,
                 t("goals_wizard_routine"),
                 t("goals_wizard_routine_desc"),
@@ -2105,6 +2139,17 @@ export function CreateWizardDrawer({
     </Drawer>
 
     <ItemDetailDrawer item={detailItem} onClose={() => setDetailItem(null)} />
+
+    <PaywallDrawer
+      open={paywallOpen}
+      onOpenChange={(o) => {
+        setPaywallOpen(o);
+        // Se o wizard abriu direto no fluxo de rotina bloqueado, dispensar o
+        // paywall fecha o wizard também — não há passo válido pra voltar.
+        if (!o && paywallClosesWizard) onOpenChange(false);
+      }}
+      feature="routines"
+    />
     </>
   );
 }

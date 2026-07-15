@@ -55,6 +55,10 @@ Cada item exibe:
 | 6 `comment_reaction` | `SmilePlus` | Rosa | Alguém reagiu ao seu comentário |
 | 7 `checkin_reaction` | `SmilePlus` | Laranja | Alguém reagiu ao seu check-in de duelo |
 | 9 `post_tag` | `AtSign` | Ciano | Alguém marcou você em uma publicação (tabela `post_tags`, trigger `trg_notify_post_tag`) |
+| 10 `message` | `Send` | Azul-céu | Você recebeu uma mensagem privada (inserida por `sendMessageDb`) |
+| 11 `duel_checkin` | `Dumbbell` | Esmeralda | Um participante do seu grupo de duelo postou um check-in (inserida por `addGroupCheckInDb`) |
+| 12 `promotion_like` | `Heart` | Rose | Alguém curtiu sua promoção (inserida por `togglePromotionLikeDb`) |
+| 13 `promotion_expired` | `Clock` | Âmbar | Alguém marcou sua promoção como expirada (inserida por `reportPromotionStatusDb`; `follower_id` = quem deu o voto que fechou a maioria) |
 
 ### Tipos de Incentivo (subtipo)
 Quando o tipo é incentivo, o ícone exibido é o do incentivo específico (não um ícone genérico):
@@ -97,6 +101,9 @@ Quando o tipo é incentivo, o ícone exibido é o do incentivo específico (não
   - Notificação de duelo (tipo 4 ou 5) → `/comunidade?tab=requests` (abre aba "Solicitações")
   - Notificação de reação em check-in de duelo (tipo 7) → `/comunidade` com `state.openCheckIn = checkInId` (abre drawer do check-in)
   - Notificação de marcação em post (tipo 9, `postId`) → `/post/:postId` (fallback genérico por `postId` no `handleNotificationClick`); o card mostra a thumbnail do post quando disponível
+  - Notificação de mensagem privada (tipo 10) → `/comunidade?user=:senderId` (abre a conversa com o remetente — mesmo deep link usado pelo botão "Mensagem" do perfil)
+  - Notificação de check-in em duelo (tipo 11, `checkInId`) → `/comunidade` com `state.openCheckIn = checkInId` (abre o drawer do check-in); sem `checkInId`, cai em `/comunidade?tab=duels`
+  - Notificação de curtida (tipo 12) ou expiração (tipo 13) de promoção → `/vitrine` (mesmo destino do tipo 8)
 
 ---
 
@@ -147,6 +154,47 @@ supabase
 
 ---
 
+## Eventos adicionados em 2026-07-13 (mensagem, check-in de duelo, promoções)
+
+| Evento | Tipo | Quem recebe | Onde é inserida | Deduplicação |
+|---|---|---|---|---|
+| Mensagem privada recebida | 10 | Destinatário da mensagem | `sendMessageDb` (fire-and-forget, não bloqueia o envio) | Mensagens do mesmo remetente dentro de **60s** de uma notificação ainda não lida não geram outra linha (evita enxurrada de push num bate-papo). Na lista, os cards do tipo 10 são colapsados em **um por remetente** (`"{name} te enviou {n} mensagens"`) |
+| Check-in de um membro do duelo | 11 | Todos os participantes **aceitos** do grupo, exceto o autor | `addGroupCheckInDb` → `sendDuelCheckInNotificationsDb` | Uma linha por participante por check-in |
+| Curtida na sua promoção | 12 | Autor da promoção | `togglePromotionLikeDb` (só no "liked") | Uma por (autor, curtidor, promoção) — descurtir e curtir de novo não gera novo push |
+| Promoção marcada como expirada | 13 | Autor da promoção | `reportPromotionStatusDb` → `sendPromotionExpiredNotificationDb` | Só no voto que **cruza** o limiar de expirada (≥ 3 votos de status e maioria em "expired", mesmo `majorityExpired` do `Store.tsx`); os votos seguintes não geram novo push |
+
+- **Reuso de colunas:** `post_id` guarda o id do **grupo de duelo** nos tipos 4, 5 e 11, e o id da **promoção** nos tipos 8, 12 e 13. O conjunto `NOTIF_TYPES_WITHOUT_POST` em `ritmofit-db.ts` centraliza isso — sem ele, `getNotificationsDb` trataria esses ids como posts e o card cairia em `/post/:id`.
+- **Tipo 13 aponta para quem votou:** `follower_id` guarda o usuário cujo voto fechou a maioria de "Expirou" — é o nome que aparece no card e no push ("{name} marcou sua promoção como expirada"). O dono nunca é notificado do próprio voto.
+- **Sem migração de banco:** nenhum tipo novo exigiu coluna nova. É preciso apenas **redeploy** de `send-push-notification` (`supabase functions deploy send-push-notification`).
+
+---
+
+## Conteúdo do Push (`send-push-notification`)
+
+O corpo do push é montado em runtime por `buildBody()`, com os dados reais da notificação — **nunca** um texto fixo por tipo. Antes o push usava um mapa estático e qualquer tipo fora dele caía em "Você tem uma nova notificação no LinKa", que não dizia ao usuário o que tinha acontecido.
+
+| Tipo | Corpo do push | Lookups |
+|---|---|---|
+| 1 | "{nome} começou a te seguir." | `profiles` |
+| 2 | "{nome} te deu \"{incentivo}\" na sua publicação." (usa `incentive_type`; contexto vira "no seu shot"/"no seu flow" conforme `shots_id`/`flow_id`) | `profiles` |
+| 3 | "{nome} comentou na sua publicação." | `profiles` |
+| 4 | "{nome} te convidou para o duelo \"{grupo}\"." | `profiles`, `duel_groups` |
+| 5 | "{nome} quer entrar no grupo \"{grupo}\"." | `profiles`, `duel_groups` |
+| 6 | "{nome} reagiu ao seu comentário." | `profiles` |
+| 7 | "{nome} reagiu ao seu check-in." | `profiles` |
+| 8 | "{nome} comentou na sua promoção \"{título}\"." | `profiles`, `promotions` |
+| 9 | "{nome} marcou você em uma publicação." | `profiles` |
+| 10 | "{nome} te enviou uma mensagem." | `profiles` |
+| 11 | "{nome} postou um check-in no duelo \"{grupo}\"." | `profiles`, `duel_groups` |
+| 12 | "{nome} curtiu sua promoção \"{título}\"." | `profiles`, `promotions` |
+| 13 | "{nome} marcou sua promoção \"{título}\" como expirada." | `profiles`, `promotions` |
+
+- Cada nome livre (apelido, grupo, título) passa por `short()` para o push não virar um parágrafo; quando o lookup não encontra o registro, o texto cai numa variante sem o nome ("{nome} curtiu sua promoção.") em vez de ficar vazio.
+- Falha em qualquer lookup **não derruba o push**: `buildBody` é chamada com `.catch()` e volta ao texto genérico.
+- **Deep link:** `deepLinkFor` monta a URL por tipo — tipo 10 → `/comunidade?user=<remetente>`, tipo 11 → `/comunidade?group=<grupo>`, tipos 8/12/13 → `/vitrine`, demais → `/notificacoes`.
+
+---
+
 ## Push de Re-engajamento (proativo, agendado)
 
 Além do push **reativo** (evento social → trigger/webhook → `send-push-notification`), há um push **proativo de retenção**, enviado por uma Edge Function **agendada** (`supabase/functions/reengagement-push`), 1x/dia via **pg_cron** (19:00 BRT):
@@ -166,6 +214,11 @@ Além do push **reativo** (evento social → trigger/webhook → `send-push-noti
 
 ## Observações Técnicas
 
+- **Descrição renderizada em JSX, nunca em HTML (2026-07-13 — correção de segurança):** o apelido é destacado por `renderDescription()`, que fatia a string e envolve o nome num `<strong>` **em JSX**. Antes usava `dangerouslySetInnerHTML` com o apelido interpolado: como o apelido é campo livre do usuário, qualquer markup nele (ex.: `<img onerror=…>`) era injetado e executado na WebView de **todo mundo que recebesse uma notificação daquele usuário**. Nunca reintroduzir `dangerouslySetInnerHTML` aqui
+- **Card é `div[role="button"]`, não `<button>` (2026-07-13):** a notificação de novo seguidor contém um `FollowButton` **real** (o mesmo componente de todas as telas) — e `button` dentro de `button` é HTML inválido. Antes o "Seguir" era um `<span>` estilizado: parecia clicável, mas o toque era engolido pelo card e apenas navegava ao perfil. O `FollowButton` fica dentro de um `span` com `stopPropagation`
+- **Voltar usa `navigate(-1)` (2026-07-13):** volta para a tela anterior de verdade (ex.: Perfil), caindo em `/` só quando não há histórico (deep link / push). Antes era `navigate("/")` fixo, que jogava todo mundo no feed
+- **Sem strings hardcoded:** títulos, toasts, o rótulo "agora" e o locale de data (`toLocaleDateString`) passam por `t()`/`language`. A tela tinha português cravado no código, quebrando em inglês
+- **Pull-to-refresh por refs:** mesmo padrão de `Index.tsx`/`Profile.tsx` — o gesto escreve altura/rotação direto no DOM, sem `setState` por `touchmove` (que re-renderizava a lista inteira a ~60fps durante o arrasto)
 - A tela faz `markNotificationsAsReadDb()` **antes** de carregar a lista, garantindo que o badge de não lidas seja zerado imediatamente
 - O canal Realtime é cancelado no unmount (`channel?.unsubscribe()`) para evitar memory leak
 - A contagem de não lidas no badge da navegação (AppLayout) é gerenciada separadamente com sua própria subscription

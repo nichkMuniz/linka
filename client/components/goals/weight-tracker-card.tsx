@@ -2,6 +2,7 @@ import * as React from "react";
 import { Drawer, DrawerContent } from "@/components/ui/drawer";
 import { Scale, Trash2, TrendingUp, TrendingDown, Check, ChevronRight } from "lucide-react";
 import { useLanguage } from "@/lib/language-context";
+import { PremiumGate } from "@/components/shared/premium-gate";
 import { TrendChart } from "@/components/shared/trend-chart";
 import {
   GLASS_SHEET_PROPS,
@@ -258,13 +259,15 @@ export function WeightTrackerCard({ logs, onAddWeight, onDeleteWeight }: WeightT
                   </div>
                 </div>
 
-                <div className="mt-4 rounded-2xl p-3" style={GLASS_PANEL_STYLE}>
-                  <TrendChart points={points} color={ACCENT} height={150} />
-                  <div className="mt-1 flex justify-between px-1">
-                    <span className="text-white/35" style={{ fontSize: "10.5px" }}>{points[0]?.label}</span>
-                    <span className="text-white/35" style={{ fontSize: "10.5px" }}>{points[points.length - 1]?.label}</span>
+                <PremiumGate feature="charts" className="mt-4">
+                  <div className="rounded-2xl p-3" style={GLASS_PANEL_STYLE}>
+                    <TrendChart points={points} color={ACCENT} height={150} />
+                    <div className="mt-1 flex justify-between px-1">
+                      <span className="text-white/35" style={{ fontSize: "10.5px" }}>{points[0]?.label}</span>
+                      <span className="text-white/35" style={{ fontSize: "10.5px" }}>{points[points.length - 1]?.label}</span>
+                    </div>
                   </div>
-                </div>
+                </PremiumGate>
               </>
             ) : (
               <p className="mt-2 text-sm text-white/60">{t("goals_weight_empty_desc")}</p>

@@ -47,9 +47,12 @@ Documentação técnica de todas as tabelas do banco de dados público (`public`
 | [shots_likes](#shots_likes) | Curtidas em Shots |
 | [shot_user_viewed](#shot_user_viewed) | Registro de visualizações de Shots |
 | [store_catalog](#store_catalog) | Catálogo de produtos de vitrines |
+| [subscriptions](#subscriptions) | Assinatura premium por usuário (Fase 1: manual; Fase 2: RevenueCat) |
 | [user_complaint](#user_complaint) | Denúncias de usuários |
 | [user_diets](#user_diets) | Dietas ativas do usuário |
 | [user_diets_hist](#user_diets_hist) | Histórico de dietas do usuário |
+| [user_food_logs](#user_food_logs) | Diário alimentar (alimentos consumidos por dia/refeição) |
+| [user_nutrition_goals](#user_nutrition_goals) | Meta diária de calorias/macros do usuário |
 | [user_goals](#user_goals) | Metas ativas do usuário |
 | [user_habits](#user_habits) | Hábitos ativos do usuário |
 | [user_habits_hist](#user_habits_hist) | Histórico de hábitos do usuário |
@@ -343,9 +346,19 @@ Catálogo de dietas disponíveis na plataforma.
 | `description_eng` | text | — | — | Descrição da dieta em inglês. Populada a partir de tradução PT→EN (`docs/migrations/20260704-catalog-eng-data.sql`) |
 | `photo` | bytea | — | — | Imagem da dieta (binário) |
 | `created_at` | timestamptz | ✓ | `now()` | Data de criação |
-| `calories` | real | — | — | Calorias associadas |
+| `calories` | real | — | — | Calorias associadas (por porção) |
 | `mealdb_id` | integer | — | — | ID de referência no MealDB |
 | `category` | text | — | — | Categoria da dieta |
+| `protein_g` | real | — | — | Proteína por porção (g). Migração `20260714-food-diary.sql` |
+| `carbs_g` | real | — | — | Carboidrato por porção (g) |
+| `fat_g` | real | — | — | Gordura por porção (g) |
+| `fiber_g` | real | — | — | Fibras por porção (g) |
+| `sugar_g` | real | — | — | Açúcar por porção (g). Migração `20260714-water-sugar.sql`. **Precisa ser populado** — sem ele, a insígnia `sem_acucar_7d` fica inalcançável (`null` = desconhecido, não zero) |
+| `food_quality` | text | — | — | Classificação NOVA simplificada: `in_natura` \| `processado` \| `ultraprocessado` |
+| `created_by_user` | boolean | — | `false` | `true` quando o alimento foi cadastrado pelo próprio usuário (criar alimento no wizard de rotina ou registro manual no diário alimentar) |
+| `created_by` | uuid | — | — | FK → `auth.users` ON DELETE CASCADE. Dono do item custom; `NULL` nos itens de catálogo. Migração `20260714-custom-items-owner.sql`. **É o que define a visibilidade**: `getDietsDb` mostra o item custom para o seu criador independentemente de existir vínculo em `user_diets` — antes a autoria era inferida do vínculo, e um alimento criado sem virar rotina desaparecia |
+
+**RLS:** leitura pública. Escrita (`insert`/`update`/`delete`) só é permitida em linhas com `created_by_user = true and created_by = auth.uid()` — ninguém edita o catálogo do sistema pelo app.
 
 ---
 
@@ -562,6 +575,10 @@ Catálogo de hábitos pré-definidos disponíveis na plataforma.
 | `description_eng` | text | — | — | Descrição do hábito em inglês. Populada a partir de tradução PT→EN (`docs/migrations/20260704-catalog-eng-data.sql`) |
 | `photo` | bytea | — | — | Imagem do hábito (binário) |
 | `created_at` | timestamptz | ✓ | `now()` | Data de criação |
+| `created_by_user` | boolean | — | `false` | `true` quando o hábito foi criado manualmente pelo usuário no wizard de rotina |
+| `created_by` | uuid | — | — | FK → `auth.users` ON DELETE CASCADE. Dono do hábito custom; `NULL` no catálogo. Migração `20260714-custom-items-owner.sql`. Define a visibilidade em `getHabitsDb` (mesma regra de `diets.created_by`) |
+
+**RLS:** leitura pública; escrita só nas linhas do próprio usuário (`created_by_user = true and created_by = auth.uid()`).
 
 ---
 
@@ -637,13 +654,13 @@ Notificações geradas para os usuários (follows, likes, comentários, duelos).
 | `id` | bigint | PK (identity) | — | Identificador único |
 | `user_id` | uuid | — | `gen_random_uuid()` | Destinatário da notificação |
 | `follower_id` | uuid | — | `gen_random_uuid()` | Quem originou a notificação |
-| `type` | bigint | — | — | Tipo da notificação |
+| `type` | bigint | — | — | Tipo da notificação (1–13 — ver `docs/10-notificacoes.md`) |
 | `created_at` | timestamptz | ✓ | `now()` | Data de criação |
-| `post_id` | uuid | — | — | Post relacionado; também usado para `promotion_id` quando type=8 |
+| `post_id` | uuid | — | — | Post relacionado; guarda o **id do grupo de duelo** quando type=4, 5 ou 11, e o **id da promoção** quando type=8, 12 ou 13 |
 | `read` | boolean | — | `false` | Notificação lida ou não |
 | `shots_id` | uuid | — | — | Shot relacionado (se aplicável) |
 | `flow_id` | bigint | — | — | Flow relacionado (se aplicável). FK lógica → `flow.id` (bigint, **não** uuid) |
-| `duel_check_in_id` | uuid | — | — | Check-in relacionado (se aplicável) |
+| `duel_check_in_id` | uuid | — | — | Check-in relacionado (se aplicável) — reação em check-in (type=7) e check-in de membro do duelo (type=11) |
 | `incentive_type` | smallint | — | — | Tipo de incentivo (1–6) quando type=2; evita lookup nas tabelas de likes |
 
 **Tipos de notificação:**
@@ -759,6 +776,7 @@ Perfil público dos usuários da plataforma.
 | `is_verified` | boolean | ✓ | `false` | Indica conta oficial verificada (badge dourado). Só pode ser alterado via service_role (admin). |
 | `hide_follow_lists` | boolean | ✓ | `false` | Privacidade: quando `true`, outros usuários não conseguem abrir as listas de seguidores/seguindo deste perfil (gating client-side em `Profile.tsx`). |
 | `hide_posts_from_non_followers` | boolean | ✓ | `false` | Privacidade: quando `true`, a aba Posts do perfil só é visível para quem segue o dono. |
+| `selected_badge_id` | uuid | — | `null` | FK → `badges.id`. Insígnia que o usuário **escolheu** exibir. Persistente: check-ins e novas conquistas **nunca** a alteram — só uma troca explícita no `InsigniasDrawer`. `null` = nunca escolheu (exibe a de maior `sort_order` do acervo). Migration: `docs/migrations/20260714-badge-selection-persist.sql` |
 
 > Migration: `docs/migrations/20260626-profile-privacy.sql`
 
@@ -997,10 +1015,11 @@ Catálogo de insígnias disponíveis na plataforma.
 | `name` | text | ✓ | — | Nome da insígnia |
 | `emoji` | text | ✓ | — | Emoji representativo |
 | `description` | text | ✓ | — | Descrição do critério |
-| `required_checkins` | int | ✓ | `0` | Valor numérico do critério (contagem, streak, etc.) |
+| `required_checkins` | int | ✓ | `0` | Limiar numérico do critério **do tipo daquela insígnia** — apesar do nome, quase nunca é "total de check-ins": em `checkin_streak` são dias seguidos, em `workout_type` são treinos daquele tipo, em `checkin_before_time` são check-ins feitos antes da hora limite. Nunca usar como desbloqueio genérico (ver `isBadgeUnlocked`). |
 | `sort_order` | int | ✓ | `0` | Ordenação (menor = mais básico) |
 | `condition_type` | text | ✓ | `checkin_total` | Tipo de condição para concessão (ver tabela abaixo) |
 | `condition_metadata` | jsonb | — | `null` | Parâmetros extras da condição (ex: `{"hour": 9}`, `{"type": "cardio"}`) |
+| `premium` | boolean | ✓ | `false` | Insígnia exclusiva de assinante. Visível para todos no catálogo (gera desejo), mas a **seleção** é gateada: `setSelectedBadgeDb` lança `BADGE_PREMIUM_LOCKED` para não-assinante. Seeds: `premium_coroa` 👑, `premium_diamante` 💎 — `condition_type = checkin_total` com `required_checkins = 0` (desbloqueio "por status", ver `docs/17-premium.md`) |
 | `created_at` | timestamptz | ✓ | `now()` | Data de criação |
 
 ### Tipos de condição (`condition_type`)
@@ -1010,21 +1029,56 @@ Catálogo de insígnias disponíveis na plataforma.
 | `checkin_total` | Total acumulado de check-ins ≥ `required_checkins` | `total_10`, `total_100` |
 | `checkin_week` | Check-ins na semana atual (Dom–Sáb) ≥ `required_checkins` | `iniciante`, `lendario` |
 | `checkin_streak` | Dias consecutivos de check-in ≥ `required_checkins` | `streak_7`, `streak_30` |
-| `checkin_after_midnight` | Check-in realizado entre 00:00 e 05:59 | `noturno` |
-| `checkin_before_time` | Check-in antes da hora em `condition_metadata.hour` | `treino_manha` (antes das 9h) |
+| `checkin_after_midnight` | Check-ins feitos entre 00:00 e 05:59 (hora local) ≥ `required_checkins` | `noturno` |
+| `checkin_before_time` | Check-ins feitos antes de `condition_metadata.hour` (hora local) ≥ `required_checkins` | `treino_manha` (antes das 9h) |
 | `checkin_comeback` | Primeiro check-in após ≥ 7 dias sem atividade | `comeback` |
 | `workout_week` | Treinos realizados na semana atual ≥ `required_checkins` | `treino_3_semana` |
 | `workout_type` | Treinos do tipo `condition_metadata.type` ≥ `required_checkins` | `treino_forca_10`, `treino_cardio_10` |
-| `nutrition_*` | Condições nutricionais — concedidas por `awardNutritionBadgesDb` | `hidratacao_7dias`, `semana_nutritiva` |
-| `habit_*` | Hábitos de lifestyle — precisam de tracking dedicado | `sono_7d`, `meditacao_5d` |
-| `app_usage` | Dias de uso do app ≥ `required_checkins` | `app_7dias`, `app_30dias` |
-| `challenge_count` | Desafios completados ≥ `required_checkins` | `desafio_3x` |
+| `app_usage` | Dias distintos com sessão em `access_sessions` ≥ `required_checkins` | `app_7dias`, `app_30dias` |
+| `nutrition_no_ultra` | Dias **seguidos** sem ultraprocessado no diário ≥ `required_checkins` | `sem_ultraprocessado_7d` |
+| `nutrition_protein` | Dias **seguidos** batendo `user_nutrition_goals.protein_target_g` ≥ `required_checkins` | `proteina_7d` |
+| `nutrition_week` | Dias com registro no diário na semana atual (Dom–Sáb) ≥ `required_checkins` | `semana_nutritiva` |
+| `nutrition_no_sugar` | Dias **seguidos** com açúcar total ≤ `condition_metadata.max_sugar_g` (25 g, OMS) ≥ `required_checkins` | `sem_acucar_7d` |
+| `nutrition_hydration` | Dias **seguidos** batendo a meta de água (`user_nutrition_goals.water_target_ml`, ou `condition_metadata.ml` = 2000) ≥ `required_checkins` | `hidratacao_7dias` |
+| `nutrition_fruits` / `nutrition_home_food` | ⚠️ **Sem tracking — nunca concedida.** O diário não classifica fruta nem "comida caseira" | `frutas_7d`, `comida_caseira_5d` |
+| `habit_*` | ⚠️ **Sem tracking — nunca concedida.** | `sono_7d`, `meditacao_5d` |
+| `challenge_count` | ⚠️ **Sem tracking — nunca concedida.** | `desafio_3x` |
+
+**Insígnias de nutrição** (`awardNutritionBadgesDb`, chamada ao registrar um alimento **ou água**) são avaliadas sobre `user_food_logs` + `user_water_logs`.
+
+> **Desconhecido nunca conta como zero.** A qualidade vem de `diets.food_quality` via `diet_id` e o açúcar de `user_food_logs.sugar_g`. Um dia com qualquer alimento de valor **desconhecido** (entrada manual sem o campo preenchido, ou item de catálogo com `sugar_g` nulo) **não conta** para `nutrition_no_ultra` / `nutrition_no_sugar`: não há como provar que não houve ultraprocessado ou açúcar, e aceitar o desconhecido entregaria a insígnia a quem registra tudo na mão. Consequência prática: enquanto `diets.sugar_g` não estiver populado no catálogo, `sem_acucar_7d` continua (corretamente) inalcançável.
+
+> **Cada insígnia só é concedida quando a condição DELA é satisfeita.** Os tipos marcados com ⚠️ não têm como ser verificados hoje, então `_evaluateBadgeCondition` devolve `false` e eles ficam permanentemente bloqueados — **é intencional**. Liberá-los por contagem de check-ins (o que o drawer fazia até 14/07/2026, via `totalCheckIns >= required_checkins` para todo tipo) entregava, por exemplo, o Madrugador a quem nunca treinou de manhã. Para ativá-los é preciso implementar o tracking + a avaliação, não afrouxar o desbloqueio.
+
+---
+
+## subscriptions
+
+Assinatura **LinKa Premium** — uma linha por usuário. Criada na migração `docs/migrations/20260715-premium-plan.sql`. Na Fase 1 o status é gravado manualmente via SQL (service role); na Fase 2 o webhook do RevenueCat escreverá aqui (campos `rc_app_user_id`, `store`, `environment` já previstos). Ver `docs/17-premium.md`.
+
+| Coluna | Tipo | Obrigatório | Padrão | Descrição |
+|---|---|---|---|---|
+| `user_id` | uuid | PK, FK → `auth.users.id` ON DELETE CASCADE | — | Usuário assinante |
+| `status` | text | ✓ | `'inactive'` | `active` \| `inactive` \| `expired` \| `cancelled` |
+| `product_id` | text | — | — | `'manual'` (Fase 1) ou product id do RevenueCat (Fase 2) |
+| `store` | text | — | — | `'manual'` \| `'app_store'` |
+| `rc_app_user_id` | text | — | — | `app_user_id` do RevenueCat (Fase 2) |
+| `environment` | text | — | — | `'production'` \| `'sandbox'` |
+| `current_period_end` | timestamptz | — | — | Fim do período pago; `NULL` = sem expiração (ativação manual) |
+| `created_at` | timestamptz | ✓ | `now()` | Data de criação |
+| `updated_at` | timestamptz | ✓ | `now()` | Data de atualização |
+
+> **RLS:** SELECT apenas da própria linha (`subscriptions_select_own`). **Nenhuma policy de escrita** — só o service role escreve; é isso que impede um usuário de se auto-promover a premium via API.
+
+### Função `is_premium(uid uuid) → boolean`
+
+`SECURITY DEFINER`, `STABLE`, `search_path = public`. Retorna `true` se existe linha com `status = 'active'` e (`current_period_end` nulo ou futuro). Consumida pelo app via RPC (`getPremiumStatusDb` em `ritmofit-db.ts`, cache `premium:{uid}` TTL 60s) e reutilizável em policies `WITH CHECK` na Fase 2. `GRANT EXECUTE` para `authenticated`.
 
 ---
 
 ## user_badges
 
-Insígnias conquistadas por usuário.
+**Acervo** de insígnias conquistadas por usuário. Só cresce — uma vez conquistada, a insígnia é do usuário para sempre.
 
 | Coluna | Tipo | Obrigatório | Padrão | Descrição |
 |---|---|---|---|---|
@@ -1035,6 +1089,8 @@ Insígnias conquistadas por usuário.
 | UNIQUE | — | — | — | `(user_id, badge_id)` — cada insígnia é conquistada uma vez |
 
 > RLS: qualquer usuário autenticado pode ler `user_badges` (necessário para exibir no feed sem restrição de seguimento).
+
+> **Acervo ≠ seleção.** Esta tabela guarda o que foi **conquistado**; a insígnia **exibida** é `profiles.selected_badge_id`. Nunca apagar linhas daqui para trocar a insígnia exibida — era o que `setSelectedBadgeDb` fazia até 14/07/2026 e fazia a insígnia do usuário "virar sozinha" no check-in seguinte (ver `docs/08-perfil.md`). Escrito por `awardBadgesForCheckInsDb` (upsert com `ignoreDuplicates`).
 
 ---
 
@@ -1078,6 +1134,75 @@ Perfil fitness do usuário — respostas do **quiz de personalização** do flux
 **RLS:** `fitness_profile_manage_own` — usuário só lê/escreve a própria linha (`auth.uid() = user_id`).
 
 > Migration: `docs/migrations/20260708-fitness-profile-and-program-meta.sql`
+
+---
+
+## user_food_logs
+
+**Diário alimentar** — uma linha por alimento consumido num dia/refeição, com calorias e macros denormalizados (valor da época do registro). Alimenta o card "Alimentação de hoje" e o drawer do diário na tela de Metas (`food-diary-card.tsx`, ver `docs/05-metas.md`). **Importante:** `calories`/macros da linha já são o **total consumido** (por porção × `quantity`) — somar a coluna dá o total do dia direto.
+
+| Coluna | Tipo | Obrigatório | Padrão | Descrição |
+|---|---|---|---|---|
+| `id` | bigint | PK (identity) | — | Identificador único |
+| `user_id` | uuid | FK → `auth.users` (on delete cascade) | — | Usuário |
+| `log_date` | date | ✓ | `current_date` | Dia do registro (o app grava sempre o **dia local**, não UTC) |
+| `meal_type` | smallint | ✓ | `0` | Refeição: 0 = café da manhã, 1 = almoço, 2 = lanche, 3 = jantar |
+| `diet_id` | bigint | FK → `diets.id` ON DELETE SET NULL | — | Alimento de origem. Desde `20260714-custom-items-owner.sql` o **registro manual também aponta para um `diets`** (linha custom criada na hora, `created_by_user`), então fica NULL só nos registros manuais antigos ou quando a criação do item de catálogo falha |
+| `user_diet_id` | bigint | FK → `user_diets.id` ON DELETE SET NULL | — | Preenchido nas entradas **automáticas** criadas ao concluir um item da rotina de dieta; desmarcar o item apaga a entrada do dia por este vínculo |
+| `name` | text | ✓ | — | Nome do alimento (denormalizado) |
+| `quantity` | real | ✓ | `1` | Porções consumidas |
+| `calories` | real | — | — | Calorias totais consumidas |
+| `protein_g` | real | — | — | Proteína total (g) |
+| `carbs_g` | real | — | — | Carboidrato total (g) |
+| `fat_g` | real | — | — | Gordura total (g) |
+| `sugar_g` | real | — | — | Açúcar total (g). `null` = **desconhecido** (entrada manual em branco / catálogo sem o dado) — **não** é zero, e invalida o dia para a insígnia `sem_acucar_7d`. `addFoodLogDb` preenche do catálogo quando há `diet_id`. Migração `20260714-water-sugar.sql` |
+| `created_at` | timestamptz | ✓ | `now()` | Data de criação |
+
+- **Index** `idx_user_food_logs_user_date (user_id, log_date)`.
+- **RLS:** `food_logs_select_own` / `_insert_own` / `_update_own` / `_delete_own` (`auth.uid() = user_id`).
+- Funções: `getFoodLogsDb(date)`, `addFoodLogDb(entry)`, `deleteFoodLogDb(id)`, `deleteFoodLogForDietItemDb(userDietId, date)`, `getRecentFoodsDb(limit)`, `getFoodLogDayTotalsDb(days)`.
+
+> Migration: `docs/migrations/20260714-food-diary.sql`
+
+---
+
+## user_nutrition_goals
+
+Meta **diária** de calorias/macros do usuário (uma linha por usuário) — editada na vista "Meta diária" do diário alimentar. Todos os alvos são opcionais (só kcal já basta).
+
+| Coluna | Tipo | Obrigatório | Padrão | Descrição |
+|---|---|---|---|---|
+| `user_id` | uuid | PK, FK → `auth.users` (on delete cascade) | — | Usuário |
+| `calories_target` | real | — | — | Meta diária de calorias (kcal) |
+| `protein_target_g` | real | — | — | Meta diária de proteína (g) |
+| `carbs_target_g` | real | — | — | Meta diária de carboidrato (g) |
+| `fat_target_g` | real | — | — | Meta diária de gordura (g) |
+| `water_target_ml` | real | — | — | Meta diária de água (ml). Sem valor, o app usa 2000 ml. Migração `20260714-water-sugar.sql` |
+| `updated_at` | timestamptz | ✓ | `now()` | Última atualização |
+
+- **RLS:** `nutrition_goals_select_own` / `_upsert_own` (insert) / `_update_own` / `_delete_own` (`auth.uid() = user_id`).
+- Funções: `getNutritionGoalsDb()`, `upsertNutritionGoalsDb(goals)` (upsert por `user_id`).
+
+> Migration: `docs/migrations/20260714-food-diary.sql`
+
+---
+
+## user_water_logs
+
+**Água bebida por dia** (ml) — alimenta o card de água no diário alimentar e a insígnia `hidratacao_7dias`. O app faz **upsert do total do dia** (não um registro por copo), então a PK composta já garante idempotência.
+
+| Coluna | Tipo | Obrigatório | Padrão | Descrição |
+|---|---|---|---|---|
+| `user_id` | uuid | PK (composta), FK → `auth.users` (on delete cascade) | — | Usuário |
+| `log_date` | date | PK (composta) | `current_date` | Dia do registro (**dia local**, não UTC) |
+| `ml` | real | ✓ | `0` | Total bebido no dia |
+| `updated_at` | timestamptz | ✓ | `now()` | Última atualização |
+
+- **Index** `idx_user_water_logs_user_date (user_id, log_date)`.
+- **RLS:** `water_logs_select_own` / `_insert_own` / `_update_own` / `_delete_own` (`auth.uid() = user_id`).
+- Funções: `getWaterLogDb(date)`, `setWaterLogDb(date, ml)`.
+
+> Migration: `docs/migrations/20260714-water-sugar.sql`
 
 ---
 
@@ -1210,6 +1335,9 @@ Catálogo de treinos disponíveis na plataforma.
 | `equipment` | text | — | — | Equipamentos necessários / tipo de máquina. Preenchido pelo formulário "Criar novo exercício" (`createCustomWorkoutDb`). |
 | `wger_id` | integer | — | — | ID de referência no wger |
 | `created_by_user` | boolean | — | `false` | `true` quando o exercício foi criado manualmente pelo usuário via "Criar novo exercício" (modo treino) ou "Criar Exercício Personalizado". A foto sobe para o bucket `posts` (`uploadCustomExercisePhotoDb`) e fica em `photo` como URL pública; `description` guarda o "como executar". |
+| `created_by` | uuid | — | — | FK → `auth.users` ON DELETE CASCADE. Dono do exercício custom; `NULL` nos itens de catálogo. Migração `20260714-custom-items-owner.sql`. Define a visibilidade em `getWorkoutsDb` (mesma regra de `diets.created_by`): o exercício custom aparece para o criador com ou sem vínculo em `user_workouts` |
+
+**RLS:** leitura pública; escrita só nas linhas do próprio usuário (`created_by_user = true and created_by = auth.uid()`). Os seeds de catálogo (`scripts/seed-exercises.mjs`, `scripts/migrate-exercise-images.mjs`) usam service role e passam por cima da RLS. `bulkUpsertCatalogWorkoutsDb` (em `ritmofit-db.ts`, sem callers) escreveria catálogo pelo cliente e **seria bloqueado** pela RLS se voltasse a ser usado.
 
 ---
 
@@ -1245,6 +1373,36 @@ Registra o humor diário do usuário. Exibido automaticamente quando o usuário 
 **Constraint unique:** `(user_id, log_date)` — apenas um registro por usuário por dia (upsert).  
 **RLS:** usuário lê, insere e atualiza apenas seus próprios registros.  
 **Migração:** `docs/migrations/20260402-mood-logs.sql`
+
+---
+
+## Segurança / RLS — auditoria de 2026-07-13
+
+Migration: `docs/migrations/20260713-security-hardening.sql`. **As migrações voltaram a ser versionadas** — o `.gitignore` tinha `*.sql`, então nenhuma policy estava no Git.
+
+### O que mudou
+
+| Área | Antes | Depois |
+|---|---|---|
+| `profiles` (UPDATE) | Policy `only_service_role_can_set_verified` era `FOR UPDATE USING (true)`. Como policies são permissivas e combinadas com **OR**, qualquer autenticado podia dar UPDATE em **qualquer** perfil (nickname, bio, foto de outra pessoa) | `profiles_update_own` (`auth.uid() = user_id`) + trigger `freeze_is_verified` que reverte qualquer mudança de `is_verified` fora do `service_role` |
+| `posts` (SELECT) | `hide_posts_from_non_followers` era gating **só no cliente** (`Profile.tsx`) — bastava chamar a API com a anon key para ler tudo | `posts_select_respects_privacy`: dono **ou** perfil não-privado **ou** o viewer segue o autor |
+| `following` / `followers` (SELECT) | `hide_follow_lists` também era só client-side | `*_select_respects_privacy`: as duas pontas sempre veem o próprio vínculo; terceiros só veem se nenhum dos dois lados escondeu as listas |
+| `messages` | Sem policy versionada — não havia garantia de que a DM fosse privada | SELECT/UPDATE só para remetente e destinatário; INSERT só assinando como remetente; DELETE só das próprias |
+| `notifications` | Idem | SELECT/UPDATE/DELETE só do destinatário; INSERT só com `follower_id = auth.uid()` (não dá para forjar quem originou) |
+| Mídia de DM | Bucket **público** `posts`, caminho previsível, URL permanente | Bucket **privado** `chat-media`, caminho `{idA}_{idB}/{uuid}.{ext}`, acesso por signed URL de 1 h |
+
+### Funções auxiliares (SECURITY DEFINER)
+
+| Função | Uso |
+|---|---|
+| `profile_hides_posts(target)` | Lê `hide_posts_from_non_followers` sem recursar na RLS de `profiles` |
+| `profile_hides_follow_lists(target)` | Idem para `hide_follow_lists` |
+| `viewer_follows(target)` | `auth.uid()` segue `target`? Usada na policy de `posts` |
+| `get_profile_counts(target)` | Devolve `posts_count`, `followers_count`, `following_count`. **Necessária**: com a RLS acima, um `count` direto devolveria 0 em perfis privados. O app mostra os números (só as listas e os posts ficam ocultos) — `getUserStatsDb` chama esta RPC |
+
+### Bucket `chat-media`
+
+Privado, 25 MB por arquivo, mime types de imagem/áudio. Policies em `storage.objects` validam que `auth.uid()` é uma das duas pontas do primeiro segmento do caminho (`{uuidA}_{uuidB}`).
 
 ---
 

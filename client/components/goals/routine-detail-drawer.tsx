@@ -19,6 +19,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { ExerciseImage } from "@/components/shared/exercise-image";
+import { PremiumGate } from "@/components/shared/premium-gate";
 import { TrendChart } from "@/components/shared/trend-chart";
 import { useLanguage } from "@/lib/language-context";
 import type { TranslationKey } from "@/lib/i18n";
@@ -313,24 +314,26 @@ export function RoutineDetailDrawer({
                       </div>
 
                       {!isCardio && progressPts && progressPts.length >= 2 && (
-                        <div
-                          className="mt-2 rounded-xl px-3 py-2.5"
-                          style={{ background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.08)" }}
-                        >
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>
-                              {t("goals_progress_title")}
-                            </span>
-                            <span className="text-xs tabular-nums" style={{ color: "rgba(255,255,255,.7)" }}>
-                              {t("goals_progress_best").replace("{n}", String(Math.max(...progressPts.map((p) => p.maxKg))))}
-                            </span>
+                        <PremiumGate feature="charts" className="mt-2">
+                          <div
+                            className="rounded-xl px-3 py-2.5"
+                            style={{ background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.08)" }}
+                          >
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>
+                                {t("goals_progress_title")}
+                              </span>
+                              <span className="text-xs tabular-nums" style={{ color: "rgba(255,255,255,.7)" }}>
+                                {t("goals_progress_best").replace("{n}", String(Math.max(...progressPts.map((p) => p.maxKg))))}
+                              </span>
+                            </div>
+                            <TrendChart
+                              points={progressPts.map((p) => ({ label: p.date, value: p.maxKg }))}
+                              color="#3ddc84"
+                              height={72}
+                            />
                           </div>
-                          <TrendChart
-                            points={progressPts.map((p) => ({ label: p.date, value: p.maxKg }))}
-                            color="#3ddc84"
-                            height={72}
-                          />
-                        </div>
+                        </PremiumGate>
                       )}
                     </div>
                   )}

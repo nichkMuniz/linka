@@ -369,6 +369,25 @@ O perfil não é uma tela que muda com frequência, então as queries de carrega
 - Ao reentrar na tela dentro do TTL, os dados vêm da memória sem round-trip de rede. Após o TTL expirar (mas dentro de 24h), o valor persistido em `localStorage` é exibido imediatamente enquanto uma atualização roda em segundo plano — por isso a tela nunca fica "travada" esperando a rede em revisitas.
 - `updateUserProfileDb` chama `invalidateProfileCache(userId)` para garantir que uma edição de perfil não fique presa ao cache antigo.
 - **`deletePostDb` invalida `userPosts`, `post:` e `userStats:{userId}`; `updatePostDb` invalida `userPosts` e `post:`** — a invalidação roda ANTES do `return` (bug corrigido em 2026-07: as chamadas estavam depois do `try/catch` com `return`, código inalcançável, e o post excluído "ressuscitava" do cache ao reentrar no perfil).
-- **`getTopUserBadgeDb` (`topUserBadge:{userId}`) e `getTotalCheckInsDb` (`totalCheckIns:{userId}`) são cacheados (30s)** — o `UserInsignias` monta no header e a cada post aberto no drawer; sem cache eram 2 queries extras por post visualizado. Invalidam em `createCheckInDb` (check-in novo) e `setSelectedBadgeDb` (troca de insígnia).
+- **`getDisplayBadgeDb` (`displayBadge:{userId}`) e `getTotalCheckInsDb` (`totalCheckIns:{userId}`) são cacheados (30s)** — o `UserInsignias` monta no header e a cada post aberto no drawer; sem cache eram 2 queries extras por post visualizado. Invalidam em `createCheckInDb` (check-in novo) e `setSelectedBadgeDb` (troca de insígnia).
+
+### Insígnia exibida (persistente)
+
+A insígnia mostrada ao lado do nome é a **escolhida pelo usuário**, guardada em `profiles.selected_badge_id`. Ela **nunca muda sozinha**: conquistar uma insígnia nova só a adiciona ao acervo (`user_badges`) e a libera para seleção — a exibida continua a mesma até o usuário trocar no `InsigniasDrawer`.
+
+- `getDisplayBadgeDb(userId)` → retorna a insígnia de `selected_badge_id` se ela estiver no acervo; se o usuário nunca escolheu nenhuma, cai no fallback histórico (a de maior `sort_order` entre as conquistadas).
+- `setSelectedBadgeDb(badgeId)` → valida que a insígnia foi conquistada (`isBadgeUnlocked`) e grava `profiles.selected_badge_id`. **Não apaga `user_badges`.**
+- `isBadgeUnlocked(badge, earnedIds, totalCheckIns)` → fonte única da regra de desbloqueio, usada pelo drawer e pela validação: conquistada (linha em `user_badges`) **ou** insígnia de `checkin_total` cujo requisito o total de check-ins já cobre.
+
+### Insígnias premium (2026-07-15)
+
+Insígnias com `badges.premium = true` (`premium_coroa` 👑, `premium_diamante` 💎) são **exclusivas de assinante** (ver `docs/17-premium.md`):
+
+- Aparecem no catálogo do `InsigniasDrawer` **para todos** com selo "Premium" âmbar (gera desejo), coloridas (seeds com `required_checkins = 0` fazem `isBadgeUnlocked` retornar `true` sem mudança na função).
+- Usuário grátis que toca nelas → abre o `PaywallDrawer` (`feature="badges"`); assinante seleciona normalmente.
+- Backstop no banco de dados do app: `setSelectedBadgeDb` lança `BADGE_PREMIUM_LOCKED` se o viewer não for premium.
+- Elas ficam **fora** da barra de progresso "próximo nível" do drawer (o `required_checkins = 0` é desbloqueio por status, não marco de check-ins).
+
+> **Bug histórico (corrigido em 14/07/2026, migração `20260714-badge-selection-persist.sql`):** `setSelectedBadgeDb` fazia `delete` de todas as linhas de `user_badges` e inseria só a escolhida, e a exibida era "a de maior `sort_order`". Escolher uma insígnia mais baixa apagava o acervo; no check-in seguinte `awardBadgesForCheckInsDb` reconquistava tudo, a de maior `sort_order` voltava e a escolha do usuário era sobrescrita sozinha ("a badge mudava quando virava o dia"). Nunca voltar a apagar `user_badges` na seleção.
 - **Pull-to-refresh** invalida explicitamente todas as chaves acima (incluindo `isFollowing:{viewerId}:{profileUserId}`) antes de chamar `loadProfile({ soft: true })`, já que puxar para atualizar é um pedido explícito de dados frescos — não deve reaproveitar cache.
 - **`getUserRoutinesDb` não é cacheado** (ver `docs/05-metas.md`) — sempre busca direto do Supabase, então o resumo de rotinas do perfil também reflete criações/edições feitas em Metas sem esperar TTL nem pull-to-refresh.

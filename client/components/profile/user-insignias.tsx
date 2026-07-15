@@ -1,6 +1,6 @@
 import React from "react";
 import {
-  getTopUserBadgeDb,
+  getDisplayBadgeDb,
   getUserBadgesDb,
   getAllBadgesDb,
   getTotalCheckInsDb,
@@ -22,7 +22,8 @@ interface UserInsigniasProps {
 }
 
 export function UserInsignias({ userId, showStreak = false }: UserInsigniasProps) {
-  const [topBadge, setTopBadge] = React.useState<Badge | null>(null);
+  // Insígnia exibida = a escolhida pelo usuário (persistida), não a "mais alta".
+  const [displayBadge, setDisplayBadge] = React.useState<Badge | null>(null);
   const [userBadges, setUserBadges] = React.useState<UserBadge[]>([]);
   const [allBadges, setAllBadges] = React.useState<Badge[]>([]);
   const [totalCheckIns, setTotalCheckIns] = React.useState<number>(0);
@@ -31,13 +32,13 @@ export function UserInsignias({ userId, showStreak = false }: UserInsigniasProps
 
   const load = React.useCallback(async () => {
     try {
-      const [top, earned, all, total] = await Promise.all([
-        getTopUserBadgeDb(userId),
+      const [display, earned, all, total] = await Promise.all([
+        getDisplayBadgeDb(userId),
         getUserBadgesDb(userId),
         getAllBadgesDb(),
         getTotalCheckInsDb(userId),
       ]);
-      setTopBadge(top);
+      setDisplayBadge(display);
       setUserBadges(earned);
       setAllBadges(all);
       setTotalCheckIns(total);
@@ -53,7 +54,7 @@ export function UserInsignias({ userId, showStreak = false }: UserInsigniasProps
   }, [load]);
 
   if (loading) return null;
-  if (!topBadge) return null;
+  if (!displayBadge) return null;
 
   const handleClick = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -72,19 +73,19 @@ export function UserInsignias({ userId, showStreak = false }: UserInsigniasProps
               onClick={handleClick}
               onKeyDown={(e) => e.key === "Enter" && handleClick(e as unknown as React.MouseEvent)}
               className="inline-flex items-center gap-0.5 cursor-pointer focus:outline-none"
-              aria-label={`Insígnia: ${topBadge.name}`}
+              aria-label={`Insígnia: ${displayBadge.name}`}
             >
-              <span className="text-xs leading-none align-middle">{topBadge.emoji}</span>
+              <span className="text-xs leading-none align-middle">{displayBadge.emoji}</span>
               {showStreak && (
                 <span className="text-xs font-semibold text-orange-400 ml-0.5">
-                  {topBadge.name}
+                  {displayBadge.name}
                 </span>
               )}
             </span>
           </TooltipTrigger>
           <TooltipContent side="top" className="text-xs">
-            <p className="font-semibold">{topBadge.name}</p>
-            <p className="text-muted-foreground">{topBadge.description}</p>
+            <p className="font-semibold">{displayBadge.name}</p>
+            <p className="text-muted-foreground">{displayBadge.description}</p>
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>
@@ -96,7 +97,7 @@ export function UserInsignias({ userId, showStreak = false }: UserInsigniasProps
         allBadges={allBadges}
         totalCheckIns={totalCheckIns}
         profileUserId={userId}
-        currentActiveBadgeId={topBadge?.id}
+        selectedBadgeId={displayBadge?.id}
         onSelected={load}
       />
     </>

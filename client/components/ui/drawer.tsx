@@ -47,10 +47,17 @@ const DrawerClose = DrawerPrimitive.Close;
 const DrawerOverlay = React.forwardRef<
   React.ElementRef<typeof DrawerPrimitive.Overlay>,
   React.ComponentPropsWithoutRef<typeof DrawerPrimitive.Overlay>
->(({ className, ...props }, ref) => (
+>(({ className, style, ...props }, ref) => (
   <DrawerPrimitive.Overlay
     ref={ref}
-    className={cn("fixed inset-0 z-[300] bg-black/80", className)}
+    className={cn("pointer-events-auto fixed inset-0 z-[300] bg-black/80", className)}
+    style={{
+      // The overlay rides inside the lift wrapper, so it travels up with the
+      // keyboard: grow it downwards by the same amount so no strip of the
+      // screen is left unpainted below it.
+      bottom: "calc(-1 * var(--keyboard-height, 0px))",
+      ...style,
+    }}
     {...props}
   />
 ));
@@ -62,10 +69,14 @@ const DrawerContent = React.forwardRef<
 >(({ className, children, overlayClassName, handleClassName, style, ...props }, ref) => {
   return (
     <DrawerPortal>
-      <DrawerOverlay className={overlayClassName} />
       {/* Lift wrapper: transformed ancestor = containing block for the fixed
           sheet below. Translating it raises the whole sheet above the iOS
-          keyboard in sync with the keyboard animation (see header comment). */}
+          keyboard in sync with the keyboard animation (see header comment).
+          The overlay MUST live inside it too: the transform makes the wrapper a
+          stacking context, so a sheet that raises its z-index (nested drawers,
+          the image cropper) only raises it *within* the wrapper — an overlay
+          left outside would then paint on top of the sheet it is supposed to
+          sit behind, blacking out the screen and swallowing every tap. */}
       <div
         className="pointer-events-none fixed inset-0 z-[310]"
         style={{
@@ -73,6 +84,7 @@ const DrawerContent = React.forwardRef<
           transition: "transform 0.28s cubic-bezier(0.38, 0.7, 0.125, 1)",
         }}
       >
+        <DrawerOverlay className={overlayClassName} />
         <DrawerPrimitive.Content
           ref={ref}
           className={cn(

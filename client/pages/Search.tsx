@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import {
   searchUsersDb,
   searchRoutinesDb,
+  searchPostsByHashtagDb,
   getAllUsersDb,
   getFollowingIdsDb,
   getRoutineWorkoutsDb,
@@ -14,14 +15,17 @@ import {
   type SearchUser,
   type RoutineResult,
   type RoutineItemRow,
+  type HashtagPost,
 } from "@/lib/ritmofit-db";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/components/ui/use-toast";
-import { ChevronDown, ChevronUp, Copy, Dumbbell, Users, Salad, SearchX } from "lucide-react";
+import { ChevronDown, ChevronUp, Copy, Dumbbell, Users, Salad, SearchX, Hash } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useLanguage } from "@/lib/language-context";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { FollowButton } from "@/components/shared/follow-button";
+import { SearchResultsSkeleton, GridSkeleton } from "@/components/shared/animated-loading";
+import { getPostGradient } from "@/lib/post-visuals";
 
 type RoutineCardProps = {
   routine: RoutineResult;
@@ -161,6 +165,8 @@ export default function Search() {
   const [isLoadingPeople, setIsLoadingPeople] = React.useState(false);
   const [isLoadingWorkouts, setIsLoadingWorkouts] = React.useState(false);
   const [isLoadingDiets, setIsLoadingDiets] = React.useState(false);
+  const [hashtagPosts, setHashtagPosts] = React.useState<HashtagPost[]>([]);
+  const [isLoadingHashtags, setIsLoadingHashtags] = React.useState(false);
   const [followingIds, setFollowingIds] = React.useState<Set<string>>(new Set());
 
   // Expanded dropdown state: key = "userId::routineName"
@@ -210,12 +216,14 @@ export default function Search() {
         if (activeTab === "people") setSearchUsers(allUsers);
         else if (activeTab === "workouts") setSearchWorkouts(allWorkouts);
         else if (activeTab === "diets") setSearchDiets(allDiets);
+        else if (activeTab === "hashtags") setHashtagPosts([]);
         return;
       }
 
       if (activeTab === "people") setIsLoadingPeople(true);
       else if (activeTab === "workouts") setIsLoadingWorkouts(true);
       else if (activeTab === "diets") setIsLoadingDiets(true);
+      else if (activeTab === "hashtags") setIsLoadingHashtags(true);
 
       try {
         if (activeTab === "people") {
@@ -227,6 +235,10 @@ export default function Search() {
         } else if (activeTab === "diets") {
           const diets = await searchRoutinesDb(query, 2, user?.id);
           setSearchDiets(diets);
+        } else if (activeTab === "hashtags") {
+          // Aceita "#treino" ou "treino" — a busca do banco espera a tag sem "#".
+          const posts = await searchPostsByHashtagDb(query.trim().replace(/^#/, ""));
+          setHashtagPosts(posts);
         }
       } catch (err) {
         console.error("Error searching:", err);
@@ -234,6 +246,7 @@ export default function Search() {
         if (activeTab === "people") setIsLoadingPeople(false);
         else if (activeTab === "workouts") setIsLoadingWorkouts(false);
         else if (activeTab === "diets") setIsLoadingDiets(false);
+        else if (activeTab === "hashtags") setIsLoadingHashtags(false);
       }
     },
     [activeTab, allUsers, allWorkouts, allDiets, user?.id],
@@ -246,6 +259,7 @@ export default function Search() {
     if (tab === "people") setSearchUsers(allUsers);
     else if (tab === "workouts") setSearchWorkouts(allWorkouts);
     else if (tab === "diets") setSearchDiets(allDiets);
+    else if (tab === "hashtags") setHashtagPosts([]);
   };
 
   const handleToggleExpand = React.useCallback(
@@ -303,7 +317,9 @@ export default function Search() {
       ? t("search_placeholder_people")
       : activeTab === "workouts"
         ? t("search_placeholder_workouts")
-        : t("search_placeholder_diets");
+        : activeTab === "hashtags"
+          ? t("search_placeholder_hashtags")
+          : t("search_placeholder_diets");
 
   return (
     <div className="space-y-4">
@@ -351,11 +367,18 @@ export default function Search() {
             <Salad className="h-4 w-4" />
             {t("search_diets")}
           </button>
+          <button
+            onClick={() => handleTabChange("hashtags")}
+            className={`flex-1 flex items-center justify-center gap-1.5 text-sm font-medium py-2 rounded-lg transition-colors ${activeTab === "hashtags" ? "bg-brand text-white" : "text-white/50 hover:text-white/80"}`}
+          >
+            <Hash className="h-4 w-4" />
+            {t("search_hashtags")}
+          </button>
         </div>
 
         {/* People */}
         <TabsContent value="people" className="space-y-3">
-          {isLoadingPeople && <div className="text-center py-6 text-sm text-muted-foreground">{t("search_loading")}</div>}
+          {isLoadingPeople && <SearchResultsSkeleton />}
           {!isLoadingPeople && searchUsers.length === 0 && (
             <div className="relative flex flex-col items-center justify-center py-16 text-center overflow-hidden">
               <Users className="absolute opacity-[0.04] h-48 w-48 text-foreground" aria-hidden="true" />
@@ -415,7 +438,7 @@ export default function Search() {
 
         {/* Workouts */}
         <TabsContent value="workouts" className="space-y-3">
-          {isLoadingWorkouts && <div className="text-center py-6 text-sm text-muted-foreground">{t("search_loading")}</div>}
+          {isLoadingWorkouts && <SearchResultsSkeleton rows={4} />}
           {!isLoadingWorkouts && searchWorkouts.length === 0 && (
             <div className="relative flex flex-col items-center justify-center py-16 text-center overflow-hidden">
               <Dumbbell className="absolute opacity-[0.04] h-48 w-48 text-foreground" aria-hidden="true" />
@@ -458,7 +481,7 @@ export default function Search() {
 
         {/* Diets */}
         <TabsContent value="diets" className="space-y-3">
-          {isLoadingDiets && <div className="text-center py-6 text-sm text-muted-foreground">{t("search_loading")}</div>}
+          {isLoadingDiets && <SearchResultsSkeleton rows={4} />}
           {!isLoadingDiets && searchDiets.length === 0 && (
             <div className="relative flex flex-col items-center justify-center py-16 text-center overflow-hidden">
               <Salad className="absolute opacity-[0.04] h-48 w-48 text-foreground" aria-hidden="true" />
@@ -497,6 +520,60 @@ export default function Search() {
               onGoToRoutines={() => navigate("/metas?tab=rotinas")}
             />
           ))}
+        </TabsContent>
+
+        {/* Hashtags — mesma grade da página /tag/:tag */}
+        <TabsContent value="hashtags">
+          {isLoadingHashtags ? (
+            <GridSkeleton />
+          ) : hashtagPosts.length === 0 ? (
+            <div className="relative flex flex-col items-center justify-center py-16 text-center overflow-hidden">
+              <Hash className="absolute opacity-[0.04] h-48 w-48 text-foreground" aria-hidden="true" />
+              <div className="relative flex flex-col items-center gap-3">
+                <div className="flex items-center justify-center h-14 w-14 rounded-full bg-muted/60">
+                  <Hash className="h-7 w-7 text-muted-foreground" />
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm font-semibold text-foreground">
+                    {searchQuery.trim() ? t("search_no_hashtags") : t("search_hashtags_hint_title")}
+                  </p>
+                  <p className="text-xs text-muted-foreground max-w-[220px]">
+                    {t("search_hashtags_hint")}
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-3 gap-[5px]">
+              {hashtagPosts.map((post) => {
+                const thumb = post.photo || post.photos?.[0] || "";
+                return (
+                  <button
+                    key={post.id}
+                    onClick={() => navigate(`/post/${post.id}`)}
+                    className="relative aspect-square overflow-hidden rounded-[14px] bg-muted active:opacity-80 transition-opacity"
+                  >
+                    {thumb ? (
+                      <img
+                        src={thumb}
+                        alt={post.description}
+                        loading="lazy"
+                        decoding="async"
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <div
+                        className="flex h-full w-full items-center justify-center"
+                        style={{ background: getPostGradient(post.id) }}
+                      >
+                        <Hash className="h-6 w-6 text-white/70" />
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </TabsContent>
       </Tabs>
     </div>

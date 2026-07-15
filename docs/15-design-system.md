@@ -4,8 +4,40 @@
 
 ---
 
+## 0. Leia primeiro — o app é dark-only e glass-first (2026-07-13)
+
+Duas premissas que valem **acima** de qualquer outra seção deste documento. Elas foram cravadas aqui porque a doc havia se descolado do app: descrevia um sistema light/dark de tokens semânticos que o app deixou de ser, e quem a consultasse para criar uma tela nova produziria algo que destoa de todas as outras.
+
+### 0.1 Não existe light mode
+
+O tema é **forçado em dark** (`forcedTheme="dark"` em `client/components/layout/theme-provider.tsx`). Não há toggle, não há `prefers-color-scheme`. A seção [14. Dark Mode](#14-dark-mode) descreve a mecânica dos tokens, mas **na prática só o modo escuro renderiza** — não gaste esforço validando aparência em claro, e não escreva CSS condicional de tema.
+
+### 0.2 Superfícies de conteúdo são "glass", não `bg-card`
+
+O visual atual do app (feed, metas, busca, comunidade, notificações, vitrine, drawers) é o **vidro escuro**: gradiente translúcido + `backdrop-filter` + borda clara sutil. Isso convive com — mas **não é** — o sistema de tokens Shadcn.
+
+| Contexto | O que usar |
+|---|---|
+| Drawers/sheets de conteúdo rico | Tokens de `client/lib/glass-styles.ts` (§9.4) — **nunca** redefinir inline |
+| Barra de ação de post, header, bottom nav | Glass inline (ver `GLASS_TOP`/`GLASS_ACTION` em `client/lib/post-visuals.tsx`) |
+| Cards de lista/superfície comum | Glass: `linear-gradient(rgba(255,255,255,.09),rgba(255,255,255,.03))` + `backdrop-filter: blur(20px) saturate(170%)` + `border: 1px solid rgba(255,255,255,.10)` |
+| Botões, inputs, dialogs, dropdowns, toasts | Componentes Shadcn com tokens semânticos (`bg-background`, `text-muted-foreground`, …) |
+
+Ou seja: a regra "nunca hardcode cor" (§15) continua valendo para **tudo que não é a camada de vidro**. A camada de vidro tem valores `rgba()` literais por natureza — mas eles devem vir de uma constante compartilhada (`glass-styles.ts`, `post-visuals.tsx`), não ser reinventados em cada arquivo.
+
+### 0.3 Custo do `backdrop-filter` (regra de performance)
+
+`backdrop-filter` e `filter: blur()` são as propriedades mais caras do WebKit, e o WKWebView do iPhone paga por elas **a cada frame de scroll**, mesmo quando o elemento está parado.
+
+- **Não** empilhe blur decorativo: brilhos de fundo ("auras", "orbs") devem ser `radial-gradient` pintado direto, **nunca** um `div` com `filter: blur(65px)`. Feed, Metas e Notificações já foram convertidos (2026-07-13)
+- Reserve `backdrop-filter` para o que precisa mesmo do efeito de vidro sobre conteúdo em movimento: header, bottom nav, barras de ação e drawers
+- `saturate()` junto do `blur()` aproximadamente dobra o custo do filtro — use com parcimônia
+
+---
+
 ## Índice
 
+0. [Leia primeiro — dark-only e glass-first](#0-leia-primeiro--o-app-é-dark-only-e-glass-first-2026-07-13)
 1. [Fundação Visual](#1-fundação-visual)
 2. [Tipografia](#2-tipografia)
 3. [Espaçamento](#3-espaçamento)
@@ -468,7 +500,8 @@ O padrão visual atual para drawers de conteúdo rico (promoções, duelos, come
 | `GLASS_SHEET_STYLE` | `style` do `DrawerContent` (gradiente escuro + blur + `maxHeight: 90dvh`) |
 | `GLASS_FIELD_STYLE` + `GLASS_FIELD_CLASS` | Inputs / Textareas / SelectTrigger |
 | `GLASS_PRIMARY_BTN_STYLE` | Botão de ação principal (gradiente azul → roxo) |
-| `GLASS_PANEL_STYLE` | Cards / containers translúcidos internos |
+| `GLASS_PANEL_STYLE` | Cards / containers translúcidos **dentro** de um sheet (o sheet já borra o fundo) |
+| `GLASS_CARD_STYLE` | Cards / superfícies de vidro **sobre a página**, fora de sheets (listas, pills, botões de header) — traz `backdrop-filter` próprio. Ex.: tela do grupo de duelos |
 | `GLASS_LABEL_CLASS` | Labels de formulário |
 
 ```tsx
@@ -495,6 +528,26 @@ import {
 **Convenções de cor sobre o vidro:** texto principal `text-white`; secundário `rgba(255,255,255,.5)`; bordas/divisores `rgba(255,255,255,.1)`; botões `outline` ficam `bg-transparent border-white/20 text-white hover:bg-white/10`. Badges de categoria/estado (ex.: `bg-blue-500/15 text-blue-400`) já funcionam sobre o escuro.
 
 > **Regra:** O `DrawerContent` base já eleva o sheet acima do teclado iOS — não recrie esse comportamento. A área scrollável deve usar `flex-1 min-h-0` (o shell é `flex flex-col`).
+
+### 9.x Padrão Premium — `PremiumGate` + `PaywallDrawer` (2026-07-15)
+
+Conteúdo exclusivo de assinante usa **sempre** estes dois componentes (nunca recriar blur/cadeado ad-hoc). Ver `docs/17-premium.md`.
+
+```tsx
+// Gate visual (gráficos, grades de dados): teaser borrado com dados reais
+<PremiumGate feature="charts">
+  <TrendChart points={points} ... />
+</PremiumGate>
+
+// Gate de AÇÃO (criar rotina/duelo): abre o paywall direto no handler
+if (!isPremium && limiteAtingido) { setPaywallOpen(true); return; }
+<PaywallDrawer open={paywallOpen} onOpenChange={setPaywallOpen} feature="routines" />
+```
+
+- `PremiumGate` (`client/components/shared/premium-gate.tsx`): children com `blur(8px)` + `pointer-events-none`, overlay com `Lock` âmbar, título e CTA que abre o `PaywallDrawer` interno. Assinante vê os children direto.
+- `PaywallDrawer` (`client/components/shared/paywall-drawer.tsx`): drawer glass padrão (GLASS_SHEET_*) com `Crown`, os 4 benefícios em `GLASS_PANEL_STYLE` (o do `feature` recebido ganha `ring-[#9d6bff]/60`) e CTA `GLASS_PRIMARY_BTN_STYLE`. Fase 1: CTA mostra toast "em breve".
+- Acento premium: âmbar (`text-amber-400/500`) para coroa/cadeado/selo "Premium"; o CTA usa o gradiente da marca.
+- Status: `usePremium()` de `client/lib/premium-context.tsx` — nunca ler `subscriptions` direto num componente.
 
 ---
 
@@ -703,9 +756,11 @@ md:classe-desktop
 
 ## 14. Dark Mode
 
+> **O app é dark-only** (`forcedTheme="dark"`) — ver §0.1. Esta seção descreve a mecânica dos tokens, que continua correta, mas o modo claro nunca renderiza em produção. Não escreva lógica condicional de tema nem valide telas em light.
+
 ### 14.1 Implementação
 
-Via `next-themes` com atributo `class` na tag `<html>`. As cores são ajustadas automaticamente via CSS variables HSL.
+Via `next-themes` com atributo `class` na tag `<html>`, fixado em `dark`. As cores são ajustadas via CSS variables HSL.
 
 ### 14.2 Regras
 

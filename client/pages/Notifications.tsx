@@ -1,11 +1,12 @@
 import * as React from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
-import { MessageCircle, UserPlus, Zap, Swords, SmilePlus, ChevronLeft, AtSign } from "lucide-react";
+import { MessageCircle, UserPlus, Zap, Swords, SmilePlus, ChevronLeft, AtSign, Send, Dumbbell, Heart, Clock } from "lucide-react";
 import { INCENTIVE_CONFIG } from "@/lib/incentive-config";
 import { getNotificationsDb, markNotificationsAsReadDb, clearNotificationsDb, getFollowingIdsDb, invalidateQueryCache, type NotificationItem } from "@/lib/ritmofit-db";
 import { supabase } from "@/lib/supabase";
 import { UserAvatar } from "@/components/shared/user-avatar";
+import { FollowButton } from "@/components/shared/follow-button";
 import { NotificationsSkeleton } from "@/components/shared/animated-loading";
 import {
   AlertDialog,
@@ -25,7 +26,7 @@ import { hapticLight } from "@/lib/haptics";
 export default function Notifications() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const [notifications, setNotifications] = React.useState<NotificationItem[]>([]);
   const [followingIds, setFollowingIds] = React.useState<Set<string>>(new Set());
   const [loading, setLoading] = React.useState(true);
@@ -123,11 +124,15 @@ export default function Notifications() {
     };
   }, [user]);
 
-  // Pull-to-refresh (same UX as the feed)
+  // Pull-to-refresh — o gesto é conduzido por refs + estilo imperativo no DOM.
+  // Um setState por touchmove re-renderizava a lista inteira de notificações a
+  // ~60fps durante o arrasto (mesmo padrão já corrigido no Perfil).
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const pullStartY = React.useRef(0);
-  const [pullDistance, setPullDistance] = React.useState(0);
-  const [isPulling, setIsPulling] = React.useState(false);
+  const isPullingRef = React.useRef(false);
+  const pullDistanceRef = React.useRef(0);
+  const pullIndicatorRef = React.useRef<HTMLDivElement>(null);
+  const pullSpinnerRef = React.useRef<HTMLDivElement>(null);
   const PULL_THRESHOLD = 72;
 
   const onTouchStart = React.useCallback((e: React.TouchEvent) => {
@@ -135,24 +140,38 @@ export default function Notifications() {
     const scrollTop = scrollEl ? scrollEl.scrollTop : window.scrollY;
     if (scrollTop > 0) return;
     pullStartY.current = e.touches[0].clientY;
-    setIsPulling(true);
+    isPullingRef.current = true;
+    pullDistanceRef.current = 0;
+    if (pullIndicatorRef.current) pullIndicatorRef.current.style.transition = "none";
   }, []);
 
   const onTouchMove = React.useCallback((e: React.TouchEvent) => {
-    if (!isPulling) return;
+    if (!isPullingRef.current) return;
     const delta = e.touches[0].clientY - pullStartY.current;
-    if (delta > 0) setPullDistance(Math.min(delta * 0.4, PULL_THRESHOLD + 20));
-  }, [isPulling]);
+    const dist = delta > 0 ? Math.min(delta * 0.4, PULL_THRESHOLD + 20) : 0;
+    pullDistanceRef.current = dist;
+    if (pullIndicatorRef.current) pullIndicatorRef.current.style.height = `${dist}px`;
+    if (pullSpinnerRef.current) {
+      pullSpinnerRef.current.style.transform = `rotate(${(dist / PULL_THRESHOLD) * 360}deg)`;
+      pullSpinnerRef.current.style.opacity = String(Math.min(dist / PULL_THRESHOLD, 1));
+    }
+  }, []);
 
   const onTouchEnd = React.useCallback(() => {
-    if (!isPulling) return;
-    if (pullDistance >= PULL_THRESHOLD) {
+    if (!isPullingRef.current) return;
+    isPullingRef.current = false;
+    if (pullDistanceRef.current >= PULL_THRESHOLD) {
       hapticLight();
+      invalidateQueryCache("notifications");
       loadNotifications();
     }
-    setPullDistance(0);
-    setIsPulling(false);
-  }, [isPulling, pullDistance, loadNotifications]);
+    pullDistanceRef.current = 0;
+    if (pullIndicatorRef.current) {
+      pullIndicatorRef.current.style.transition = "height .2s ease";
+      pullIndicatorRef.current.style.height = "0px";
+    }
+    if (pullSpinnerRef.current) pullSpinnerRef.current.style.opacity = "0";
+  }, [loadNotifications]);
 
   const getIncentiveTypeName = (type: number): string => {
     const map: Record<number, Parameters<typeof t>[0]> = {
@@ -168,101 +187,42 @@ export default function Notifications() {
     return { Icon: cfg.Icon, color: cfg.color };
   };
 
-  const getNotificationContent = (notification: NotificationItem) => {
+  // Só o ícone: o texto de cada notificação é montado (e traduzido) em buildDescription.
+  const getNotificationIcon = (notification: NotificationItem): React.ReactElement => {
     switch (notification.type) {
       case 1:
-        return {
-          icon: <UserPlus className="h-5 w-5 text-blue-500" />,
-          title: "Novo seguidor",
-          description: `${notification.userNickname} começou a te seguir`,
-          bgColor: "bg-blue-500/10",
-          borderColor: "border-blue-200/50",
-        };
+        return <UserPlus className="h-5 w-5 text-blue-500" />;
       case 2: {
-        const incentiveName = notification.incentiveType
-          ? getIncentiveTypeName(notification.incentiveType)
-          : "Incentivo";
         const incentiveIconData = notification.incentiveType
           ? getIncentiveIcon(notification.incentiveType)
           : null;
         const IncentiveIconComponent = incentiveIconData?.Icon;
-        const context = notification.shotId ? "no seu shots" : (notification.flowId ? "no seu flow" : "na sua postagem");
-        return {
-          icon: IncentiveIconComponent
-            ? <IncentiveIconComponent className={`h-5 w-5 ${incentiveIconData!.color}`} />
-            : <Zap className="h-5 w-5 text-yellow-500" />,
-          title: `${incentiveName} recebido`,
-          description: `${notification.userNickname} te deu "${incentiveName}" ${context}`,
-          bgColor: "bg-yellow-500/10",
-          borderColor: "border-yellow-200/50",
-        };
+        return IncentiveIconComponent
+          ? <IncentiveIconComponent className={`h-5 w-5 ${incentiveIconData!.color}`} />
+          : <Zap className="h-5 w-5 text-yellow-500" />;
       }
-      case 3: {
-        const commentContext = notification.shotId ? "no seu shots" : (notification.flowId ? "no seu flow" : "na sua postagem");
-        return {
-          icon: <MessageCircle className="h-5 w-5 text-purple-500" />,
-          title: "Novo comentário",
-          description: `${notification.userNickname} comentou ${commentContext}`,
-          bgColor: "bg-purple-500/10",
-          borderColor: "border-purple-200/50",
-        };
-      }
+      case 3:
+        return <MessageCircle className="h-5 w-5 text-purple-500" />;
       case 4:
-        return {
-          icon: <Swords className="h-5 w-5 text-orange-500" />,
-          title: "Convite para duelo",
-          description: `${notification.userNickname} te adicionou ao grupo "${notification.groupName ?? "Duelo"}"`,
-          bgColor: "bg-orange-500/10",
-          borderColor: "border-orange-200/50",
-        };
       case 5:
-        return {
-          icon: <Swords className="h-5 w-5 text-yellow-500" />,
-          title: "Solicitação de entrada",
-          description: `${notification.userNickname} quer entrar no grupo "${notification.groupName ?? "Duelo"}"`,
-          bgColor: "bg-yellow-500/10",
-          borderColor: "border-yellow-200/50",
-        };
+        return <Swords className="h-5 w-5 text-orange-500" />;
       case 6:
-        return {
-          icon: <SmilePlus className="h-5 w-5 text-pink-500" />,
-          title: "Reação no comentário",
-          description: `${notification.userNickname} reagiu ao seu comentário`,
-          bgColor: "bg-pink-500/10",
-          borderColor: "border-pink-200/50",
-        };
       case 7:
-        return {
-          icon: <SmilePlus className="h-5 w-5 text-orange-400" />,
-          title: "Reação no check-in",
-          description: `${notification.userNickname} reagiu ao seu check-in`,
-          bgColor: "bg-orange-400/10",
-          borderColor: "border-orange-200/50",
-        };
+        return <SmilePlus className="h-5 w-5 text-pink-500" />;
       case 8:
-        return {
-          icon: <MessageCircle className="h-5 w-5 text-brand" />,
-          title: "Comentário na promoção",
-          description: `${notification.userNickname} comentou na sua promoção`,
-          bgColor: "bg-brand/10",
-          borderColor: "border-brand/30",
-        };
+        return <MessageCircle className="h-5 w-5 text-brand" />;
       case 9:
-        return {
-          icon: <AtSign className="h-5 w-5 text-cyan-400" />,
-          title: t("notif_title_post_tag"),
-          description: t("notif_desc_post_tag").replace("{name}", notification.userNickname),
-          bgColor: "bg-cyan-400/10",
-          borderColor: "border-cyan-200/50",
-        };
+        return <AtSign className="h-5 w-5 text-cyan-400" />;
+      case 10:
+        return <Send className="h-5 w-5 text-sky-400" />;
+      case 11:
+        return <Dumbbell className="h-5 w-5 text-emerald-400" />;
+      case 12:
+        return <Heart className="h-5 w-5 text-rose-400" />;
+      case 13:
+        return <Clock className="h-5 w-5 text-amber-400" />;
       default:
-        return {
-          icon: <Zap className="h-5 w-5 text-gray-500" />,
-          title: "Notificação",
-          description: "Nova atividade",
-          bgColor: "bg-gray-500/10",
-          borderColor: "border-gray-200/50",
-        };
+        return <Zap className="h-5 w-5 text-gray-500" />;
     }
   };
 
@@ -275,15 +235,32 @@ export default function Notifications() {
     const diffHours = Math.floor(diffMs / 3600000);
     const diffDays = Math.floor(diffMs / 86400000);
 
-    if (diffMins < 1) return "agora";
+    if (diffMins < 1) return t("notif_time_now");
     if (diffMins < 60) return `${diffMins}m`;
     if (diffHours < 24) return `${diffHours}h`;
     if (diffDays < 7) return `${diffDays}d`;
 
-    return notifTime.toLocaleDateString("pt-BR", {
+    return notifTime.toLocaleDateString(language === "en" ? "en-US" : "pt-BR", {
       month: "short",
       day: "numeric",
     });
+  };
+
+  /**
+   * Destaca o apelido dentro da descrição sem passar por HTML.
+   * A versão anterior usava dangerouslySetInnerHTML: como o apelido é um campo
+   * livre do usuário, qualquer markup nele era injetado e executado na WebView.
+   */
+  const renderDescription = (description: string, nickname: string): React.ReactNode => {
+    const idx = nickname ? description.indexOf(nickname) : -1;
+    if (idx === -1) return description;
+    return (
+      <>
+        {description.slice(0, idx)}
+        <strong>{nickname}</strong>
+        {description.slice(idx + nickname.length)}
+      </>
+    );
   };
 
   // Collapse incentive notifications for the same post/shot into one grouped entry per unique sender.
@@ -295,20 +272,32 @@ export default function Notifications() {
     groupedNicknames?: string[];
     groupedIncentiveTypes?: number[];
     groupedUsers?: Array<{ userId: string; userNickname: string; userPhoto?: string; incentiveTypes: number[] }>;
+    messageCount?: number;
   }> => {
     type GroupedNotif = NotificationItem & {
       groupedCount?: number;
       groupedNicknames?: string[];
       groupedIncentiveTypes?: number[];
       groupedUsers?: Array<{ userId: string; userNickname: string; userPhoto?: string; incentiveTypes: number[] }>;
+      messageCount?: number;
     };
 
     const result: GroupedNotif[] = [];
     // Key: postId/shotId → index in result (one group per post/shot regardless of incentive type)
     const seenPost = new Map<string, number>();
+    // Mensagens privadas: uma entrada por remetente (a mais recente), com o total no texto
+    const seenSender = new Map<string, number>();
 
     for (const n of notifs) {
-      if (n.type === 2 && n.incentiveType && (n.postId || n.shotId || n.flowId)) {
+      if (n.type === 10) {
+        const idx = seenSender.get(n.userId);
+        if (idx !== undefined) {
+          result[idx].messageCount = (result[idx].messageCount ?? 1) + 1;
+        } else {
+          seenSender.set(n.userId, result.length);
+          result.push({ ...n, messageCount: 1 });
+        }
+      } else if (n.type === 2 && n.incentiveType && (n.postId || n.shotId || n.flowId)) {
         const postKey = n.postId ?? n.shotId ?? n.flowId ?? "";
         if (seenPost.has(postKey)) {
           const idx = seenPost.get(postKey)!;
@@ -387,9 +376,23 @@ export default function Notifications() {
   };
 
   const handleNotificationClick = (notification: NotificationItem) => {
-    // Type 8 (promotion comment) - navigate to vitrine
-    if (notification.type === 8) {
+    // Types 8 / 12 / 13 (comentário, curtida e expiração de promoção) — abrem a Vitrine
+    if (notification.type === 8 || notification.type === 12 || notification.type === 13) {
       navigate("/vitrine");
+      return;
+    }
+    // Type 10 (mensagem privada) — abre a conversa com o remetente
+    if (notification.type === 10) {
+      navigate(`/comunidade?user=${notification.userId}`);
+      return;
+    }
+    // Type 11 (check-in de um membro do duelo) — abre o check-in
+    if (notification.type === 11) {
+      if (notification.checkInId) {
+        navigate("/comunidade", { state: { openCheckIn: notification.checkInId } });
+      } else {
+        navigate("/comunidade?tab=duels");
+      }
       return;
     }
     // Type 1 (new follower) - navigate to user profile
@@ -468,21 +471,21 @@ export default function Notifications() {
       if (success) {
         setNotifications([]);
         toast({
-          title: "Notificações limpas",
-          description: "Todas as suas notificações foram removidas.",
+          title: t("notif_cleared_title"),
+          description: t("notif_cleared_desc"),
         });
       } else {
         toast({
-          title: "Erro",
-          description: "Não foi possível limpar as notificações.",
+          title: t("error"),
+          description: t("notif_clear_error"),
           variant: "destructive",
         });
       }
     } catch (err: any) {
       console.error("Error clearing notifications:", err);
       toast({
-        title: "Erro",
-        description: "Ocorreu um erro ao limpar as notificações.",
+        title: t("error"),
+        description: t("notif_clear_error"),
         variant: "destructive",
       });
     } finally {
@@ -502,6 +505,10 @@ export default function Notifications() {
       case 7: return { iconBg: "rgba(255,122,180,.16)", iconColor: "#ff8cb4" };
       case 8: return { iconBg: "rgba(249,115,22,.16)", iconColor: "#f97316" };
       case 9: return { iconBg: "rgba(34,211,238,.16)", iconColor: "#22d3ee" };
+      case 10: return { iconBg: "rgba(56,189,248,.16)", iconColor: "#38bdf8" };
+      case 11: return { iconBg: "rgba(52,211,153,.16)", iconColor: "#34d399" };
+      case 12: return { iconBg: "rgba(251,113,133,.16)", iconColor: "#fb7185" };
+      case 13: return { iconBg: "rgba(251,191,36,.16)", iconColor: "#fbbf24" };
       default: return { iconBg: "rgba(255,255,255,.1)", iconColor: "rgba(255,255,255,.7)" };
     }
   };
@@ -525,6 +532,7 @@ export default function Notifications() {
   const buildDescription = (notification: NotificationItem & {
     groupedUsers?: Array<{ userId: string; userNickname: string; userPhoto?: string; incentiveTypes: number[] }>;
     groupedIncentiveTypes?: number[];
+    messageCount?: number;
   }): string => {
     const name = notification.userNickname;
     const context = notification.shotId
@@ -562,6 +570,16 @@ export default function Notifications() {
       case 7: return t("notif_desc_reaction_checkin").replace("{name}", name);
       case 8: return t("notif_desc_promo_comment").replace("{name}", name);
       case 9: return t("notif_desc_post_tag").replace("{name}", name);
+      case 10: {
+        const count = notification.messageCount ?? 1;
+        if (count > 1) {
+          return t("notif_desc_message_multi").replace("{name}", name).replace("{n}", String(count));
+        }
+        return t("notif_desc_message").replace("{name}", name);
+      }
+      case 11: return t("notif_desc_duel_checkin").replace("{name}", name).replace("{group}", notification.groupName ?? "Duelo");
+      case 12: return t("notif_desc_promo_like").replace("{name}", name);
+      case 13: return t("notif_desc_promo_expired").replace("{name}", name);
       default: return t("notif_body_default");
     }
   };
@@ -582,11 +600,15 @@ export default function Notifications() {
       case 7:  return { background: "#ff8cb4" };
       case 8:  return { background: "#f97316" };
       case 9:  return { background: "#22d3ee" };
+      case 10: return { background: "#38bdf8" };
+      case 11: return { background: "#34d399" };
+      case 12: return { background: "#fb7185" };
+      case 13: return { background: "#fbbf24" };
       default: return { background: "rgba(255,255,255,.5)" };
     }
   };
 
-  const isUserBased = (type: number) => [1, 2, 3, 6, 7, 8, 9].includes(type);
+  const isUserBased = (type: number) => [1, 2, 3, 6, 7, 8, 9, 10, 11, 12, 13].includes(type);
 
   return (
     <>
@@ -611,8 +633,14 @@ export default function Notifications() {
           }}
         >
           <button
-            onClick={() => navigate("/")}
-            className="w-9 h-9 flex items-center justify-center active:opacity-60"
+            onClick={() => {
+              // Volta para a tela anterior de verdade. Se a página foi aberta
+              // direto (deep link / push), não há histórico — cai no feed.
+              if (window.history.length > 1) navigate(-1);
+              else navigate("/");
+            }}
+            aria-label={t("back") ?? "Voltar"}
+            className="w-10 h-10 flex items-center justify-center active:opacity-60"
             style={{ color: "#fff" }}
           >
             <ChevronLeft className="h-5 w-5" />
@@ -639,27 +667,25 @@ export default function Notifications() {
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
       >
-        {/* Ambient aura blob */}
+        {/* Ambient aura — gradiente pintado direto, sem filter: blur (ver Index.tsx) */}
         <div
           aria-hidden
-          style={{ position: "absolute", width: "300px", height: "300px", left: "-60px", top: "60px", borderRadius: "50%", background: "radial-gradient(circle,#d8567a,transparent 70%)", filter: "blur(70px)", opacity: 0.28, pointerEvents: "none" }}
+          className="pointer-events-none absolute inset-x-0 top-0 h-[420px]"
+          style={{ background: "radial-gradient(300px 300px at 8% 20%, rgba(216,86,122,.24), transparent 70%)" }}
         />
 
-        {/* Pull-to-refresh indicator */}
-        {pullDistance > 0 && (
+        {/* Pull-to-refresh indicator — altura/rotação escritas direto no DOM pelos handlers */}
+        <div
+          ref={pullIndicatorRef}
+          className="flex items-center justify-center overflow-hidden"
+          style={{ height: 0 }}
+        >
           <div
-            className="flex items-center justify-center overflow-hidden transition-all"
-            style={{ height: `${pullDistance}px` }}
-          >
-            <div
-              className="h-6 w-6 rounded-full border-2 border-brand border-t-transparent transition-transform"
-              style={{
-                transform: `rotate(${(pullDistance / PULL_THRESHOLD) * 360}deg)`,
-                opacity: pullDistance / PULL_THRESHOLD,
-              }}
-            />
-          </div>
-        )}
+            ref={pullSpinnerRef}
+            className="h-6 w-6 rounded-full border-2 border-brand border-t-transparent"
+            style={{ opacity: 0 }}
+          />
+        </div>
 
         <div className="relative px-4 pb-6">
           {loading ? (
@@ -703,17 +729,23 @@ export default function Notifications() {
                           const cardStyle = getCardStyle(notification.type, isRead);
                           const typeStyle = getTypeStyle(notification.type);
                           const badgeStyle = getBadgeStyle(notification.type);
-                          const typeIcon = getNotificationContent(notification).icon;
+                          const typeIcon = getNotificationIcon(notification);
                           const groupedUsers = notification.groupedUsers ?? [];
                           const isGrouped = (notification.groupedCount ?? 1) > 1;
                           const isFollow = notification.type === 1;
                           const hasThumbnail = (notification.type === 2 || notification.type === 3 || notification.type === 9) && notification.postPhoto;
 
                           return (
-                            <button
+                            /* div (não button): a notificação de novo seguidor precisa
+                               conter um FollowButton real, e button dentro de button é
+                               HTML inválido — o toque no "Seguir" era engolido pelo card. */
+                            <div
                               key={notification.id}
+                              role="button"
+                              tabIndex={0}
                               onClick={() => handleNotificationClick(notification)}
-                              className="w-full text-left active:scale-[0.99] transition-all"
+                              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") handleNotificationClick(notification); }}
+                              className="w-full text-left active:scale-[0.99] transition-all cursor-pointer"
                               style={{ display: "flex", alignItems: "center", gap: "13px", padding: "13px", borderRadius: "18px", ...cardStyle, opacity: isRead ? 0.65 : 1 }}
                             >
                               {/* Left: avatar(s) or icon circle */}
@@ -760,16 +792,9 @@ export default function Notifications() {
 
                               {/* Text */}
                               <div className="flex-1 min-w-0">
-                                <p
-                                  className="leading-snug"
-                                  style={{ fontSize: "13.5px", color: "#fff" }}
-                                  dangerouslySetInnerHTML={{
-                                    __html: description.replace(
-                                      notification.userNickname,
-                                      `<strong>${notification.userNickname}</strong>`
-                                    )
-                                  }}
-                                />
+                                <p className="leading-snug" style={{ fontSize: "13.5px", color: "#fff" }}>
+                                  {renderDescription(description, notification.userNickname)}
+                                </p>
                                 <p className="mt-0.5" style={{ fontSize: "11px", color: "rgba(255,255,255,.45)" }}>
                                   {formatTimeAgo(notification.createdAt)}
                                 </p>
@@ -777,26 +802,15 @@ export default function Notifications() {
 
                               {/* Right side: follow button OR post thumbnail OR unread dot */}
                               {isFollow ? (
-                                (() => {
-                                  const alreadyFollowing = followingIds.has(notification.userId);
-                                  return (
-                                    <span
-                                      className="flex-shrink-0"
-                                      style={{
-                                        fontSize: "12px",
-                                        fontWeight: 640,
-                                        padding: "7px 13px",
-                                        borderRadius: "14px",
-                                        whiteSpace: "nowrap",
-                                        ...(alreadyFollowing
-                                          ? { color: "rgba(255,255,255,.7)", background: "rgba(255,255,255,.12)", border: "1px solid rgba(255,255,255,.18)" }
-                                          : { color: "#0a0b12", background: "linear-gradient(rgba(255,255,255,.95),rgba(255,255,255,.82))" }),
-                                      }}
-                                    >
-                                      {alreadyFollowing ? t("follow_btn_following") : t("follow_btn_follow")}
-                                    </span>
-                                  );
-                                })()
+                                <span
+                                  className="flex-shrink-0"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <FollowButton
+                                    targetUserId={notification.userId}
+                                    initialIsFollowing={followingIds.has(notification.userId)}
+                                  />
+                                </span>
                               ) : hasThumbnail ? (
                                 <div className="flex-shrink-0 relative" style={{ width: 44, height: 44 }}>
                                   <img
@@ -820,7 +834,7 @@ export default function Notifications() {
                                   style={{ width: 8, height: 8, borderRadius: "50%", background: "#5b8cff", flexShrink: 0 }}
                                 />
                               ) : null}
-                            </button>
+                            </div>
                           );
                         })}
                       </div>

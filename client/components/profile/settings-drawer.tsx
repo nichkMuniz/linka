@@ -37,6 +37,7 @@ import {
   type StoryWithUser,
 } from "@/lib/ritmofit-db";
 import { supabase, resetSupabaseAuth } from "@/lib/supabase";
+import { safeExternalUrl, isSafeExternalUrl } from "@/lib/safe-url";
 import { Capacitor } from "@capacitor/core";
 import { PushNotifications } from "@capacitor/push-notifications";
 import { LocalNotifications } from "@capacitor/local-notifications";
@@ -302,6 +303,20 @@ export function SettingsDrawer({
   };
 
   const handleSaveCommercial = async () => {
+    // O site vai parar num `href`/`Browser.open` no perfil público — só grava se
+    // for http(s). Sem isso dava para salvar `javascript:...` e armar o botão
+    // "Visitar site" contra quem tocasse nele.
+    const rawWebsite = commercialFormData.business_website.trim();
+    const website = rawWebsite ? safeExternalUrl(rawWebsite) : "";
+    if (website === null) {
+      toast({
+        title: t("settings_toast_invalid_website"),
+        description: t("settings_toast_invalid_website_desc"),
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsSavingCommercial(true);
     try {
       let logoUrl: string | null | undefined = commercialLogoPreview === null ? null : commercialProfile?.business_logo_url;
@@ -315,7 +330,11 @@ export function SettingsDrawer({
         setCommercialLogoFile(null);
       }
       const [updated] = await Promise.all([
-        createOrUpdateCommercialProfileDb(userId, { ...commercialFormData, business_logo_url: logoUrl }),
+        createOrUpdateCommercialProfileDb(userId, {
+          ...commercialFormData,
+          business_website: website,
+          business_logo_url: logoUrl,
+        }),
         saveCommercialPlansDb(userId, servicePlans),
       ]);
       setCommercialProfile(updated);
@@ -1147,11 +1166,11 @@ export function SettingsDrawer({
                                 <span className="text-sm font-medium">{commercialProfile.business_email}</span>
                               </div>
                             )}
-                            {commercialProfile.business_website && (
+                            {isSafeExternalUrl(commercialProfile.business_website) && (
                               <div className="flex items-center justify-between rounded-2xl px-4 py-3" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}>
                                 <span className="text-sm" style={{ color: "rgba(255,255,255,.5)" }}>{t("settings_commercial_website_label")}</span>
-                                <a href={commercialProfile.business_website} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-brand hover:underline">
-                                  {commercialProfile.business_website.replace(/^https?:\/\//, "")}
+                                <a href={safeExternalUrl(commercialProfile.business_website)!} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-brand hover:underline">
+                                  {commercialProfile.business_website!.replace(/^https?:\/\//, "")}
                                 </a>
                               </div>
                             )}

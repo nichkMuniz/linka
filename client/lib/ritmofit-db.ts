@@ -31,6 +31,13 @@ function assertUUID(value: string, label: string) {
   if (!UUID_RE.test(value)) throw new Error(`${label} inválido`);
 }
 
+// shots.id é bigint (identity), não uuid — validar com assertUUID rejeita todo id
+// de shot real. Aceita ambos os formatos para não quebrar se o tipo mudar.
+function assertShotId(value: string, label: string) {
+  const v = String(value).trim();
+  if (!/^\d+$/.test(v) && !UUID_RE.test(v)) throw new Error(`${label} inválido`);
+}
+
 function assertMaxLength(value: string, max: number, label: string) {
   if (value.length > max) throw new Error(`${label} muito longo (máximo ${max} caracteres)`);
 }
@@ -1530,6 +1537,43 @@ export async function getUserProfileDb(
   });
 }
 
+// ── Premium (subscriptions) ─────────────────────────────────────────────────
+//
+// O status vive na tabela `subscriptions`, que NÃO tem policy de escrita para
+// o usuário — só o service role escreve (SQL manual na Fase 1, webhook do
+// RevenueCat na Fase 2). A leitura passa pela RPC is_premium(uid), que também
+// servirá para RLS futura. Ver docs/migrations/20260715-premium-plan.sql.
+
+/** Retorna se o usuário logado é assinante premium ativo. */
+export async function getPremiumStatusDb(): Promise<boolean> {
+  if (!hasSupabaseConfig || !supabase) return false;
+  const viewer = await getViewer();
+  // Viewer nulo nunca entra no cache (mesma regra de getViewer): logo após o
+  // login uma resposta "false" cacheada esconderia o premium por 60s.
+  if (!viewer) return false;
+
+  try {
+    // TTL_MEDIUM: quem escreve o status é um terceiro (service role/webhook),
+    // o app não tem como invalidar na hora — o TTL é a defesa contra dado velho.
+    return await cached(`premium:${viewer.id}`, CACHE_TTL_MEDIUM, async () => {
+      const { data, error } = await supabase!.rpc("is_premium", {
+        uid: viewer.id,
+      });
+      if (error) throw error;
+      return data === true;
+    });
+  } catch (err) {
+    console.error("Error fetching premium status:", err);
+    return false;
+  }
+}
+
+/** Força releitura do status premium (ex: após restaurar compra na Fase 2). */
+export async function invalidatePremiumStatus(): Promise<void> {
+  const viewer = await getViewer();
+  if (viewer) invalidateQueryCache(`premium:${viewer.id}`);
+}
+
 export async function updateUserProfileDb(
   userId: string,
   updates: { nickname?: string; bio?: string; photo?: string | null; cover_photo?: string | null; height?: number | null; weight?: number | null; age?: number | null; handle?: string; objectives?: string[] | null; hide_follow_lists?: boolean; hide_posts_from_non_followers?: boolean },
@@ -1860,7 +1904,7 @@ export async function getWorkoutsDb(): Promise<Workout[]> {
   // Fetch all workouts including created_by_user for client-side filtering
   const { data: allData, error } = await supabase!
     .from("workouts")
-    .select("id, name, description, name_eng, description_eng, photo, muscle_group, type, wger_id, created_by_user")
+    .select("id, name, description, name_eng, description_eng, photo, muscle_group, type, wger_id, created_by_user, created_by")
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -1882,24 +1926,15 @@ export async function getWorkoutsDb(): Promise<Workout[]> {
     .filter((r: any) => {
       if (r.wger_id != null) return true;      // item de catálogo (importado do wger.de) — sempre visível
       if (!r.created_by_user) return true;     // item sem flag de criação manual — visível
-      return savedIds.has(String(r.id));       // custom: só aparece para quem tem salvo
+      // Custom: pertence a quem o criou. A autoria (created_by) é o que manda —
+      // o vínculo com a rotina (savedIds) só cobre os itens antigos, criados
+      // antes de existir a coluna. Sem isso, um exercício criado e não usado numa
+      // rotina sumia ao reabrir o drawer.
+      if (r.created_by) return userId != null && String(r.created_by) === userId;
+      return savedIds.has(String(r.id));
     })
     .map(mapRow);
   });
-}
-
-export async function uploadExerciseImageToStorage(wgerId: number, imageUrl: string): Promise<string | null> {
-  if (!supabase) return null;
-  try {
-    // Use Edge Function to proxy the download server-side (avoids CORS from wger.de)
-    const { data, error } = await supabase.functions.invoke("proxy-exercise-image", {
-      body: { wgerId, imageUrl },
-    });
-    if (error || !data?.publicUrl) return null;
-    return data.publicUrl as string;
-  } catch {
-    return null;
-  }
 }
 
 export async function bulkUpsertCatalogWorkoutsDb(
@@ -2000,8 +2035,18 @@ export async function createCustomWorkoutDb(
   equipment?: string | null,
 ): Promise<Workout> {
   if (!hasSupabaseConfig || !supabase) throw new Error("Supabase não configurado");
+  const viewer = await getViewer();
+  if (!viewer) throw new Error("Não autenticado");
 
-  const insertData: Record<string, any> = { name, description, muscle_group: muscleGroup || null, created_by_user: true };
+  // created_by = dono do item. É o que faz o exercício custom sobreviver mesmo
+  // que o usuário abandone o drawer sem montar a rotina (ver getWorkoutsDb).
+  const insertData: Record<string, any> = {
+    name,
+    description,
+    muscle_group: muscleGroup || null,
+    created_by_user: true,
+    created_by: viewer.id,
+  };
   if (photo) insertData.photo = photo;
   if (equipment) insertData.equipment = equipment;
 
@@ -2046,25 +2091,31 @@ export async function getUserStatsDb(userId: string): Promise<UserStats> {
     return { postsCount: 0, followersCount: 0, followingCount: 0, points: 0, level: 1 };
   }
   return cached(`userStats:${userId}`, CACHE_TTL_SHORT, async () => {
-  // Run all queries in parallel
-  const [postsRes, followersRes, followingRes, rankingRes] = await Promise.all([
-    supabase.from("posts").select("id", { count: "exact", head: true }).eq("user_id", userId),
-    supabase.from("following").select("id", { count: "exact", head: true }).eq("following_id", userId),
-    supabase.from("following").select("id", { count: "exact", head: true }).eq("user_id", userId),
+  // Os contadores vêm de get_profile_counts (SECURITY DEFINER): com a RLS de
+  // privacidade, um `count` direto em posts/following devolveria 0 para quem
+  // ativou "esconder posts/listas". Os NÚMEROS continuam públicos — o que fica
+  // oculto é o conteúdo das listas e dos posts.
+  // Ver docs/migrations/20260713-security-hardening.sql.
+  const [countsRes, rankingRes] = await Promise.all([
+    supabase.rpc("get_profile_counts", { target: userId }).maybeSingle(),
     supabase.from("ranking").select("points, level").eq("user_id", userId).single(),
   ]);
 
-  if (postsRes.error) {
-    console.error(`Error fetching posts stats:`, postsRes.error?.message);
+  if (countsRes.error) {
+    console.error(`Error fetching profile counts:`, countsRes.error?.message);
   }
+
+  const counts = countsRes.data as
+    | { posts_count: number; followers_count: number; following_count: number }
+    | null;
 
   const points = Number(rankingRes.data?.points ?? 0);
   const level = Number(rankingRes.data?.level ?? Math.floor(points / 100) + 1);
 
   return {
-    postsCount: postsRes.count ?? 0,
-    followersCount: followersRes.count ?? 0,
-    followingCount: followingRes.count ?? 0,
+    postsCount: Number(counts?.posts_count ?? 0),
+    followersCount: Number(counts?.followers_count ?? 0),
+    followingCount: Number(counts?.following_count ?? 0),
     points,
     level,
   };
@@ -2159,7 +2210,10 @@ export type Diet = {
   carbs_g?: number | null;
   fat_g?: number | null;
   fiber_g?: number | null;
+  sugar_g?: number | null;
   food_quality?: "in_natura" | "processado" | "ultraprocessado" | null;
+  /** true = alimento que o próprio usuário cadastrou (não é catálogo) */
+  created_by_user?: boolean;
 };
 
 export async function getDietsDb(): Promise<Diet[]> {
@@ -2178,19 +2232,21 @@ export async function getDietsDb(): Promise<Diet[]> {
     carbs_g: row.carbs_g != null ? Number(row.carbs_g) : null,
     fat_g: row.fat_g != null ? Number(row.fat_g) : null,
     fiber_g: row.fiber_g != null ? Number(row.fiber_g) : null,
+    sugar_g: row.sugar_g != null ? Number(row.sugar_g) : null,
     food_quality: row.food_quality ?? null,
+    created_by_user: Boolean(row.created_by_user),
   });
 
   // mealdb_id identifica itens de catálogo importados (TheMealDB) — mais confiável que created_by_user
   const { data: allData, error } = await supabase!
     .from("diets")
-    .select("id, name, description, name_eng, description_eng, photo, category, calories, protein_g, carbs_g, fat_g, fiber_g, food_quality, created_by_user, mealdb_id")
+    .select("id, name, description, name_eng, description_eng, photo, category, calories, protein_g, carbs_g, fat_g, fiber_g, sugar_g, food_quality, created_by_user, created_by, mealdb_id")
     .order("created_at", { ascending: false });
 
   if (error) {
     const { data } = await supabase!
       .from("diets")
-      .select("id, name, description, name_eng, description_eng, photo, category, calories, protein_g, carbs_g, fat_g, fiber_g, food_quality")
+      .select("id, name, description, name_eng, description_eng, photo, category, calories, protein_g, carbs_g, fat_g, fiber_g, sugar_g, food_quality")
       .order("created_at", { ascending: false });
     return (data ?? []).map(mapRow);
   }
@@ -2205,7 +2261,12 @@ export async function getDietsDb(): Promise<Diet[]> {
     .filter((r: any) => {
       if (r.mealdb_id != null) return true;    // item de catálogo (importado do TheMealDB) — sempre visível
       if (!r.created_by_user) return true;     // item sem flag de criação manual — visível
-      return savedIds.has(String(r.id));       // custom: só aparece para quem tem salvo
+      // Custom: pertence a quem o criou. A autoria (created_by) é o que manda —
+      // o vínculo com a rotina (savedIds) só cobre os itens antigos, criados
+      // antes de existir a coluna. Sem isso, um alimento criado e não usado numa
+      // rotina sumia ao reabrir o drawer.
+      if (r.created_by) return userId != null && String(r.created_by) === userId;
+      return savedIds.has(String(r.id));
     })
     .map(mapRow);
   });
@@ -2244,22 +2305,33 @@ export async function createCustomDietDb(
   fat_g?: number | null,
   fiber_g?: number | null,
   food_quality?: "in_natura" | "processado" | "ultraprocessado" | null,
+  sugar_g?: number | null,
 ): Promise<Diet> {
   if (!hasSupabaseConfig || !supabase) throw new Error("Supabase não configurado");
+  const viewer = await getViewer();
+  if (!viewer) throw new Error("Não autenticado");
 
-  const insertData: Record<string, any> = { name, description, created_by_user: true };
+  // created_by = dono do item. É o que faz o alimento custom sobreviver mesmo
+  // que o usuário abandone o drawer sem montar a rotina (ver getDietsDb).
+  const insertData: Record<string, any> = {
+    name,
+    description,
+    created_by_user: true,
+    created_by: viewer.id,
+  };
   if (photo) insertData.photo = photo;
   if (calories != null) insertData.calories = calories;
   if (protein_g != null) insertData.protein_g = protein_g;
   if (carbs_g != null) insertData.carbs_g = carbs_g;
   if (fat_g != null) insertData.fat_g = fat_g;
   if (fiber_g != null) insertData.fiber_g = fiber_g;
+  if (sugar_g != null) insertData.sugar_g = sugar_g;
   if (food_quality) insertData.food_quality = food_quality;
 
   const { data, error } = await supabase
     .from("diets")
     .insert(insertData)
-    .select("id, name, description, photo, calories, protein_g, carbs_g, fat_g, fiber_g, food_quality")
+    .select("id, name, description, photo, calories, protein_g, carbs_g, fat_g, fiber_g, sugar_g, food_quality")
     .single();
 
   if (error) {
@@ -2278,7 +2350,9 @@ export async function createCustomDietDb(
     carbs_g: data.carbs_g != null ? Number(data.carbs_g) : null,
     fat_g: data.fat_g != null ? Number(data.fat_g) : null,
     fiber_g: data.fiber_g != null ? Number(data.fiber_g) : null,
+    sugar_g: data.sugar_g != null ? Number(data.sugar_g) : null,
     food_quality: data.food_quality ?? null,
+    created_by_user: true,
   };
 }
 
@@ -2301,7 +2375,7 @@ export async function getHabitsDb(): Promise<Habit[]> {
 
   const { data: allData, error } = await supabase!
     .from("habits")
-    .select("id, name, description, name_eng, description_eng, created_by_user")
+    .select("id, name, description, name_eng, description_eng, created_by_user, created_by")
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -2323,7 +2397,12 @@ export async function getHabitsDb(): Promise<Habit[]> {
   const savedIds = new Set((links ?? []).map((r: any) => r.habit_id).filter(Boolean));
 
   return (allData ?? [])
-    .filter((r: any) => !r.created_by_user || savedIds.has(String(r.id)))
+    .filter((r: any) => {
+      if (!r.created_by_user) return true;
+      // Mesma regra dos alimentos: a autoria manda; savedIds só cobre o legado.
+      if (r.created_by) return String(r.created_by) === userId;
+      return savedIds.has(String(r.id));
+    })
     .map(mapRow);
   });
 }
@@ -2333,10 +2412,12 @@ export async function createCustomHabitDb(
   description: string,
 ): Promise<Habit> {
   if (!hasSupabaseConfig || !supabase) throw new Error("Supabase não configurado");
+  const viewer = await getViewer();
+  if (!viewer) throw new Error("Não autenticado");
 
   const { data, error } = await supabase
     .from("habits")
-    .insert({ name, description, created_by_user: true })
+    .insert({ name, description, created_by_user: true, created_by: viewer.id })
     .select("id, name, description")
     .single();
 
@@ -4988,32 +5069,97 @@ export type Conversation = {
   isVerified?: boolean;
 };
 
-export async function uploadMessageAudioDb(blob: Blob): Promise<string> {
-  if (!supabase) throw new Error("Supabase not configured");
-  const viewer = await getViewer();
-  if (!viewer) throw new Error("Usuário não autenticado");
-  const ext = blob.type.includes("mp4") ? "mp4" : "webm";
-  const path = `message-audio/${viewer.id}/${Date.now()}.${ext}`;
-  const { error } = await supabase.storage
-    .from("posts")
-    .upload(path, blob, { upsert: false, contentType: blob.type || "audio/webm" });
-  if (error) throw error;
-  const { data } = supabase.storage.from("posts").getPublicUrl(path);
-  return data.publicUrl;
+// ─── Mídia de mensagem direta (bucket privado) ──────────────────────────────
+//
+// Até 2026-07-13 as fotos e os áudios de DM iam para o bucket PÚBLICO `posts`:
+// a URL era permanente, sem checagem de destinatário, e o caminho era
+// previsível (`message-images/{user_id}/{timestamp}.jpg`) — ou seja, conversa
+// privada com mídia efetivamente pública.
+//
+// Agora vão para o bucket privado `chat-media`, em `{idA}_{idB}/{uuid}.{ext}`
+// (os dois uuids da conversa, ordenados). A RLS de storage.objects só libera
+// quem é uma das duas pontas, e o app lê via signed URL de vida curta.
+// Ver docs/migrations/20260713-security-hardening.sql.
+
+const CHAT_MEDIA_BUCKET = "chat-media";
+/** Marcador que distingue um caminho no bucket privado de uma URL pública legada. */
+const CHAT_MEDIA_PREFIX = "chat:";
+const SIGNED_URL_TTL_SECONDS = 3600;
+
+/** Pasta da conversa: os dois ids ordenados, para a policy conseguir validar. */
+function chatFolder(a: string, b: string): string {
+  return [a, b].sort().join("_");
 }
 
-export async function uploadMessageImageDb(file: File): Promise<string> {
+/** Cache de signed URLs (a URL expira — guardamos o instante de validade). */
+const signedUrlCache = new Map<string, { url: string; expiresAt: number }>();
+
+/**
+ * Resolve o valor guardado na mensagem para uma URL exibível.
+ * - `chat:<path>`  → signed URL do bucket privado (renovada quando expira).
+ * - `https://...`  → mensagem antiga, no bucket público. Devolvida como está.
+ */
+export async function getChatMediaUrlDb(ref: string): Promise<string | null> {
+  const value = ref.trim();
+  if (!value) return null;
+
+  // Mídia antiga (pré-migração) já é uma URL pública completa.
+  if (!value.startsWith(CHAT_MEDIA_PREFIX)) return value;
+  if (!supabase) return null;
+
+  const path = value.slice(CHAT_MEDIA_PREFIX.length);
+  const cachedEntry = signedUrlCache.get(path);
+  // 60s de folga para a URL não expirar no meio do carregamento.
+  if (cachedEntry && cachedEntry.expiresAt > Date.now() + 60_000) return cachedEntry.url;
+
+  const { data, error } = await supabase.storage
+    .from(CHAT_MEDIA_BUCKET)
+    .createSignedUrl(path, SIGNED_URL_TTL_SECONDS);
+
+  if (error || !data?.signedUrl) {
+    console.error("Error signing chat media URL:", error?.message);
+    return null;
+  }
+
+  signedUrlCache.set(path, {
+    url: data.signedUrl,
+    expiresAt: Date.now() + SIGNED_URL_TTL_SECONDS * 1000,
+  });
+  return data.signedUrl;
+}
+
+export async function uploadMessageAudioDb(blob: Blob, recipientId: string): Promise<string> {
   if (!supabase) throw new Error("Supabase not configured");
+  assertUUID(recipientId, "ID do destinatário");
   const viewer = await getViewer();
   if (!viewer) throw new Error("Usuário não autenticado");
-  const ext = file.name.split(".").pop() ?? "jpg";
-  const path = `message-images/${viewer.id}/${Date.now()}.${ext}`;
+
+  const ext = blob.type.includes("mp4") ? "mp4" : "webm";
+  const path = `${chatFolder(viewer.id, recipientId)}/${crypto.randomUUID()}.${ext}`;
+
   const { error } = await supabase.storage
-    .from("posts")
-    .upload(path, file, { upsert: false, contentType: file.type });
+    .from(CHAT_MEDIA_BUCKET)
+    .upload(path, blob, { upsert: false, contentType: blob.type || "audio/mp4" });
   if (error) throw error;
-  const { data } = supabase.storage.from("posts").getPublicUrl(path);
-  return data.publicUrl;
+
+  return `${CHAT_MEDIA_PREFIX}${path}`;
+}
+
+export async function uploadMessageImageDb(file: File, recipientId: string): Promise<string> {
+  if (!supabase) throw new Error("Supabase not configured");
+  assertUUID(recipientId, "ID do destinatário");
+  const viewer = await getViewer();
+  if (!viewer) throw new Error("Usuário não autenticado");
+
+  const ext = (file.name.split(".").pop() ?? "jpg").toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
+  const path = `${chatFolder(viewer.id, recipientId)}/${crypto.randomUUID()}.${ext}`;
+
+  const { error } = await supabase.storage
+    .from(CHAT_MEDIA_BUCKET)
+    .upload(path, file, { upsert: false, contentType: file.type || "image/jpeg" });
+  if (error) throw error;
+
+  return `${CHAT_MEDIA_PREFIX}${path}`;
 }
 
 export async function sendMessageDb(
@@ -5050,11 +5196,61 @@ export async function sendMessageDb(
     }
 
     invalidateQueryCache("conversations"); invalidateQueryCache("unreadMsgCount");
+
+    // Notifica o destinatário (fire-and-forget — não bloqueia o envio da mensagem)
+    sendMessageNotificationDb(recipientId).catch((err) =>
+      console.error("Error sending message notification:", err),
+    );
+
     return data;
   } catch (err: any) {
     console.error("Error sending message:", err);
     return null;
   }
+}
+
+/**
+ * Notificação de mensagem privada (tipo 10).
+ *
+ * Cada linha inserida em `notifications` dispara o webhook → push do iOS, então
+ * o destinatário é avisado a cada nova mensagem. Para não gerar uma enxurrada de
+ * linhas (e de pushes) numa conversa em ritmo de bate-papo, mensagens do mesmo
+ * remetente dentro de 60s de uma notificação ainda não lida não geram outra.
+ * Na tela de Notificações os cards do tipo 10 são colapsados em um por remetente.
+ */
+async function sendMessageNotificationDb(recipientId: string): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+
+  const viewer = await getViewer();
+  if (!viewer || viewer.id === recipientId) return;
+
+  const { data: recent } = await supabase
+    .from("notifications")
+    .select("created_at")
+    .eq("user_id", recipientId)
+    .eq("follower_id", viewer.id)
+    .eq("type", 10)
+    .eq("read", false)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (recent?.created_at && Date.now() - new Date(recent.created_at).getTime() < 60_000) return;
+
+  const { error } = await supabase.from("notifications").insert({
+    user_id: recipientId,
+    follower_id: viewer.id,
+    type: 10,
+    read: false,
+  });
+
+  if (error) {
+    console.error("Error inserting message notification:", error);
+    return;
+  }
+
+  invalidateQueryCache("notifications");
+  invalidateQueryCache("unreadNotifCount");
 }
 
 export async function getConversationsDb(): Promise<Conversation[]> {
@@ -5682,9 +5878,8 @@ export async function getShotsDb(): Promise<ShotWithUser[]> {
 // deep link ?shot=<id> da tela de Shots (shot pode não estar entre os 50 do feed).
 export async function getShotByIdDb(shotId: string): Promise<ShotWithUser | null> {
   if (!hasSupabaseConfig || !supabase) return null;
+  assertShotId(shotId, "ID do shot");
   return cached(`shot:${shotId}`, CACHE_TTL_SHORT, async () => {
-  assertUUID(shotId, "ID do shot");
-
   const viewer = await getViewer();
   if (!viewer) return null;
 
@@ -6306,7 +6501,7 @@ export async function toggleUserHabitCompletionDb(
 // Notifications functionality
 export type NotificationItem = {
   id: string;
-  type: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9; // 1 = new follower, 2 = incentive, 3 = comment, 4 = duel invite, 5 = join request, 6 = comment reaction, 7 = check-in reaction, 8 = promotion comment, 9 = tagged in post
+  type: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13; // 1 = new follower, 2 = incentive, 3 = comment, 4 = duel invite, 5 = join request, 6 = comment reaction, 7 = check-in reaction, 8 = promotion comment, 9 = tagged in post, 10 = private message, 11 = duel check-in, 12 = promotion like, 13 = promotion expired
   userId: string;
   userNickname: string;
   userPhoto: string | null;
@@ -6315,13 +6510,17 @@ export type NotificationItem = {
   shotId?: string; // Present when notification relates to a shot (from shots_id column in notifications)
   flowId?: string; // Present when type=6 and reaction was on a flow comment (decoded from shots_id "flow:<id>")
   checkInId?: string; // Present when type=6/7 and reaction was on a checkin comment or checkin itself (decoded from shots_id "checkin:<id>" or from duel_check_in_id column)
-  promotionId?: string; // For type 8 (promotion comment) — stored in post_id column
+  promotionId?: string; // For types 8/12/13 (promotion comment, like, expired) — stored in post_id column
   postPhoto?: string;
   incentiveType?: number; // For type 2 (incentive): 1=apoio, 2=continua, 3=ganhador, 4=consegueMais, 5=limiteMaior, 6=maisAlgum
   groupName?: string; // For type 4 (duel invite)
   createdAt: string;
   read?: boolean; // Whether the notification has been read
 };
+
+// A coluna post_id é reaproveitada por vários tipos: nestes ela guarda o id de um
+// grupo de duelo (4, 5, 11) ou de uma promoção (8, 12, 13) — nunca o id de um post.
+const NOTIF_TYPES_WITHOUT_POST = new Set([4, 5, 7, 8, 11, 12, 13]);
 
 export async function getNotificationsDb(): Promise<NotificationItem[]> {
   if (!hasSupabaseConfig || !supabase) return [];
@@ -6362,10 +6561,11 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
 
     // Get all follower IDs and post IDs to fetch related data
     const followerIds = [...new Set(notificationsData.map((n: any) => n.follower_id))];
-    const postIds = [...new Set(notificationsData.filter((n: any) => n.type !== 4 && n.type !== 5 && n.type !== 7 && !n.shots_id && !n.flow_id).map((n: any) => n.post_id).filter(Boolean))];
+    // Tipos cujo post_id NÃO guarda um post: 4/5/11 → id do grupo de duelo; 8/12/13 → id da promoção
+    const postIds = [...new Set(notificationsData.filter((n: any) => !NOTIF_TYPES_WITHOUT_POST.has(Number(n.type)) && !n.shots_id && !n.flow_id).map((n: any) => n.post_id).filter(Boolean))];
     // shots_id may contain "flow:<id>" or "checkin:<id>" prefixed values — exclude those from the shots DB query
     const shotNotifIds = [...new Set(notificationsData.filter((n: any) => n.shots_id && !String(n.shots_id).startsWith("flow:") && !String(n.shots_id).startsWith("checkin:")).map((n: any) => n.shots_id).filter(Boolean))];
-    const groupIds = [...new Set(notificationsData.filter((n: any) => n.type === 4 || n.type === 5).map((n: any) => n.post_id).filter(Boolean))];
+    const groupIds = [...new Set(notificationsData.filter((n: any) => n.type === 4 || n.type === 5 || n.type === 11).map((n: any) => n.post_id).filter(Boolean))];
     // Direct flow_id column support
     const flowResultIds = [...new Set(notificationsData.filter((n: any) => n.flow_id).map((n: any) => n.flow_id).filter(Boolean))];
     const incentiveNotifications = notificationsData.filter((n: any) => n.type === 2);
@@ -6663,7 +6863,7 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
           }
         }
         // Add post-related fields for non-duel notifications (regular posts)
-        else if (notif.post_id && notif.type !== 4 && notif.type !== 5) {
+        else if (notif.post_id && !NOTIF_TYPES_WITHOUT_POST.has(Number(notif.type))) {
           notification.postId = notif.post_id;
           const post = postMap.get(notif.post_id);
           if (post?.photo) {
@@ -6671,14 +6871,14 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
           }
         }
 
-        // Add group name for duel invite/join-request notifications (type 4 and 5)
-        if ((notif.type === 4 || notif.type === 5) && notif.post_id) {
+        // Add group name for duel notifications (invite, join request, member check-in)
+        if ((notif.type === 4 || notif.type === 5 || notif.type === 11) && notif.post_id) {
           const group = groupMap.get(notif.post_id);
           notification.groupName = group?.name ?? "Duelo";
         }
 
-        // Type 8: promotion comment — promotion_id stored in post_id column
-        if (notif.type === 8 && notif.post_id) {
+        // Types 8/12/13: promotion comment, like and expiry — promotion_id stored in post_id column
+        if ((notif.type === 8 || notif.type === 12 || notif.type === 13) && notif.post_id) {
           notification.promotionId = String(notif.post_id);
         }
 
@@ -6705,7 +6905,7 @@ export async function getUnreadNotificationsCountDb(): Promise<number> {
     // Fetch unread notification rows (we need post/shot IDs to apply grouping logic)
     let { data, error } = await supabase
       .from("notifications")
-      .select("id, type, post_id, shots_id, flow_id, read")
+      .select("id, type, follower_id, post_id, shots_id, flow_id, read")
       .eq("user_id", viewer.id)
       .eq("read", false)
       .limit(200);
@@ -6715,7 +6915,7 @@ export async function getUnreadNotificationsCountDb(): Promise<number> {
       console.warn("Read column might not exist, fetching all notifications count");
       const { data: allData, error: fallbackError } = await supabase
         .from("notifications")
-        .select("id, type, post_id, shots_id, flow_id")
+        .select("id, type, follower_id, post_id, shots_id, flow_id")
         .eq("user_id", viewer.id);
 
       if (fallbackError) {
@@ -6733,13 +6933,16 @@ export async function getUnreadNotificationsCountDb(): Promise<number> {
     if (!data || data.length === 0) return 0;
 
     // Apply the same grouping as the UI: incentive notifications (type 2) for the same
-    // post/shot are collapsed into a single entry regardless of incentive subtype or sender.
+    // post/shot are collapsed into a single entry regardless of incentive subtype or sender,
+    // and private messages (type 10) are collapsed into one entry per sender.
     const seenPostKeys = new Set<string>();
     let groupedCount = 0;
 
     for (const n of data) {
-      if (n.type === 2) {
-        const key = n.flow_id ?? n.shots_id ?? n.post_id ?? n.id;
+      if (n.type === 2 || n.type === 10) {
+        const key = n.type === 10
+          ? `msg:${n.follower_id}`
+          : String(n.flow_id ?? n.shots_id ?? n.post_id ?? n.id);
         if (!seenPostKeys.has(key)) {
           seenPostKeys.add(key);
           groupedCount++;
@@ -7330,8 +7533,10 @@ async function insertCheckInOnlineDb(userId: string, checkInDate: string): Promi
   }
 
   invalidateQueryCache("todayCheckIn"); invalidateQueryCache("weekCheckIns"); invalidateQueryCache("checkInHistory"); invalidateQueryCache("completedRoutines");
-  // Contagem total e insígnia derivada (triggers podem conceder badge no check-in)
-  invalidateQueryCache(`totalCheckIns:${userId}`); invalidateQueryCache(`topUserBadge:${userId}`); invalidateQueryCache(`userBadges:${userId}`);
+  // Contagem total e acervo de insígnias (o check-in pode conceder novas).
+  // A insígnia EXIBIDA não muda com o check-in (é escolha persistida do usuário),
+  // mas o fallback de quem nunca escolheu depende do acervo — daí invalidar também.
+  invalidateQueryCache(`totalCheckIns:${userId}`); invalidateQueryCache(`displayBadge:${userId}`); invalidateQueryCache(`userBadges:${userId}`);
   return inserted as CheckIn;
 }
 
@@ -8777,6 +8982,11 @@ export async function addGroupCheckInDb(
     if (error) throw error;
     if (!data) throw new Error("Failed to create check-in");
 
+    // Avisa os outros participantes do duelo (fire-and-forget — não segura a UI)
+    sendDuelCheckInNotificationsDb(groupId, data.id, userId).catch((err) =>
+      console.error("Error sending duel check-in notifications:", err),
+    );
+
     return {
       id: data.id,
       groupId: data.group_id,
@@ -8804,6 +9014,54 @@ export async function addGroupCheckInDb(
   }
 
   invalidateQueryCache("groupCheckIns");
+}
+
+/**
+ * Notificação de check-in em grupo de duelo (tipo 11).
+ *
+ * Todo participante já aceito no grupo — exceto o autor — recebe uma linha em
+ * `notifications` (e, por consequência do webhook, um push). O id do grupo vai em
+ * `post_id` (mesma convenção dos tipos 4 e 5, usada para exibir o nome do duelo) e
+ * o id do check-in em `duel_check_in_id`, que é o que abre o check-in ao tocar no card.
+ */
+async function sendDuelCheckInNotificationsDb(
+  groupId: string,
+  checkInId: string,
+  authorId: string,
+): Promise<void> {
+  if (!supabase) return;
+
+  const { data: participants, error } = await supabase
+    .from("duel_group_participants")
+    .select("user_id")
+    .eq("group_id", groupId)
+    .eq("status", "accepted");
+
+  if (error) {
+    console.error("Error loading duel participants for notification:", error);
+    return;
+  }
+
+  const recipients = [
+    ...new Set((participants ?? []).map((p: any) => String(p.user_id))),
+  ].filter((id) => id && id !== authorId);
+
+  if (recipients.length === 0) return;
+
+  const { error: notifError } = await supabase.from("notifications").insert(
+    recipients.map((userId) => ({
+      user_id: userId,
+      follower_id: authorId,
+      type: 11,
+      post_id: groupId,
+      duel_check_in_id: checkInId,
+      read: false,
+    })),
+  );
+
+  if (notifError) {
+    console.error("Error inserting duel check-in notifications:", notifError);
+  }
 }
 
 // Get check-ins for a group (optimized: only columns needed for the list, no exercises payload)
@@ -10022,6 +10280,8 @@ export type Badge = {
   sort_order: number;
   condition_type: BadgeConditionType;
   condition_metadata: Record<string, any> | null;
+  /** Insígnia exclusiva de assinante premium (seleção gateada no app). */
+  premium?: boolean;
 };
 
 export type UserBadge = {
@@ -10034,7 +10294,7 @@ export type UserBadge = {
 export async function getTotalCheckInsDb(userId: string): Promise<number> {
   if (!hasSupabaseConfig || !supabase) return 0;
   try {
-    // Cacheado pelo mesmo motivo de getTopUserBadgeDb (UserInsignias remonta
+    // Cacheado pelo mesmo motivo de getDisplayBadgeDb (UserInsignias remonta
     // a cada post aberto). Check-ins novos invalidam via createCheckInDb.
     return await cached(`totalCheckIns:${userId}`, CACHE_TTL_SHORT, async () => {
       const { count, error } = await supabase!
@@ -10063,7 +10323,7 @@ export async function getAllBadgesDb(): Promise<Badge[]> {
     return await cached("allBadges", CACHE_TTL_LONG, async () => {
       const { data, error } = await supabase!
         .from("badges")
-        .select("id, key, name, emoji, description, required_checkins, sort_order, condition_type, condition_metadata")
+        .select("id, key, name, emoji, description, required_checkins, sort_order, condition_type, condition_metadata, premium")
         .order("sort_order", { ascending: true });
       if (error) throw error;
       const rows = (data ?? []) as Badge[];
@@ -10083,7 +10343,7 @@ export async function getUserBadgesDb(userId: string): Promise<UserBadge[]> {
     return await cached(`userBadges:${userId}`, CACHE_TTL_SHORT, async () => {
       const { data, error } = await supabase!
         .from("user_badges")
-        .select("badge_id, earned_at, badges(id, key, name, emoji, description, required_checkins, sort_order, condition_type, condition_metadata)")
+        .select("badge_id, earned_at, badges(id, key, name, emoji, description, required_checkins, sort_order, condition_type, condition_metadata, premium)")
         .eq("user_id", userId)
         .order("earned_at", { ascending: false });
       if (error) throw error;
@@ -10157,46 +10417,406 @@ export async function deleteWeightLogDb(id: string): Promise<void> {
   invalidateQueryCache(`weightLogs:${viewer.id}`);
 }
 
+// ─── Diário alimentar (user_food_logs / user_nutrition_goals) ────────────────
+// O usuário registra o que comeu no dia, por refeição, com calorias e macros.
+// Calorias/macros de cada linha já são o TOTAL consumido (por porção ×
+// quantidade), então somar a coluna dá o total do dia. Ver migração
+// docs/migrations/20260714-food-diary.sql.
+
+/** 0 = café da manhã, 1 = almoço, 2 = lanche, 3 = jantar */
+export type FoodLogMealType = 0 | 1 | 2 | 3;
+
+export type FoodLog = {
+  id: string;
+  log_date: string; // YYYY-MM-DD
+  meal_type: FoodLogMealType;
+  diet_id: string | null;
+  user_diet_id: string | null;
+  name: string;
+  quantity: number;
+  calories: number | null;
+  protein_g: number | null;
+  carbs_g: number | null;
+  fat_g: number | null;
+  /** Açúcar consumido (g). `null` = desconhecido — não é o mesmo que zero (ver insígnia sem açúcar). */
+  sugar_g: number | null;
+};
+
+export type NutritionGoals = {
+  calories_target: number | null;
+  protein_target_g: number | null;
+  carbs_target_g: number | null;
+  fat_target_g: number | null;
+  water_target_ml: number | null;
+};
+
+const FOOD_LOG_COLS =
+  "id, log_date, meal_type, diet_id, user_diet_id, name, quantity, calories, protein_g, carbs_g, fat_g, sugar_g";
+
+const mapFoodLogRow = (r: any): FoodLog => ({
+  id: String(r.id),
+  log_date: String(r.log_date),
+  meal_type: (Number(r.meal_type) as FoodLogMealType) ?? 0,
+  diet_id: r.diet_id != null ? String(r.diet_id) : null,
+  user_diet_id: r.user_diet_id != null ? String(r.user_diet_id) : null,
+  name: String(r.name ?? ""),
+  quantity: r.quantity != null ? Number(r.quantity) : 1,
+  calories: r.calories != null ? Number(r.calories) : null,
+  protein_g: r.protein_g != null ? Number(r.protein_g) : null,
+  carbs_g: r.carbs_g != null ? Number(r.carbs_g) : null,
+  fat_g: r.fat_g != null ? Number(r.fat_g) : null,
+  sugar_g: r.sugar_g != null ? Number(r.sugar_g) : null,
+});
+
+/** Entradas do diário de um dia (YYYY-MM-DD), na ordem de registro. */
+export async function getFoodLogsDb(date: string): Promise<FoodLog[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+  const viewer = await getViewer();
+  if (!viewer) return [];
+  return cached(`foodLogs:${viewer.id}:${date}`, CACHE_TTL_OWN, async () => {
+    const { data, error } = await supabase!
+      .from("user_food_logs")
+      .select(FOOD_LOG_COLS)
+      .eq("user_id", viewer.id)
+      .eq("log_date", date)
+      .order("created_at", { ascending: true });
+    if (error || !data) return [];
+    return data.map(mapFoodLogRow);
+  });
+}
+
+export type NewFoodLog = {
+  log_date: string;
+  meal_type: FoodLogMealType;
+  name: string;
+  quantity?: number;
+  calories?: number | null;
+  protein_g?: number | null;
+  carbs_g?: number | null;
+  fat_g?: number | null;
+  sugar_g?: number | null;
+  diet_id?: string | null;
+  user_diet_id?: string | null;
+};
+
+export async function addFoodLogDb(entry: NewFoodLog): Promise<FoodLog> {
+  if (!hasSupabaseConfig || !supabase) throw new Error("Sem conexão com o banco");
+  const viewer = await getViewer();
+  if (!viewer) throw new Error("Não autenticado");
+  const quantity = entry.quantity ?? 1;
+
+  // Item do catálogo sem açúcar informado (ex.: o auto-log da rotina de dieta):
+  // busca do catálogo em vez de gravar null. `null` significa DESCONHECIDO e
+  // invalidaria o dia para a insígnia "sem açúcar" — não pode acontecer com um
+  // alimento cujo valor o catálogo conhece.
+  let sugar = entry.sugar_g ?? null;
+  if (sugar == null && entry.diet_id != null) {
+    const { data: diet } = await supabase
+      .from("diets")
+      .select("sugar_g")
+      .eq("id", Number(entry.diet_id))
+      .maybeSingle();
+    if (diet?.sugar_g != null) sugar = Number(diet.sugar_g) * quantity;
+  }
+
+  const { data, error } = await supabase
+    .from("user_food_logs")
+    .insert({
+      user_id: viewer.id,
+      log_date: entry.log_date,
+      meal_type: entry.meal_type,
+      name: entry.name,
+      quantity,
+      calories: entry.calories ?? null,
+      protein_g: entry.protein_g ?? null,
+      carbs_g: entry.carbs_g ?? null,
+      fat_g: entry.fat_g ?? null,
+      sugar_g: sugar,
+      diet_id: entry.diet_id != null ? Number(entry.diet_id) : null,
+      user_diet_id: entry.user_diet_id != null ? Number(entry.user_diet_id) : null,
+    })
+    .select(FOOD_LOG_COLS)
+    .single();
+  if (error || !data) throw error ?? new Error("Erro ao registrar alimento");
+  invalidateQueryCache(`foodLogs:${viewer.id}:`);
+  return mapFoodLogRow(data);
+}
+
+export async function deleteFoodLogDb(id: string): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+  const viewer = await getViewer();
+  if (!viewer) throw new Error("Não autenticado");
+  const { error } = await supabase
+    .from("user_food_logs")
+    .delete()
+    .eq("id", id)
+    .eq("user_id", viewer.id);
+  if (error) throw error;
+  invalidateQueryCache(`foodLogs:${viewer.id}:`);
+}
+
+/**
+ * Remove a entrada AUTOMÁTICA do diário criada ao concluir um item da rotina
+ * de dieta (vinculada por user_diet_id) no dia informado. Usada quando o
+ * usuário desmarca o item — o registro manual do mesmo alimento não é tocado.
+ */
+export async function deleteFoodLogForDietItemDb(userDietId: string, date: string): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+  const viewer = await getViewer();
+  if (!viewer) return;
+  const { error } = await supabase
+    .from("user_food_logs")
+    .delete()
+    .eq("user_id", viewer.id)
+    .eq("user_diet_id", Number(userDietId))
+    .eq("log_date", date);
+  if (error) throw error;
+  invalidateQueryCache(`foodLogs:${viewer.id}:`);
+}
+
+/**
+ * Alimentos registrados recentemente (distintos por nome, mais recente
+ * primeiro) — alimenta a fileira "Recentes" do diário para repetir uma
+ * refeição com 1 toque.
+ */
+export async function getRecentFoodsDb(limit = 8): Promise<
+  Array<Pick<FoodLog, "name" | "calories" | "protein_g" | "carbs_g" | "fat_g" | "sugar_g" | "diet_id">>
+> {
+  if (!hasSupabaseConfig || !supabase) return [];
+  const viewer = await getViewer();
+  if (!viewer) return [];
+  const { data, error } = await supabase
+    .from("user_food_logs")
+    .select("name, calories, protein_g, carbs_g, fat_g, sugar_g, diet_id, quantity, created_at")
+    .eq("user_id", viewer.id)
+    .order("created_at", { ascending: false })
+    .limit(60);
+  if (error || !data) return [];
+  const seen = new Set<string>();
+  const out: Array<Pick<FoodLog, "name" | "calories" | "protein_g" | "carbs_g" | "fat_g" | "sugar_g" | "diet_id">> = [];
+  for (const r of data as any[]) {
+    const key = String(r.name ?? "").trim().toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    const qty = r.quantity != null && Number(r.quantity) > 0 ? Number(r.quantity) : 1;
+    // normaliza para valores de 1 porção (a linha guarda o total consumido)
+    out.push({
+      name: String(r.name),
+      calories: r.calories != null ? Number(r.calories) / qty : null,
+      protein_g: r.protein_g != null ? Number(r.protein_g) / qty : null,
+      carbs_g: r.carbs_g != null ? Number(r.carbs_g) / qty : null,
+      fat_g: r.fat_g != null ? Number(r.fat_g) / qty : null,
+      sugar_g: r.sugar_g != null ? Number(r.sugar_g) / qty : null,
+      diet_id: r.diet_id != null ? String(r.diet_id) : null,
+    });
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+// ─── Água (user_water_logs) ─────────────────────────────────────────────────
+// Uma linha por dia com o TOTAL bebido — o app faz upsert do total, não um
+// registro por copo. Ver docs/migrations/20260714-water-sugar.sql.
+
+/** Água bebida (ml) num dia (YYYY-MM-DD local). */
+export async function getWaterLogDb(date: string): Promise<number> {
+  if (!hasSupabaseConfig || !supabase) return 0;
+  const viewer = await getViewer();
+  if (!viewer) return 0;
+  return cached(`waterLog:${viewer.id}:${date}`, CACHE_TTL_OWN, async () => {
+    const { data, error } = await supabase!
+      .from("user_water_logs")
+      .select("ml")
+      .eq("user_id", viewer.id)
+      .eq("log_date", date)
+      .maybeSingle();
+    if (error || !data) return 0;
+    return Number(data.ml ?? 0);
+  });
+}
+
+/** Grava o total de água (ml) do dia. Valores negativos viram 0. */
+export async function setWaterLogDb(date: string, ml: number): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+  const viewer = await getViewer();
+  if (!viewer) throw new Error("Não autenticado");
+  const value = Math.max(0, Math.round(ml));
+  const { error } = await supabase
+    .from("user_water_logs")
+    .upsert(
+      { user_id: viewer.id, log_date: date, ml: value, updated_at: new Date().toISOString() },
+      { onConflict: "user_id,log_date" }
+    );
+  if (error) throw error;
+  invalidateQueryCache(`waterLog:${viewer.id}:${date}`);
+}
+
+/** Total de calorias por dia dos últimos `days` dias (para o gráfico de tendência). */
+export async function getFoodLogDayTotalsDb(days = 7): Promise<Array<{ date: string; calories: number }>> {
+  if (!hasSupabaseConfig || !supabase) return [];
+  const viewer = await getViewer();
+  if (!viewer) return [];
+  const since = new Date(Date.now() - (days - 1) * 86400000).toISOString().slice(0, 10);
+  const { data, error } = await supabase
+    .from("user_food_logs")
+    .select("log_date, calories")
+    .eq("user_id", viewer.id)
+    .gte("log_date", since)
+    .order("log_date", { ascending: true });
+  if (error || !data) return [];
+  const totals = new Map<string, number>();
+  for (const r of data as any[]) {
+    const d = String(r.log_date);
+    totals.set(d, (totals.get(d) ?? 0) + (r.calories != null ? Number(r.calories) : 0));
+  }
+  return Array.from(totals, ([date, calories]) => ({ date, calories: Math.round(calories) }));
+}
+
+export async function getNutritionGoalsDb(): Promise<NutritionGoals | null> {
+  if (!hasSupabaseConfig || !supabase) return null;
+  const viewer = await getViewer();
+  if (!viewer) return null;
+  return cached(`nutritionGoals:${viewer.id}`, CACHE_TTL_OWN, async () => {
+    const { data, error } = await supabase!
+      .from("user_nutrition_goals")
+      .select("calories_target, protein_target_g, carbs_target_g, fat_target_g, water_target_ml")
+      .eq("user_id", viewer.id)
+      .maybeSingle();
+    if (error || !data) return null;
+    return {
+      calories_target: data.calories_target != null ? Number(data.calories_target) : null,
+      protein_target_g: data.protein_target_g != null ? Number(data.protein_target_g) : null,
+      carbs_target_g: data.carbs_target_g != null ? Number(data.carbs_target_g) : null,
+      fat_target_g: data.fat_target_g != null ? Number(data.fat_target_g) : null,
+      water_target_ml: data.water_target_ml != null ? Number(data.water_target_ml) : null,
+    };
+  });
+}
+
+export async function upsertNutritionGoalsDb(goals: NutritionGoals): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+  const viewer = await getViewer();
+  if (!viewer) throw new Error("Não autenticado");
+  const { error } = await supabase
+    .from("user_nutrition_goals")
+    .upsert(
+      {
+        user_id: viewer.id,
+        calories_target: goals.calories_target,
+        protein_target_g: goals.protein_target_g,
+        carbs_target_g: goals.carbs_target_g,
+        fat_target_g: goals.fat_target_g,
+        water_target_ml: goals.water_target_ml,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "user_id" },
+    );
+  if (error) throw error;
+  invalidateQueryCache(`nutritionGoals:${viewer.id}`);
+}
+
+/**
+ * Uma insígnia está desbloqueada se o usuário a CONQUISTOU (linha em
+ * user_badges). Insígnias de `checkin_total` também contam quando o total de
+ * check-ins já cobre o requisito, mesmo sem linha: o awarding roda no cliente
+ * durante o check-in, então quem acumulou check-ins fora desse caminho (ou
+ * antes da migração 20260714) ainda enxerga a insígnia como sua.
+ *
+ * Para os demais tipos, `required_checkins` é o limiar de OUTRA métrica (dias
+ * de streak, treinos na semana…), então comparar com o total de check-ins
+ * liberaria insígnias não conquistadas — por isso só o acervo vale.
+ */
+export function isBadgeUnlocked(
+  badge: Badge,
+  earnedBadgeIds: Set<string> | string[],
+  totalCheckIns: number
+): boolean {
+  const earned =
+    earnedBadgeIds instanceof Set ? earnedBadgeIds : new Set(earnedBadgeIds);
+  if (earned.has(String(badge.id))) return true;
+  return (
+    badge.condition_type === "checkin_total" &&
+    totalCheckIns >= (badge.required_checkins ?? 0)
+  );
+}
+
+/**
+ * Define qual insígnia o usuário exibe. A escolha vive em
+ * `profiles.selected_badge_id` e PERSISTE: check-ins e novas conquistas nunca a
+ * alteram — só uma nova escolha explícita do usuário.
+ *
+ * Nunca apagar linhas de `user_badges` aqui. Era o que a versão antiga fazia
+ * (delete-all + insert da escolhida) e é o que fazia a insígnia "virar sozinha":
+ * o acervo era destruído, o check-in seguinte reconquistava tudo e a insígnia
+ * de maior sort_order voltava a ser exibida. Ver docs/migrations/20260714-badge-selection-persist.sql.
+ */
 export async function setSelectedBadgeDb(badgeId: string): Promise<void> {
   if (!hasSupabaseConfig || !supabase) return;
   const viewer = await getViewer();
   if (!viewer) throw new Error("Não autenticado");
 
   try {
-    // 1. Validar requisito
-    const [badge, totalCheckIns] = await Promise.all([
-      supabase.from("badges").select("id, required_checkins").eq("id", badgeId).single(),
+    // 1. Validar que a insígnia foi de fato conquistada
+    const [badgeRes, earned, totalCheckIns] = await Promise.all([
+      supabase
+        .from("badges")
+        .select("id, key, name, emoji, description, required_checkins, sort_order, condition_type, condition_metadata, premium")
+        .eq("id", badgeId)
+        .single(),
+      getUserBadgesDb(viewer.id),
       getTotalCheckInsDb(viewer.id),
     ]);
 
-    if (!badge.data) throw new Error("Insígnia não encontrada");
-    if (totalCheckIns < (badge.data.required_checkins ?? 0)) {
-       throw new Error(`Requisito não atingido (${totalCheckIns}/${badge.data.required_checkins} check-ins)`);
+    const badge = badgeRes.data as Badge | null;
+    if (!badge) throw new Error("Insígnia não encontrada");
+
+    const earnedIds = new Set(earned.map((ub) => String(ub.badge_id)));
+    if (!isBadgeUnlocked(badge, earnedIds, totalCheckIns)) {
+      // Código, não frase: quem exibe traduz (ver InsigniasDrawer).
+      throw new Error("BADGE_NOT_UNLOCKED");
     }
 
-    // 2. Substituir a insígnia selecionada: remove linhas antigas e insere a escolhida.
-    // Isso garante sempre uma única linha por usuário (a insígnia ativa).
-    // Múltiplas linhas podiam surgir de triggers de check-in — esta abordagem é idempotente.
-    await supabase.from("user_badges").delete().eq("user_id", viewer.id);
-    const { error: insertError } = await supabase
-      .from("user_badges")
-      .insert({ user_id: viewer.id, badge_id: badgeId });
-    if (insertError) throw insertError;
+    // Insígnia premium só pode ser exibida por assinante ativo. O gate visual
+    // fica no InsigniasDrawer; este é o backstop.
+    if (badge.premium && !(await getPremiumStatusDb())) {
+      throw new Error("BADGE_PREMIUM_LOCKED");
+    }
+
+    // 2. Garantir a linha no acervo (idempotente). Cobre a insígnia de
+    // `checkin_total` liberada pelo total mas ainda sem linha.
+    if (!earnedIds.has(String(badge.id))) {
+      await supabase
+        .from("user_badges")
+        .upsert(
+          { user_id: viewer.id, badge_id: badge.id },
+          { onConflict: "user_id,badge_id", ignoreDuplicates: true }
+        );
+    }
+
+    // 3. Persistir a escolha
+    const { error: updateError } = await supabase
+      .from("profiles")
+      .update({ selected_badge_id: badge.id })
+      .eq("user_id", viewer.id);
+    if (updateError) throw updateError;
   } catch (err) {
     console.error("Error in setSelectedBadgeDb:", err);
     throw err;
   }
 
   invalidateQueryCache(`userBadges:${viewer.id}`);
-  invalidateQueryCache(`topUserBadge:${viewer.id}`);
+  invalidateQueryCache(`displayBadge:${viewer.id}`);
 }
 
-/**
- * Avalia o total de check-ins acumulados do usuário e concede o badge inicial
- * caso ele ainda não tenha nenhum. Não substitui badges escolhidos manualmente
- * se o usuário já possuir um.
- */
 // ─── Helpers para condições de insígnias ─────────────────────────────────────
+
+/**
+ * Data em YYYY-MM-DD no fuso LOCAL do dispositivo. `toISOString()` seria UTC e
+ * jogaria o jantar das 22h (ou a madrugada) para o dia errado.
+ */
+function fmtLocalDate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 
 /** Conta check-ins na semana atual (Domingo a Sábado, usando data local). */
 async function _getWeekCheckinCountDb(userId: string): Promise<number> {
@@ -10286,6 +10906,37 @@ async function _getWeekWorkoutCountDb(userId: string): Promise<number> {
   return count ?? 0;
 }
 
+/**
+ * Horas LOCAIS de todos os check-ins do usuário (a partir de `created_at`).
+ * Usado pelas insígnias de horário (madrugador / noturno), que precisam contar
+ * QUANTOS check-ins bateram a janela de hora — não só o do momento.
+ */
+async function _getCheckinHoursDb(userId: string): Promise<number[]> {
+  if (!supabase) return [];
+  const { data } = await supabase
+    .from("check_ins")
+    .select("created_at")
+    .eq("user_id", userId)
+    .not("created_at", "is", null)
+    .limit(2000);
+  if (!data) return [];
+  return data
+    .map((r: any) => new Date(String(r.created_at)).getHours())
+    .filter((h) => Number.isFinite(h));
+}
+
+/** Conta dias distintos em que o usuário abriu o app (access_sessions). */
+async function _getAppUsageDaysDb(userId: string): Promise<number> {
+  if (!supabase) return 0;
+  const { data } = await supabase
+    .from("access_sessions")
+    .select("session_date")
+    .eq("user_id", userId)
+    .limit(2000);
+  if (!data) return 0;
+  return new Set(data.map((r: any) => String(r.session_date))).size;
+}
+
 /** Conta treinos de um tipo específico ('forca' | 'cardio' | …) no total. */
 async function _getWorkoutTypeCountDb(userId: string, type: string): Promise<number> {
   if (!supabase) return 0;
@@ -10297,7 +10948,15 @@ async function _getWorkoutTypeCountDb(userId: string, type: string): Promise<num
   return count ?? 0;
 }
 
-/** Avalia se uma insígnia foi desbloqueada dado o contexto do check-in atual. */
+/**
+ * Avalia se uma insígnia foi desbloqueada dado o contexto do check-in atual.
+ *
+ * Regra geral: `required_checkins` é o **limiar da métrica daquele tipo** — nunca
+ * o total de check-ins. Para os tipos de horário isso significa "N check-ins
+ * DENTRO da janela de hora", e não "1 check-in na janela" nem "N check-ins
+ * quaisquer": a insígnia Madrugador (`checkin_before_time`, 9h) exige N check-ins
+ * feitos antes das 9h. Um `threshold` de 0/1 degenera naturalmente em "basta um".
+ */
 async function _evaluateBadgeCondition(
   badge: Badge,
   userId: string,
@@ -10308,10 +10967,11 @@ async function _evaluateBadgeCondition(
     streak?: number;
     prevCheckinDate?: Date | null;
     weekWorkouts?: number;
+    checkinHours?: number[];
   }
 ): Promise<boolean> {
   const { condition_type, condition_metadata, required_checkins } = badge;
-  const threshold = required_checkins;
+  const threshold = Math.max(1, required_checkins ?? 1);
 
   switch (condition_type) {
     case "checkin_total":
@@ -10328,13 +10988,18 @@ async function _evaluateBadgeCondition(
     }
 
     case "checkin_after_midnight": {
-      const h = checkinAt.getHours();
-      return h >= 0 && h < 6; // 00:00–05:59
+      // Quantos check-ins caíram na madrugada (00:00–05:59) — não só o de agora.
+      const hours = context.checkinHours ?? [];
+      const nightly = hours.filter((h) => h >= 0 && h < 6).length;
+      return nightly >= threshold;
     }
 
     case "checkin_before_time": {
+      // Quantos check-ins foram feitos ANTES da hora limite — não só o de agora.
       const limitHour: number = condition_metadata?.hour ?? 9;
-      return checkinAt.getHours() < limitHour;
+      const hours = context.checkinHours ?? [];
+      const early = hours.filter((h) => h < limitHour).length;
+      return early >= threshold;
     }
 
     case "checkin_comeback": {
@@ -10358,7 +11023,15 @@ async function _evaluateBadgeCondition(
       return typeCount >= threshold;
     }
 
-    // Nutrição e hábitos são avaliados por suas próprias funções (não avaliados aqui)
+    case "app_usage": {
+      const days = await _getAppUsageDaysDb(userId);
+      return days >= threshold;
+    }
+
+    // Sem tracking dedicado ainda: nutrition_* (hidratação, sem açúcar, proteína…),
+    // habit_* (sono, meditação, passos…) e challenge_count. Não há como verificar a
+    // condição, então NUNCA são concedidas — jamais liberar por contagem de check-ins,
+    // que foi exatamente o bug de 14/07/2026 (Madrugador saía sem treino de manhã).
     default:
       return false;
   }
@@ -10383,7 +11056,7 @@ export async function awardBadgesForCheckInsDb(
   if (isLikelyOffline()) return [];
   try {
     // Buscar dados em paralelo para minimizar latência
-    const [totalCheckIns, allBadges, existingRows, weekCount, streak, prevCheckinDate, weekWorkouts] =
+    const [totalCheckIns, allBadges, existingRows, weekCount, streak, prevCheckinDate, weekWorkouts, checkinHours] =
       await Promise.all([
         getTotalCheckInsDb(userId),
         getAllBadgesDb(),
@@ -10392,6 +11065,7 @@ export async function awardBadgesForCheckInsDb(
         _getCheckinStreakDb(userId),
         _getPreviousCheckinDateDb(userId),
         _getWeekWorkoutCountDb(userId),
+        _getCheckinHoursDb(userId),
       ]);
 
     // Falha ao ler as badges existentes (ex.: rede caiu no meio) → aborta em
@@ -10412,6 +11086,7 @@ export async function awardBadgesForCheckInsDb(
       "checkin_comeback",
       "workout_week",
       "workout_type",
+      "app_usage",
     ];
 
     const candidates = allBadges.filter(
@@ -10420,7 +11095,7 @@ export async function awardBadgesForCheckInsDb(
         CHECKIN_CONDITIONS.includes(b.condition_type)
     );
 
-    const context = { totalCheckIns, weekCount, streak, prevCheckinDate, weekWorkouts };
+    const context = { totalCheckIns, weekCount, streak, prevCheckinDate, weekWorkouts, checkinHours };
 
     const newBadges: Badge[] = [];
     for (const badge of candidates) {
@@ -10449,36 +11124,233 @@ export async function awardBadgesForCheckInsDb(
 }
 
 /**
- * Retorna o badge mais alto que o usuário possui (maior sort_order).
- * Usado para exibição no feed e perfil.
+ * Concede as insígnias de NUTRIÇÃO avaliáveis a partir do diário alimentar
+ * (`user_food_logs`). Chamada após registrar um alimento.
+ *
+ * Só os tipos que o diário consegue PROVAR são avaliados:
+ *   • nutrition_no_ultra → N dias seguidos sem ultraprocessado
+ *   • nutrition_protein  → N dias seguidos batendo a meta de proteína
+ *   • nutrition_week     → N dias com registro na semana atual (Dom–Sáb)
+ *   • nutrition_no_sugar → N dias seguidos com açúcar ≤ limite (metadata.max_sugar_g)
+ *   • nutrition_hydration→ N dias seguidos batendo a meta de água
+ *
+ * `nutrition_fruits` e `nutrition_home_food` continuam sem tracking — o diário
+ * não classifica fruta nem "comida caseira" — e por isso NUNCA são concedidas.
+ * Não inventar heurística por nome do alimento: liberar sem provar a condição é
+ * o bug que estamos consertando.
+ *
+ * **Desconhecido nunca conta como zero.** Qualidade e açúcar vêm do catálogo
+ * (`diets.food_quality` / `sugar_g`) — entradas manuais sem esse dado tornam o
+ * dia inválido para `nutrition_no_ultra` / `nutrition_no_sugar`. Não dá para
+ * provar que não houve ultraprocessado (ou açúcar), e aceitar o desconhecido
+ * entregaria a insígnia a quem registra tudo na mão.
+ */
+export async function awardNutritionBadgesDb(userId?: string): Promise<Badge[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+  if (isLikelyOffline()) return [];
+  const uid = userId ?? (await getViewer())?.id;
+  if (!uid) return [];
+
+  try {
+    const since = new Date();
+    since.setDate(since.getDate() - 60);
+    const sinceISO = fmtLocalDate(since);
+
+    const [logsRes, waterRes, allBadges, existingRows, goals] = await Promise.all([
+      supabase
+        .from("user_food_logs")
+        .select("log_date, protein_g, sugar_g, diet_id, diets(food_quality)")
+        .eq("user_id", uid)
+        .gte("log_date", sinceISO),
+      supabase
+        .from("user_water_logs")
+        .select("log_date, ml")
+        .eq("user_id", uid)
+        .gte("log_date", sinceISO),
+      getAllBadgesDb(),
+      supabase.from("user_badges").select("badge_id").eq("user_id", uid),
+      getNutritionGoalsDb(),
+    ]);
+    if (logsRes.error) throw logsRes.error;
+    if (existingRows.error) throw existingRows.error;
+
+    // Agrega por dia local
+    type Day = {
+      protein: number;
+      sugar: number;
+      hasUnknownQuality: boolean;
+      hasUnknownSugar: boolean;
+      hasUltra: boolean;
+    };
+    const newDay = (): Day => ({
+      protein: 0,
+      sugar: 0,
+      hasUnknownQuality: false,
+      hasUnknownSugar: false,
+      hasUltra: false,
+    });
+    const days = new Map<string, Day>();
+    for (const row of (logsRes.data ?? []) as any[]) {
+      const date = String(row.log_date);
+      const day = days.get(date) ?? newDay();
+      day.protein += Number(row.protein_g ?? 0);
+      if (row.sugar_g == null) day.hasUnknownSugar = true;
+      else day.sugar += Number(row.sugar_g);
+      const quality = (row.diets as any)?.food_quality ?? null;
+      if (!quality) day.hasUnknownQuality = true;
+      else if (quality === "ultraprocessado") day.hasUltra = true;
+      days.set(date, day);
+    }
+
+    const water = new Map<string, number>();
+    for (const row of (waterRes.data ?? []) as any[]) {
+      water.set(String(row.log_date), Number(row.ml ?? 0));
+    }
+
+    /** Dias consecutivos que satisfazem `ok`, contados de hoje (ou ontem) para trás. */
+    const streakOf = (ok: (date: string) => boolean): number => {
+      const cursor = new Date();
+      // Ainda não bateu a condição hoje → a sequência vale até ontem (o dia não acabou).
+      if (!ok(fmtLocalDate(cursor))) cursor.setDate(cursor.getDate() - 1);
+      let streak = 0;
+      while (ok(fmtLocalDate(cursor))) {
+        streak++;
+        cursor.setDate(cursor.getDate() - 1);
+      }
+      return streak;
+    };
+
+    /** Dia com comida registrada que satisfaz `ok` — sem registro não prova nada. */
+    const onDay = (ok: (d: Day) => boolean) => (date: string) => {
+      const day = days.get(date);
+      return day != null && ok(day);
+    };
+
+    const noUltraStreak = streakOf(onDay((d) => !d.hasUnknownQuality && !d.hasUltra));
+
+    const proteinTarget = goals?.protein_target_g ?? 0;
+    const proteinStreak =
+      proteinTarget > 0 ? streakOf(onDay((d) => d.protein >= proteinTarget)) : 0;
+
+    // Açúcar: sem o dado (catálogo sem sugar_g / entrada manual em branco) o dia
+    // não conta — desconhecido não é zero.
+    const sugarStreakFor = (maxSugar: number) =>
+      streakOf(onDay((d) => !d.hasUnknownSugar && d.sugar <= maxSugar));
+
+    // Água: meta do usuário quando definida; senão a da própria insígnia.
+    const waterStreakFor = (targetMl: number) =>
+      targetMl > 0 ? streakOf((date) => (water.get(date) ?? 0) >= targetMl) : 0;
+
+    // Dias com registro na semana atual (Dom–Sáb)
+    const now = new Date();
+    const sunday = new Date(now);
+    sunday.setDate(now.getDate() - now.getDay());
+    let weekDays = 0;
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(sunday);
+      d.setDate(sunday.getDate() + i);
+      if (days.has(fmtLocalDate(d))) weekDays++;
+    }
+
+    const alreadyEarned = new Set(
+      ((existingRows.data ?? []) as any[]).map((r) => String(r.badge_id))
+    );
+
+    const newBadges = allBadges.filter((b) => {
+      if (alreadyEarned.has(String(b.id))) return false;
+      const threshold = Math.max(1, b.required_checkins ?? 1);
+      switch (b.condition_type) {
+        case "nutrition_no_ultra":
+          return noUltraStreak >= threshold;
+        case "nutrition_protein":
+          return proteinStreak >= threshold;
+        case "nutrition_week":
+          return weekDays >= threshold;
+        case "nutrition_no_sugar": {
+          const maxSugar = Number(b.condition_metadata?.max_sugar_g ?? 25);
+          return sugarStreakFor(maxSugar) >= threshold;
+        }
+        case "nutrition_hydration": {
+          const targetMl = Number(
+            goals?.water_target_ml ?? b.condition_metadata?.ml ?? 2000
+          );
+          return waterStreakFor(targetMl) >= threshold;
+        }
+        default:
+          return false; // frutas e comida caseira: sem tracking
+      }
+    });
+
+    if (newBadges.length > 0) {
+      const { error: upsertError } = await supabase
+        .from("user_badges")
+        .upsert(
+          newBadges.map((b) => ({ user_id: uid, badge_id: b.id })),
+          { onConflict: "user_id,badge_id", ignoreDuplicates: true }
+        );
+      if (upsertError) throw upsertError; // não celebrar o que não persistiu
+      invalidateQueryCache(`userBadges:${uid}`);
+      invalidateQueryCache(`displayBadge:${uid}`);
+    }
+
+    return newBadges;
+  } catch (err) {
+    console.error("Error in awardNutritionBadgesDb:", err);
+    return [];
+  }
+}
+
+/**
+ * Retorna a insígnia que o usuário exibe no feed e no perfil.
+ *
+ * Regra: a insígnia ESCOLHIDA (`profiles.selected_badge_id`) sempre vence,
+ * desde que ainda esteja no acervo. Conquistar novas insígnias não muda a
+ * exibida — só uma escolha explícita muda. O fallback para a de maior
+ * sort_order vale só para quem nunca escolheu nenhuma (o comportamento
+ * automático de sempre, até a primeira escolha).
  *
  * Nota: o Supabase JS v2 não suporta order por coluna de tabela relacionada,
  * então buscamos todos e filtramos no cliente.
  */
-export async function getTopUserBadgeDb(userId: string): Promise<Badge | null> {
+export async function getDisplayBadgeDb(userId: string): Promise<Badge | null> {
   if (!hasSupabaseConfig || !supabase) return null;
   try {
     // Cacheado: UserInsignias monta no header do perfil E a cada post aberto
     // no drawer — sem cache eram 2 queries extras por post visualizado.
-    return await cached(`topUserBadge:${userId}`, CACHE_TTL_SHORT, async () => {
-      const { data, error } = await supabase!
-        .from("user_badges")
-        .select("badges(id, key, name, emoji, description, required_checkins, sort_order, condition_type, condition_metadata)")
-        .eq("user_id", userId);
-      if (error) throw error;
-      if (!data || data.length === 0) return null;
+    return await cached(`displayBadge:${userId}`, CACHE_TTL_SHORT, async () => {
+      const [earnedRes, profileRes] = await Promise.all([
+        supabase!
+          .from("user_badges")
+          .select("badges(id, key, name, emoji, description, required_checkins, sort_order, condition_type, condition_metadata, premium)")
+          .eq("user_id", userId),
+        supabase!
+          .from("profiles")
+          .select("selected_badge_id")
+          .eq("user_id", userId)
+          .maybeSingle(),
+      ]);
+      if (earnedRes.error) throw earnedRes.error;
 
-      // Pega o badge com maior sort_order (mais alto nível)
-      const top = data.reduce((best: any, row: any) => {
-        const b = row.badges as Badge;
-        if (!best) return b;
-        return (b?.sort_order ?? 0) > (best?.sort_order ?? 0) ? b : best;
-      }, null);
+      const earned = ((earnedRes.data ?? []) as any[])
+        .map((row) => row.badges as Badge)
+        .filter(Boolean);
+      if (earned.length === 0) return null;
 
-      return top ?? null;
+      const selectedId = profileRes.data?.selected_badge_id
+        ? String(profileRes.data.selected_badge_id)
+        : null;
+      if (selectedId) {
+        const chosen = earned.find((b) => String(b.id) === selectedId);
+        if (chosen) return chosen;
+      }
+
+      // Nunca escolheu (ou a escolhida saiu do acervo): maior sort_order.
+      return earned.reduce((best, b) =>
+        (b?.sort_order ?? 0) > (best?.sort_order ?? 0) ? b : best
+      );
     });
   } catch (err) {
-    console.error("Error fetching top user badge:", err);
+    console.error("Error fetching display badge:", err);
     return null;
   }
 }
@@ -10795,8 +11667,129 @@ export async function togglePromotionLikeDb(promotionId: string): Promise<"liked
       .from("promotion_likes")
       .insert({ promotion_id: promotionId, user_id: viewer.id });
     invalidateQueryCache("promotions");
+
+    // Notifica o dono da promoção (fire-and-forget — não bloqueia o toque no coração)
+    sendPromotionLikeNotificationDb(promotionId).catch((err) =>
+      console.error("Error sending promotion like notification:", err),
+    );
+
     return "liked";
   }
+}
+
+/**
+ * Notificação de curtida em promoção (tipo 12) — o id da promoção vai em `post_id`,
+ * mesma convenção do comentário em promoção (tipo 8). Deduplicada por
+ * (dono, curtidor, promoção): descurtir e curtir de novo não gera novo push.
+ */
+async function sendPromotionLikeNotificationDb(promotionId: string): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+
+  const viewer = await getViewer();
+  if (!viewer) return;
+
+  const { data: promo } = await supabase
+    .from("promotions")
+    .select("user_id")
+    .eq("id", promotionId)
+    .maybeSingle();
+
+  const ownerId = promo?.user_id ? String(promo.user_id) : null;
+  if (!ownerId || ownerId === viewer.id) return;
+
+  const { data: existing } = await supabase
+    .from("notifications")
+    .select("id")
+    .eq("user_id", ownerId)
+    .eq("follower_id", viewer.id)
+    .eq("type", 12)
+    .eq("post_id", promotionId)
+    .maybeSingle();
+
+  if (existing) return;
+
+  const { error } = await supabase.from("notifications").insert({
+    user_id: ownerId,
+    follower_id: viewer.id,
+    type: 12,
+    post_id: promotionId,
+    read: false,
+  });
+
+  if (error) {
+    console.error("Error inserting promotion like notification:", error);
+    return;
+  }
+
+  invalidateQueryCache("notifications");
+  invalidateQueryCache("unreadNotifCount");
+}
+
+// Mesmo limiar que a Vitrine usa para riscar a promoção como expirada (`majorityExpired` em Store.tsx)
+const isMajorityExpired = (total: number, expired: number) => total >= 3 && expired / total > 0.5;
+
+/**
+ * Notificação de promoção expirada (tipo 13).
+ *
+ * Disparada apenas no voto que faz a promoção **cruzar** o limiar de expirada (≥ 3
+ * votos de status e maioria em "expired"): as contagens de antes são reconstruídas
+ * a partir do voto que acabou de ser gravado, então os votos seguintes não geram
+ * um novo push. Só o autor é avisado, e `follower_id` guarda quem deu o voto que
+ * fechou a maioria — é o nome que aparece no card e no push ("{name} marcou sua
+ * promoção como expirada").
+ */
+async function sendPromotionExpiredNotificationDb(
+  promotionId: string,
+  prevStatus: "active" | "expired" | null,
+  newStatus: "active" | "expired" | null,
+): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+
+  const [{ data: reports }, { data: promo }] = await Promise.all([
+    supabase.from("promotion_status_reports").select("status").eq("promotion_id", promotionId),
+    supabase.from("promotions").select("user_id").eq("id", promotionId).maybeSingle(),
+  ]);
+
+  const total = (reports ?? []).length;
+  const expired = (reports ?? []).filter((r: any) => r.status === "expired").length;
+
+  // Estado anterior ao voto recém-gravado, desfazendo o delta deste usuário
+  const prevTotal = total - (newStatus ? 1 : 0) + (prevStatus ? 1 : 0);
+  const prevExpired =
+    expired - (newStatus === "expired" ? 1 : 0) + (prevStatus === "expired" ? 1 : 0);
+
+  if (!isMajorityExpired(total, expired)) return;
+  if (isMajorityExpired(prevTotal, prevExpired)) return; // já estava expirada — não avisa de novo
+
+  const viewer = await getViewer();
+  const ownerId = promo?.user_id ? String(promo.user_id) : null;
+  if (!ownerId || !viewer || viewer.id === ownerId) return;
+
+  const { data: existing } = await supabase
+    .from("notifications")
+    .select("id")
+    .eq("user_id", ownerId)
+    .eq("type", 13)
+    .eq("post_id", promotionId)
+    .maybeSingle();
+
+  if (existing) return;
+
+  const { error } = await supabase.from("notifications").insert({
+    user_id: ownerId,
+    follower_id: viewer.id, // quem deu o voto que fechou a maioria
+    type: 13,
+    post_id: promotionId,
+    read: false,
+  });
+
+  if (error) {
+    console.error("Error inserting promotion expired notification:", error);
+    return;
+  }
+
+  invalidateQueryCache("notifications");
+  invalidateQueryCache("unreadNotifCount");
 }
 
 export async function reportPromotionStatusDb(
@@ -10816,6 +11809,14 @@ export async function reportPromotionStatusDb(
     .eq("user_id", viewer.id)
     .maybeSingle();
 
+  const prevStatus = (existing?.status as "active" | "expired" | undefined) ?? null;
+
+  // Avisa o dono se este voto acabou de marcar a promoção como expirada (fire-and-forget)
+  const notifyIfExpired = (newStatus: "active" | "expired" | null) =>
+    sendPromotionExpiredNotificationDb(promotionId, prevStatus, newStatus).catch((err) =>
+      console.error("Error sending promotion expired notification:", err),
+    );
+
   if (existing) {
     if (existing.status === status) {
       // Toggle off — remove vote
@@ -10825,6 +11826,7 @@ export async function reportPromotionStatusDb(
         .eq("promotion_id", promotionId)
         .eq("user_id", viewer.id);
       invalidateQueryCache("promotions");
+      notifyIfExpired(null);
       return "removed";
     } else {
       // Change vote
@@ -10834,6 +11836,7 @@ export async function reportPromotionStatusDb(
         .eq("promotion_id", promotionId)
         .eq("user_id", viewer.id);
       invalidateQueryCache("promotions");
+      notifyIfExpired(status);
       return "voted";
     }
   } else {
@@ -10841,6 +11844,7 @@ export async function reportPromotionStatusDb(
       .from("promotion_status_reports")
       .insert({ promotion_id: promotionId, user_id: viewer.id, status });
     invalidateQueryCache("promotions");
+    notifyIfExpired(status);
     return "voted";
   }
 }

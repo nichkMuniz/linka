@@ -114,6 +114,59 @@ function resolveUrl(src: string | null, base: string): string | null {
   }
 }
 
+/**
+ * SSRF guard. Esta rota faz um fetch server-side de uma URL escolhida pelo
+ * usuário — sem esta checagem ela vira um proxy para a rede interna da
+ * hospedagem (inclusive 169.254.169.254, o endpoint de metadata das clouds, que
+ * devolve credenciais da instância).
+ *
+ * Como a checagem é feita pelo hostname (e não pelo IP resolvido), um domínio
+ * que resolve para IP privado ainda passaria; por isso todo redirect é
+ * revalidado manualmente abaixo (`redirect: "manual"`) em vez de seguido cego.
+ */
+function isBlockedHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+
+  if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".internal")) return true;
+
+  // IPv6: loopback, link-local (fe80::/10) e unique-local (fc00::/7)
+  if (host === "::1" || host === "::" ) return true;
+  if (/^fe[89ab][0-9a-f]:/i.test(host) || /^f[cd][0-9a-f]{2}:/i.test(host)) return true;
+  // IPv4 mapeado em IPv6 (::ffff:127.0.0.1)
+  const mapped = host.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i);
+  if (mapped) return isBlockedHost(mapped[1]);
+
+  const v4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (v4) {
+    const [a, b] = [Number(v4[1]), Number(v4[2])];
+    if (a === 0 || a === 127) return true;              // this-host / loopback
+    if (a === 10) return true;                          // 10.0.0.0/8
+    if (a === 172 && b >= 16 && b <= 31) return true;   // 172.16.0.0/12
+    if (a === 192 && b === 168) return true;            // 192.168.0.0/16
+    if (a === 169 && b === 254) return true;            // link-local + metadata da cloud
+    if (a === 100 && b >= 64 && b <= 127) return true;  // CGNAT 100.64.0.0/10
+    if (a >= 224) return true;                          // multicast / reservado
+  }
+
+  return false;
+}
+
+/** Valida esquema + host. Retorna a URL normalizada ou null se for proibida. */
+function safeTargetUrl(raw: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return null;
+  }
+  // Só http(s): bloqueia file:, gopher:, ftp: e afins.
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+  if (isBlockedHost(parsed.hostname)) return null;
+  return parsed.href;
+}
+
+const MAX_REDIRECTS = 3;
+
 export const handleLinkPreview: RequestHandler = async (req, res) => {
   const { url } = req.query as { url?: string };
 
@@ -121,22 +174,8 @@ export const handleLinkPreview: RequestHandler = async (req, res) => {
     return res.status(400).json({ error: "url é obrigatório" });
   }
 
-  let targetUrl: string;
-  try {
-    targetUrl = new URL(url).href;
-  } catch {
-    return res.status(400).json({ error: "URL inválida" });
-  }
-
-  // Block private/internal addresses
-  const hostname = new URL(targetUrl).hostname;
-  if (
-    hostname === "localhost" ||
-    hostname.startsWith("127.") ||
-    hostname.startsWith("192.168.") ||
-    hostname.startsWith("10.") ||
-    hostname === "0.0.0.0"
-  ) {
+  let targetUrl = safeTargetUrl(url);
+  if (!targetUrl) {
     return res.status(400).json({ error: "URL não permitida" });
   }
 
@@ -144,16 +183,33 @@ export const handleLinkPreview: RequestHandler = async (req, res) => {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8000);
 
-    const response = await fetch(targetUrl, {
-      signal: controller.signal,
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (compatible; RitmoFitBot/1.0; +https://ritmofit.app)",
-        Accept: "text/html,application/xhtml+xml",
-        "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
-      },
-      redirect: "follow",
-    });
+    // Segue redirects manualmente: cada salto passa de novo pelo SSRF guard.
+    let response: Response;
+    let hops = 0;
+    for (;;) {
+      response = await fetch(targetUrl, {
+        signal: controller.signal,
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (compatible; RitmoFitBot/1.0; +https://ritmofit.app)",
+          Accept: "text/html,application/xhtml+xml",
+          "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
+        },
+        redirect: "manual",
+      });
+
+      if (response.status < 300 || response.status >= 400) break;
+
+      const location = response.headers.get("location");
+      if (!location || ++hops > MAX_REDIRECTS) break;
+
+      const next = safeTargetUrl(new URL(location, targetUrl).href);
+      if (!next) {
+        clearTimeout(timeout);
+        return res.status(400).json({ error: "URL não permitida" });
+      }
+      targetUrl = next;
+    }
 
     clearTimeout(timeout);
 

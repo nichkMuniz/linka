@@ -11,6 +11,13 @@
  *   APNS_KEY_ID                — 10-char Key ID from Apple Developer Portal
  *   APNS_TEAM_ID               — 10-char Team ID from Apple Developer Portal
  *   APNS_BUNDLE_ID             — e.g. com.linka.meuapp
+ *   PUSH_WEBHOOK_SECRET        — segredo compartilhado com o Database Webhook
+ *
+ * SEGURANÇA: esta função roda com `verify_jwt` desligado (o Database Webhook não
+ * manda JWT de usuário). Sem o segredo abaixo, qualquer pessoa na internet
+ * poderia POSTar `{"record":{"user_id":"<vítima>","type":9,...}}` e disparar um
+ * push forjado no iPhone de qualquer usuário. O webhook deve ser configurado com
+ * o header `x-webhook-secret: <PUSH_WEBHOOK_SECRET>`.
  */
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
@@ -49,19 +56,190 @@ async function makeApnsJwt(keyId: string, teamId: string, p8: string): Promise<s
 
 // ─── Notification content by type ────────────────────────────────────────────
 
-const NOTIF_CONTENT: Record<number, { title: string; body: string }> = {
-  1: { title: "Novo seguidor 👤", body: "Alguém começou a te seguir." },
-  2: { title: "Novo incentivo 🔥", body: "Alguém reagiu à sua postagem." },
-  3: { title: "Novo comentário 💬", body: "Alguém comentou na sua postagem." },
-  4: { title: "Convite para duelo ⚔️", body: "Você recebeu um convite para duelo." },
-  5: { title: "Pedido de entrada 👊", body: "Alguém quer entrar no seu grupo." },
-  6: { title: "Reação no comentário ❤️", body: "Alguém reagiu ao seu comentário." },
-  7: { title: "Reação no check-in 🏆", body: "Alguém reagiu ao seu check-in." },
-  8: { title: "Comentário na promoção 🛍️", body: "Alguém comentou na sua promoção." },
-  9: { title: "Você foi marcado 📸", body: "Alguém marcou você em uma publicação." },
+type NotifRecord = {
+  user_id?: string;
+  type?: number;
+  follower_id?: string;
+  post_id?: string;
+  shots_id?: string;
+  flow_id?: number | string;
+  duel_check_in_id?: string;
+  incentive_type?: number;
 };
 
+const TITLE_BY_TYPE: Record<number, string> = {
+  1: "Novo seguidor 👤",
+  2: "Novo incentivo 🔥",
+  3: "Novo comentário 💬",
+  4: "Convite para duelo ⚔️",
+  5: "Pedido de entrada 👊",
+  6: "Reação no comentário ❤️",
+  7: "Reação no check-in 🏆",
+  8: "Comentário na promoção 🛍️",
+  9: "Você foi marcado 📸",
+  10: "Nova mensagem 💌",
+  11: "Check-in no duelo 💪",
+  12: "Curtida na promoção ❤️",
+  13: "Promoção expirada ⏳",
+};
+
+// Mesmos nomes exibidos no app (INCENTIVE_CONFIG / i18n)
+const INCENTIVE_NAMES: Record<number, string> = {
+  1: "Apoio",
+  2: "Continua",
+  3: "Vencedor",
+  4: "Consegue Mais",
+  5: "Limite Maior",
+  6: "Mais Algum",
+};
+
+/** Encurta nomes livres (apelido, grupo, título) para o push não virar um parágrafo. */
+function short(value: string, max = 40): string {
+  const v = value.trim();
+  return v.length > max ? `${v.slice(0, max - 1)}…` : v;
+}
+
+/**
+ * Monta o corpo do push com os dados reais da notificação: quem originou, em qual
+ * grupo de duelo ou promoção. Sem isso todo push cai no texto genérico
+ * ("Você tem uma nova notificação"), que não diz ao usuário o que aconteceu.
+ *
+ * `post_id` guarda o id do grupo de duelo nos tipos 4/5/11 e o id da promoção nos
+ * tipos 8/12/13 — por isso os lookups dependem do tipo.
+ */
+async function buildBody(
+  supabase: ReturnType<typeof createClient>,
+  type: number,
+  record: NotifRecord,
+): Promise<string> {
+  // Quem originou a notificação
+  let name = "Alguém";
+  if (record.follower_id) {
+    const { data: sender } = await supabase
+      .from("profiles")
+      .select("nickname")
+      .eq("user_id", record.follower_id)
+      .maybeSingle();
+    if (sender?.nickname) name = short(String(sender.nickname), 24);
+  }
+
+  // Nome do grupo de duelo (tipos 4, 5 e 11)
+  const groupName = async (): Promise<string | null> => {
+    if (!record.post_id) return null;
+    const { data } = await supabase
+      .from("duel_groups")
+      .select("name")
+      .eq("id", record.post_id)
+      .maybeSingle();
+    return data?.name ? short(String(data.name)) : null;
+  };
+
+  // Título da promoção (tipos 8, 12 e 13)
+  const promoTitle = async (): Promise<string | null> => {
+    if (!record.post_id) return null;
+    const { data } = await supabase
+      .from("promotions")
+      .select("title")
+      .eq("id", record.post_id)
+      .maybeSingle();
+    return data?.title ? short(String(data.title)) : null;
+  };
+
+  // Onde a interação aconteceu (post / shot / flow)
+  const context = record.shots_id
+    ? "no seu shot"
+    : record.flow_id
+      ? "no seu flow"
+      : "na sua publicação";
+
+  switch (type) {
+    case 1:
+      return `${name} começou a te seguir.`;
+    case 2: {
+      const incentive = INCENTIVE_NAMES[Number(record.incentive_type ?? 0)];
+      return incentive
+        ? `${name} te deu "${incentive}" ${context}.`
+        : `${name} reagiu ${context}.`;
+    }
+    case 3:
+      return `${name} comentou ${context}.`;
+    case 4: {
+      const group = await groupName();
+      return group
+        ? `${name} te convidou para o duelo "${group}".`
+        : `${name} te convidou para um duelo.`;
+    }
+    case 5: {
+      const group = await groupName();
+      return group
+        ? `${name} quer entrar no grupo "${group}".`
+        : `${name} quer entrar no seu grupo.`;
+    }
+    case 6:
+      return `${name} reagiu ao seu comentário.`;
+    case 7:
+      return `${name} reagiu ao seu check-in.`;
+    case 8: {
+      const promo = await promoTitle();
+      return promo
+        ? `${name} comentou na sua promoção "${promo}".`
+        : `${name} comentou na sua promoção.`;
+    }
+    case 9:
+      return `${name} marcou você em uma publicação.`;
+    case 10:
+      return `${name} te enviou uma mensagem.`;
+    case 11: {
+      const group = await groupName();
+      return group
+        ? `${name} postou um check-in no duelo "${group}".`
+        : `${name} postou um check-in no seu duelo.`;
+    }
+    case 12: {
+      const promo = await promoTitle();
+      return promo
+        ? `${name} curtiu sua promoção "${promo}".`
+        : `${name} curtiu sua promoção.`;
+    }
+    case 13: {
+      const promo = await promoTitle();
+      return promo
+        ? `${name} marcou sua promoção "${promo}" como expirada.`
+        : `${name} marcou sua promoção como expirada.`;
+    }
+    default:
+      return "Você tem uma nova notificação no LinKa.";
+  }
+}
+
+/**
+ * Tela que o app abre quando o usuário toca no push.
+ * O `post_id` guarda o id do grupo de duelo (tipo 11) ou da promoção (8, 12, 13).
+ */
+function deepLinkFor(type: number, record: NotifRecord): string {
+  switch (type) {
+    case 10:
+      return record.follower_id ? `/comunidade?user=${record.follower_id}` : "/comunidade";
+    case 11:
+      return record.post_id ? `/comunidade?group=${record.post_id}` : "/comunidade?tab=duels";
+    case 8:
+    case 12:
+    case 13:
+      return "/vitrine";
+    default:
+      return "/notificacoes";
+  }
+}
+
 // ─── Handler ──────────────────────────────────────────────────────────────────
+
+/** Comparação em tempo constante — evita vazar o segredo por timing. */
+function safeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
 
 Deno.serve(async (req) => {
   // Supabase DB Webhook sends a POST with the new row as JSON
@@ -69,15 +247,26 @@ Deno.serve(async (req) => {
     return new Response("Method not allowed", { status: 405 });
   }
 
-  let body: { record?: { user_id?: string; type?: number } };
+  // Só o Database Webhook (que carrega o segredo) pode disparar pushes.
+  const webhookSecret = Deno.env.get("PUSH_WEBHOOK_SECRET");
+  if (!webhookSecret) {
+    console.error("PUSH_WEBHOOK_SECRET não configurado — recusando a requisição.");
+    return new Response("Server misconfigured", { status: 500 });
+  }
+  if (!safeEqual(req.headers.get("x-webhook-secret") ?? "", webhookSecret)) {
+    return new Response("Unauthorized", { status: 401 });
+  }
+
+  let body: { record?: NotifRecord };
   try {
     body = await req.json();
   } catch {
     return new Response("Invalid JSON", { status: 400 });
   }
 
-  const userId = body?.record?.user_id;
-  const notifType = body?.record?.type ?? 0;
+  const record = body?.record ?? {};
+  const userId = record.user_id;
+  const notifType = Number(record.type ?? 0);
 
   if (!userId) {
     return new Response("No user_id in payload", { status: 200 });
@@ -106,18 +295,20 @@ Deno.serve(async (req) => {
   // Build APNs JWT (valid for ~55 min — generate fresh each invocation for simplicity)
   const jwt = await makeApnsJwt(apnsKeyId, apnsTeamId, apnsKeyP8);
 
-  const content = NOTIF_CONTENT[notifType] ?? {
-    title: "Nova notificação 🔔",
-    body: "Você tem uma nova notificação no LinKa.",
-  };
+  const title = TITLE_BY_TYPE[notifType] ?? "Nova notificação 🔔";
+  // Um lookup falho (perfil/grupo/promoção apagados) não pode derrubar o push
+  const alertBody = await buildBody(supabase, notifType, record).catch((err) => {
+    console.error("Error building push body:", err);
+    return "Você tem uma nova notificação no LinKa.";
+  });
 
   const apnsPayload = JSON.stringify({
     aps: {
-      alert: { title: content.title, body: content.body },
+      alert: { title, body: alertBody },
       sound: "default",
       badge: 1,
     },
-    url: "/notificacoes",
+    url: deepLinkFor(notifType, record),
   });
 
   // Send to each registered device (production APNs endpoint)

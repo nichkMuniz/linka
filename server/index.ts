@@ -11,9 +11,41 @@ import { handleLinkPreview } from "./routes/link-preview";
 export function createServer() {
   const app = express();
 
-  // Middleware
-  app.use(cors());
-  app.use(express.json());
+  // CORS restrito: o app iOS (Capacitor) chama a API a partir de capacitor://
+  // ou de um WebView sem Origin. Um `cors()` sem opções refletia qualquer
+  // origem, o que permitia a qualquer site usar esta API como proxy.
+  const allowedOrigins = new Set([
+    "capacitor://localhost",
+    "ionic://localhost",
+    "http://localhost",
+    "https://linka.app",
+    "https://www.linka.app",
+  ]);
+
+  const isDev = process.env.NODE_ENV !== "production";
+
+  function isAllowedOrigin(origin: string): boolean {
+    if (allowedOrigins.has(origin)) return true;
+    // Em dev o Vite escolhe a porta livre (5173, 5174, 8080…) — aceita qualquer
+    // porta local em vez de fixar uma que muda a cada `pnpm dev`.
+    return isDev && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+  }
+
+  const corsMiddleware = cors({
+    origin: (origin, callback) => {
+      // Sem Origin (WebView nativo, curl, health check) → liberado.
+      // Origem não permitida → responde SEM o header CORS (o navegador é quem
+      // bloqueia). Nunca com `new Error()`: isso vira 500 no Express, e como
+      // este app é montado como middleware do Vite em dev, derrubava até o
+      // carregamento da página.
+      callback(null, !origin || isAllowedOrigin(origin));
+    },
+  });
+
+  // CORS só nas rotas de API — o resto do tráfego é o Vite/SPA servindo a
+  // própria página, que não precisa (nem deve) passar por este middleware.
+  app.use("/api", corsMiddleware);
+  app.use(express.json({ limit: "1mb" }));
   app.use(express.urlencoded({ extended: true }));
 
   // Health check

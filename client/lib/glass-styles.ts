@@ -33,6 +33,22 @@ export const GLASS_PANEL_STYLE: CSSProperties = {
   border: "1px solid rgba(255,255,255,.1)",
 };
 
+/**
+ * Card / superfície de vidro **sobre a página** (fora de um sheet) — usado em
+ * listas e cards de conteúdo, ex.: a tela do grupo de duelos. Diferente do
+ * `GLASS_PANEL_STYLE` (que vive dentro de um sheet já borrado), este precisa do
+ * `backdrop-filter` próprio para captar o fundo da página. Blur moderado de
+ * propósito: `backdrop-filter` é reavaliado a cada frame de scroll no WKWebView
+ * (ver docs/15-design-system.md §0.3).
+ */
+export const GLASS_CARD_STYLE: CSSProperties = {
+  background: "linear-gradient(rgba(255,255,255,.09),rgba(255,255,255,.03))",
+  backdropFilter: "blur(14px) saturate(150%)",
+  WebkitBackdropFilter: "blur(14px) saturate(150%)",
+  border: "1px solid rgba(255,255,255,.10)",
+  boxShadow: "inset 0 1px 0 rgba(255,255,255,.12)",
+};
+
 /** Props padrão do DrawerContent glass (handle branco + cantos arredondados). */
 export const GLASS_SHEET_PROPS = {
   handleClassName: "mt-[6px] h-1 w-[38px] bg-white/25",

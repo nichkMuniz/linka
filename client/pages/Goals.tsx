@@ -16,10 +16,16 @@ import {
   getLastWorkoutSessionSeriesDb,
   getUserBadgesDb,
   getAllBadgesDb,
+  getDisplayBadgeDb,
   getTotalCheckInsDb,
   getWeightLogsDb,
   addWeightLogDb,
   deleteWeightLogDb,
+  addFoodLogDb,
+  deleteFoodLogForDietItemDb,
+  createCustomDietDb,
+  createUserDietsDb,
+  backfillRoutineIdOnItemsDb,
   createCheckInDb,
   awardBadgesForCheckInsDb,
   incrementGoalProgressDb,
@@ -47,6 +53,7 @@ import {
   type UserBadge,
   type RoutineTypeCode,
   type WeightLog,
+  type FoodLog,
 } from "@/lib/ritmofit-db";
 import {
   buildRoutineCards,
@@ -67,6 +74,7 @@ import { StreakBadgesCard } from "@/components/goals/streak-badges-card";
 import { TodayDashboard } from "@/components/goals/today-dashboard";
 import { RoutineTypeCards, type RoutineTypeProgress } from "@/components/goals/routine-type-cards";
 import { WeightTrackerCard } from "@/components/goals/weight-tracker-card";
+import { FoodDiaryDrawer, inferMealType, localDateISO } from "@/components/goals/food-diary-card";
 import { LifeGoalsSection } from "@/components/goals/life-goals-section";
 import { CreateWizardDrawer } from "@/components/goals/create-wizard-drawer";
 import { RoutineListDrawer } from "@/components/goals/routine-list-drawer";
@@ -176,6 +184,8 @@ export default function Goals() {
   const [routineLastDates, setRoutineLastDates] = React.useState<Record<string, string>>({});
   const [userBadges, setUserBadges] = React.useState<UserBadge[]>([]);
   const [allBadges, setAllBadges] = React.useState<Badge[]>([]);
+  // Escolha persistida do usuário (profiles.selected_badge_id) — não muda no check-in
+  const [selectedBadgeId, setSelectedBadgeId] = React.useState<string | null>(null);
   const [totalCheckIns, setTotalCheckIns] = React.useState(0);
 
   // UI state — drawers/overlays identified by stable keys so they stay fresh
@@ -194,6 +204,11 @@ export default function Goals() {
   const [calendarOpen, setCalendarOpen] = React.useState(false);
   const [checkInDates, setCheckInDates] = React.useState<string[]>([]);
   const [weightLogs, setWeightLogs] = React.useState<WeightLog[]>([]);
+  // Bump força o FoodDiaryDrawer a recarregar quando o diário muda fora dele
+  // (auto-log ao marcar/desmarcar um item da rotina de dieta).
+  const [foodDiaryVersion, setFoodDiaryVersion] = React.useState(0);
+  // Diário alimentar — aberto pelo card de tipo "Dieta" em "Suas rotinas".
+  const [foodDiaryOpen, setFoodDiaryOpen] = React.useState(false);
   const [summaryData, setSummaryData] = React.useState<WorkoutSummaryData | null>(null);
   const [unlockedBadges, setUnlockedBadges] = React.useState<Badge[]>([]);
   const [completedGoalDesc, setCompletedGoalDesc] = React.useState<string | null>(null);
@@ -208,7 +223,7 @@ export default function Goals() {
   const loadData = React.useCallback(async () => {
     if (!user) return;
     try {
-      const [rts, ws, ds, hs, gs, hist, badges, allB, totalCi, wl] = await Promise.all([
+      const [rts, ws, ds, hs, gs, hist, badges, allB, totalCi, wl, displayB] = await Promise.all([
         getUserRoutinesDb(user.id),
         getUserWorkoutsDb(user.id),
         getUserDietsDb(user.id),
@@ -219,6 +234,7 @@ export default function Goals() {
         getAllBadgesDb(),
         getTotalCheckInsDb(user.id),
         getWeightLogsDb(90),
+        getDisplayBadgeDb(user.id),
       ]);
       setRoutines(rts);
       setWorkouts(ws);
@@ -231,6 +247,7 @@ export default function Goals() {
       setCheckInDates(Array.from(new Set(hist.map((h) => h.check_in_date))));
       setUserBadges(badges);
       setAllBadges(allB);
+      setSelectedBadgeId(displayB?.id ?? null);
       setTotalCheckIns(totalCi);
       setWeightLogs(wl);
       const lastDates = await getRoutineLastDatesBatchDb(user.id, ws.map((w) => w.id));
@@ -265,6 +282,52 @@ export default function Goals() {
       toast({ title: t("goals_weight_error"), variant: "destructive" });
     }
   }, [t]);
+
+  /**
+   * Transforma as entradas de HOJE do diário alimentar numa rotina de dieta
+   * diária (sem scheduled_days = todo dia). Entradas manuais (sem diet_id)
+   * viram itens custom no catálogo `diets` antes de entrar na rotina; os
+   * valores por porção são recuperados dividindo pelo `quantity` da entrada.
+   */
+  const handleTransformDiaryToRoutine = React.useCallback(
+    async (todayFoodLogs: FoodLog[]): Promise<boolean> => {
+      if (!user || todayFoodLogs.length === 0) return false;
+      try {
+        const routineName = t("nutrition_routine_name");
+        const dietIds: string[] = [];
+        const seen = new Set<string>();
+        for (const log of todayFoodLogs) {
+          let dietId = log.diet_id;
+          if (!dietId) {
+            const qty = log.quantity > 0 ? log.quantity : 1;
+            const createdDiet = await createCustomDietDb(
+              log.name,
+              log.name,
+              null,
+              log.calories != null ? log.calories / qty : null,
+              log.protein_g != null ? log.protein_g / qty : null,
+              log.carbs_g != null ? log.carbs_g / qty : null,
+              log.fat_g != null ? log.fat_g / qty : null,
+            );
+            dietId = createdDiet.id;
+          }
+          if (seen.has(dietId)) continue;
+          seen.add(dietId);
+          dietIds.push(dietId);
+        }
+        if (dietIds.length === 0) return false;
+        const inserted = await createUserDietsDb(user.id, dietIds, { name: routineName });
+        await backfillRoutineIdOnItemsDb(user.id, 2, routineName, inserted.map((i) => i.id)).catch(() => {});
+        toast({ title: t("nutrition_routine_created"), description: t("nutrition_routine_created_desc") });
+        await loadData();
+        return true;
+      } catch {
+        toast({ title: t("nutrition_error"), variant: "destructive" });
+        return false;
+      }
+    },
+    [user, t, loadData],
+  );
 
   // ── Modo offline ──
   // Banner quando sem internet/Supabase inalcançável; ao sincronizar a fila
@@ -393,8 +456,10 @@ export default function Goals() {
     {
       type: 2,
       title: t("goals_rt_diets"),
+      // Sem rotina de dieta o card abre o Diário Alimentar — o convite é
+      // registrar o que comeu, não criar rotina.
       subtitle: dietP.total === 0
-        ? t("goals_rt_tap_create")
+        ? t("goals_rt_diet_tap_log")
         : t("goals_rt_routines_done").replace("{done}", String(dietP.done)).replace("{total}", String(dietP.total)),
       perc: dietP.perc,
       hasRoutine: dietP.total > 0,
@@ -588,34 +653,92 @@ export default function Goals() {
       .catch(() => { /* sem duelos — botão simplesmente não aparece */ });
   };
 
+  /**
+   * Marca/desmarca um item de dieta ou hábito.
+   *
+   * O check é aplicado na hora, no estado local — antes era um `await` de rede
+   * seguido de `loadData()` (dez queries + re-render da tela inteira) só para
+   * pintar um checkbox, o que colocava latência de rede na ação mais repetida da
+   * tela. A recarga completa agora só acontece quando ela de fato traz algo novo:
+   * ao fechar a rotina do dia (check-in, insígnias e progresso de meta).
+   */
   const handleToggleItem = async (card: RoutineCard, item: RoutineItem, completed: boolean) => {
     if (!user) return;
+
+    const completedAt = completed ? new Date().toISOString() : null;
+    const patch = <T extends { id: string }>(list: T[]) =>
+      list.map((i) => (i.id === item.id ? { ...i, is_completed: completed, completed_at: completedAt } : i));
+
+    if (item.kind === "diet") setDiets((prev) => patch(prev) as UserDietWithDetails[]);
+    else if (item.kind === "habit") setHabits((prev) => patch(prev) as UserHabitWithDetails[]);
+
     try {
       if (item.kind === "diet") {
         await toggleUserDietCompletionDb(item.id, completed);
         if (completed) await saveDietHistoryDb(user.id, item.id, Number(item.diet_id));
+        // Diário alimentar: concluir o item lança a comida no diário de hoje
+        // (refeição inferida do horário da rotina); desmarcar remove só a
+        // entrada automática (vinculada por user_diet_id). Falha aqui não
+        // reverte o check — o diário é um complemento, não parte do toggle.
+        try {
+          const foodDate = localDateISO();
+          if (completed) {
+            await addFoodLogDb({
+              log_date: foodDate,
+              meal_type: inferMealType(item.scheduled_time),
+              name: item.dietName || "",
+              quantity: 1,
+              calories: item.dietCalories ?? null,
+              protein_g: item.dietProtein ?? null,
+              carbs_g: item.dietCarbs ?? null,
+              fat_g: item.dietFat ?? null,
+              diet_id: item.diet_id || null,
+              user_diet_id: item.id,
+            });
+          } else {
+            await deleteFoodLogForDietItemDb(item.id, foodDate);
+          }
+          setFoodDiaryVersion((v) => v + 1);
+        } catch {
+          /* diário indisponível (ex.: migração não rodada) — check continua válido */
+        }
       } else if (item.kind === "habit") {
         await toggleUserHabitCompletionDb(item.id, completed);
         if (completed) await saveHabitHistoryDb(user.id, item.id, Number(item.habit_id));
       }
-      // Concluir todos os itens da rotina hoje → check-in + progresso de meta
-      if (completed) {
-        const others = card.items.filter((i) => i.id !== item.id);
-        const allDone = others.every((i) => isCompletedToday(i as never));
-        if (allDone) {
-          showRoutineCompleteToast({ type: card.type, name: card.name });
-          await createCheckInDb(user.id);
-          const awarded = await awardBadgesForCheckInsDb(user.id, new Date());
-          if (awarded.length > 0) setUnlockedBadges(awarded);
-          if (card.goalId) {
-            const ug = userGoals.find((g) => g.goal_id === card.goalId);
-            if (ug) {
-              const updated = await incrementGoalProgressDb(ug.id);
-              if (updated && updated.perc >= 100) setCompletedGoalDesc(updated.description);
-            }
-          }
+    } catch {
+      // Reverte o check otimista — o item volta ao estado anterior.
+      const revert = <T extends { id: string }>(list: T[]) =>
+        list.map((i) =>
+          i.id === item.id
+            ? { ...i, is_completed: !completed, completed_at: !completed ? new Date().toISOString() : null }
+            : i,
+        );
+      if (item.kind === "diet") setDiets((prev) => revert(prev) as UserDietWithDetails[]);
+      else if (item.kind === "habit") setHabits((prev) => revert(prev) as UserHabitWithDetails[]);
+      toast({ title: t("goals_load_error"), variant: "destructive" });
+      return;
+    }
+
+    // Concluir todos os itens da rotina hoje → check-in + progresso de meta
+    if (!completed) return;
+    const others = card.items.filter((i) => i.id !== item.id);
+    const allDone = others.every((i) => isCompletedToday(i as never));
+    if (!allDone) return;
+
+    try {
+      showRoutineCompleteToast({ type: card.type, name: card.name });
+      await createCheckInDb(user.id);
+      const awarded = await awardBadgesForCheckInsDb(user.id, new Date());
+      if (awarded.length > 0) setUnlockedBadges(awarded);
+      if (card.goalId) {
+        const ug = userGoals.find((g) => g.goal_id === card.goalId);
+        if (ug) {
+          const updated = await incrementGoalProgressDb(ug.id);
+          if (updated && updated.perc >= 100) setCompletedGoalDesc(updated.description);
         }
       }
+      // Só aqui vale pagar a recarga: streak, semana, insígnias e metas mudaram.
       await loadData();
     } catch {
       toast({ title: t("goals_load_error"), variant: "destructive" });
@@ -686,9 +809,15 @@ export default function Goals() {
   };
 
   // Toque num card de tipo:
+  // - Dieta → SEMPRE o Diário Alimentar (a rotina de dieta fica acessível por
+  //   dentro dele: botão "Minha rotina" ou "Transformar diário em rotina")
   // - Já existe rotina(s) deste tipo → lista das rotinas (+ botão criar)
-  // - Caso contrário → wizard de criação (sugestão/zero p/ treino; montagem p/ dieta/hábito)
+  // - Caso contrário → wizard de criação (sugestão/zero p/ treino; montagem p/ hábito)
   const openTypeRoutine = (type: RoutineTypeCode) => {
+    if (type === 2) {
+      setFoodDiaryOpen(true);
+      return;
+    }
     const hasRoutines = cards.some((c) => c.type === type);
     if (hasRoutines) {
       setListType(type);
@@ -716,35 +845,17 @@ export default function Goals() {
 
   return (
     <div className="relative min-h-[60vh]">
-      {/* auras de fundo — container clipped para evitar scroll horizontal */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div
-          className="absolute"
-          style={{
-            width: "320px",
-            height: "320px",
-            left: "-40px",
-            top: "60px",
-            borderRadius: "50%",
-            background: "radial-gradient(circle,#ff7a3c,transparent 70%)",
-            filter: "blur(70px)",
-            opacity: 0.32,
-          }}
-        />
-        <div
-          className="absolute"
-          style={{
-            width: "300px",
-            height: "300px",
-            right: "-70px",
-            top: "520px",
-            borderRadius: "50%",
-            background: "radial-gradient(circle,#3f7fe6,transparent 70%)",
-            filter: "blur(70px)",
-            opacity: 0.32,
-          }}
-        />
-      </div>
+      {/* auras de fundo — gradientes pintados direto (sem filter: blur), que o
+          WebKit não precisa re-compor a cada frame de scroll */}
+      <div
+        aria-hidden
+        className="absolute inset-0 overflow-hidden pointer-events-none"
+        style={{
+          background:
+            "radial-gradient(320px 320px at 8% 12%, rgba(255,122,60,.28), transparent 70%)," +
+            "radial-gradient(300px 300px at 96% 48%, rgba(63,127,230,.28), transparent 70%)",
+        }}
+      />
 
       <div className="relative px-4 pb-4 space-y-5">
         {isOffline && (
@@ -812,6 +923,27 @@ export default function Goals() {
       </div>
 
       {/* ── Overlays e drawers ── */}
+      <FoodDiaryDrawer
+        open={foodDiaryOpen}
+        onOpenChange={(o) => {
+          setFoodDiaryOpen(o);
+          // Insígnia conquistada dentro do diário só é celebrada ao fechá-lo —
+          // o BadgeUnlockedDialog (Radix) abriria atrás do drawer.
+          if (!o && pendingBadges.length > 0) {
+            setUnlockedBadges(pendingBadges);
+            setPendingBadges([]);
+            loadData();
+          }
+        }}
+        refreshToken={foodDiaryVersion}
+        hasDietRoutines={dietCards.length > 0}
+        onOpenRoutines={() => {
+          setFoodDiaryOpen(false);
+          setListType(2);
+        }}
+        onTransform={handleTransformDiaryToRoutine}
+        onBadgesUnlocked={setPendingBadges}
+      />
       {user && (
         <CreateWizardDrawer
           open={createOpen || editRoutineCard !== null}
@@ -823,6 +955,7 @@ export default function Goals() {
           }}
           userId={user.id}
           userGoals={userGoals}
+          activeRoutineCount={routines.length}
           initialStep={
             createGoalFlow
               ? "goal-origin"
@@ -888,6 +1021,8 @@ export default function Goals() {
         allBadges={allBadges}
         totalCheckIns={totalCheckIns}
         profileUserId={user?.id}
+        selectedBadgeId={selectedBadgeId}
+        onSelected={loadData}
       />
 
       <CheckInCalendarModal

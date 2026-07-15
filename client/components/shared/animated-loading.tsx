@@ -180,6 +180,37 @@ export function NotificationsSkeleton({ className = "" }: { className?: string }
   );
 }
 
+/** Skeleton dos resultados da Busca (cards de pessoa / rotina) */
+export function SearchResultsSkeleton({ rows = 5, className = "" }: { rows?: number; className?: string }) {
+  return (
+    <div className={`space-y-3 ${className}`}>
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="rounded-xl p-4" style={{ background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.08)" }}>
+          <div className="flex items-center gap-3">
+            <div className="h-12 w-12 rounded-full bg-muted animate-pulse flex-shrink-0" />
+            <div className="flex-1 space-y-2">
+              <div className="h-3.5 w-1/3 bg-muted animate-pulse rounded" />
+              <div className="h-3 w-2/3 bg-muted animate-pulse rounded" />
+            </div>
+            <div className="h-7 w-20 rounded-full bg-muted animate-pulse flex-shrink-0" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Skeleton de grade de miniaturas (hashtags) */
+export function GridSkeleton({ items = 9, className = "" }: { items?: number; className?: string }) {
+  return (
+    <div className={`grid grid-cols-3 gap-[5px] ${className}`}>
+      {Array.from({ length: items }).map((_, i) => (
+        <div key={i} className="aspect-square rounded-[14px] bg-muted animate-pulse" />
+      ))}
+    </div>
+  );
+}
+
 /** Skeleton mimicking the Messages screen (list of conversations) */
 
 /** Skeleton mimicking the PostDetail screen (single post card with comments) */

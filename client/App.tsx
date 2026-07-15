@@ -53,6 +53,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { FloatingActionMenu } from "@/components/layout/floating-action-menu";
 
 import { useAuthContext as useAuth, AuthProvider } from "@/lib/auth-context";
+import { PremiumProvider } from "@/lib/premium-context";
 import { useLanguage } from "@/lib/language-context";
 import { useLayoutMode } from "@/hooks/useLayoutMode";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
@@ -314,6 +315,7 @@ const App = () => {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
+      <PremiumProvider>
       <LanguageProvider>
         <WorkoutProvider>
           <ThemeProvider>
@@ -364,6 +366,7 @@ const App = () => {
           </ThemeProvider>
         </WorkoutProvider>
       </LanguageProvider>
+      </PremiumProvider>
       </AuthProvider>
     </QueryClientProvider>
   );

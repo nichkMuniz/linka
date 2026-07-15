@@ -133,7 +133,9 @@ Cada post exibe:
 - **Denunciar post** — Dialog com seletor de motivo
 
 ### Interações com qualquer post
-- **Incentivar** — Toggling nos 6 tipos de incentivo (`togglePostLike`)
+- **Abrir a publicação (2026-07-13)** — **toque simples** na mídia navega para `/post/:id` (`PostDetail`). Antes, o toque simples não fazia nada: o único jeito de abrir um post era por notificação ou deep link. O toque só dispara depois da janela de duplo toque (300ms), senão o segundo toque navegaria antes do overlay abrir
+- **Incentivo rápido** — **duplo toque** na mídia abre o `QuickIncentiveOverlay` (os 6 tipos)
+- **Incentivar** — Toggling nos 6 tipos de incentivo (`togglePostLike`), via barra (primário) ou overlay (secundários)
 - **Comentar** — Abre drawer/dialog de comentários
 - **Ver curtidas** — Modal com lista de usuários que curtiram
 - **Copiar meta** — Se o post tiver meta, botão para copiar para o próprio perfil
@@ -146,7 +148,7 @@ Cada post exibe:
 | Estado | Comportamento |
 |---|---|
 | **Carregando** | Exibe `PostSkeleton` (loading skeleton animado) |
-| **Feed vazio** | Mensagem de encorajamento + botão para descobrir |
+| **Feed vazio (2026-07-13)** | Card glass "Seu feed começa aqui" com **5 perfis sugeridos** (`getAllUsersDb`), cada um com `UserAvatar` + bio + `FollowButton` — seguir acontece ali mesmo, sem sair da tela. Abaixo, botão secundário "Encontrar pessoas" (→ `/buscar`). Antes era só um `text-xs` cinza e um botão fantasma de 28px: a primeira tela de todo usuário novo era um beco sem saída. Os perfis só são buscados quando o empty state de fato aparece |
 | **Erro de rede** | Toast com mensagem de erro |
 
 ---
@@ -211,6 +213,8 @@ Telas que navegam para `/` disparando esse refresh:
 
 ## Observações Técnicas
 
+- **Pull-to-refresh sem re-render (2026-07-13):** o gesto é conduzido por **refs + estilo imperativo no DOM** (`pullIndicatorRef`/`pullSpinnerRef`), não por `setState`. Um `setPullDistance()` por `touchmove` re-renderizava a lista inteira de posts a ~60fps — justamente durante o arrasto, quando o frame não pode cair. Mesmo padrão já usado em `Profile.tsx` e agora também em `Notifications.tsx`
+- **Auras de fundo sem `filter: blur` (2026-07-13):** o brilho ambiente é **um** elemento com três `radial-gradient` pintados direto, em vez de três divs com `filter: blur(65px)`. `filter` e `backdrop-filter` são as propriedades mais caras do WebKit e o feed já empilha vários `backdrop-filter` simultâneos (header, bottom nav, segment control, barra de ação de cada card) — o blur das orbs era custo de compositing puro a cada frame de scroll, sem diferença visual relevante. Mesma troca feita em `Goals.tsx` e `Notifications.tsx`
 - Posts são paginados ou carregados em batch completo
 - Incentivos têm estado otimístico (UI atualiza imediatamente antes da confirmação do servidor)
 - Rotinas vinculadas a posts carregam sob demanda (lazy load) ao expandir

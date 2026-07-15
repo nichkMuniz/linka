@@ -27,20 +27,25 @@ client/components/
 ```
 ┌──────────────────────────────────┐
 │  Header                          │
-│  [Logo] [Buscar][Notif][Perfil]  │
+│  [Avatar][Logo] [Premium?][Buscar][Vitrine][Notif]│
 ├──────────────────────────────────┤
 │  Conteúdo da tela atual          │
 │                                  │
 ├──────────────────────────────────┤
 │  Bottom Navigation (mobile)      │
-│  [Home][Shots][Nova][Metas][Vitrine]│
+│  [Home][Shots][Nova][Metas][Comunidade]│
 └──────────────────────────────────┘
 ```
 
 #### Funcionalidades
-- **Header:** Logo + ícones de navegação secundária (buscar, notificações, perfil)
-- **Badge de mensagens não lidas:** Contador no ícone de Comunidade
-- **Badge de notificações:** Contador no ícone de Notificações
+- **Header:** Avatar (→ Perfil) + logo + ícones de navegação secundária (Buscar, Vitrine, Notificações)
+- **Ícone "Seja Premium" (2026-07-15):** coroa âmbar entre o logo e o Buscar (no header mobile) e entre a navegação principal e o timer de uso (na sidebar desktop), **visível só para quem ainda não é assinante** (`!isPremium`, de `usePremium()`). Abre o `PaywallDrawer` genérico (sem `feature` destacado) renderizado uma única vez no `AppLayout`, junto dos outros overlays globais — ver `docs/17-premium.md`
+- **Hierarquia da navegação (2026-07-13):** a **Comunidade** (mensagens + duelos + ranking) ocupa o 5º slot do bottom nav; a **Vitrine**, de consulta ocasional, desceu para o header. Antes era o inverso: a superfície social mais rica do app vivia atrás de um ícone de 36px no header — que ainda por cima **some no scroll**, levando junto o acesso e o badge de mensagens não lidas
+- **Badge de mensagens não lidas:** contador numérico sobre o ícone de Comunidade **no bottom nav** (sempre visível, ao contrário do header). Era um ponto de 7px
+- **Badge de notificações:** contador numérico sobre o ícone de Notificações no header. Era um ponto de 7px
+- **Alvos de toque:** os ícones do header são `40×40` (eram `36×36`), aproximando-se do mínimo de 44pt da Apple HIG
+- **Toque no logo:** `navigate("/")` quando fora do feed; no feed, dispara `ritmofit-refresh-feed`. **Nunca** `window.location.href` — isso recarregava a WebView inteira (perde cache de feed, remonta a app, refaz auth), que era a maior quebra de fluidez do app
+- **Limite diário atingido:** o botão "Ignorar hoje" é `variant="ghost"` (ação terciária). Como ele derrota o propósito do limite, não pode ser o CTA em destaque — os botões de adiar (5/10/30 min) são os `outline`
 - **Vibração ao receber notificação:** A subscription realtime (`app-layout-notif-push`, canal `notifications`) dispara `hapticSuccess()` (`client/lib/haptics.ts`) para qualquer INSERT na tabela `notifications` do usuário logado — independentemente do tipo (follow, incentivo, comentário, duelo, reação) e da tela em que o usuário está, inclusive na própria tela de Notificações. Roda antes da checagem que pula a notificação local visual (`LocalNotifications.schedule`) quando o usuário já está em `/notificacoes`, então a vibração sempre ocorre mesmo quando o banner é suprimido. Sem efeito fora do runtime nativo (Capacitor) — `hapticSuccess()` é no-op no browser.
 - **Refetch de badges no refresh do feed:** contadores são carregados no mount e mantidos via subscription realtime do Supabase (que pode cair silenciosamente em background no iOS). Para evitar badge desatualizado, o `AppLayout` também escuta os eventos `ritmofit-refresh-feed` (toque no logo/home) e `ritmofit-refresh-badges` (disparado pelo pull-to-refresh em `Index.tsx`) e refaz o fetch de `getUnreadMessageCountDb`/`getUnreadNotificationsCountDb` a cada um deles
 - **Invalidação no realtime dos badges (performance):** os handlers realtime chamam `invalidateQueryCache("unreadMsgCount"/"conversations")` **antes** de reler o contador. `getUnreadMessageCountDb`/`getUnreadNotificationsCountDb` são cacheadas (30s); sem invalidar, o evento realtime relia a própria entrada em cache e o badge só acertava quando o TTL vencia — o realtime virava no-op
@@ -146,7 +151,9 @@ Botão de reação/incentivo:
 - 6 tipos diferentes, cada um com ícone e cor distintos
 - Estado ativo/inativo visual
 - Estado de loading durante a requisição
-- Props: `type`, `isActive`, `onClick`, `loading`
+- Props: `type`, `isActive`, `onClick`, `loading`, `burst`
+
+Os 6 botões ficam enfileirados na barra de ação de vidro do post (feed e `PostDetail`), e o `QuickIncentiveOverlay` (duplo toque na mídia) oferece os mesmos 6 como atalho.
 
 ---
 
@@ -467,6 +474,14 @@ Todos os drawers (bottom sheets) do app são renderizados por `DrawerContent`. D
 - **`useKeyboardAwareHeight`** agora retorna `window.innerHeight - getKeyboardHeight()` (do tracker) — continua sendo "a área visível acima do teclado", atualizada em sincronia com a animação. Consumidores não mudam: `maxHeight: min(XXdvh, ${viewportHeight - 8}px)` + `flex-1 min-h-0` na área scrollável.
 - O `repositionInputs` do vaul continua **explicitamente desligado** (`repositionInputs={false}`) — depende de eventos de `visualViewport` instáveis no WKWebView. **Não reativar.** Também continua valendo: nenhum componente deve rodar handler próprio de `visualViewport` para mover drawers.
 
+#### Empilhamento (z-index) — regra do overlay dentro do lift wrapper (2026-07-13)
+
+O lift wrapper tem `transform`, e todo elemento com `transform` cria um **stacking context**. Por isso o `z-index` que um sheet declara (`className="z-[500]"`, `z-[330]`, …) só vale **dentro** do wrapper — para o resto da página o sheet continua valendo `z-[310]` (o z do wrapper). Enquanto o overlay ficou **fora** do wrapper, qualquer overlay com z > 310 (ex.: `!z-[490]` do `ImageCropperDrawer`, `z-[320]` dos drawers empilhados de Comunidade) era pintado **por cima do próprio sheet** — tela escura/fosca e nenhum toque funcionando.
+
+- **O `DrawerOverlay` é renderizado dentro do lift wrapper**, junto com o sheet. Overlay e sheet compartilham o mesmo stacking context, então `overlay z-490` + `content z-500` volta a significar o que o autor escreveu.
+- O overlay leva `pointer-events-auto` (o wrapper é `pointer-events-none`) e `bottom: calc(-1 * var(--keyboard-height))`, para continuar cobrindo a tela inteira quando o wrapper sobe com o teclado.
+- **Empilhar drawers** (um drawer aberto por cima de outro): não é preciso mexer em z-index — todos os wrappers são `z-[310]` e o portal aberto por último entra depois no DOM, logo pinta por cima. Só use z-index custom para ordenar overlay × conteúdo **do mesmo drawer**.
+
 ---
 
 ## Estilos de Drawer Glass (`client/lib/glass-styles.ts`)
@@ -479,7 +494,8 @@ Fonte única de verdade para o **padrão glass escuro** dos drawers (promoções
 | `GLASS_SHEET_STYLE` | `CSSProperties` | `style` do `DrawerContent` — gradiente escuro + blur + `maxHeight: 90dvh` |
 | `GLASS_FIELD_STYLE` / `GLASS_FIELD_CLASS` | style/classe | Inputs, Textareas e SelectTrigger |
 | `GLASS_PRIMARY_BTN_STYLE` | `CSSProperties` | Botão principal (gradiente azul → roxo) |
-| `GLASS_PANEL_STYLE` | `CSSProperties` | Cards / containers translúcidos internos |
+| `GLASS_PANEL_STYLE` | `CSSProperties` | Cards / containers translúcidos **dentro** de um sheet |
+| `GLASS_CARD_STYLE` | `CSSProperties` | Card / superfície de vidro **sobre a página** (fora de sheets) — tem `backdrop-filter` próprio |
 | `GLASS_LABEL_CLASS` | classe | Labels de formulário |
 
-Detalhes e exemplo completo: `docs/15-design-system.md` §9.4. Consumidores atuais: `Store.tsx` (drawers de promoção), `Community.tsx` (drawers de duelos) e os componentes `ClassificationsDrawer` / `AddMembersDrawer` / `EditCheckInDrawer`.
+Detalhes e exemplo completo: `docs/15-design-system.md` §9.4. Consumidores atuais: `Store.tsx` (drawers de promoção), `Community.tsx` (drawers de duelos + toda a tela do grupo/histórico de check-ins, via `GLASS_CARD_STYLE`) e os componentes `ClassificationsDrawer` / `AddMembersDrawer` / `EditCheckInDrawer`.

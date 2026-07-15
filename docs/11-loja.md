@@ -79,6 +79,7 @@ Cada tab exibe um badge com o total de itens carregados. O botão "+ Publicar" s
 - Optimistic update aplicado imediatamente na UI; rollback em caso de erro de rede
 - `likingRef` previne race condition em cliques duplos rápidos
 - Tabela: `promotion_likes (id, promotion_id, user_id)`
+- **Notifica o dono (tipo 12, 2026-07-13):** ao curtir, `togglePromotionLikeDb` insere uma notificação (+ push) para o autor da promoção, deduplicada por (autor, curtidor, promoção) — descurtir e curtir de novo não gera novo aviso. Ver `docs/10-notificacoes.md`
 
 #### Comentários da Comunidade (`PromotionCommentsDrawer`)
 
@@ -99,6 +100,7 @@ Cada tab exibe um badge com o total de itens carregados. O botão "+ Publicar" s
 - Contadores `active_reports` e `expired_reports` atualizados otimisticamente
 - `votingRef` previne race condition em double-tap
 - Quando >50% dos votos (mínimo 3) são "expired", badge "Pode ter expirado" aparece na imagem
+- **Notifica o dono (tipo 13, 2026-07-13):** o voto que faz a promoção **cruzar** esse mesmo limiar avisa o autor ("{nome} marcou sua promoção como expirada"), com o apelido de quem fechou a maioria. `sendPromotionExpiredNotificationDb` reconstrói as contagens de antes do voto, então os votos seguintes não geram novo push. Ver `docs/10-notificacoes.md`
 
 #### Publicar Promoção (`NewPromoDrawer`)
 

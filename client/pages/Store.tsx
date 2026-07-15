@@ -92,6 +92,7 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
+import { openExternalUrl, isSafeExternalUrl } from "@/lib/safe-url";
 import { ImageCropperDrawer } from "@/components/shared/image-cropper-drawer";
 import { Browser } from "@capacitor/browser";
 import {
@@ -359,11 +360,11 @@ function PromotionDetailDrawer({
           )}
 
           {/* Botão principal */}
-          {promo.external_link && (
+          {isSafeExternalUrl(promo.external_link) && (
             <Button
               className="w-full gap-2 h-12 text-base border-0"
               style={GLASS_PRIMARY_BTN_STYLE}
-              onClick={() => Browser.open({ url: promo.external_link! })}
+              onClick={() => openExternalUrl(promo.external_link, Browser.open)}
             >
               <ExternalLink className="h-5 w-5" />
               Ir para a promoção
@@ -1585,10 +1586,10 @@ function ProfessionalCard({ professional: pro, onViewProfile, onMessage, onViewP
               Email
             </button>
           )}
-          {pro.business_website && (
+          {isSafeExternalUrl(pro.business_website) && (
             <button
               type="button"
-              onClick={() => Browser.open({ url: /^https?:\/\//.test(pro.business_website!) ? pro.business_website! : `https://${pro.business_website}` })}
+              onClick={() => openExternalUrl(pro.business_website, Browser.open)}
               className="flex items-center gap-1 hover:text-brand transition-colors"
             >
               <Globe className="h-3 w-3" />

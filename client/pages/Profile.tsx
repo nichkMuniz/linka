@@ -42,6 +42,7 @@ import {
   invalidateProfileCache,
 } from "@/lib/ritmofit-db";
 import { formatTimeAgo } from "@/lib/utils";
+import { openExternalUrl, isSafeExternalUrl } from "@/lib/safe-url";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -1098,13 +1099,13 @@ export default function Profile() {
                       </button>
                     )}
                   </div>
-                  {commercialProfile.business_website && (
+                  {isSafeExternalUrl(commercialProfile.business_website) && (
                     <button
-                      onClick={() => Browser.open({ url: commercialProfile.business_website! })}
+                      onClick={() => openExternalUrl(commercialProfile.business_website, Browser.open)}
                       className="text-xs text-brand hover:underline flex items-center gap-1"
                     >
                       <span>🔗</span>
-                      {commercialProfile.business_website.replace(/^https?:\/\//, "")}
+                      {commercialProfile.business_website!.replace(/^https?:\/\//, "")}
                     </button>
                   )}
                 </div>
@@ -1346,8 +1347,8 @@ export default function Profile() {
                       <p className="text-[11px] text-muted-foreground mt-1 line-clamp-2 leading-snug">{commercialProfile.business_description}</p>
                     )}
                   </div>
-                  {commercialProfile.business_website && (
-                    <button onClick={() => Browser.open({ url: commercialProfile.business_website! })} className="shrink-0 text-muted-foreground hover:text-brand transition-colors">
+                  {isSafeExternalUrl(commercialProfile.business_website) && (
+                    <button onClick={() => openExternalUrl(commercialProfile.business_website, Browser.open)} className="shrink-0 text-muted-foreground hover:text-brand transition-colors">
                       <ExternalLink className="h-4 w-4" />
                     </button>
                   )}
@@ -1420,7 +1421,7 @@ export default function Profile() {
                           <button
                             onClick={() => {
                               incrementOfferClickDb(offer.id, offer.user_id).catch(() => { });
-                              if (offer.link_url) Browser.open({ url: offer.link_url });
+                              openExternalUrl(offer.link_url, Browser.open);
                             }}
                             className="flex items-center gap-1.5 h-9 px-4 rounded-xl bg-brand text-white text-xs font-bold hover:bg-brand/90 transition-colors shrink-0"
                           >

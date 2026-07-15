@@ -27,6 +27,9 @@ import { useLanguage } from "@/lib/language-context";
 import { hapticLight, hapticMedium } from "@/lib/haptics";
 import { getPostGradient, GLASS_TOP, GLASS_ACTION, DESC_MAX_CHARS, renderWithHashtags } from "@/lib/post-visuals";
 
+/** Janela do duplo toque: acima disso o toque conta como simples (abre o post). */
+const DOUBLE_TAP_MS = 300;
+
 interface PostCardProps {
   post: PostWithStats;
   currentUserId: string | undefined;
@@ -66,6 +69,7 @@ export function PostCard({
   const [badgeType, setBadgeType] = React.useState<PostIncentiveType | null>(null);
   const [badgeTick, setBadgeTick] = React.useState(0);
   const lastTapRef = React.useRef<number>(0);
+  const singleTapTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const badgeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const [descExpanded, setDescExpanded] = React.useState(false);
   const [carouselIndex, setCarouselIndex] = React.useState(0);
@@ -91,7 +95,19 @@ export function PostCard({
     badgeTimerRef.current = setTimeout(() => setBadgeType(null), 3000);
   }
 
-  React.useEffect(() => () => { if (badgeTimerRef.current) clearTimeout(badgeTimerRef.current); }, []);
+  React.useEffect(() => () => {
+    if (badgeTimerRef.current) clearTimeout(badgeTimerRef.current);
+    if (singleTapTimerRef.current) clearTimeout(singleTapTimerRef.current);
+  }, []);
+
+  // Toggle de incentivo com o feedback visual (badge + burst) que a barra e o
+  // seletor rápido compartilham.
+  function handleIncentive(type: PostIncentiveType) {
+    if (!post.userLikes.includes(type)) triggerBadge(type);
+    setBurstType(type);
+    setTimeout(() => setBurstType(null), 600);
+    onToggleLike(post.id, type);
+  }
 
   const hasPhotos = (post.photos && post.photos.length > 0) || !!post.photo;
   const photos = post.photos && post.photos.length > 0
@@ -100,12 +116,25 @@ export function PostCard({
 
   return (
     <div className="relative overflow-hidden fade-in mb-4 mx-3" style={{ borderRadius: "28px", boxShadow: "0 20px 44px -16px rgba(0,0,0,.7)" }}>
-      {/* Clickable photo area — double-tap opens quick incentive overlay */}
+      {/* Área da mídia: toque simples abre a publicação; toque duplo abre o
+          seletor rápido de incentivo. O toque simples só dispara depois da
+          janela de duplo toque, senão o segundo toque navegaria antes do overlay. */}
       <div
         className="relative cursor-pointer select-none"
         onClick={() => {
           const now = Date.now();
-          if (now - lastTapRef.current < 300) setQuickOverlayVisible(true);
+          if (now - lastTapRef.current < DOUBLE_TAP_MS) {
+            if (singleTapTimerRef.current) clearTimeout(singleTapTimerRef.current);
+            singleTapTimerRef.current = null;
+            setQuickOverlayVisible(true);
+          } else {
+            if (singleTapTimerRef.current) clearTimeout(singleTapTimerRef.current);
+            singleTapTimerRef.current = setTimeout(() => {
+              singleTapTimerRef.current = null;
+              hapticLight();
+              navigate(`/post/${post.id}`);
+            }, DOUBLE_TAP_MS);
+          }
           lastTapRef.current = now;
         }}
       >
@@ -350,24 +379,16 @@ export function PostCard({
             style={{ height: "52px", borderRadius: "26px", ...GLASS_ACTION }}
           >
             <div className="flex gap-1.5">
-              {([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => {
-                const isActive = post.userLikes.includes(type);
-                return (
-                  <PostIncentiveButton
-                    key={type}
-                    type={type}
-                    isActive={isActive}
-                    onClick={() => {
-                      if (!isActive) triggerBadge(type);
-                      setBurstType(type);
-                      setTimeout(() => setBurstType(null), 600);
-                      onToggleLike(post.id, type);
-                    }}
-                    loading={togglingIncentives.has(`${post.id}-${type}`)}
-                    burst={burstType === type}
-                  />
-                );
-              })}
+              {([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => (
+                <PostIncentiveButton
+                  key={type}
+                  type={type}
+                  isActive={post.userLikes.includes(type)}
+                  onClick={() => handleIncentive(type)}
+                  loading={togglingIncentives.has(`${post.id}-${type}`)}
+                  burst={burstType === type}
+                />
+              ))}
             </div>
 
             <div className="flex items-center gap-2 pr-1 text-white">
@@ -399,10 +420,7 @@ export function PostCard({
           userLikes={post.userLikes}
           onSelect={(type) => {
             setQuickOverlayVisible(false);
-            triggerBadge(type);
-            setBurstType(type);
-            setTimeout(() => setBurstType(null), 600);
-            onToggleLike(post.id, type);
+            handleIncentive(type);
           }}
           onDismiss={() => setQuickOverlayVisible(false)}
         />

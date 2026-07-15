@@ -41,6 +41,8 @@ O objetivo central é motivar pessoas a manterem uma rotina saudável através d
 | 13 | [Layouts e Componentes](./13-layouts-e-componentes.md) | — | Componentes compartilhados e layouts |
 | 14 | [Database Schema](./14-database-schema.md) | — | Documentação técnica de todas as tabelas do banco |
 | 15 | [Design System](./15-design-system.md) | — | Paleta de cores, tipografia, componentes, padrões visuais |
+| 16 | [Segurança](./16-seguranca.md) | — | Auditoria 2026-07-13, RLS, rotação de chaves, checklist de deploy |
+| 17 | [Premium](./17-premium.md) | — | Plano LinKa Premium: modelo de dados, mapa de gates, roteiro RevenueCat (Fase 2) |
 
 ---
 

@@ -108,10 +108,15 @@ Deno.serve(async (req) => {
     return new Response("Method not allowed", { status: 405 });
   }
 
-  // Proteção opcional contra chamadas externas — se o segredo estiver setado,
-  // exige o header x-cron-secret (o pg_cron envia esse header).
+  // Proteção contra chamadas externas: só o pg_cron (que envia o header
+  // x-cron-secret) pode disparar a leva de pushes. O segredo é OBRIGATÓRIO —
+  // sem ele, qualquer um na internet dispararia push para toda a base.
   const cronSecret = Deno.env.get("REENGAGEMENT_CRON_SECRET");
-  if (cronSecret && req.headers.get("x-cron-secret") !== cronSecret) {
+  if (!cronSecret) {
+    console.error("REENGAGEMENT_CRON_SECRET não configurado — recusando a requisição.");
+    return new Response("Server misconfigured", { status: 500 });
+  }
+  if (req.headers.get("x-cron-secret") !== cronSecret) {
     return new Response("Unauthorized", { status: 401 });
   }
 

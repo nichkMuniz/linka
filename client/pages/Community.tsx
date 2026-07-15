@@ -87,6 +87,7 @@ import {
   GLASS_FIELD_STYLE,
   GLASS_PRIMARY_BTN_STYLE,
   GLASS_PANEL_STYLE,
+  GLASS_CARD_STYLE,
   GLASS_SHEET_PROPS,
   GLASS_LABEL_CLASS,
   GLASS_FIELD_CLASS,
@@ -112,11 +113,14 @@ import {
 import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { CommunitySkeleton } from "@/components/shared/animated-loading";
+import { PaywallDrawer } from "@/components/shared/paywall-drawer";
+import { usePremium } from "@/lib/premium-context";
 import { useLanguage } from "@/lib/language-context";
 import { UserInsignias } from "@/components/profile/user-insignias";
 import { ImageWithFallback } from "@/components/shared/image-with-fallback";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { SharedContentMessage } from "@/components/community/shared-content-message";
+import { ChatImageMessage, ChatAudioMessage } from "@/components/community/chat-media";
 import { RankingTab } from "@/components/community/ranking-tab";
 import {
   specialMessageLabel,
@@ -132,6 +136,7 @@ import {
 
 export default function Community() {
   const { user } = useAuth();
+  const { isPremium } = usePremium();
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -207,6 +212,21 @@ export default function Community() {
   const [selectedInvitees, setSelectedInvitees] = React.useState<Set<string>>(new Set());
   const [userCreatedGroups, setUserCreatedGroups] = React.useState<any[]>([]);
   const [availableGroups, setAvailableGroups] = React.useState<any[]>([]);
+
+  // ── Gate premium: grátis cria 1 duelo ativo por vez ────────────────────────
+  // `userCreatedGroups` (myGroups) inclui grupos onde o usuário só participa —
+  // conta apenas os criados por ele e ainda não expirados. Participar é livre.
+  const [duelPaywallOpen, setDuelPaywallOpen] = React.useState(false);
+  const activeCreatedDuels = React.useMemo(
+    () =>
+      userCreatedGroups.filter(
+        (g) =>
+          g.createdBy === user?.id &&
+          (!g.endDate || new Date(g.endDate) > new Date()),
+      ).length,
+    [userCreatedGroups, user?.id],
+  );
+  const duelGateBlocked = !isPremium && activeCreatedDuels >= 1;
   const [joinedGroupIds, setJoinedGroupIds] = React.useState<Set<string>>(new Set());
   const [joiningGroupId, setJoiningGroupId] = React.useState<string | null>(null);
   const [selectedGroupForView, setSelectedGroupForView] = React.useState<any>(null);
@@ -897,8 +917,8 @@ export default function Community() {
     if (!selectedConversation) return;
     setIsSendingPhoto(true);
     try {
-      const url = await uploadMessageImageDb(file);
-      const imageText = `[image]:${url}`;
+      const mediaRef = await uploadMessageImageDb(file, selectedConversation.userId);
+      const imageText = `[image]:${mediaRef}`;
       const newMessage = await sendMessageDb(selectedConversation.userId, imageText);
       if (newMessage) {
         const optimisticMsg: MessageWithUser = {
@@ -973,8 +993,8 @@ export default function Community() {
 
     setIsSendingPhoto(true); // reutiliza loader visual
     try {
-      const url = await uploadMessageAudioDb(blob);
-      const audioText = `[audio]:${url}`;
+      const mediaRef = await uploadMessageAudioDb(blob, selectedConversation.userId);
+      const audioText = `[audio]:${mediaRef}`;
       const newMessage = await sendMessageDb(selectedConversation.userId, audioText);
       if (newMessage) {
         const optimisticMsg: MessageWithUser = {
@@ -1197,20 +1217,14 @@ export default function Community() {
                       ) : mainText.startsWith("[shot]:") ? (
                         <SharedContentMessage kind="shot" contentId={mainText.replace("[shot]:", "").trim()} />
                       ) : mainText.startsWith("[image]:") ? (
-                        <img
-                          src={mainText.replace("[image]:", "")}
-                          alt="Imagem"
-                          className="rounded-lg max-w-[220px] max-h-[280px] object-cover cursor-pointer"
-                          onClick={() => setImageViewerUrl(mainText.replace("[image]:", ""))}
+                        <ChatImageMessage
+                          mediaRef={mainText.slice("[image]:".length)}
+                          onOpen={setImageViewerUrl}
                         />
                       ) : mainText.startsWith("[audio]:") ? (
-                        <audio
-                          src={mainText.replace("[audio]:", "")}
-                          controls
-                          preload="auto"
-                          className="max-w-[220px] h-10 rounded-lg"
-                          style={{ colorScheme: isOwn ? "dark" : "light" }}
-                          onError={(e) => { const el = e.target as HTMLAudioElement; console.error("Audio playback error:", el.error, "src:", el.src); }}
+                        <ChatAudioMessage
+                          mediaRef={mainText.slice("[audio]:".length)}
+                          isOwn={isOwn}
                         />
                       ) : (
                         <p className="text-sm">{mainText}</p>
@@ -1827,14 +1841,19 @@ export default function Community() {
           className="fixed top-0 right-0 bottom-0 flex flex-col z-[100]"
           style={{
             left: "var(--sidebar-width, 0px)",
-            background: "#0d0a17",
+            // Fundo = token da página + aura da marca pintada direto (radial-gradient,
+            // nunca um div com filter: blur — design system §0.3).
+            background:
+              "radial-gradient(120% 70% at 50% -10%, rgba(91,140,255,.12), rgba(157,107,255,.06) 45%, transparent 70%), hsl(var(--background))",
             fontFamily: "'Manrope', sans-serif",
-            "--surface": "#171128",
-            "--surface2": "#221a38",
-            "--line": "rgba(255,255,255,.08)",
-            "--muted": "#9a8db2",
-            "--accent": "#7c3aed",
-            "--accent2": "#a855f7",
+            // Accents da marca + superfícies translúcidas. O roxo saturado que
+            // essa tela usava (#7c3aed/#a855f7) não vinha da paleta; as
+            // superfícies de card agora vêm de GLASS_CARD_STYLE (vidro).
+            "--surface2": "rgba(255,255,255,.08)",
+            "--line": "rgba(255,255,255,.10)",
+            "--muted": "rgba(255,255,255,.55)",
+            "--accent": "#5b8cff",
+            "--accent2": "#9d6bff",
           } as React.CSSProperties}
         >
           {/* Header: back · "Grupo" · edit (creator only) */}
@@ -1853,7 +1872,7 @@ export default function Community() {
                 }, { replace: true });
               }}
               className="h-9 w-9 rounded-[11px] flex items-center justify-center text-white transition-transform active:scale-90"
-              style={{ background: "var(--surface)" }}
+              style={GLASS_CARD_STYLE}
             >
               <ArrowLeft className="h-[18px] w-[18px]" strokeWidth={2.2} />
             </button>
@@ -1886,7 +1905,7 @@ export default function Community() {
                   onClick={() => editCoverInputRef.current?.click()}
                   title={t("duels_group_edit_cover")}
                   className="h-9 w-9 rounded-[11px] flex items-center justify-center text-white transition-transform active:scale-90"
-                  style={{ background: "var(--surface)" }}
+                  style={GLASS_CARD_STYLE}
                 >
                   <Edit3 className="h-[15px] w-[15px]" strokeWidth={2.2} />
                 </button>
@@ -1913,7 +1932,7 @@ export default function Community() {
                 <div
                   className={`h-6 w-6 rounded-full border-2 border-t-transparent ${isGroupRefreshing ? "animate-spin" : "transition-transform"}`}
                   style={{
-                    borderColor: "#9d6bff",
+                    borderColor: "var(--accent)",
                     borderTopColor: "transparent",
                     transform: isGroupRefreshing ? undefined : `rotate(${(groupPullDistance / GROUP_PULL_THRESHOLD) * 360}deg)`,
                     opacity: isGroupRefreshing ? 1 : groupPullDistance / GROUP_PULL_THRESHOLD,
@@ -1924,7 +1943,7 @@ export default function Community() {
             <div className="pb-24">
               {/* Hero cover card */}
               <div className="px-5 pt-1">
-                <div className="relative h-[130px] rounded-[22px] overflow-hidden" style={{ background: "linear-gradient(135deg,#2c2249,#170f28)" }}>
+                <div className="relative h-[130px] rounded-[22px] overflow-hidden" style={{ background: "linear-gradient(135deg,rgba(91,140,255,.28),rgba(157,107,255,.18))", border: "1px solid rgba(255,255,255,.10)" }}>
                   {selectedGroupForView.photo ? (
                     <img
                       src={selectedGroupForView.photo}
@@ -1979,17 +1998,17 @@ export default function Community() {
                     )
                     : null;
 
-                  const SURFACE_CARD_STYLE = {
-                    background: "var(--surface)",
-                    border: "1px solid var(--line)",
-                  } as React.CSSProperties;
+                  const SURFACE_CARD_STYLE = GLASS_CARD_STYLE;
                   return (
                     <div className="grid grid-cols-2 gap-[9px]">
                       {/* Your ranking — big gradient hero card */}
                       <button
                         onClick={() => setIsClassificationsOpen(true)}
                         className="row-span-2 rounded-[20px] p-[18px] flex flex-col justify-between items-start text-left min-h-[124px] active:scale-[.98] transition-transform"
-                        style={{ background: "linear-gradient(160deg,var(--accent2),#4c1d95)" }}
+                        style={{
+                          ...GLASS_PRIMARY_BTN_STYLE,
+                          boxShadow: "0 12px 30px -10px rgba(123,63,242,.45), inset 0 1px 0 rgba(255,255,255,.2)",
+                        }}
                       >
                         <span className="text-[10.5px] font-semibold uppercase tracking-[.03em]" style={{ color: "rgba(255,255,255,.75)" }}>
                           {t("duels_group_your_ranking")}
@@ -2033,8 +2052,8 @@ export default function Community() {
 
               {/* Segmented tab pills */}
               <div className="px-5 pt-5">
-                <div className="flex gap-1 p-1 rounded-[15px]" style={{ background: "var(--surface)" }}>
-                  <div className="flex-1 text-center py-[9px] rounded-[12px] text-[12.5px] font-bold text-white" style={{ background: "var(--accent)" }}>
+                <div className="flex gap-1 p-1 rounded-[15px]" style={GLASS_CARD_STYLE}>
+                  <div className="flex-1 text-center py-[9px] rounded-[12px] text-[12.5px] font-bold text-white" style={GLASS_PRIMARY_BTN_STYLE}>
                     {t("duels_group_tab_details")}
                   </div>
                   <button
@@ -2066,7 +2085,7 @@ export default function Community() {
                   {isLoadingCheckIns ? (
                     <div className="space-y-2">
                       {[1, 2, 3].map((i) => (
-                        <div key={i} className="animate-pulse flex gap-[11px] items-center rounded-[17px]" style={{ background: "var(--surface)", padding: "11px 11px 11px 13px", borderLeft: "3px solid var(--line)" }}>
+                        <div key={i} className="animate-pulse flex gap-[11px] items-center rounded-[17px]" style={{ ...GLASS_CARD_STYLE, padding: "11px 11px 11px 13px", borderLeft: "3px solid var(--line)" }}>
                           <div className="w-10 h-10 rounded-[12px] bg-white/10 flex-none" />
                           <div className="flex-1 space-y-2">
                             <div className="h-3 bg-white/10 rounded w-1/3" />
@@ -2115,8 +2134,9 @@ export default function Community() {
                                 <div
                                   className="flex items-center gap-[11px] rounded-[17px] active:opacity-80 transition-opacity cursor-pointer select-none"
                                   style={{
-                                    background: "var(--surface)",
-                                    borderLeft: `3px solid ${checkIn.userId === user?.id ? "var(--accent2)" : "var(--line)"}`,
+                                    ...GLASS_CARD_STYLE,
+                                    // Faixa da marca só no check-in do próprio usuário
+                                    borderLeft: `3px solid ${checkIn.userId === user?.id ? "var(--accent)" : "var(--line)"}`,
                                     padding: "11px 11px 11px 13px",
                                   }}
                                   onTouchStart={() => handleCheckInTouchStart(checkIn)}
@@ -2165,7 +2185,7 @@ export default function Community() {
                                   </div>
                                   {/* Muscle group count pill */}
                                   {checkIn.muscleGroups.length > 0 && (
-                                    <span className="text-[10px] font-bold px-2 py-1 rounded-full flex-none leading-none" style={{ background: "rgba(168,85,247,.2)", color: "var(--accent2)" }}>
+                                    <span className="text-[10px] font-bold px-2 py-1 rounded-full flex-none leading-none" style={{ background: "rgba(157,107,255,.16)", border: "1px solid rgba(157,107,255,.28)", color: "var(--accent2)" }}>
                                       +{checkIn.muscleGroups.length}
                                     </span>
                                   )}
@@ -2303,7 +2323,7 @@ export default function Community() {
                   style={
                     isGroupExpired
                       ? { padding: "13px 20px", background: "rgba(255,255,255,.08)", border: "1px solid rgba(255,255,255,.1)", color: "rgba(255,255,255,.35)", cursor: "not-allowed" }
-                      : { padding: "13px 20px", background: "linear-gradient(120deg,#a855f7,#7c3aed)", boxShadow: "0 12px 26px rgba(124,58,237,.45)" }
+                      : { padding: "13px 20px", ...GLASS_PRIMARY_BTN_STYLE, boxShadow: "0 12px 26px -6px rgba(123,63,242,.5), inset 0 1px 0 rgba(255,255,255,.3)" }
                   }
                   title={isGroupExpired ? t("duels_ended") : t("duels_checkin_today")}
                 >
@@ -2370,7 +2390,7 @@ export default function Community() {
                         className={`text-2xl active:scale-125 transition-transform relative ${isActive ? "scale-110" : ""}`}
                       >
                         {emoji}
-                        {isActive && <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full" style={{ background: "#9d6bff" }} />}
+                        {isActive && <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full" style={{ background: "var(--accent2)" }} />}
                       </button>
                     );
                   })}
@@ -2400,6 +2420,10 @@ export default function Community() {
             {/* CTA: Criar um duelo */}
             <button
               onClick={() => {
+                if (duelGateBlocked) {
+                  setDuelPaywallOpen(true);
+                  return;
+                }
                 setGroupStep(1);
                 setGroupConfig({ name: "", location: "", goal: "", durationDays: "", photo: "", scoringType: "check_in_count", memeRule: "" });
                 setSelectedInvitees(new Set());
@@ -3246,6 +3270,11 @@ export default function Community() {
                   <Button
                     onClick={async () => {
                       if (!user || isCreatingGroup) return;
+                      if (duelGateBlocked) {
+                        setIsCreateGroupModalOpen(false);
+                        setDuelPaywallOpen(true);
+                        return;
+                      }
                       setIsCreatingGroup(true);
                       try {
                         let endDate: string | undefined;
@@ -4881,6 +4910,9 @@ export default function Community() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Paywall: limite de duelos criados no plano grátis */}
+      <PaywallDrawer open={duelPaywallOpen} onOpenChange={setDuelPaywallOpen} feature="duels" />
     </div>
   );
 }
