@@ -26,6 +26,11 @@ import { cn } from "@/lib/utils";
 // WKWebView (stale height locks, double-movement), which is exactly what used
 // to break every drawer with a text input on iPhone.
 
+// `handleOnly` (repassado ao vaul): quando true, arrastar para baixo só fecha o
+// drawer a partir da ALÇA — um swipe no corpo (rolar a lista, tocar numa opção)
+// nunca dispara o dismiss. Evita o miss-click de fechar sem querer enquanto o
+// usuário está interagindo/digitando. Exige `handleOnly` também no DrawerContent
+// (para renderizar a alça como <Drawer.Handle>, que é quem o vaul reconhece).
 const Drawer = ({
   shouldScaleBackground = true,
   ...props
@@ -65,8 +70,14 @@ DrawerOverlay.displayName = DrawerPrimitive.Overlay.displayName;
 
 const DrawerContent = React.forwardRef<
   React.ElementRef<typeof DrawerPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof DrawerPrimitive.Content> & { overlayClassName?: string; handleClassName?: string }
->(({ className, children, overlayClassName, handleClassName, style, ...props }, ref) => {
+  React.ComponentPropsWithoutRef<typeof DrawerPrimitive.Content> & {
+    overlayClassName?: string;
+    handleClassName?: string;
+    /** Espelha o `handleOnly` do <Drawer>: renderiza a alça como <Drawer.Handle>
+     *  (a única que o vaul arrasta nesse modo) em vez de um div decorativo. */
+    handleOnly?: boolean;
+  }
+>(({ className, children, overlayClassName, handleClassName, handleOnly, style, ...props }, ref) => {
   return (
     <DrawerPortal>
       {/* Lift wrapper: transformed ancestor = containing block for the fixed
@@ -104,7 +115,22 @@ const DrawerContent = React.forwardRef<
           }}
           {...props}
         >
-          <div className={cn("mx-auto mt-4 h-2 w-[100px] shrink-0 rounded-full bg-muted", handleClassName)} />
+          {handleOnly ? (
+            // <Drawer.Handle> é a alça que o vaul reconhece no modo handleOnly.
+            // Os estilos default do vaul (`[data-vaul-handle]`, injetados em
+            // runtime) venceriam utilitárias de igual especificidade, então a
+            // aparência da pílula é forçada com `!` (o mt/posição vem do
+            // handleClassName). `preventCycle`: sem snap points, o clique não faz nada.
+            <DrawerPrimitive.Handle
+              preventCycle
+              className={cn(
+                "mx-auto mt-4 shrink-0 !h-1 !w-[38px] !rounded-full !bg-white/25 !opacity-100",
+                handleClassName,
+              )}
+            />
+          ) : (
+            <div className={cn("mx-auto mt-4 h-2 w-[100px] shrink-0 rounded-full bg-muted", handleClassName)} />
+          )}
           {children}
         </DrawerPrimitive.Content>
       </div>

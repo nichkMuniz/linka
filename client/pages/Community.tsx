@@ -3,6 +3,8 @@ import * as ReactDOM from "react-dom";
 import {
   getConversationsDb,
   getConversationMessagesDb,
+  peekConversationMessages,
+  cacheConversationMessages,
   sendMessageDb,
   uploadMessageImageDb,
   uploadMessageAudioDb,
@@ -68,11 +70,19 @@ import { toast } from "@/components/ui/use-toast";
 import { ArrowLeft, Send, Check, CheckCheck, Plus, X, ChevronRight, Trash2, Edit3, Search, PenSquare, MessageCircle, Users, ChevronLeft, Swords, BarChart2, Camera, Image, Mic, Crop, CheckCircle2, XCircle, Pencil } from "lucide-react";
 import { CommentReactions } from "@/components/shared/comment-reactions";
 import { ClassificationsDrawer } from "@/components/community/classifications-drawer";
+import { MemberCheckInsDrawer } from "@/components/community/member-checkins-drawer";
 import { NewConversationDrawer } from "@/components/community/new-conversation-drawer";
 import { AddMembersDrawer } from "@/components/community/add-members-drawer";
 import { EditCheckInDrawer } from "@/components/community/edit-checkin-drawer";
 import { SwipeableConversationRow } from "@/components/community/swipeable-conversation-row";
+import { SwipeableMessageBubble } from "@/components/community/swipeable-message-bubble";
 import { ImageCropperDrawer } from "@/components/shared/image-cropper-drawer";
+import {
+  InlineCropPreview,
+  applyTransformToBlob,
+  DEFAULT_TRANSFORM,
+  type CropTransform,
+} from "@/components/shared/inline-crop-preview";
 import { PostCarousel, POST_PHOTO_WIDTH, POST_PHOTO_QUALITY } from "@/components/post/post-carousel";
 import { cdnImg } from "@/lib/image-url";
 import {
@@ -122,9 +132,11 @@ import { UserAvatar } from "@/components/shared/user-avatar";
 import { SharedContentMessage } from "@/components/community/shared-content-message";
 import { ChatImageMessage, ChatAudioMessage } from "@/components/community/chat-media";
 import { RankingTab } from "@/components/community/ranking-tab";
+import { subscribeKeyboardHeight } from "@/lib/keyboard";
 import {
   specialMessageLabel,
   formatTimeAgo,
+  sameMessageList,
   DEFAULT_CHECKIN_PHOTO,
   DUEL_SCORING_TYPE_OPTIONS,
   type ViewMode,
@@ -134,13 +146,19 @@ import {
 // DUEL_SCORING_TYPE_OPTIONS) e o tipo ViewMode foram extraídos para
 // `@/components/community/community-helpers` (ver imports acima).
 
+// Histórico do grupo — paginação de renderização (o fetch traz tudo).
+const CHECKINS_INITIAL_COUNT = 50;
+const CHECKINS_PAGE_SIZE = 10;
+/** Distância do fim da rolagem que dispara a revelação do próximo lote. */
+const CHECKINS_LOAD_MORE_OFFSET = 320;
+
 export default function Community() {
   const { user } = useAuth();
   const { isPremium } = usePremium();
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
 
   const [activeTab, setActiveTab] = React.useState("messages");
 
@@ -179,7 +197,11 @@ export default function Community() {
   const [searchQuery, setSearchQuery] = React.useState("");
   const [ranking, setRanking] = React.useState<RankingUser[]>([]);
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
-  const hasScrolledForConversationRef = React.useRef(false);
+  // Fase de abertura da conversa: enquanto true, qualquer mudança na lista
+  // reposiciona no fim SEM animação (a semente do cache, depois a versão da
+  // rede). Vira false só quando a busca da rede assenta — daí em diante
+  // mensagem nova rola suave.
+  const isOpeningConversationRef = React.useRef(true);
   const messageInputRef = React.useRef<HTMLInputElement>(null);
   const photoInputRef = React.useRef<HTMLInputElement>(null);
   const [isSendingPhoto, setIsSendingPhoto] = React.useState(false);
@@ -207,8 +229,26 @@ export default function Community() {
   });
   const [checkInMetricValue, setCheckInMetricValue] = React.useState("");
   const [checkInVotes, setCheckInVotes] = React.useState<DuelCheckInVote[]>([]);
+  // Participante escolhido nas Classificações → abre o calendário de check-ins.
+  const [selectedMemberForCheckIns, setSelectedMemberForCheckIns] = React.useState<
+    { userId: string; userName: string; userPhoto: string | null } | null
+  >(null);
   const [groupPhotoFile, setGroupPhotoFile] = React.useState<File | null>(null);
   const editCoverInputRef = React.useRef<HTMLInputElement>(null);
+
+  // ── Enquadramento da capa (zoom/pan direto no frame) ──────────────────────
+  // Wizard: ajusta antes de criar; o recorte é aplicado no upload.
+  const [groupCoverTransform, setGroupCoverTransform] = React.useState<CropTransform>(DEFAULT_TRANSFORM);
+  const groupCoverWRef = React.useRef(0);
+  const groupCoverHRef = React.useRef(0);
+
+  // Hero do grupo já criado: escolher a foto entra em modo de ajuste com
+  // Salvar/Cancelar — o upload só acontece ao confirmar.
+  const [coverCropSrc, setCoverCropSrc] = React.useState<string | null>(null);
+  const [coverCropTransform, setCoverCropTransform] = React.useState<CropTransform>(DEFAULT_TRANSFORM);
+  const coverCropWRef = React.useRef(0);
+  const coverCropHRef = React.useRef(0);
+  const [isSavingCover, setIsSavingCover] = React.useState(false);
   const [selectedInvitees, setSelectedInvitees] = React.useState<Set<string>>(new Set());
   const [userCreatedGroups, setUserCreatedGroups] = React.useState<any[]>([]);
   const [availableGroups, setAvailableGroups] = React.useState<any[]>([]);
@@ -242,6 +282,18 @@ export default function Community() {
 
   const [groupCheckIns, setGroupCheckIns] = React.useState<GroupCheckIn[]>([]);
   const [groupParticipants, setGroupParticipants] = React.useState<Array<{ userId: string; userNickname: string; userPhoto: string | null }>>([]);
+
+  // Histórico do grupo: o banco devolve todos os check-ins (placar e calendário
+  // dependem do conjunto inteiro), mas renderizar centenas de cartões trava a
+  // rolagem no WebView. Então revela aos poucos, conforme o usuário desce.
+  const [visibleCheckInCount, setVisibleCheckInCount] = React.useState(CHECKINS_INITIAL_COUNT);
+
+  const selectedMemberCheckIns = React.useMemo(
+    () => selectedMemberForCheckIns
+      ? groupCheckIns.filter((c) => c.userId === selectedMemberForCheckIns.userId)
+      : [],
+    [groupCheckIns, selectedMemberForCheckIns],
+  );
 
   // Warms the Supabase image-transform cache for the check-in detail photo
   // as soon as the list loads, instead of only starting that request when the
@@ -335,6 +387,7 @@ export default function Community() {
   const [isEditingGroupInfo, setIsEditingGroupInfo] = React.useState(false);
   const [editGroupName, setEditGroupName] = React.useState("");
   const [editGroupGoal, setEditGroupGoal] = React.useState("");
+  const [editGroupRule, setEditGroupRule] = React.useState("");
   const [isSavingGroupInfo, setIsSavingGroupInfo] = React.useState(false);
   const [deleteGroupConfirmOpen, setDeleteGroupConfirmOpen] = React.useState(false);
   const [leaveGroupConfirmOpen, setLeaveGroupConfirmOpen] = React.useState(false);
@@ -393,24 +446,10 @@ export default function Community() {
   const [longPressedMessage, setLongPressedMessage] = React.useState<MessageWithUser | null>(null);
   const [replyingTo, setReplyingTo] = React.useState<MessageWithUser | null>(null);
   const [deleteMessageConfirm, setDeleteMessageConfirm] = React.useState<{ message: MessageWithUser; permanent: boolean } | null>(null);
-  const longPressTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const QUICK_EMOJIS = ["❤️", "😂", "😮", "😢", "😡", "👍"];
 
   const handleMessageLongPress = React.useCallback((message: MessageWithUser) => {
     setLongPressedMessage(message);
-  }, []);
-
-  const handleMessageTouchStart = React.useCallback((message: MessageWithUser) => {
-    longPressTimer.current = setTimeout(() => {
-      handleMessageLongPress(message);
-    }, 450);
-  }, [handleMessageLongPress]);
-
-  const handleMessageTouchEnd = React.useCallback(() => {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
   }, []);
 
   const handleReactToMessage = React.useCallback(async (emoji: string) => {
@@ -443,9 +482,9 @@ export default function Community() {
       }
       setMessages((prev) => prev.filter((m) => m.id !== message.id));
     } catch (err: any) {
-      toast({ title: "Erro ao apagar mensagem", description: err?.message || "Tente novamente.", variant: "destructive" });
+      toast({ title: t("community_msg_delete_error"), description: err?.message || t("retry"), variant: "destructive" });
     }
-  }, [deleteMessageConfirm]);
+  }, [deleteMessageConfirm, t]);
 
   const handleSendComment = React.useCallback(async (checkInId: string) => {
     if (!commentText.trim() || isSendingComment) return;
@@ -481,26 +520,16 @@ export default function Community() {
       );
       setEditingCommentId(null);
       setEditCommentDraft("");
-      toast({ title: "Comentário editado!" });
+      toast({ title: t("comments_edited") });
     } catch (err: any) {
-      toast({ title: "Erro ao editar comentário", description: err?.message || "Tente novamente.", variant: "destructive" });
+      toast({ title: t("comments_edit_error"), description: err?.message || t("retry"), variant: "destructive" });
     } finally {
       setIsSavingEditComment(false);
     }
-  }, [editCommentDraft]);
+  }, [editCommentDraft, t]);
 
-  const handleDeleteCheckInComment = React.useCallback(async (commentId: string) => {
-    setDeletingCommentId(commentId);
-    try {
-      await deleteCheckInCommentDb(commentId);
-      setCheckInComments((prev) => prev.filter((c) => c.id !== commentId));
-      toast({ title: "Comentário excluído" });
-    } catch (err: any) {
-      toast({ title: "Erro ao excluir comentário", description: err?.message || "Tente novamente.", variant: "destructive" });
-    } finally {
-      setDeletingCommentId(null);
-    }
-  }, []);
+  // `handleDeleteCheckInComment` vive logo abaixo de `showConfirm`, de quem
+  // depende — declarado aqui, o array de deps cairia na TDZ do const.
 
   const [isLoadingCheckIns, setIsLoadingCheckIns] = React.useState(false);
   const [isLoadingRoutines, setIsLoadingRoutines] = React.useState(false);
@@ -515,6 +544,9 @@ export default function Community() {
     setActiveGroupViewTab("check-ins");
     setGroupCheckIns([]);
     setGroupParticipants([]);
+    setVisibleCheckInCount(CHECKINS_INITIAL_COUNT);
+    // Sem isto, um ajuste de capa abandonado reabriria no grupo seguinte.
+    setCoverCropSrc(null);
     setIsLoadingCheckIns(true);
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
@@ -573,6 +605,28 @@ export default function Community() {
     }
   }, [selectedGroupForView?.scoringType]);
 
+  // Revela mais check-ins conforme a rolagem se aproxima do fim da lista.
+  // Sem rede: o lote já está em memória, é só deixar de recortá-lo.
+  //
+  // O scroll dispara dezenas de vezes por segundo e vários eventos cabem antes
+  // do próximo render — sem trava, um fling até o fim revelaria 40+ cartões de
+  // uma vez, exatamente o que a paginação existe para evitar. A trava libera no
+  // efeito abaixo, garantindo no máximo um lote por render commitado.
+  const loadMoreLockRef = React.useRef(false);
+
+  const onGroupViewScroll = React.useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    if (loadMoreLockRef.current || visibleCheckInCount >= groupCheckIns.length) return;
+    const el = e.currentTarget;
+    const nearEnd = el.scrollHeight - el.scrollTop - el.clientHeight < CHECKINS_LOAD_MORE_OFFSET;
+    if (!nearEnd) return;
+    loadMoreLockRef.current = true;
+    setVisibleCheckInCount(Math.min(visibleCheckInCount + CHECKINS_PAGE_SIZE, groupCheckIns.length));
+  }, [visibleCheckInCount, groupCheckIns.length]);
+
+  React.useEffect(() => {
+    loadMoreLockRef.current = false;
+  }, [visibleCheckInCount]);
+
   // Pull-to-refresh for the group screen (same UX as the feed)
   const groupViewScrollRef = React.useRef<HTMLDivElement>(null);
   const groupPullStartY = React.useRef(0);
@@ -611,6 +665,40 @@ export default function Community() {
     },
     [],
   );
+
+  // Contagem de votos do modo memes. Cada forma tem chave própria: em PT o
+  // plural de "aprovação" é "aprovações" (troca "ão" por "ões"), não dá para
+  // grudar sufixo. Zero é plural nos dois idiomas ("0 aprovações").
+  const formatApprovals = React.useCallback(
+    (n: number) =>
+      t(n === 1 ? "duels_group_approvals_one" : "duels_group_approvals").replace("{n}", String(n)),
+    [t],
+  );
+
+  const formatAnnulments = React.useCallback(
+    (n: number) =>
+      t(n === 1 ? "duels_group_annulments_one" : "duels_group_annulments").replace("{n}", String(n)),
+    [t],
+  );
+
+  // Excluir comentário é irreversível — confirma antes, pelo mesmo diálogo
+  // central que o botão de excluir check-in usa neste drawer, com o texto já
+  // usado nos comentários de post (`comments_delete_*`).
+  const handleDeleteCheckInComment = React.useCallback((commentId: string) => {
+    showConfirm(t("comments_delete_title"), t("comments_delete_desc"), async () => {
+      setDeletingCommentId(commentId);
+      try {
+        await deleteCheckInCommentDb(commentId);
+        setCheckInComments((prev) => prev.filter((c) => c.id !== commentId));
+        toast({ title: t("comments_deleted") });
+      } catch (err: any) {
+        console.error("Error deleting check-in comment:", err);
+        toast({ title: t("comments_delete_error"), description: err?.message || t("retry"), variant: "destructive" });
+      } finally {
+        setDeletingCommentId(null);
+      }
+    });
+  }, [showConfirm, t]);
 
   // Load conversations, following users, and ranking
   React.useEffect(() => {
@@ -794,25 +882,34 @@ export default function Community() {
   React.useEffect(() => {
     if (!selectedConversation || viewMode !== "conversation") return;
 
-    // Clear messages immediately so previous conversation's messages never bleed through
-    setMessages([]);
-    hasScrolledForConversationRef.current = false;
-
     const targetUserId = selectedConversation.userId;
+    let cancelled = false;
+
+    // Semente: as mensagens desta conversa já vistas neste aparelho. A conversa
+    // abre pintada e posicionada no fim, em vez de abrir vazia e "carregar" —
+    // era isso que dava a sensação de recarregar a cada entrada. Nunca reaproveita
+    // a lista da conversa anterior: ou é a semente desta, ou vazio.
+    setMessages(peekConversationMessages(targetUserId) ?? []);
+    isOpeningConversationRef.current = true;
 
     const loadMessages = async () => {
       try {
         const data = await getConversationMessagesDb(targetUserId);
+        if (cancelled) return;
 
         // Only update state if this conversation is still the selected one
         setSelectedConversation((current) => {
           if (current?.userId !== targetUserId) return current;
-          setMessages(data);
+          // Quando a rede confirma o que a semente já mostrava, manter o array
+          // anterior: sem novo array, sem re-render da lista inteira e sem o
+          // piscar de remontar todas as bolhas.
+          setMessages((prev) => (sameMessageList(prev, data) ? prev : data));
           return current;
         });
 
         // Mark messages as read
         await markMessagesAsReadDb(targetUserId);
+        if (cancelled) return;
 
         // Update conversation unread count
         setConversations((prev) =>
@@ -825,22 +922,33 @@ export default function Community() {
       } catch (err: any) {
         console.error("Error loading messages:", err);
         toast({ title: "Erro ao carregar mensagens", description: err?.message || "Tente novamente.", variant: "destructive" });
+      } finally {
+        // A rede assentou (ou falhou): mensagem nova daqui pra frente rola com
+        // animação. `cancelled` evita que a carga de uma conversa abandonada
+        // encerre a fase de abertura da conversa que o usuário abriu depois.
+        if (!cancelled) {
+          requestAnimationFrame(() => {
+            if (!cancelled) isOpeningConversationRef.current = false;
+          });
+        }
       }
     };
 
     loadMessages();
+    return () => {
+      cancelled = true;
+    };
   }, [selectedConversation?.userId, viewMode]);
 
-  // Auto-scroll to the last message: instant snap when a conversation is first opened
-  // (or reopened), smooth scroll for messages sent/received afterwards.
+  // Auto-scroll to the last message: instant snap while the conversation is opening
+  // (semente + chegada da rede), smooth scroll for messages sent/received afterwards.
   React.useEffect(() => {
     if (messages.length === 0) return;
 
-    const isInitialLoad = !hasScrolledForConversationRef.current;
-    messagesEndRef.current?.scrollIntoView({ behavior: isInitialLoad ? "auto" : "smooth" });
+    const isOpening = isOpeningConversationRef.current;
+    messagesEndRef.current?.scrollIntoView({ behavior: isOpening ? "auto" : "smooth" });
 
-    if (isInitialLoad) {
-      hasScrolledForConversationRef.current = true;
+    if (isOpening) {
       // Images/audio players can still be loading and shift the layout after the
       // initial paint — re-snap to the bottom once they've had time to settle so
       // the conversation reliably opens on the last message.
@@ -850,6 +958,30 @@ export default function Community() {
       return () => timers.forEach(clearTimeout);
     }
   }, [messages]);
+
+  // Teclado iOS: ao abrir/fechar, o container encolhe/cresce (bottom = --keyboard-height)
+  // e a área de mensagens muda de altura. Sem re-fixar, o scroll deixa de mostrar
+  // a última mensagem. Re-snapamos no fim algumas vezes ao longo da animação do
+  // teclado (~250ms) para manter a conversa colada embaixo, como o WhatsApp.
+  React.useEffect(() => {
+    if (viewMode !== "conversation" || !selectedConversation) return;
+    let timers: ReturnType<typeof setTimeout>[] = [];
+    const clear = () => { timers.forEach(clearTimeout); timers = []; };
+    const unsubscribe = subscribeKeyboardHeight(() => {
+      clear();
+      timers = [0, 120, 280].map((delay) =>
+        setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "auto" }), delay),
+      );
+    });
+    return () => { clear(); unsubscribe(); };
+  }, [viewMode, selectedConversation?.userId]);
+
+  // Mantém a semente em dia com o que está na tela (enviadas, recebidas via
+  // realtime, apagadas) — assim a próxima abertura pinta o estado correto.
+  React.useEffect(() => {
+    if (viewMode !== "conversation" || !selectedConversation || messages.length === 0) return;
+    cacheConversationMessages(selectedConversation.userId, messages);
+  }, [messages, selectedConversation?.userId, viewMode]);
 
   const handleSendMessage = React.useCallback(async () => {
     if (!messageText.trim() || !selectedConversation) return;
@@ -1124,10 +1256,22 @@ export default function Community() {
   }
 
   if (activeTab === "messages" && viewMode === "conversation" && selectedConversation) {
-    const bottomClass = "bottom-0";
-
     return ReactDOM.createPortal(
-      <div className={`fixed top-0 right-0 ${bottomClass} bg-background flex flex-col z-[100]`} style={{ left: "var(--sidebar-width, 0px)" }}>
+      // O container ocupa só a área ACIMA do teclado do iOS: o tracker global
+      // (client/lib/keyboard.ts, Keyboard resize:'none') publica --keyboard-height
+      // no <html>, e subir o `bottom` por essa altura encolhe a conversa a partir
+      // de baixo — a lista rola menos e a barra de input fica logo acima do
+      // teclado, em vez de ficar escondida atrás dele. transition acompanha a
+      // animação do teclado. Um portal fixo não é drawer/dialog, então não herda
+      // o lift automático de drawer.tsx/dialog.tsx — daí o tratamento aqui.
+      <div
+        className="fixed top-0 right-0 bg-background flex flex-col z-[100]"
+        style={{
+          left: "var(--sidebar-width, 0px)",
+          bottom: "var(--keyboard-height, 0px)",
+          transition: "bottom 0.25s cubic-bezier(0.22,0.61,0.36,1)",
+        }}
+      >
         {/* Header */}
         <div
           className="flex-shrink-0 px-4 py-3 flex items-center gap-3"
@@ -1163,7 +1307,7 @@ export default function Community() {
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto space-y-4 px-4 py-4">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden space-y-4 px-4 py-4">
           {/* Profile card — always shown at top of conversation */}
           <div className="flex flex-col items-center gap-3 py-6 mb-2">
             <UserAvatar
@@ -1196,11 +1340,11 @@ export default function Community() {
                   key={message.id}
                   className={`flex ${isOwn ? "justify-end" : "justify-start"}`}
                 >
-                  <div className="relative">
+                  <SwipeableMessageBubble
+                    onReply={() => handleReplyToMessage(message)}
+                    onLongPress={() => handleMessageLongPress(message)}
+                  >
                     <div
-                      onTouchStart={() => handleMessageTouchStart(message)}
-                      onTouchEnd={handleMessageTouchEnd}
-                      onTouchMove={handleMessageTouchEnd}
                       onContextMenu={(e) => { e.preventDefault(); handleMessageLongPress(message); }}
                       className={`max-w-xs px-4 py-2.5 space-y-1 break-words select-none text-white ${isOwn ? "rounded-[20px] rounded-br-md" : "rounded-[20px] rounded-bl-md"}`}
                       style={isOwn
@@ -1256,7 +1400,7 @@ export default function Community() {
                         {message.emoji}
                       </span>
                     )}
-                  </div>
+                  </SwipeableMessageBubble>
                 </div>
               );
             })
@@ -1294,7 +1438,7 @@ export default function Community() {
               WebkitBackdropFilter: "blur(30px) saturate(180%)",
               borderTop: "1px solid rgba(255,255,255,.1)",
               boxShadow: "inset 0 1px 0 rgba(255,255,255,.12)",
-              paddingBottom: "max(0.85rem, env(safe-area-inset-bottom))",
+              paddingBottom: "max(0.85rem, calc(env(safe-area-inset-bottom) - var(--keyboard-height, 0px)))",
             }}
           >
             {/* Cancelar */}
@@ -1335,7 +1479,7 @@ export default function Community() {
               WebkitBackdropFilter: "blur(30px) saturate(180%)",
               borderTop: "1px solid rgba(255,255,255,.1)",
               boxShadow: "inset 0 1px 0 rgba(255,255,255,.12)",
-              paddingBottom: "max(0.85rem, env(safe-area-inset-bottom))",
+              paddingBottom: "max(0.85rem, calc(env(safe-area-inset-bottom) - var(--keyboard-height, 0px)))",
             }}
           >
             {/* Câmera */}
@@ -1439,8 +1583,11 @@ export default function Community() {
         {longPressedMessage && (() => {
           const isOwnMsg = longPressedMessage.user_id === user?.id;
           const msgAgeMs = Date.now() - new Date(longPressedMessage.created_at).getTime();
+          // "Apagar para todos" (hard delete) só nas próprias mensagens e dentro
+          // da janela de 10 min. "Apagar para mim" (soft-delete) vale sempre,
+          // inclusive nas próprias — então uma mensagem enviada oferece as duas.
           const canDeletePermanently = isOwnMsg && msgAgeMs < 10 * 60 * 1000;
-          const canDeleteForMe = !isOwnMsg;
+          const canDeleteForMe = true;
           return (
             <div
               className="fixed inset-0 z-[100] bg-black/40 flex items-end justify-center pb-12"
@@ -1477,20 +1624,8 @@ export default function Community() {
                   onClick={() => handleReplyToMessage(longPressedMessage)}
                 >
                   <ArrowLeft className="h-5 w-5 text-muted-foreground" />
-                  <span className="text-sm font-medium">Responder</span>
+                  <span className="text-sm font-medium">{t("community_msg_reply")}</span>
                 </button>
-                {canDeletePermanently && (
-                  <button
-                    className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-muted/40 transition-colors text-left border-t border-border/40 text-destructive"
-                    onClick={() => {
-                      setDeleteMessageConfirm({ message: longPressedMessage, permanent: true });
-                      setLongPressedMessage(null);
-                    }}
-                  >
-                    <Trash2 className="h-5 w-5" />
-                    <span className="text-sm font-medium">Apagar mensagem</span>
-                  </button>
-                )}
                 {canDeleteForMe && (
                   <button
                     className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-muted/40 transition-colors text-left border-t border-border/40 text-destructive"
@@ -1500,7 +1635,19 @@ export default function Community() {
                     }}
                   >
                     <Trash2 className="h-5 w-5" />
-                    <span className="text-sm font-medium">Apagar para mim</span>
+                    <span className="text-sm font-medium">{t("community_msg_delete_for_me")}</span>
+                  </button>
+                )}
+                {canDeletePermanently && (
+                  <button
+                    className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-muted/40 transition-colors text-left border-t border-border/40 text-destructive"
+                    onClick={() => {
+                      setDeleteMessageConfirm({ message: longPressedMessage, permanent: true });
+                      setLongPressedMessage(null);
+                    }}
+                  >
+                    <Trash2 className="h-5 w-5" />
+                    <span className="text-sm font-medium">{t("community_msg_delete_for_everyone")}</span>
                   </button>
                 )}
                 <button
@@ -1508,7 +1655,7 @@ export default function Community() {
                   onClick={() => setLongPressedMessage(null)}
                 >
                   <X className="h-5 w-5 text-muted-foreground" />
-                  <span className="text-sm font-medium">Cancelar</span>
+                  <span className="text-sm font-medium">{t("cancel")}</span>
                 </button>
               </div>
             </div>
@@ -1531,12 +1678,12 @@ export default function Community() {
             >
               <div className="px-5 pt-5 pb-3">
                 <p className="text-base font-semibold mb-1.5">
-                  {deleteMessageConfirm.permanent ? "Apagar mensagem" : "Apagar para mim"}
+                  {deleteMessageConfirm.permanent ? t("community_msg_delete_for_everyone") : t("community_msg_delete_for_me")}
                 </p>
                 <p className="text-sm text-muted-foreground">
                   {deleteMessageConfirm.permanent
-                    ? "Esta mensagem será apagada para você e para o outro usuário. Esta ação é irreversível."
-                    : "Esta mensagem será removida apenas para você. O outro usuário ainda poderá vê-la."}
+                    ? t("community_msg_delete_for_everyone_desc")
+                    : t("community_msg_delete_for_me_desc")}
                 </p>
               </div>
               <div className="flex border-t border-border/60">
@@ -1544,14 +1691,14 @@ export default function Community() {
                   className="flex-1 py-3.5 text-sm font-medium text-muted-foreground hover:bg-muted/40 transition-colors"
                   onClick={() => setDeleteMessageConfirm(null)}
                 >
-                  Cancelar
+                  {t("cancel")}
                 </button>
                 <div className="w-px bg-border/60" />
                 <button
                   className="flex-1 py-3.5 text-sm font-semibold text-destructive hover:bg-destructive/10 transition-colors"
                   onClick={handleConfirmDeleteMessage}
                 >
-                  Apagar
+                  {t("community_msg_delete_action")}
                 </button>
               </div>
             </div>
@@ -1856,7 +2003,7 @@ export default function Community() {
             "--accent2": "#9d6bff",
           } as React.CSSProperties}
         >
-          {/* Header: back · "Grupo" · edit (creator only) */}
+          {/* Header: voltar · "Grupo" · espaçador */}
           <div
             className="flex-shrink-0 px-5 pb-3 flex items-center justify-between"
             style={{ paddingTop: "calc(env(safe-area-inset-top) + 0.9rem)" }}
@@ -1879,46 +2026,16 @@ export default function Community() {
             <span className="text-[13px] font-bold" style={{ fontFamily: "'Space Grotesk', sans-serif", color: "var(--muted)" }}>
               {t("duels_group_header")}
             </span>
-            {selectedGroupForView.createdBy === user?.id ? (
-              <>
-                <input
-                  ref={editCoverInputRef}
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={async (e) => {
-                    const file = e.target.files?.[0];
-                    if (!file || !selectedGroupForView) return;
-                    try {
-                      const photoUrl = await updateGroupPhotoDb(selectedGroupForView.id, file);
-                      setSelectedGroupForView({ ...selectedGroupForView, photo: photoUrl });
-                      setUserCreatedGroups((prev) =>
-                        prev.map((g) => g.id === selectedGroupForView.id ? { ...g, photo: photoUrl } : g)
-                      );
-                      toast({ title: t("duels_group_cover_updated") });
-                    } catch {
-                      toast({ title: t("duels_group_cover_error"), variant: "destructive" });
-                    }
-                  }}
-                />
-                <button
-                  onClick={() => editCoverInputRef.current?.click()}
-                  title={t("duels_group_edit_cover")}
-                  className="h-9 w-9 rounded-[11px] flex items-center justify-center text-white transition-transform active:scale-90"
-                  style={GLASS_CARD_STYLE}
-                >
-                  <Edit3 className="h-[15px] w-[15px]" strokeWidth={2.2} />
-                </button>
-              </>
-            ) : (
-              <span className="h-9 w-9" />
-            )}
+            {/* Espaçador: equilibra o botão de voltar e mantém "Grupo" no centro.
+                O botão de trocar a capa vive dentro do frame da capa. */}
+            <span className="h-9 w-9" />
           </div>
 
           {/* Content */}
           <div
             ref={groupViewScrollRef}
             className="flex-1 overflow-y-auto"
+            onScroll={onGroupViewScroll}
             onTouchStart={onGroupTouchStart}
             onTouchMove={onGroupTouchMove}
             onTouchEnd={onGroupTouchEnd}
@@ -1944,23 +2061,142 @@ export default function Community() {
               {/* Hero cover card */}
               <div className="px-5 pt-1">
                 <div className="relative h-[130px] rounded-[22px] overflow-hidden" style={{ background: "linear-gradient(135deg,rgba(91,140,255,.28),rgba(157,107,255,.18))", border: "1px solid rgba(255,255,255,.10)" }}>
-                  {selectedGroupForView.photo ? (
-                    <img
-                      src={selectedGroupForView.photo}
-                      alt={selectedGroupForView.name}
-                      className="absolute inset-0 w-full h-full object-cover"
+                  {coverCropSrc ? (
+                    // Modo de ajuste: enquadra no próprio hero. Sem scrim nem
+                    // título por cima — o frame precisa mostrar o recorte cru,
+                    // que é exatamente o que vai subir.
+                    <InlineCropPreview
+                      imageSrc={coverCropSrc}
+                      transform={coverCropTransform}
+                      onTransformChange={setCoverCropTransform}
+                      containerWidthRef={coverCropWRef}
+                      containerHeightRef={coverCropHRef}
                     />
                   ) : (
-                    <div className="absolute inset-0 flex items-center justify-center text-5xl">{selectedGroupForView.icon}</div>
+                    <>
+                      {selectedGroupForView.photo ? (
+                        <img
+                          src={selectedGroupForView.photo}
+                          alt={selectedGroupForView.name}
+                          className="absolute inset-0 w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="absolute inset-0 flex items-center justify-center text-5xl">{selectedGroupForView.icon}</div>
+                      )}
+                      <div className="absolute inset-0" style={{ background: "linear-gradient(to top,rgba(0,0,0,.65),rgba(0,0,0,0) 62%)" }} />
+                      <h1
+                        className="absolute left-[18px] right-[18px] bottom-[14px] text-[24px] font-extrabold leading-tight text-white truncate"
+                        style={{ fontFamily: "'Space Grotesk', sans-serif", textShadow: "0 2px 12px rgba(0,0,0,.6)" }}
+                      >
+                        {selectedGroupForView.name}
+                      </h1>
+                    </>
                   )}
-                  <div className="absolute inset-0" style={{ background: "linear-gradient(to top,rgba(0,0,0,.65),rgba(0,0,0,0) 62%)" }} />
-                  <h1
-                    className="absolute left-[18px] right-[18px] bottom-[14px] text-[24px] font-extrabold leading-tight text-white truncate"
-                    style={{ fontFamily: "'Space Grotesk', sans-serif", textShadow: "0 2px 12px rgba(0,0,0,.6)" }}
-                  >
-                    {selectedGroupForView.name}
-                  </h1>
+
+                  {/* Trocar capa — só o criador. Fica no canto da própria capa,
+                      onde a ação se aplica. O scrim do card só escurece a base,
+                      então este canto precisa de fundo próprio para o ícone não
+                      sumir em fotos claras. */}
+                  {selectedGroupForView.createdBy === user?.id && (
+                    <>
+                      <input
+                        ref={editCoverInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          // Permite escolher o mesmo arquivo de novo depois de um erro.
+                          e.target.value = "";
+                          if (!file) return;
+                          // Não sobe ainda: entra em modo de ajuste no hero.
+                          setCoverCropTransform(DEFAULT_TRANSFORM);
+                          const reader = new FileReader();
+                          reader.onloadend = () => setCoverCropSrc(reader.result as string);
+                          reader.readAsDataURL(file);
+                        }}
+                      />
+                      {!coverCropSrc && (
+                        <button
+                          onClick={() => editCoverInputRef.current?.click()}
+                          title={t("duels_group_edit_cover")}
+                          aria-label={t("duels_group_edit_cover")}
+                          className="absolute top-[10px] right-[10px] h-9 w-9 rounded-[11px] flex items-center justify-center text-white transition-transform active:scale-90"
+                          style={{
+                            background: "rgba(0,0,0,.42)",
+                            backdropFilter: "blur(14px) saturate(150%)",
+                            WebkitBackdropFilter: "blur(14px) saturate(150%)",
+                            border: "1px solid rgba(255,255,255,.22)",
+                          }}
+                        >
+                          <Edit3 className="h-[15px] w-[15px]" strokeWidth={2.2} />
+                        </button>
+                      )}
+                    </>
+                  )}
                 </div>
+
+                {/* Ações do modo de ajuste da capa */}
+                {coverCropSrc && (
+                  <div className="pt-2 space-y-2">
+                    <p className="text-[11px] text-center" style={{ color: "var(--muted)" }}>{t("duels_cover_crop_hint")}</p>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        className="flex-1 rounded-full bg-transparent border-white/20 text-white hover:bg-white/10 hover:text-white"
+                        disabled={isSavingCover}
+                        onClick={() => setCoverCropSrc(null)}
+                      >
+                        {t("cancel")}
+                      </Button>
+                      <Button
+                        className="flex-1 rounded-full border-0"
+                        style={GLASS_PRIMARY_BTN_STYLE}
+                        disabled={isSavingCover}
+                        onClick={async () => {
+                          if (!selectedGroupForView || !coverCropSrc) return;
+                          const groupId = selectedGroupForView.id;
+                          setIsSavingCover(true);
+                          try {
+                            const blob = await applyTransformToBlob(
+                              coverCropSrc,
+                              coverCropTransform,
+                              coverCropWRef.current,
+                              coverCropHRef.current,
+                            );
+                            const photoUrl = await updateGroupPhotoDb(
+                              groupId,
+                              new File([blob], "cover.jpg", { type: "image/jpeg" }),
+                            );
+                            // Pré-carrega a URL remota antes de trocar, senão a
+                            // capa pisca ao sair do modo de ajuste.
+                            await new Promise<void>((resolve) => {
+                              // `Image` aqui é o ícone do lucide — usar o global.
+                              const img = new window.Image();
+                              img.onload = () => resolve();
+                              img.onerror = () => resolve();
+                              img.src = photoUrl;
+                            });
+                            setSelectedGroupForView((prev: any) =>
+                              prev && prev.id === groupId ? { ...prev, photo: photoUrl } : prev
+                            );
+                            setUserCreatedGroups((prev) =>
+                              prev.map((g) => g.id === groupId ? { ...g, photo: photoUrl } : g)
+                            );
+                            setCoverCropSrc(null);
+                            toast({ title: t("duels_group_cover_updated") });
+                          } catch {
+                            toast({ title: t("duels_group_cover_error"), variant: "destructive" });
+                          } finally {
+                            setIsSavingCover(false);
+                          }
+                        }}
+                      >
+                        {isSavingCover ? t("duels_group_saving") : t("duels_group_save")}
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Stats Section */}
@@ -2050,25 +2286,36 @@ export default function Community() {
                 })()}
               </div>
 
-              {/* Segmented tab pills */}
+              {/* NÃO é um tab bar, apesar do formato segmentado: os três abrem
+                  DRAWERS, ninguém troca o conteúdo da tela (o histórico abaixo é
+                  sempre o mesmo). Nenhum leva destaque justamente por isso — os
+                  três são atalhos equivalentes, e um deles pintado sugeriria
+                  "você está aqui", que é falso. O chevron marca "abre painel". */}
               <div className="px-5 pt-5">
                 <div className="flex gap-1 p-1 rounded-[15px]" style={GLASS_CARD_STYLE}>
-                  <div className="flex-1 text-center py-[9px] rounded-[12px] text-[12.5px] font-bold text-white" style={GLASS_PRIMARY_BTN_STYLE}>
-                    {t("duels_group_tab_details")}
-                  </div>
                   <button
-                    onClick={() => setIsParticipantsModalOpen(true)}
-                    className="flex-1 text-center py-[9px] rounded-[12px] text-[12.5px] font-semibold transition-transform active:scale-95"
+                    onClick={() => setIsGroupDetailsOpen(true)}
+                    className="flex-1 min-w-0 flex items-center justify-center gap-0.5 py-[9px] rounded-[12px] text-[12.5px] font-semibold transition-transform active:scale-95"
                     style={{ color: "var(--muted)" }}
                   >
-                    {t("duels_group_tab_participants")}
+                    <span className="truncate">{t("duels_group_tab_details")}</span>
+                    <ChevronRight className="h-3 w-3 shrink-0 opacity-60" strokeWidth={2.5} />
+                  </button>
+                  <button
+                    onClick={() => setIsParticipantsModalOpen(true)}
+                    className="flex-1 min-w-0 flex items-center justify-center gap-0.5 py-[9px] rounded-[12px] text-[12.5px] font-semibold transition-transform active:scale-95"
+                    style={{ color: "var(--muted)" }}
+                  >
+                    <span className="truncate">{t("duels_group_tab_participants")}</span>
+                    <ChevronRight className="h-3 w-3 shrink-0 opacity-60" strokeWidth={2.5} />
                   </button>
                   <button
                     onClick={() => setIsClassificationsOpen(true)}
-                    className="flex-1 text-center py-[9px] rounded-[12px] text-[12.5px] font-semibold transition-transform active:scale-95"
+                    className="flex-1 min-w-0 flex items-center justify-center gap-0.5 py-[9px] rounded-[12px] text-[12.5px] font-semibold transition-transform active:scale-95"
                     style={{ color: "var(--muted)" }}
                   >
-                    {t("duels_group_tab_ranking_short")}
+                    <span className="truncate">{t("duels_group_tab_ranking_short")}</span>
+                    <ChevronRight className="h-3 w-3 shrink-0 opacity-60" strokeWidth={2.5} />
                   </button>
                 </div>
               </div>
@@ -2095,8 +2342,11 @@ export default function Community() {
                       ))}
                     </div>
                   ) : groupCheckIns.length > 0 ? (() => {
-                    // Sort newest first then group by day
-                    const sorted = [...groupCheckIns].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+                    // Sort newest first, recorta no lote visível, então agrupa
+                    // por dia — cortar antes do sort traria os dias errados.
+                    const sorted = [...groupCheckIns]
+                      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+                      .slice(0, visibleCheckInCount);
                     const grouped: { label: string; items: typeof sorted }[] = [];
                     const seenDays = new Map<string, typeof sorted>();
                     for (const checkIn of sorted) {
@@ -2111,10 +2361,13 @@ export default function Community() {
                       }
                       seenDays.get(dayKey)!.push(checkIn);
                     }
-                    return grouped.map((group) => (
-                      <div key={group.label}>
-                        <p className="text-[10.5px] font-semibold mb-2 uppercase tracking-[.04em]" style={{ color: "var(--muted)" }}>{group.label}</p>
-                        <div className="space-y-2">
+                    const remaining = groupCheckIns.length - sorted.length;
+                    return (
+                      <>
+                        {grouped.map((group) => (
+                          <div key={group.label}>
+                            <p className="text-[10.5px] font-semibold mb-2 uppercase tracking-[.04em]" style={{ color: "var(--muted)" }}>{group.label}</p>
+                            <div className="space-y-2">
                           {group.items.map((checkIn) => {
                             const reactions = checkInReactions[checkIn.id] ?? [];
                             const groupedReactions = CHECKIN_QUICK_EMOJIS
@@ -2221,9 +2474,16 @@ export default function Community() {
                                   const userVote = votes.find((v) => v.userId === user?.id)?.voteType ?? null;
                                   const disqualified = disqualifyCount > classifyCount && disqualifyCount > 0;
                                   const isOwn = checkIn.userId === user?.id;
+                                  // Quem postou não avalia o próprio check-in: só acompanha.
+                                  // Anulado já é dito pelo selo à direita — não cabe "pendente" junto.
+                                  const label = isOwn
+                                    ? (disqualified ? null : `⏳ ${t("duels_group_pending_review")}`)
+                                    : `🎭 ${t("duels_group_evaluate")}`;
                                   return (
                                     <div className="ml-16 mt-1.5 flex items-center gap-2 pt-1.5" style={{ borderTop: "1px solid var(--line)" }}>
-                                      <span className="text-[10px] font-medium shrink-0 tracking-wide" style={{ color: "var(--muted)" }}>🎭 {t("duels_group_evaluate")}</span>
+                                      {label && (
+                                        <span className="text-[10px] font-medium shrink-0 tracking-wide" style={{ color: "var(--muted)" }}>{label}</span>
+                                      )}
                                       <div className="flex items-center gap-1.5 flex-1">
                                         {!isOwn ? (
                                           <>
@@ -2281,10 +2541,17 @@ export default function Community() {
                                 })()}
                               </div>
                             );
-                          })}
-                        </div>
-                      </div>
-                    ));
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                        {remaining > 0 && (
+                          <p className="text-[11.5px] font-medium text-center py-3" style={{ color: "var(--muted)" }}>
+                            {t("duels_group_more_records").replace("{n}", String(remaining))}
+                          </p>
+                        )}
+                      </>
+                    );
                   })() : (
                     <p className="text-sm text-center py-8" style={{ color: "var(--muted)" }}>{t("duels_group_no_checkins")}</p>
                   )}
@@ -2426,6 +2693,7 @@ export default function Community() {
                 }
                 setGroupStep(1);
                 setGroupConfig({ name: "", location: "", goal: "", durationDays: "", photo: "", scoringType: "check_in_count", memeRule: "" });
+                setGroupCoverTransform(DEFAULT_TRANSFORM);
                 setSelectedInvitees(new Set());
                 setIsCreateGroupModalOpen(true);
               }}
@@ -2911,20 +3179,10 @@ export default function Community() {
                 />
               ))}
             </div>
-            <DrawerTitle className="text-white">
-              {groupStep === 1 && "Passo 1 — Identidade do grupo"}
-              {groupStep === 2 && "Passo 2 — Localização"}
-              {groupStep === 3 && "Passo 3 — Duração"}
-              {groupStep === 4 && "Passo 4 — Sistema de pontuação"}
-              {groupStep === 5 && "Passo 5 — Convidar participantes"}
-            </DrawerTitle>
-            <DrawerDescription className="sr-only">Criação de grupo de desafio</DrawerDescription>
+            <DrawerTitle className="text-white">{t(`duels_wizard_step${groupStep}_title`)}</DrawerTitle>
+            <DrawerDescription className="sr-only">{t("duels_wizard_sr_desc")}</DrawerDescription>
             <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,.5)" }}>
-              {groupStep === 1 && "Nome, meta e capa do grupo"}
-              {groupStep === 2 && "Estado onde o desafio acontece"}
-              {groupStep === 3 && "Por quanto tempo o desafio vai durar"}
-              {groupStep === 4 && "Como será calculado o ranking do grupo"}
-              {groupStep === 5 && "Selecione quem vai participar"}
+              {t(`duels_wizard_step${groupStep}_subtitle`)}
             </p>
           </DrawerHeader>
 
@@ -2934,22 +3192,38 @@ export default function Community() {
               <div className="space-y-4">
                 {/* Group Photo */}
                 <div className="space-y-2">
-                  <label className={GLASS_LABEL_CLASS}>Capa do Grupo</label>
+                  <label className={GLASS_LABEL_CLASS}>{t("duels_wizard_cover_label")}</label>
                   <div className="relative w-full h-36 rounded-xl overflow-hidden flex items-center justify-center" style={GLASS_PANEL_STYLE}>
                     {groupConfig.photo ? (
                       <>
-                        <img src={groupConfig.photo} alt="capa" className="w-full h-full object-cover" />
+                        {/* Enquadra no próprio frame: o que se vê aqui é o que
+                            sobe, porque o recorte usa estas mesmas medidas. */}
+                        <InlineCropPreview
+                          imageSrc={groupConfig.photo}
+                          transform={groupCoverTransform}
+                          onTransformChange={setGroupCoverTransform}
+                          containerWidthRef={groupCoverWRef}
+                          containerHeightRef={groupCoverHRef}
+                        />
                         <button
-                          onClick={() => { setGroupConfig({ ...groupConfig, photo: "" }); setGroupPhotoFile(null); }}
+                          onClick={() => {
+                            setGroupConfig({ ...groupConfig, photo: "" });
+                            setGroupPhotoFile(null);
+                            setGroupCoverTransform(DEFAULT_TRANSFORM);
+                          }}
                           className="absolute top-2 right-2 p-1 rounded-full bg-black/60 text-white"
                         >
                           <X className="h-4 w-4" />
                         </button>
                       </>
                     ) : (
-                      <label className="cursor-pointer flex flex-col items-center gap-2 text-white/50">
+                      // `absolute inset-0`: o label preenche o frame todo, então
+                      // qualquer ponto da capa abre o seletor — antes só o
+                      // retângulo do ícone+texto, centralizado pelo pai, era
+                      // clicável.
+                      <label className="absolute inset-0 cursor-pointer flex flex-col items-center justify-center gap-2 text-white/50 active:opacity-70 transition-opacity">
                         <span className="text-3xl">📷</span>
-                        <span className="text-xs">Adicionar capa</span>
+                        <span className="text-xs">{t("duels_wizard_cover_add")}</span>
                         <input
                           type="file"
                           accept="image/*"
@@ -2958,6 +3232,7 @@ export default function Community() {
                             const file = e.target.files?.[0];
                             if (file) {
                               setGroupPhotoFile(file);
+                              setGroupCoverTransform(DEFAULT_TRANSFORM);
                               const reader = new FileReader();
                               reader.onloadend = () => setGroupConfig({ ...groupConfig, photo: reader.result as string });
                               reader.readAsDataURL(file);
@@ -2967,27 +3242,30 @@ export default function Community() {
                       </label>
                     )}
                   </div>
+                  {groupConfig.photo && (
+                    <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>{t("duels_cover_crop_hint")}</p>
+                  )}
                 </div>
 
                 {/* Group Name */}
                 <div className="space-y-2">
-                  <label className={GLASS_LABEL_CLASS}>Nome do Grupo *</label>
+                  <label className={GLASS_LABEL_CLASS}>{t("duels_wizard_name_label")}</label>
                   <Input
                     value={groupConfig.name}
                     onChange={(e) => setGroupConfig({ ...groupConfig, name: e.target.value })}
-                    placeholder="Ex: Supino Masters, Cardio Challenge..."
+                    placeholder={t("duels_wizard_name_placeholder")}
                     className={GLASS_FIELD_CLASS}
                     style={GLASS_FIELD_STYLE}
                   />
                 </div>
 
-                {/* Goal */}
+                {/* Goal — opcional; a coluna `goal` é NOT NULL, então vazio grava "" */}
                 <div className="space-y-2">
-                  <label className={GLASS_LABEL_CLASS}>Meta do Grupo *</label>
+                  <label className={GLASS_LABEL_CLASS}>{t("duels_wizard_goal_label")}</label>
                   <Textarea
                     value={groupConfig.goal}
                     onChange={(e) => setGroupConfig({ ...groupConfig, goal: e.target.value })}
-                    placeholder="Ex: Maior volume total de supino em 30 dias..."
+                    placeholder={t("duels_wizard_goal_placeholder")}
                     className={`min-h-20 ${GLASS_FIELD_CLASS}`}
                     style={GLASS_FIELD_STYLE}
                   />
@@ -2995,16 +3273,16 @@ export default function Community() {
 
                 <Button
                   onClick={() => {
-                    if (groupConfig.name && groupConfig.goal) {
+                    if (groupConfig.name.trim()) {
                       setGroupStep(2);
                     } else {
-                      toast({ title: "Campos obrigatórios", description: "Preencha nome e meta para continuar", variant: "destructive" });
+                      toast({ title: t("duels_wizard_required_title"), description: t("duels_wizard_name_required"), variant: "destructive" });
                     }
                   }}
                   className="w-full rounded-full mt-4 border-0"
                   style={GLASS_PRIMARY_BTN_STYLE}
                 >
-                  Próximo
+                  {t("duels_wizard_next")}
                   <ChevronRight className="h-4 w-4 ml-2" />
                 </Button>
               </div>
@@ -3014,10 +3292,10 @@ export default function Community() {
             {groupStep === 2 && (
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <label className={GLASS_LABEL_CLASS}>Estado (UF) *</label>
+                  <label className={GLASS_LABEL_CLASS}>{t("duels_wizard_state_label")}</label>
                   <Select value={groupConfig.location} onValueChange={(value) => setGroupConfig({ ...groupConfig, location: value })}>
                     <SelectTrigger className={`rounded-lg ${GLASS_FIELD_CLASS}`} style={GLASS_FIELD_STYLE}>
-                      <SelectValue placeholder="Selecione um estado" />
+                      <SelectValue placeholder={t("duels_wizard_state_placeholder")} />
                     </SelectTrigger>
                     <SelectContent className="z-[500]">
                       <SelectItem value="AC">Acre (AC)</SelectItem>
@@ -3052,19 +3330,19 @@ export default function Community() {
                 </div>
 
                 <div className="flex gap-2 mt-4">
-                  <Button onClick={() => setGroupStep(1)} variant="outline" className="flex-1 rounded-full bg-transparent border-white/20 text-white hover:bg-white/10 hover:text-white">Voltar</Button>
+                  <Button onClick={() => setGroupStep(1)} variant="outline" className="flex-1 rounded-full bg-transparent border-white/20 text-white hover:bg-white/10 hover:text-white">{t("duels_wizard_back")}</Button>
                   <Button
                     onClick={() => {
                       if (groupConfig.location) {
                         setGroupStep(3);
                       } else {
-                        toast({ title: "Campo obrigatório", description: "Selecione um estado para continuar", variant: "destructive" });
+                        toast({ title: t("duels_wizard_required_title"), description: t("duels_wizard_state_required"), variant: "destructive" });
                       }
                     }}
                     className="flex-1 rounded-full border-0"
                     style={GLASS_PRIMARY_BTN_STYLE}
                   >
-                    Próximo <ChevronRight className="h-4 w-4 ml-2" />
+                    {t("duels_wizard_next")} <ChevronRight className="h-4 w-4 ml-2" />
                   </Button>
                 </div>
               </div>
@@ -3074,45 +3352,42 @@ export default function Community() {
             {groupStep === 3 && (
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <label className={GLASS_LABEL_CLASS}>Duração do Desafio *</label>
+                  <label className={GLASS_LABEL_CLASS}>{t("duels_wizard_duration_label")}</label>
                   <Select value={groupConfig.durationDays} onValueChange={(value) => setGroupConfig({ ...groupConfig, durationDays: value })}>
                     <SelectTrigger className={`rounded-lg ${GLASS_FIELD_CLASS}`} style={GLASS_FIELD_STYLE}>
-                      <SelectValue placeholder="Selecione a duração" />
+                      <SelectValue placeholder={t("duels_wizard_duration_placeholder")} />
                     </SelectTrigger>
                     <SelectContent className="z-[500]">
-                      <SelectItem value="30">30 dias</SelectItem>
-                      <SelectItem value="60">60 dias</SelectItem>
-                      <SelectItem value="90">90 dias</SelectItem>
-                      <SelectItem value="120">120 dias</SelectItem>
-                      <SelectItem value="180">180 dias</SelectItem>
-                      <SelectItem value="360">360 dias</SelectItem>
+                      {["30", "60", "90", "120", "180", "360"].map((d) => (
+                        <SelectItem key={d} value={d}>{t("duels_wizard_duration_days").replace("{n}", d)}</SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                   {groupConfig.durationDays && (
                     <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>
-                      Término previsto: {(() => {
+                      {t("duels_wizard_end_forecast").replace("{date}", (() => {
                         const d = new Date();
                         d.setDate(d.getDate() + parseInt(groupConfig.durationDays));
-                        return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" });
-                      })()}
+                        return d.toLocaleDateString(language === "pt" ? "pt-BR" : "en-US", { day: "2-digit", month: "long", year: "numeric" });
+                      })())}
                     </p>
                   )}
                 </div>
 
                 <div className="flex gap-2 mt-4">
-                  <Button onClick={() => setGroupStep(2)} variant="outline" className="flex-1 rounded-full bg-transparent border-white/20 text-white hover:bg-white/10 hover:text-white">Voltar</Button>
+                  <Button onClick={() => setGroupStep(2)} variant="outline" className="flex-1 rounded-full bg-transparent border-white/20 text-white hover:bg-white/10 hover:text-white">{t("duels_wizard_back")}</Button>
                   <Button
                     onClick={() => {
                       if (groupConfig.durationDays) {
                         setGroupStep(4);
                       } else {
-                        toast({ title: "Campo obrigatório", description: "Selecione a duração para continuar", variant: "destructive" });
+                        toast({ title: t("duels_wizard_required_title"), description: t("duels_wizard_duration_required"), variant: "destructive" });
                       }
                     }}
                     className="flex-1 rounded-full border-0"
                     style={GLASS_PRIMARY_BTN_STYLE}
                   >
-                    Próximo <ChevronRight className="h-4 w-4 ml-2" />
+                    {t("duels_wizard_next")} <ChevronRight className="h-4 w-4 ml-2" />
                   </Button>
                 </div>
               </div>
@@ -3148,25 +3423,25 @@ export default function Community() {
                 {/* Meme rule input — shown only when memes is selected */}
                 {groupConfig.scoringType === "memes" && (
                   <div className="space-y-2 pt-1">
-                    <label className={GLASS_LABEL_CLASS}>Regra do desafio *</label>
+                    <label className={GLASS_LABEL_CLASS}>{t("duels_wizard_meme_rule_label")}</label>
                     <Input
-                      placeholder="Ex: Todos devem postar foto fazendo pose de vitória"
+                      placeholder={t("duels_group_meme_rule_placeholder")}
                       value={groupConfig.memeRule}
                       onChange={(e) => setGroupConfig({ ...groupConfig, memeRule: e.target.value })}
                       maxLength={200}
                       className={GLASS_FIELD_CLASS}
                       style={GLASS_FIELD_STYLE}
                     />
-                    <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>Esta regra aparece para todos os membros. Check-ins que não seguirem podem ser desclassificados.</p>
+                    <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>{t("duels_group_meme_rule_hint")}</p>
                   </div>
                 )}
 
                 <div className="flex gap-2 mt-4">
-                  <Button onClick={() => setGroupStep(3)} variant="outline" className="flex-1 rounded-full bg-transparent border-white/20 text-white hover:bg-white/10 hover:text-white">Voltar</Button>
+                  <Button onClick={() => setGroupStep(3)} variant="outline" className="flex-1 rounded-full bg-transparent border-white/20 text-white hover:bg-white/10 hover:text-white">{t("duels_wizard_back")}</Button>
                   <Button
                     onClick={() => {
                       if (groupConfig.scoringType === "memes" && !groupConfig.memeRule.trim()) {
-                        toast({ title: "Campo obrigatório", description: "Defina a regra do desafio para o modo Memes", variant: "destructive" });
+                        toast({ title: t("duels_wizard_required_title"), description: t("duels_group_meme_rule_required"), variant: "destructive" });
                         return;
                       }
                       setGroupStep(5);
@@ -3174,7 +3449,7 @@ export default function Community() {
                     className="flex-1 rounded-full border-0"
                     style={GLASS_PRIMARY_BTN_STYLE}
                   >
-                    Próximo <ChevronRight className="h-4 w-4 ml-2" />
+                    {t("duels_wizard_next")} <ChevronRight className="h-4 w-4 ml-2" />
                   </Button>
                 </div>
               </div>
@@ -3186,13 +3461,17 @@ export default function Community() {
                 {/* Summary */}
                 <div className="p-4 rounded-xl space-y-1" style={{ background: "rgba(91,140,255,.1)", border: "1px solid rgba(91,140,255,.25)" }}>
                   <p className="text-sm font-semibold text-brand">{groupConfig.name}</p>
-                  <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>📍 {groupConfig.location} · ⏱ {groupConfig.durationDays} dias</p>
-                  <p className="text-xs mt-1" style={{ color: "rgba(255,255,255,.5)" }}>{groupConfig.goal}</p>
+                  <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>
+                    {t("duels_wizard_summary_line").replace("{loc}", groupConfig.location).replace("{n}", groupConfig.durationDays)}
+                  </p>
+                  {groupConfig.goal.trim() && (
+                    <p className="text-xs mt-1" style={{ color: "rgba(255,255,255,.5)" }}>{groupConfig.goal}</p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <label className={GLASS_LABEL_CLASS}>Convidar Participantes ({selectedInvitees.size})</label>
+                    <label className={GLASS_LABEL_CLASS}>{t("duels_wizard_invite_label").replace("{n}", String(selectedInvitees.size))}</label>
                     {followers.length > 0 && (
                       <Button
                         onClick={() => {
@@ -3209,14 +3488,14 @@ export default function Community() {
                         size="sm"
                         className="text-xs h-7 text-white/70 hover:text-white hover:bg-white/10"
                       >
-                        {selectedInvitees.size === followers.length ? "Desselecionar Todos" : "Selecionar Todos"}
+                        {selectedInvitees.size === followers.length ? t("duels_wizard_deselect_all") : t("duels_wizard_select_all")}
                       </Button>
                     )}
                   </div>
 
                   {followers.length > 0 && (
                     <Input
-                      placeholder="Pesquisar seguidor..."
+                      placeholder={t("duels_wizard_search_follower")}
                       value={participantsSearch}
                       onChange={(e) => setParticipantsSearch(e.target.value)}
                       className={`rounded-lg ${GLASS_FIELD_CLASS}`}
@@ -3255,10 +3534,10 @@ export default function Community() {
                         ))
                     ) : (
                       <div className="flex flex-col items-center gap-3 py-4">
-                        <p className="text-sm text-center" style={{ color: "rgba(255,255,255,.5)" }}>Você não segue ninguém ainda</p>
+                        <p className="text-sm text-center" style={{ color: "rgba(255,255,255,.5)" }}>{t("duels_wizard_no_following")}</p>
                         <Button variant="outline" size="sm" className="rounded-full gap-2 bg-transparent border-white/20 text-white hover:bg-white/10 hover:text-white" onClick={() => { setIsCreateGroupModalOpen(false); navigate("/buscar"); }}>
                           <Search className="h-4 w-4" />
-                          Buscar Usuários
+                          {t("duels_wizard_search_users")}
                         </Button>
                       </div>
                     )}
@@ -3266,7 +3545,7 @@ export default function Community() {
                 </div>
 
                 <div className="flex gap-2">
-                  <Button onClick={() => setGroupStep(4)} variant="outline" className="flex-1 rounded-full bg-transparent border-white/20 text-white hover:bg-white/10 hover:text-white">Voltar</Button>
+                  <Button onClick={() => setGroupStep(4)} variant="outline" className="flex-1 rounded-full bg-transparent border-white/20 text-white hover:bg-white/10 hover:text-white">{t("duels_wizard_back")}</Button>
                   <Button
                     onClick={async () => {
                       if (!user || isCreatingGroup) return;
@@ -3286,9 +3565,10 @@ export default function Community() {
 
                         const savedGroup = await createDuelGroupDb(
                           user.id,
-                          groupConfig.name,
+                          groupConfig.name.trim(),
                           groupConfig.location,
-                          groupConfig.goal,
+                          // Meta é opcional, mas a coluna é NOT NULL: vazio grava "".
+                          groupConfig.goal.trim(),
                           Array.from(selectedInvitees),
                           endDate,
                           groupConfig.scoringType,
@@ -3299,7 +3579,19 @@ export default function Community() {
                         let photoUrl: string | null = null;
                         if (groupPhotoFile) {
                           try {
-                            photoUrl = await updateGroupPhotoDb(savedGroup.id, groupPhotoFile);
+                            // Sobe o recorte que o usuário enquadrou no frame do
+                            // Passo 1. As refs guardam a medida mesmo com o passo
+                            // já desmontado; se nunca mediram, sobe o original.
+                            const cw = groupCoverWRef.current;
+                            const ch = groupCoverHRef.current;
+                            const toUpload = groupConfig.photo && cw > 0 && ch > 0
+                              ? new File(
+                                  [await applyTransformToBlob(groupConfig.photo, groupCoverTransform, cw, ch)],
+                                  "cover.jpg",
+                                  { type: "image/jpeg" },
+                                )
+                              : groupPhotoFile;
+                            photoUrl = await updateGroupPhotoDb(savedGroup.id, toUpload);
                           } catch (photoErr) {
                             console.error("Error uploading group photo:", photoErr);
                           }
@@ -3309,7 +3601,7 @@ export default function Community() {
                           ...savedGroup,
                           icon: "⚔️",
                           photo: photoUrl || null,
-                          description: groupConfig.goal,
+                          description: groupConfig.goal.trim(),
                           participants: selectedInvitees.size + 1,
                           city: groupConfig.location,
                           isOfficial: false,
@@ -3318,6 +3610,7 @@ export default function Community() {
                         // Reset form
                         setIsCreateGroupModalOpen(false);
                         setGroupConfig({ name: "", location: "", goal: "", durationDays: "", photo: "", scoringType: "check_in_count", memeRule: "" });
+                        setGroupCoverTransform(DEFAULT_TRANSFORM);
                         setGroupPhotoFile(null);
                         setSelectedInvitees(new Set());
                         setGroupStep(1);
@@ -3335,9 +3628,9 @@ export default function Community() {
                         setGroupCheckIns([]);
                         setGroupParticipants([]);
 
-                        toast({ title: "Grupo criado!", description: `"${newGroup.name}" foi criado com sucesso.` });
+                        toast({ title: t("duels_wizard_created_title"), description: t("duels_wizard_created_desc").replace("{name}", newGroup.name) });
                       } catch (err: any) {
-                        toast({ title: "Erro ao criar grupo", description: err?.message || "Tente novamente", variant: "destructive" });
+                        toast({ title: t("duels_wizard_create_error"), description: err?.message || t("retry"), variant: "destructive" });
                       } finally {
                         setIsCreatingGroup(false);
                       }
@@ -3346,7 +3639,7 @@ export default function Community() {
                     style={GLASS_PRIMARY_BTN_STYLE}
                     disabled={isCreatingGroup}
                   >
-                    {isCreatingGroup ? "Criando..." : t("duels_create")}
+                    {isCreatingGroup ? t("duels_wizard_creating") : t("duels_create")}
                   </Button>
                 </div>
               </div>
@@ -4057,7 +4350,11 @@ export default function Community() {
                       {disqualified && (
                         <div className="flex items-center gap-2.5 p-3 rounded-lg bg-destructive/10 border border-destructive/30">
                           <XCircle className="h-4 w-4 text-destructive shrink-0" />
-                          <p className="text-xs font-semibold text-destructive">Check-in anulado — {disqualifyCount} anulação{disqualifyCount !== 1 ? "ões" : ""} vs {classifyCount} aprovação{classifyCount !== 1 ? "ões" : ""}</p>
+                          <p className="text-xs font-semibold text-destructive">
+                            {t("duels_group_annulled_detail")
+                              .replace("{dq}", formatAnnulments(disqualifyCount))
+                              .replace("{cl}", formatApprovals(classifyCount))}
+                          </p>
                         </div>
                       )}
                       {!isOwn && (
@@ -4104,11 +4401,11 @@ export default function Community() {
                         <div className="flex gap-4 text-sm text-white/60">
                           <span className="flex items-center gap-1.5">
                             <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                            {classifyCount} aprovação{classifyCount !== 1 ? "ões" : ""}
+                            {formatApprovals(classifyCount)}
                           </span>
                           <span className="flex items-center gap-1.5">
                             <XCircle className="h-4 w-4 text-destructive" />
-                            {disqualifyCount} anulação{disqualifyCount !== 1 ? "ões" : ""}
+                            {formatAnnulments(disqualifyCount)}
                           </span>
                         </div>
                       )}
@@ -4164,7 +4461,7 @@ export default function Community() {
                                     onClick={() => handleDeleteCheckInComment(comment.id)}
                                     disabled={deletingCommentId === comment.id}
                                     className="rounded-lg p-1 text-white/50 transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-50 disabled:cursor-not-allowed"
-                                    aria-label="Excluir comentário"
+                                    aria-label={t("comments_delete_title")}
                                   >
                                     <Trash2 className="h-3.5 w-3.5" />
                                   </button>
@@ -4218,39 +4515,50 @@ export default function Community() {
                       ))}
                     </div>
                   ) : (
-                    <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>Nenhum comentário ainda. Seja o primeiro!</p>
+                    <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>{t("comments_empty")}</p>
                   )}
 
-                  {/* Comment Input */}
-                  <div className="flex gap-2 pt-1 items-center">
-                    <Input
-                      placeholder="Adicionar comentário..."
-                      value={commentText}
-                      onChange={(e) => setCommentText(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && !e.shiftKey && selectedCheckInForDetail) {
-                          e.preventDefault();
-                          handleSendComment(selectedCheckInForDetail.id);
-                        }
-                      }}
-                      className={`rounded-full text-xs h-9 ${GLASS_FIELD_CLASS}`}
-                      style={GLASS_FIELD_STYLE}
-                      disabled={isSendingComment}
-                    />
-                    <Button
-                      size="sm"
-                      className="rounded-full flex-shrink-0 h-9 w-9 p-0 border-0"
-                      style={GLASS_PRIMARY_BTN_STYLE}
-                      disabled={!commentText.trim() || isSendingComment}
-                      onClick={() => selectedCheckInForDetail && handleSendComment(selectedCheckInForDetail.id)}
-                    >
-                      <Send className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
                 </div>
               </div>
             )}
           </div>
+
+          {/* Input de comentário — rodapé fixo, FORA do container rolável.
+              Dentro do scroll, o lift do teclado erguia a folha mas nada rolava
+              até o campo: ele só aparecia quando o WebKit levava o cursor à
+              vista, na primeira tecla. Colado na borda inferior da folha, subir
+              a folha já basta — mesmo padrão de post-comments-dialog e
+              promotion-comments-drawer. */}
+          {selectedCheckInForDetail && (
+            <div
+              className="shrink-0 flex gap-2 items-center px-4 pt-2.5 pb-4"
+              style={{ borderTop: "1px solid rgba(255,255,255,.1)" }}
+            >
+              <Input
+                placeholder={t("comments_placeholder")}
+                value={commentText}
+                onChange={(e) => setCommentText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSendComment(selectedCheckInForDetail.id);
+                  }
+                }}
+                className={`rounded-full text-xs h-9 ${GLASS_FIELD_CLASS}`}
+                style={GLASS_FIELD_STYLE}
+                disabled={isSendingComment}
+              />
+              <Button
+                size="sm"
+                className="rounded-full flex-shrink-0 h-9 w-9 p-0 border-0"
+                style={GLASS_PRIMARY_BTN_STYLE}
+                disabled={!commentText.trim() || isSendingComment}
+                onClick={() => handleSendComment(selectedCheckInForDetail.id)}
+              >
+                <Send className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          )}
         </DrawerContent>
       </Drawer>
 
@@ -4274,6 +4582,7 @@ export default function Community() {
                 onClick={() => {
                   setEditGroupName(selectedGroupForView.name);
                   setEditGroupGoal(selectedGroupForView.goal ?? "");
+                  setEditGroupRule(selectedGroupForView.memeRule ?? "");
                   setIsEditingGroupInfo(true);
                 }}
               >
@@ -4324,7 +4633,12 @@ export default function Community() {
                     />
                   ) : (
                     <div className="p-3 rounded-lg bg-muted/20">
-                      <p className="text-sm">{selectedGroupForView.goal}</p>
+                      {/* Meta é opcional — sem ela, a caixa ficaria vazia. */}
+                      {selectedGroupForView.goal?.trim() ? (
+                        <p className="text-sm">{selectedGroupForView.goal}</p>
+                      ) : (
+                        <p className="text-sm italic text-muted-foreground">{t("duels_group_no_goal")}</p>
+                      )}
                     </div>
                   )}
                 </div>
@@ -4345,13 +4659,28 @@ export default function Community() {
                   </div>
                 </div>
 
-                {/* Meme Rule — shown when scoring is memes */}
-                {selectedGroupForView?.scoringType === "memes" && selectedGroupForView?.memeRule && (
+                {/* Regra do desafio — só existe na modalidade memes. Em edição o
+                    campo aparece mesmo sem regra salva, para poder preencher. */}
+                {selectedGroupForView?.scoringType === "memes" && (isEditingGroupInfo || selectedGroupForView?.memeRule) && (
                   <div className="space-y-1">
                     <label className="text-xs font-medium text-muted-foreground">{t("duels_group_meme_rule_label")}</label>
-                    <div className="p-3 rounded-lg bg-brand/5 border border-brand/20">
-                      <p className="text-sm">{selectedGroupForView.memeRule}</p>
-                    </div>
+                    {isEditingGroupInfo ? (
+                      <>
+                        <Textarea
+                          value={editGroupRule}
+                          onChange={(e) => setEditGroupRule(e.target.value)}
+                          placeholder={t("duels_group_meme_rule_placeholder")}
+                          className="rounded-lg resize-none"
+                          rows={2}
+                          maxLength={200}
+                        />
+                        <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>{t("duels_group_meme_rule_hint")}</p>
+                      </>
+                    ) : (
+                      <div className="p-3 rounded-lg bg-brand/5 border border-brand/20">
+                        <p className="text-sm">{selectedGroupForView.memeRule}</p>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -4396,12 +4725,25 @@ export default function Community() {
                       disabled={isSavingGroupInfo || !editGroupName.trim()}
                       onClick={async () => {
                         if (!selectedGroupForView) return;
+                        const isMemes = selectedGroupForView.scoringType === "memes";
+                        // Mesma exigência do wizard: memes sem regra não faz sentido.
+                        if (isMemes && !editGroupRule.trim()) {
+                          toast({ title: t("duels_group_meme_rule_required"), variant: "destructive" });
+                          return;
+                        }
                         setIsSavingGroupInfo(true);
                         try {
-                          await updateGroupInfoDb(selectedGroupForView.id, editGroupName.trim(), editGroupGoal.trim());
-                          setSelectedGroupForView({ ...selectedGroupForView, name: editGroupName.trim(), goal: editGroupGoal.trim() });
+                          // `undefined` fora de memes: não encosta na coluna.
+                          const nextRule = isMemes ? editGroupRule.trim() : undefined;
+                          await updateGroupInfoDb(selectedGroupForView.id, editGroupName.trim(), editGroupGoal.trim(), nextRule);
+                          setSelectedGroupForView({
+                            ...selectedGroupForView,
+                            name: editGroupName.trim(),
+                            goal: editGroupGoal.trim(),
+                            ...(isMemes ? { memeRule: editGroupRule.trim() } : {}),
+                          });
                           // Update the group in the lists
-                          setUserCreatedGroups((prev) => prev.map((g) => g.id === selectedGroupForView.id ? { ...g, name: editGroupName.trim(), goal: editGroupGoal.trim(), description: editGroupGoal.trim() } : g));
+                          setUserCreatedGroups((prev) => prev.map((g) => g.id === selectedGroupForView.id ? { ...g, name: editGroupName.trim(), goal: editGroupGoal.trim(), description: editGroupGoal.trim(), ...(isMemes ? { memeRule: editGroupRule.trim() } : {}) } : g));
                           setIsEditingGroupInfo(false);
                           toast({ title: t("duels_group_updated_title"), description: t("duels_group_updated_desc") });
                         } catch (error: any) {
@@ -4536,6 +4878,17 @@ export default function Community() {
         scoringType={selectedGroupForView?.scoringType}
         checkInVotes={checkInVotes}
         memeRule={selectedGroupForView?.memeRule}
+        onSelectMember={setSelectedMemberForCheckIns}
+      />
+
+      {/* Calendário de check-ins de um participante — abre por cima das
+          Classificações, ao tocar no nome. */}
+      <MemberCheckInsDrawer
+        open={!!selectedMemberForCheckIns}
+        onOpenChange={(open) => { if (!open) setSelectedMemberForCheckIns(null); }}
+        memberName={selectedMemberForCheckIns?.userName ?? ""}
+        memberPhoto={selectedMemberForCheckIns?.userPhoto ?? null}
+        checkIns={selectedMemberCheckIns}
       />
 
       {/* Participants Modal */}

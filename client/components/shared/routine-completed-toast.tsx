@@ -1,6 +1,6 @@
 import * as React from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { PartyPopper } from "lucide-react";
+import { Droplet, PartyPopper } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/lib/language-context";
 import {
@@ -16,11 +16,11 @@ const TYPE_NAME_KEY = {
 } as const;
 
 /**
- * Global "routine completed" celebration — appears when the user finishes a
- * workout session or completes every item of a diet/habit routine for the
- * day. Mounted once in AppLayout, driven by the routine-complete-toast pub/sub
- * (same pattern as IncentiveConfirmToast) so any screen can trigger it
- * without prop drilling.
+ * Global "completed today" celebration — appears when the user finishes a
+ * workout session, completes every item of a diet/habit routine for the day,
+ * or hits the daily water goal. Mounted once in AppLayout, driven by the
+ * routine-complete-toast pub/sub (same pattern as IncentiveConfirmToast) so any
+ * screen can trigger it without prop drilling.
  */
 export function RoutineCompletedToast() {
   const { t } = useLanguage();
@@ -42,12 +42,19 @@ export function RoutineCompletedToast() {
     if (timerRef.current) clearTimeout(timerRef.current);
   }, []);
 
-  const name = payload
-    ? (payload.name ?? t(TYPE_NAME_KEY[payload.type] as Parameters<typeof t>[0]))
-    : "";
-  const desc = payload
-    ? t("goals_routine_complete_desc").replace("{name}", name)
-    : null;
+  const isWater = payload?.kind === "water";
+
+  let title: string | null = null;
+  let desc: string | null = null;
+  if (payload?.kind === "water") {
+    title = t("goals_water_complete_title");
+    desc = t("goals_water_complete_desc").replace("{n}", String(payload.targetMl));
+  } else if (payload?.kind === "routine") {
+    const name =
+      payload.name ?? t(TYPE_NAME_KEY[payload.type] as Parameters<typeof t>[0]);
+    title = t("goals_routine_complete_title");
+    desc = t("goals_routine_complete_desc").replace("{name}", name);
+  }
 
   return (
     <div
@@ -72,11 +79,15 @@ export function RoutineCompletedToast() {
             )}
           >
             <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-emerald-500/15">
-              <PartyPopper className="h-5 w-5 text-emerald-400" />
+              {isWater ? (
+                <Droplet className="h-5 w-5 text-emerald-400" />
+              ) : (
+                <PartyPopper className="h-5 w-5 text-emerald-400" />
+              )}
             </div>
             <div className="min-w-0">
               <p className="text-sm font-semibold text-emerald-400 leading-tight">
-                {t("goals_routine_complete_title")}
+                {title}
               </p>
               <p className="text-xs text-white/70 leading-tight truncate">{desc}</p>
             </div>

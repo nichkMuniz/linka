@@ -10,6 +10,7 @@ import {
 import { RouteMap } from "@/components/shared/route-map";
 import { ExerciseImage } from "@/components/shared/exercise-image";
 import { getNetworkStatus } from "@/lib/network-status";
+import { subscribeKeyboardHeight, getKeyboardHeight } from "@/lib/keyboard";
 import { toast } from "@/components/ui/use-toast";
 import {
   saveWorkoutHistoryDb,
@@ -19,6 +20,7 @@ import {
   createUserWorkoutsDb,
   updateUserWorkoutNotesDb,
   uploadCustomExercisePhotoDb,
+  matchesCatalogSearch,
   type UserWorkoutWithDetails,
   type Workout,
 } from "@/lib/ritmofit-db";
@@ -70,6 +72,13 @@ interface WorkoutSessionDialogProps {
 
 const REST_PRESETS = [0, 30, 60, 90, 120];
 const SWIPE_REVEAL = 72; // px revelados ao deslizar para a esquerda
+
+// "Máquina zerada" — ao concluir uma série (não-cardio) ACIMA deste peso, o app
+// pergunta se o usuário zerou a máquina naquele exercício. Se confirmar, o card
+// ganha borda dourada e o exercício entra no machinedExercises do resumo (card
+// dourado + variante "machine"). É uma conquista confirmada pelo usuário, não
+// automática.
+const MACHINE_MAXED_KG = 120;
 
 // ── Tokens — design "liquid glass" (vidro escuro translúcido) ──────────────
 // Mesma linguagem visual dos drawers glass (ver client/lib/glass-styles.ts):
@@ -407,6 +416,7 @@ export function WorkoutSessionDialog({
     workoutExtraItems, setWorkoutExtraItems,
     workoutRemovedIds, setWorkoutRemovedIds,
     workoutExpandedId: expandedId, setWorkoutExpandedId: setExpandedId,
+    maxedExerciseIds, setMaxedExerciseIds,
     globalRestTimerRemaining, setGlobalRestTimerRemaining,
     globalRestTimerActive, setGlobalRestTimerActive,
     globalRestTimerPaused, setGlobalRestTimerPaused,
@@ -603,6 +613,36 @@ export function WorkoutSessionDialog({
   };
   React.useEffect(() => () => { if (noticeTimer.current) clearTimeout(noticeTimer.current); }, []);
 
+  // "Zerou a máquina?" — prompt interativo que aparece ao concluir uma série
+  // acima de MACHINE_MAXED_KG (120kg). Diferente do `notice` (só informativo),
+  // este pede uma decisão: confirmar marca o exercício como máquina zerada
+  // (borda dourada no card + entra no machinedExercises do resumo). Fica só um
+  // exercício por vez; auto-some após um tempo maior, mas re-pergunta a cada
+  // série pesada enquanto não for marcado (dá margem para dispensar sem querer).
+  const [machinePrompt, setMachinePrompt] = React.useState<
+    { workoutId: string; name: string; kg: number } | null
+  >(null);
+  const machinePromptTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showMachinePrompt = (p: { workoutId: string; name: string; kg: number }) => {
+    if (machinePromptTimer.current) clearTimeout(machinePromptTimer.current);
+    setMachinePrompt(p);
+    machinePromptTimer.current = setTimeout(() => setMachinePrompt(null), 7000);
+  };
+  const dismissMachinePrompt = () => {
+    if (machinePromptTimer.current) clearTimeout(machinePromptTimer.current);
+    setMachinePrompt(null);
+  };
+  React.useEffect(() => () => { if (machinePromptTimer.current) clearTimeout(machinePromptTimer.current); }, []);
+  const confirmMachineMaxed = () => {
+    if (!machinePrompt) return;
+    const id = machinePrompt.workoutId;
+    setMaxedExerciseIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+    dismissMachinePrompt();
+  };
+  // O selo "Máquina zerada" no card é só um indicador (não é tocável). Para
+  // removê-lo, o usuário desmarca o exercício como concluído — quando ele fica
+  // sem nenhuma série concluída, a marca é removida (ver toggleCompleted).
+
   // Modal de descanso (contador regressivo em destaque ao concluir uma série)
   const [restModalOpen, setRestModalOpen] = React.useState(false);
   const lastTimerKeyRef = React.useRef(globalRestTimerKey);
@@ -616,6 +656,66 @@ export function WorkoutSessionDialog({
   const swipeStartX = React.useRef(0);
   const swipeStartY = React.useRef(0);
   const swipeHorizontal = React.useRef(false); // evita interferir no scroll vertical
+
+  // Célula (kg/reps/min/km) sendo digitada — guarda o TEXTO cru enquanto o campo
+  // tem foco. Sem isso, um input controlado por número descartaria o "." no meio
+  // da digitação ("1." vira 1 e o ponto some), impossibilitando casas decimais —
+  // crítico para o KM do cardio. Só uma célula é editada por vez (foco único).
+  // No blur, o texto cru é descartado e o valor numérico canônico volta a mandar.
+  const [editingCell, setEditingCell] = React.useState<{ key: string; text: string } | null>(null);
+  // Normaliza a digitação: vírgula→ponto, só dígitos e um único ponto decimal.
+  const sanitizeDecimalInput = (raw: string) =>
+    raw.replace(",", ".").replace(/[^0-9.]/g, "").replace(/(\..*)\./g, "$1");
+  const handleSeriesInput = (
+    workoutId: string, index: number, field: "kg" | "reps", raw: string, isCardio: boolean,
+  ) => {
+    const cleaned = sanitizeDecimalInput(raw);
+    setEditingCell({ key: `${workoutId}:${index}:${field}`, text: cleaned });
+    const num = cleaned === "" || cleaned === "." ? 0 : parseFloat(cleaned);
+    updateSeries(workoutId, index, field, Number.isNaN(num) ? 0 : num, isCardio);
+  };
+
+  // ── Teclado iOS: manter o input de kg/reps visível acima do teclado ──────
+  // Este overlay é `position:fixed; overflow:hidden` e rola numa área interna
+  // (`cardsScrollRef`), então o scroll-assist de página do keyboard.ts (que usa
+  // window.scrollBy) não alcança estes inputs — no último exercício eles ficam
+  // atrás do teclado. Aqui: (1) a área de cards ganha padding-bottom igual à
+  // altura do teclado (via CSS var, dá espaço para rolar) e (2) ao focar um
+  // input / abrir o teclado, rolamos ESTE container até o campo ficar visível.
+  const cardsScrollRef = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => {
+    if (!open) return;
+    const scrollActiveInputIntoView = () => {
+      const kb = getKeyboardHeight();
+      if (kb <= 0) return;
+      const el = document.activeElement as HTMLElement | null;
+      if (!el || (el.tagName !== "INPUT" && el.tagName !== "TEXTAREA")) return;
+      const container = cardsScrollRef.current;
+      if (!container || !container.contains(el)) return;
+      const rect = el.getBoundingClientRect();
+      const visibleBottom = window.innerHeight - kb - 16;
+      if (rect.bottom > visibleBottom) {
+        container.scrollBy({ top: rect.bottom - visibleBottom, behavior: "smooth" });
+      }
+    };
+    // Abrir o teclado (altura passa a > 0) rola o campo em foco para a vista.
+    const unsub = subscribeKeyboardHeight((h) => {
+      if (h > 0) requestAnimationFrame(scrollActiveInputIntoView);
+    });
+    // Trocar de input com o teclado já aberto não muda a altura (o subscriber
+    // não dispara), então também reagimos ao foco. 2 rAF: espera o keyboardWillShow
+    // publicar a altura quando o foco é o que abriu o teclado.
+    const onFocusIn = (e: FocusEvent) => {
+      const el = e.target as HTMLElement;
+      if (el.tagName !== "INPUT" && el.tagName !== "TEXTAREA") return;
+      requestAnimationFrame(() => requestAnimationFrame(scrollActiveInputIntoView));
+    };
+    document.addEventListener("focusin", onFocusIn);
+    return () => {
+      unsub();
+      document.removeEventListener("focusin", onFocusIn);
+    };
+  }, [open]);
 
   // Rest timer
   const startRestTimer = (workoutId: string) => {
@@ -937,8 +1037,13 @@ export function WorkoutSessionDialog({
           );
           prevBestRef.current.set(workoutId, best);
         }
-        if (best > 0 && kg > best) {
-          const name = allItems.find((i) => i.workout_id === workoutId)?.workoutName ?? "";
+        const name = allItems.find((i) => i.workout_id === workoutId)?.workoutName ?? "";
+        // "Zerou a máquina?" — série completa acima de 120kg convida a marcar o
+        // exercício como máquina zerada. Tem prioridade sobre o aviso de PR (é o
+        // flex maior) e não reaparece depois de o exercício já estar marcado.
+        if (kg > MACHINE_MAXED_KG && !maxedExerciseIds.includes(workoutId)) {
+          showMachinePrompt({ workoutId, name, kg });
+        } else if (best > 0 && kg > best) {
           showNotice({
             kind: "pr",
             title: t("goals_pr_toast_title"),
@@ -951,6 +1056,18 @@ export function WorkoutSessionDialog({
         // Sobe o recorde corrente para não repetir o aviso em séries
         // iguais/menores; só dispara de novo se superar este novo valor.
         if (kg > best) prevBestRef.current.set(workoutId, kg);
+      }
+    } else {
+      // Desmarcou uma série concluída. Se o exercício ficou SEM nenhuma série
+      // concluída, ele deixa de estar "concluído" e perde o selo de máquina
+      // zerada (a única forma de remover a marca, já que o selo não é tocável).
+      if (maxedExerciseIds.includes(workoutId)) {
+        const stillCompleted = (workoutSeries[workoutId] ?? []).some(
+          (s, i) => i !== index && s.completed,
+        );
+        if (!stillCompleted) {
+          setMaxedExerciseIds((prev) => prev.filter((x) => x !== workoutId));
+        }
       }
     }
   };
@@ -973,6 +1090,11 @@ export function WorkoutSessionDialog({
       let totalSeries = 0;
       let totalVolume = 0;
       const allItemsForSave = [...items, ...workoutExtraItems];
+      // Rotina desta sessão. Exercícios AVULSOS (adicionados durante o treino)
+      // não têm linha em user_workouts, então gravam `user_workout_id` nulo —
+      // sem este fallback o `routine_id` também ficaria nulo e a série viraria
+      // histórico sem vínculo nenhum, que apagar a rotina nunca alcança.
+      const sessionRoutineId = items.find((i) => i.routine_id)?.routine_id ?? null;
       const completedExercises: WorkoutSessionSummary["completedExercises"] = [];
       const prExercises: WorkoutSessionSummary["prExercises"] = [];
       const machinedExercises: WorkoutSessionSummary["machinedExercises"] = [];
@@ -1032,7 +1154,7 @@ export function WorkoutSessionDialog({
             isCardio
               ? (serie.reps ? String(serie.reps) : null)
               : (serie.reps ? `${serie.reps} reps` : null),
-            row?.routine_id ?? null,
+            row?.routine_id ?? sessionRoutineId,
             new Date(sessionBaseMs + seriesSaveIndex++).toISOString(),
           );
         }
@@ -1046,16 +1168,21 @@ export function WorkoutSessionDialog({
           sets: completed.map((s) => ({ kg: s.kg || 0, reps: s.reps || 0 })),
         });
 
+        const exerciseName = row?.workoutName ?? workoutId;
+
+        // PR all-time — exige rede (compara com o histórico do banco).
         if (!isCardio && bestKg > 0 && canDetectAllTimePR) {
           const prev = prevBests.get(workoutId) ?? 0;
           if (bestKg > prev) {
-            const name = row?.workoutName ?? workoutId;
-            prExercises.push({ name, previousBestKg: prev, newBestKg: bestKg });
-            // "Zerando a máquina" = new PR where best kg reaches ≥ 100
-            if (bestKg >= 100) {
-              machinedExercises.push({ name, kg: bestKg });
-            }
+            prExercises.push({ name: exerciseName, previousBestKg: prev, newBestKg: bestKg });
           }
+        }
+
+        // "Máquina zerada" — o usuário confirmou (via prompt ao levantar >120kg)
+        // que zerou a máquina neste exercício. Entra no resumo com a maior carga
+        // registrada. Marcação em maxedExerciseIds (contexto, persistido).
+        if (!isCardio && bestKg > 0 && maxedExerciseIds.includes(workoutId)) {
+          machinedExercises.push({ name: exerciseName, kg: bestKg });
         }
       }
 
@@ -1102,7 +1229,7 @@ export function WorkoutSessionDialog({
   ].sort((a, b) => a.localeCompare(b));
   const catalogFiltered = catalog.filter((w) => {
     if (pickerBrowseMode === "group" && pickerMuscleFilter && w.muscle_group !== pickerMuscleFilter) return false;
-    if (pickerSearch && !w.name.toLowerCase().includes(pickerSearch.toLowerCase())) return false;
+    if (!matchesCatalogSearch(w, pickerSearch)) return false;
     return true;
   });
 
@@ -1190,6 +1317,76 @@ export function WorkoutSessionDialog({
           </div>
         );
       })()}
+
+      {/* ── "Zerou a máquina?" — prompt interativo (série > 120kg) ─── */}
+      {machinePrompt && (
+        <div
+          style={{
+            position: "absolute", zIndex: 61,
+            top: "max(56px, calc(env(safe-area-inset-top) + 8px))",
+            left: 12, right: 12,
+            display: "flex", justifyContent: "center",
+            pointerEvents: "none",
+          }}
+        >
+          <div
+            style={{
+              pointerEvents: "auto",
+              maxWidth: 420, width: "100%",
+              display: "flex", alignItems: "center", gap: 12,
+              padding: "12px 14px", borderRadius: 18,
+              background: "rgba(30,24,6,0.9)",
+              border: "1px solid rgba(234,179,8,0.5)",
+              backdropFilter: GLASS_BLUR, WebkitBackdropFilter: GLASS_BLUR,
+              boxShadow: "0 12px 36px rgba(0,0,0,0.45), 0 0 0 1px rgba(234,179,8,0.18), inset 0 1px 0 rgba(255,255,255,0.08)",
+              animation: "prToastIn 0.3s cubic-bezier(0.2,0.8,0.2,1)",
+            }}
+          >
+            <div style={{
+              width: 38, height: 38, borderRadius: "50%", flexShrink: 0,
+              background: "rgba(234,179,8,0.22)", display: "flex",
+              alignItems: "center", justifyContent: "center", fontSize: 20,
+            }}>
+              ⚡
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 14, fontWeight: 800, color: "#eab308", lineHeight: 1.2 }}>
+                {t("goals_machine_prompt_title")}
+              </div>
+              <div style={{
+                fontSize: 12, fontWeight: 600, color: "rgba(255,255,255,0.82)",
+                marginTop: 2, lineHeight: 1.3,
+              }}>
+                {t("goals_machine_prompt_desc")
+                  .replace("{exercise}", machinePrompt.name)
+                  .replace("{kg}", String(machinePrompt.kg))}
+              </div>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, flexShrink: 0 }}>
+              <button
+                onClick={confirmMachineMaxed}
+                style={{
+                  padding: "8px 14px", borderRadius: 12, border: "none", cursor: "pointer",
+                  fontSize: 13, fontWeight: 800, color: "#000", background: "#eab308",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {t("goals_machine_prompt_confirm")}
+              </button>
+              <button
+                onClick={dismissMachinePrompt}
+                style={{
+                  padding: "3px 10px", borderRadius: 10, border: "none", cursor: "pointer",
+                  fontSize: 11, fontWeight: 600, color: "rgba(255,255,255,0.6)",
+                  background: "transparent", whiteSpace: "nowrap",
+                }}
+              >
+                {t("goals_machine_prompt_dismiss")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── HEADER ───────────────────────────────────────────── */}
       <div style={{
@@ -1352,10 +1549,17 @@ export function WorkoutSessionDialog({
       )}
 
       {/* ── EXERCISE CARDS ───────────────────────────────────── */}
-      <div style={{
-        flex: 1, overflowY: "auto", overflowX: "hidden",
-        padding: "12px 12px 96px",
-      }}>
+      <div
+        ref={cardsScrollRef}
+        style={{
+          flex: 1, overflowY: "auto", overflowX: "hidden",
+          paddingTop: 12, paddingLeft: 12, paddingRight: 12,
+          // Espaço para rolar o último exercício acima do teclado iOS (a var é
+          // publicada pelo keyboard.ts; 0px no web/quando fechado). Os 96px são
+          // a folga fixa do rodapé "Adicionar exercício".
+          paddingBottom: "calc(96px + var(--keyboard-height, 0px))",
+        }}
+      >
         {filteredItems.map((item) => {
           const series = workoutSeries[item.workout_id] ?? [];
           const isExpanded = expandedId === item.workout_id;
@@ -1367,6 +1571,8 @@ export function WorkoutSessionDialog({
           const isRunExercise = isOutdoorRun(item.workoutName);
           const noteOpen = noteOpenIds.has(item.workout_id);
           const note = workoutExerciseNotes[item.workout_id] ?? "";
+          // Exercício marcado como "máquina zerada" → borda/realce dourado.
+          const isMaxed = maxedExerciseIds.includes(item.workout_id);
 
           return (
             <div
@@ -1374,9 +1580,11 @@ export function WorkoutSessionDialog({
               style={{
                 background: CARD, borderRadius: 24, overflow: "hidden",
                 marginBottom: 20, position: "relative",
-                border: `1px solid ${BORDER}`,
+                border: isMaxed ? "1.5px solid #eab308" : `1px solid ${BORDER}`,
                 backdropFilter: GLASS_BLUR, WebkitBackdropFilter: GLASS_BLUR,
-                boxShadow: "0 8px 32px rgba(0,0,0,0.32), inset 0 1px 0 rgba(255,255,255,0.08)",
+                boxShadow: isMaxed
+                  ? "0 8px 32px rgba(0,0,0,0.32), 0 0 0 1px rgba(234,179,8,0.45), 0 0 24px rgba(234,179,8,0.28), inset 0 1px 0 rgba(255,255,255,0.10)"
+                  : "0 8px 32px rgba(0,0,0,0.32), inset 0 1px 0 rgba(255,255,255,0.08)",
               }}
             >
               {/* ── EXERCISE HEADER ─────────────────────────── */}
@@ -1390,6 +1598,20 @@ export function WorkoutSessionDialog({
                 }}>
                   {item.workoutName}
                 </span>
+                {isMaxed && (
+                  <span
+                    style={{
+                      display: "flex", alignItems: "center", gap: 4,
+                      fontSize: 11, fontWeight: 800, color: "#eab308",
+                      background: "rgba(234,179,8,0.14)",
+                      border: "1px solid rgba(234,179,8,0.45)",
+                      borderRadius: 20, padding: "2px 10px", flexShrink: 0,
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    ⚡ {t("goals_machine_badge")}
+                  </span>
+                )}
                 {item.muscle_group && (
                   <span style={{
                     fontSize: 11, fontWeight: 600, color: MUTED_FG,
@@ -1760,13 +1982,18 @@ export function WorkoutSessionDialog({
                             {anteriorText}
                           </div>
 
-                          {/* KG */}
+                          {/* KG (cardio: MIN) */}
                           <input
-                            type="number"
+                            type="text"
                             inputMode="decimal"
-                            value={row.kg || ""}
+                            value={
+                              editingCell?.key === `${item.workout_id}:${idx}:kg`
+                                ? editingCell.text
+                                : (row.kg || "")
+                            }
                             placeholder={kgInvalid ? "!" : "—"}
-                            onChange={(e) => updateSeries(item.workout_id, idx, "kg", Number(e.target.value), isCardio)}
+                            onChange={(e) => handleSeriesInput(item.workout_id, idx, "kg", e.target.value, isCardio)}
+                            onBlur={() => setEditingCell(null)}
                             style={{
                               background: kgInvalid ? "hsl(var(--destructive) / 0.12)" : SURFACE,
                               border: kgInvalid ? `1.5px solid hsl(var(--destructive))` : "1.5px solid transparent",
@@ -1780,13 +2007,18 @@ export function WorkoutSessionDialog({
                             }}
                           />
 
-                          {/* REPS */}
+                          {/* REPS (cardio: KM — precisa de casas decimais) */}
                           <input
-                            type="number"
-                            inputMode="numeric"
-                            value={row.reps || ""}
+                            type="text"
+                            inputMode={isCardio ? "decimal" : "numeric"}
+                            value={
+                              editingCell?.key === `${item.workout_id}:${idx}:reps`
+                                ? editingCell.text
+                                : (row.reps || "")
+                            }
                             placeholder={repsInvalid ? "!" : "—"}
-                            onChange={(e) => updateSeries(item.workout_id, idx, "reps", Number(e.target.value), isCardio)}
+                            onChange={(e) => handleSeriesInput(item.workout_id, idx, "reps", e.target.value, isCardio)}
+                            onBlur={() => setEditingCell(null)}
                             style={{
                               background: repsInvalid ? "hsl(var(--destructive) / 0.12)" : SURFACE,
                               border: repsInvalid ? `1.5px solid hsl(var(--destructive))` : "1.5px solid transparent",

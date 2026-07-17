@@ -665,11 +665,14 @@ export function FlowViewerModal({
                               story.text_elements.map((el, idx) => (
                                 <div
                                   key={idx}
-                                  className="absolute px-6 max-w-[90%]"
+                                  className="absolute"
                                   style={{
                                     left: `${el.x}%`,
                                     top: `${el.y}%`,
                                     transform: "translate(-50%, -50%)",
+                                    width: "max-content",
+                                    maxWidth: "80vw",
+                                    padding: "0 0.5rem",
                                   }}
                                 >
                                   <p
@@ -720,8 +723,15 @@ export function FlowViewerModal({
                               {story.text_elements.map((el, idx) => (
                                 <div
                                   key={idx}
-                                  className="absolute px-6 max-w-[90%]"
-                                  style={{ left: `${el.x}%`, top: `${el.y}%`, transform: "translate(-50%, -50%)" }}
+                                  className="absolute"
+                                  style={{
+                                    left: `${el.x}%`,
+                                    top: `${el.y}%`,
+                                    transform: "translate(-50%, -50%)",
+                                    width: "max-content",
+                                    maxWidth: "80vw",
+                                    padding: "0 0.5rem",
+                                  }}
                                 >
                                   <p
                                     className="text-3xl leading-tight break-words whitespace-pre-wrap"
@@ -801,8 +811,18 @@ export function FlowViewerModal({
 
                   </div>
 
-                  {/* Bottom Comment Section */}
-                  <div className="shrink-0 pt-2 px-4 bg-gradient-to-t from-black/90 via-black/40 to-transparent z-[60]" style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 1.5rem)" }}>
+                  {/* Bottom Comment Section — lifts above the iOS keyboard via --keyboard-height
+                      (resize:'none' means the visual viewport doesn't shrink on device, so we
+                      raise it ourselves the same way drawers/dialogs do). On web the var stays 0
+                      and the vp-resize path above handles it, so the two never fight. */}
+                  <div
+                    className="shrink-0 pt-2 px-4 bg-gradient-to-t from-black/90 via-black/40 to-transparent z-[60]"
+                    style={{
+                      paddingBottom: "calc(env(safe-area-inset-bottom) + 1.5rem)",
+                      transform: "translateY(calc(-1 * var(--keyboard-height, 0px)))",
+                      transition: "transform 0.25s ease-out",
+                    }}
+                  >
                     {/* Incentive Buttons - Horizontal Row */}
                     {user && (
                       <motion.div className="flex justify-around items-center mb-3">

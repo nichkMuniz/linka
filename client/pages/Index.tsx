@@ -568,7 +568,7 @@ export default function Index() {
     if (post.userGoal) {
       setGoalRoutinesLoading(true);
       try {
-        const routines = await getRoutinesByGoalIdDb(post.userGoal.goal_id);
+        const routines = await getRoutinesByGoalIdDb(post.userGoal.goal_id, post.user_id);
         setLinkedRoutines(routines);
       } catch (err) {
         console.error("Error fetching routines:", err);
@@ -877,6 +877,11 @@ export default function Index() {
   const PULL_THRESHOLD = 72;
 
   const onTouchStart = React.useCallback((e: React.TouchEvent) => {
+    // Com um drawer/dialog aberto por cima, o swipe de cima para baixo é do
+    // gesto de fechar o próprio drawer (vaul) — ele NÃO deve também disparar o
+    // pull-to-refresh do feed. Só começamos o pull quando não há overlay aberto.
+    // Mesmo detector usado em use-edge-swipe-back.ts, para manter consistência.
+    if (document.querySelector('[role="dialog"],[role="alertdialog"],[vaul-drawer]')) return;
     const scrollEl = feedScrollRef.current?.closest("[data-feed-scroll]") as HTMLElement | null;
     const scrollTop = scrollEl ? scrollEl.scrollTop : window.scrollY;
     if (scrollTop > 0) return;

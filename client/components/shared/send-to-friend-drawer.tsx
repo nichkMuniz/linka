@@ -185,7 +185,7 @@ export function SendToFriendDrawer({ open, onOpenChange, content }: SendToFriend
     <Drawer open={open} onOpenChange={onOpenChange}>
       <DrawerContent
         handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
-        className="flex flex-col z-[100] !rounded-t-[32px] !border-0"
+        className="flex flex-col !rounded-t-[32px] !border-0"
         style={{
           maxHeight: `min(85dvh, ${viewportHeight - 8}px)`,
           background: "linear-gradient(rgba(30,28,40,.88),rgba(14,13,20,.96))",

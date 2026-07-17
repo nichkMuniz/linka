@@ -89,6 +89,7 @@ import {
   ThumbsDown,
   AlertTriangle,
   ListChecks,
+  History,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
@@ -180,6 +181,39 @@ function categoryLabel(cat: string) {
   return PROMOTION_CATEGORIES.find((c) => c.value === cat)?.label ?? cat;
 }
 
+/** Mantém apenas dígitos e uma única vírgula (separador decimal PT-BR) num input de preço. */
+function sanitizePriceInput(raw: string): string {
+  let cleaned = raw.replace(/[^0-9,]/g, "");
+  const firstComma = cleaned.indexOf(",");
+  if (firstComma !== -1) {
+    cleaned = cleaned.slice(0, firstComma + 1) + cleaned.slice(firstComma + 1).replace(/,/g, "");
+  }
+  return cleaned;
+}
+
+/** Converte "99,90" (string do input) para 99.9 (number), como parseFloat espera ponto. */
+function parsePriceInput(value: string): number {
+  return parseFloat(value.replace(",", "."));
+}
+
+/** Converte um preço numérico do banco (ponto) para o formato do input (vírgula). */
+function formatPriceInput(n: number | null | undefined): string {
+  if (n == null) return "";
+  return String(n).replace(".", ",");
+}
+
+/** Expirada por data de validade OU por maioria de votos "expirou" da comunidade. */
+function isPromoExpired(p: Promotion): boolean {
+  if (p.expires_at) {
+    const todayStr = new Date().toISOString().split("T")[0];
+    if (p.expires_at.slice(0, 10) < todayStr) return true;
+  }
+  const expiredReports = p.expired_reports ?? 0;
+  const activeReports = p.active_reports ?? 0;
+  const totalVotes = expiredReports + activeReports;
+  return totalVotes >= 3 && expiredReports / totalVotes > 0.5;
+}
+
 // ─── Promotion Detail Drawer ─────────────────────────────────────────────────
 
 type PromotionDetailDrawerProps = {
@@ -190,6 +224,9 @@ type PromotionDetailDrawerProps = {
   viewerLoading: boolean;
   onLike: (id: string) => void;
   onStatusVote: (id: string, status: "active" | "expired") => void;
+  onEdit: (promo: Promotion) => void;
+  onInactivate: (id: string) => void;
+  onDelete: (id: string) => void;
 };
 
 function PromotionDetailDrawer({
@@ -200,6 +237,9 @@ function PromotionDetailDrawer({
   viewerLoading,
   onLike,
   onStatusVote,
+  onEdit,
+  onInactivate,
+  onDelete,
 }: PromotionDetailDrawerProps) {
   const [couponCopied, setCouponCopied] = React.useState(false);
 
@@ -232,9 +272,41 @@ function PromotionDetailDrawer({
         style={GLASS_SHEET_STYLE}
       >
         <DrawerHeader className="pb-2">
-          <DrawerTitle className="text-base font-semibold leading-snug pr-4 text-white">
-            {promo.title}
-          </DrawerTitle>
+          <div className="flex items-start justify-between gap-2">
+            <DrawerTitle className="text-base font-semibold leading-snug text-white flex-1">
+              {promo.title}
+            </DrawerTitle>
+            {isOwner && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="flex-shrink-0 h-8 w-8 -mt-1 -mr-1 flex items-center justify-center rounded-full text-white/60 hover:text-white hover:bg-white/10 transition-colors"
+                    aria-label="Mais opções"
+                  >
+                    <MoreVertical className="h-4 w-4" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="z-[9999]">
+                  <DropdownMenuItem onClick={() => { onClose(); onEdit(promo); }}>
+                    <Pencil className="h-4 w-4 mr-2" />
+                    Editar
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => { onClose(); onInactivate(promo.id); }}>
+                    <Ban className="h-4 w-4 mr-2" />
+                    Inativar
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className="text-destructive"
+                    onClick={() => { onClose(); onDelete(promo.id); }}
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Remover
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+          </div>
         </DrawerHeader>
 
         <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4 space-y-4" onPointerDown={(e) => e.stopPropagation()}>
@@ -425,6 +497,10 @@ function PromotionCard({
   const activeReports = promo.active_reports ?? 0;
   const totalVotes = expiredReports + activeReports;
   const majorityExpired = totalVotes >= 3 && expiredReports / totalVotes > 0.5;
+  const dateExpired = promo.expires_at
+    ? promo.expires_at.slice(0, 10) < new Date().toISOString().split("T")[0]
+    : false;
+  const isExpired = dateExpired || majorityExpired;
 
   const discountDisplay = (() => {
     if (promo.discount_percent) return `${promo.discount_percent}% OFF`;
@@ -451,7 +527,7 @@ function PromotionCard({
             <ImageWithFallback
               src={promo.photo_url}
               alt={promo.title}
-              className={`w-full h-full object-contain transition-opacity ${majorityExpired ? "opacity-50" : ""}`}
+              className={`w-full h-full object-contain transition-opacity ${isExpired ? "opacity-50" : ""}`}
               fallback="/placeholder.svg"
             />
           ) : (
@@ -464,11 +540,11 @@ function PromotionCard({
               {discountDisplay}
             </span>
           )}
-          {majorityExpired && (
+          {isExpired && (
             <div className="absolute inset-0 flex items-center justify-center">
               <span className="bg-background/80 text-destructive text-xs font-bold px-2.5 py-1 rounded-full flex items-center gap-1 border border-destructive/30">
                 <AlertTriangle className="h-3 w-3" />
-                Expirada?
+                {dateExpired ? "Expirada" : "Expirada?"}
               </span>
             </div>
           )}
@@ -625,6 +701,7 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
   const [externalLink, setExternalLink] = React.useState("");
   const [couponCode, setCouponCode] = React.useState("");
   const [expiresAt, setExpiresAt] = React.useState("");
+  const [expiresAtKey, setExpiresAtKey] = React.useState(0);
   const [saving, setSaving] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const [pendingStoreCropSrc, setPendingStoreCropSrc] = React.useState<string | null>(null);
@@ -646,6 +723,7 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
     setExternalLink("");
     setCouponCode("");
     setExpiresAt("");
+    setExpiresAtKey((k) => k + 1);
   }
 
   async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
@@ -703,7 +781,7 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
       if (data.title) setTitle(data.title.slice(0, 120));
       if (data.description) setDescription(data.description.slice(0, 500));
       if (data.image) setPhotoUrl(data.image);
-      if (data.price) setPromoPrice(String(data.price));
+      if (data.price) setPromoPrice(formatPriceInput(data.price));
       setExternalLink(url);
       setPrefilled(true);
 
@@ -735,15 +813,15 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
       toast({ title: "Preencha o título da promoção.", variant: "destructive" });
       return;
     }
-    if (originalPrice && parseFloat(originalPrice) < 0) {
+    if (originalPrice && parsePriceInput(originalPrice) < 0) {
       toast({ title: "Preço original não pode ser negativo.", variant: "destructive" });
       return;
     }
-    if (promoPrice && parseFloat(promoPrice) < 0) {
+    if (promoPrice && parsePriceInput(promoPrice) < 0) {
       toast({ title: "Preço promocional não pode ser negativo.", variant: "destructive" });
       return;
     }
-    if (promoPrice && originalPrice && parseFloat(promoPrice) > parseFloat(originalPrice)) {
+    if (promoPrice && originalPrice && parsePriceInput(promoPrice) > parsePriceInput(originalPrice)) {
       toast({ title: "Preço promocional não pode ser maior que o original.", variant: "destructive" });
       return;
     }
@@ -757,8 +835,8 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
         title,
         description: description || undefined,
         category,
-        original_price: originalPrice ? parseFloat(originalPrice) : undefined,
-        promo_price: promoPrice ? parseFloat(promoPrice) : undefined,
+        original_price: originalPrice ? parsePriceInput(originalPrice) : undefined,
+        promo_price: promoPrice ? parsePriceInput(promoPrice) : undefined,
         photo_url: finalPhotoUrl ?? undefined,
         external_link: externalLink || undefined,
         coupon_code: couponCode || undefined,
@@ -794,7 +872,7 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
           </DrawerTitle>
         </DrawerHeader>
 
-        <div className="flex-1 min-h-0 overflow-y-auto px-4 space-y-4 pb-2" onPointerDown={(e) => e.stopPropagation()}>
+        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4 space-y-4 pb-2" onPointerDown={(e) => e.stopPropagation()}>
           {/* ── Step 1: Link ── */}
           <div
             className="space-y-3 rounded-2xl p-3 transition-colors"
@@ -900,29 +978,27 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
 
               {/* Prices */}
               <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
+                <div className="space-y-1.5 min-w-0">
                   <label className={GLASS_LABEL_CLASS}>Preço original (R$)</label>
                   <Input
-                    type="number"
-                    min="0"
-                    step="0.01"
+                    type="text"
+                    inputMode="decimal"
                     placeholder="99,90"
                     value={originalPrice}
-                    onChange={(e) => setOriginalPrice(e.target.value)}
-                    className={GLASS_FIELD_CLASS}
+                    onChange={(e) => setOriginalPrice(sanitizePriceInput(e.target.value))}
+                    className={`w-full min-w-0 ${GLASS_FIELD_CLASS}`}
                     style={GLASS_FIELD_STYLE}
                   />
                 </div>
-                <div className="space-y-1.5">
+                <div className="space-y-1.5 min-w-0">
                   <label className={GLASS_LABEL_CLASS}>Preço promo (R$)</label>
                   <Input
-                    type="number"
-                    min="0"
-                    step="0.01"
+                    type="text"
+                    inputMode="decimal"
                     placeholder="74,90"
                     value={promoPrice}
-                    onChange={(e) => setPromoPrice(e.target.value)}
-                    className={GLASS_FIELD_CLASS}
+                    onChange={(e) => setPromoPrice(sanitizePriceInput(e.target.value))}
+                    className={`w-full min-w-0 ${GLASS_FIELD_CLASS}`}
                     style={GLASS_FIELD_STYLE}
                   />
                 </div>
@@ -1019,10 +1095,19 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
               <div className="space-y-1.5">
                 <label className={GLASS_LABEL_CLASS}>Válido até</label>
                 <Input
+                  key={expiresAtKey}
                   type="date"
                   value={expiresAt}
                   min={new Date().toISOString().split("T")[0]}
-                  onChange={(e) => setExpiresAt(e.target.value)}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setExpiresAt(v);
+                    // WebKit/iOS: o botão nativo de limpar do <input type="date">
+                    // dispara o evento mas o campo às vezes não repinta
+                    // visualmente ao voltar para vazio. Forçar remontagem
+                    // (via key) contorna o bug de renderização do WKWebView.
+                    if (!v) setExpiresAtKey((k) => k + 1);
+                  }}
                   className={GLASS_FIELD_CLASS}
                   style={GLASS_FIELD_STYLE}
                 />
@@ -1081,6 +1166,7 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
   const [originalPrice, setOriginalPrice] = React.useState("");
   const [promoPrice, setPromoPrice] = React.useState("");
   const [expiresAt, setExpiresAt] = React.useState("");
+  const [expiresAtKey, setExpiresAtKey] = React.useState(0);
   const [category, setCategory] = React.useState<PromotionCategory>("equipamento");
   const [photoUrl, setPhotoUrl] = React.useState("");
   const [imageMode, setImageMode] = React.useState<"url" | "upload">("url");
@@ -1097,9 +1183,10 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
       setTitle(promo.title || "");
       setDescription(promo.description || "");
       setCouponCode(promo.coupon_code || "");
-      setOriginalPrice(promo.original_price != null ? String(promo.original_price) : "");
-      setPromoPrice(promo.promo_price != null ? String(promo.promo_price) : "");
+      setOriginalPrice(formatPriceInput(promo.original_price));
+      setPromoPrice(formatPriceInput(promo.promo_price));
       setExpiresAt(promo.expires_at ? promo.expires_at.slice(0, 10) : "");
+      setExpiresAtKey((k) => k + 1);
       setCategory((promo.category as PromotionCategory) || "equipamento");
       setPhotoUrl(promo.photo_url || "");
       setImageMode("url");
@@ -1150,15 +1237,15 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
       toast({ title: "O título não pode estar vazio.", variant: "destructive" });
       return;
     }
-    if (originalPrice && parseFloat(originalPrice) < 0) {
+    if (originalPrice && parsePriceInput(originalPrice) < 0) {
       toast({ title: "Preço original não pode ser negativo.", variant: "destructive" });
       return;
     }
-    if (promoPrice && parseFloat(promoPrice) < 0) {
+    if (promoPrice && parsePriceInput(promoPrice) < 0) {
       toast({ title: "Preço promocional não pode ser negativo.", variant: "destructive" });
       return;
     }
-    if (promoPrice && originalPrice && parseFloat(promoPrice) > parseFloat(originalPrice)) {
+    if (promoPrice && originalPrice && parsePriceInput(promoPrice) > parsePriceInput(originalPrice)) {
       toast({ title: "Preço promocional não pode ser maior que o original.", variant: "destructive" });
       return;
     }
@@ -1172,8 +1259,8 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
         title: title.trim(),
         description: description || undefined,
         coupon_code: couponCode || undefined,
-        original_price: originalPrice ? parseFloat(originalPrice) : null,
-        promo_price: promoPrice ? parseFloat(promoPrice) : null,
+        original_price: originalPrice ? parsePriceInput(originalPrice) : null,
+        promo_price: promoPrice ? parsePriceInput(promoPrice) : null,
         expires_at: expiresAt || null,
         category,
         photo_url: finalPhotoUrl,
@@ -1257,12 +1344,11 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
             <div className="space-y-1.5">
               <label className={GLASS_LABEL_CLASS}>Preço original (R$)</label>
               <Input
-                type="number"
-                min="0"
-                step="0.01"
+                type="text"
+                inputMode="decimal"
                 placeholder="99,90"
                 value={originalPrice}
-                onChange={(e) => setOriginalPrice(e.target.value)}
+                onChange={(e) => setOriginalPrice(sanitizePriceInput(e.target.value))}
                 className={GLASS_FIELD_CLASS}
                 style={GLASS_FIELD_STYLE}
               />
@@ -1270,12 +1356,11 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
             <div className="space-y-1.5">
               <label className={GLASS_LABEL_CLASS}>Preço promo (R$)</label>
               <Input
-                type="number"
-                min="0"
-                step="0.01"
+                type="text"
+                inputMode="decimal"
                 placeholder="74,90"
                 value={promoPrice}
-                onChange={(e) => setPromoPrice(e.target.value)}
+                onChange={(e) => setPromoPrice(sanitizePriceInput(e.target.value))}
                 className={GLASS_FIELD_CLASS}
                 style={GLASS_FIELD_STYLE}
               />
@@ -1372,10 +1457,19 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
           <div className="space-y-1.5">
             <label className={GLASS_LABEL_CLASS}>Válido até</label>
             <Input
+              key={expiresAtKey}
               type="date"
               value={expiresAt}
               min={todayStr}
-              onChange={(e) => setExpiresAt(e.target.value)}
+              onChange={(e) => {
+                const v = e.target.value;
+                setExpiresAt(v);
+                // WebKit/iOS: o botão nativo de limpar do <input type="date">
+                // dispara o evento mas o campo às vezes não repinta
+                // visualmente ao voltar para vazio. Forçar remontagem
+                // (via key) contorna o bug de renderização do WKWebView.
+                if (!v) setExpiresAtKey((k) => k + 1);
+              }}
               className={GLASS_FIELD_CLASS}
               style={GLASS_FIELD_STYLE}
             />
@@ -1635,6 +1729,7 @@ export default function Store() {
   const [promotions, setPromotions] = React.useState<Promotion[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [activeCategory, setActiveCategory] = React.useState<PromotionCategory | "todos">("todos");
+  const [showExpired, setShowExpired] = React.useState(false);
   const [search, setSearch] = React.useState("");
   const [newPromoOpen, setNewPromoOpen] = React.useState(false);
   const [editingPromo, setEditingPromo] = React.useState<Promotion | null>(null);
@@ -1811,15 +1906,16 @@ export default function Store() {
   }
 
   const filtered = React.useMemo(() => {
-    if (!search.trim()) return promotions;
+    const byStatus = promotions.filter((p) => isPromoExpired(p) === showExpired);
+    if (!search.trim()) return byStatus;
     const q = search.toLowerCase();
-    return promotions.filter(
+    return byStatus.filter(
       (p) =>
         p.title.toLowerCase().includes(q) ||
         (p.description ?? "").toLowerCase().includes(q) ||
         (p.user_nickname ?? "").toLowerCase().includes(q),
     );
-  }, [promotions, search]);
+  }, [promotions, search, showExpired]);
 
   const filteredProfessionals = React.useMemo(() => {
     if (!proSearch.trim()) return professionals;
@@ -1936,6 +2032,18 @@ export default function Store() {
                   ))}
                 </DropdownMenuContent>
               </DropdownMenu>
+              <button
+                type="button"
+                onClick={() => setShowExpired((v) => !v)}
+                className={`flex items-center gap-1.5 text-xs font-medium px-3 h-9 rounded-lg border transition-colors whitespace-nowrap flex-shrink-0 ${
+                  showExpired
+                    ? "bg-brand text-white border-brand"
+                    : "border-border text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <History className="h-4 w-4" />
+                <span className="hidden sm:inline">Expirados</span>
+              </button>
             </div>
           </>
         )}
@@ -1995,13 +2103,23 @@ export default function Store() {
           ) : filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 text-center gap-3">
               <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center">
-                <Tag className="h-7 w-7 text-muted-foreground" />
+                {showExpired ? (
+                  <History className="h-7 w-7 text-muted-foreground" />
+                ) : (
+                  <Tag className="h-7 w-7 text-muted-foreground" />
+                )}
               </div>
               <p className="font-semibold text-muted-foreground">
-                {search || activeCategory !== "todos" ? "Nenhuma promoção encontrada" : "Ainda não há promoções"}
+                {showExpired
+                  ? "Nenhuma promoção expirada"
+                  : search || activeCategory !== "todos"
+                  ? "Nenhuma promoção encontrada"
+                  : "Ainda não há promoções"}
               </p>
               <p className="text-sm text-muted-foreground max-w-xs">
-                {search
+                {showExpired
+                  ? "Ainda não há promoções expiradas por aqui."
+                  : search
                   ? `Nenhum resultado para "${search}"${activeCategory !== "todos" ? ` na categoria selecionada` : ""}.`
                   : activeCategory !== "todos"
                   ? `Nenhuma promoção na categoria "${PROMOTION_CATEGORIES.find((c) => c.value === activeCategory)?.label}".`
@@ -2013,7 +2131,7 @@ export default function Store() {
                   Ver todas as categorias
                 </Button>
               )}
-              {!search && activeCategory === "todos" && user && (
+              {!search && !showExpired && activeCategory === "todos" && user && (
                 <Button onClick={() => setNewPromoOpen(true)} className="mt-2 gap-2">
                   <Plus className="h-4 w-4" />
                   Publicar Promoção
@@ -2098,6 +2216,9 @@ export default function Store() {
         viewerLoading={viewerLoading}
         onLike={handleLike}
         onStatusVote={handleStatusVote}
+        onEdit={(promo) => setEditingPromo(promo)}
+        onInactivate={(id) => setInactivateTargetId(id)}
+        onDelete={(id) => setDeleteTargetId(id)}
       />
 
       {/* New Promo Drawer */}

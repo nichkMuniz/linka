@@ -1,15 +1,16 @@
 import React from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, Hash } from "lucide-react";
+import { ArrowLeft, Hash, Video } from "lucide-react";
 import { useLanguage } from "@/lib/language-context";
-import { searchPostsByHashtagDb, type HashtagPost } from "@/lib/ritmofit-db";
+import { searchContentByHashtagDb, type HashtagItem } from "@/lib/ritmofit-db";
 import { getPostGradient } from "@/lib/post-visuals";
 import { LoadingSpinner } from "@/components/shared/animated-loading";
 
 /**
- * Página de uma hashtag — grade de posts (estilo Instagram) que contêm a #tag na
- * descrição. Aberta ao tocar numa hashtag destacada numa legenda (feed/PostDetail).
- * Cada thumbnail navega para o post isolado (`/post/:id`).
+ * Página de uma hashtag — grade (estilo Instagram) com os posts do feed e os
+ * Shots que contêm a #tag na descrição. Aberta ao tocar numa hashtag destacada
+ * numa legenda (feed/PostDetail/Shots). Cada thumbnail navega para o conteúdo
+ * original: `/post/:id` para posts, `/shots` para Shots.
  */
 export default function Hashtag() {
   const { tag: rawTag } = useParams<{ tag: string }>();
@@ -17,15 +18,15 @@ export default function Hashtag() {
   const { t } = useLanguage();
   const tag = (rawTag ?? "").replace(/^#/, "");
 
-  const [posts, setPosts] = React.useState<HashtagPost[]>([]);
+  const [items, setItems] = React.useState<HashtagItem[]>([]);
   const [loading, setLoading] = React.useState(true);
 
   React.useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    searchPostsByHashtagDb(tag)
+    searchContentByHashtagDb(tag)
       .then((data) => {
-        if (!cancelled) setPosts(data);
+        if (!cancelled) setItems(data);
       })
       .catch((err) => console.error("Erro ao buscar hashtag:", err))
       .finally(() => {
@@ -37,8 +38,8 @@ export default function Hashtag() {
   }, [tag]);
 
   const countLabel = (
-    posts.length === 1 ? t("hashtag_post_count_one") : t("hashtag_posts_count")
-  ).replace("{n}", String(posts.length));
+    items.length === 1 ? t("hashtag_post_count_one") : t("hashtag_posts_count")
+  ).replace("{n}", String(items.length));
 
   return (
     <div className="mx-auto w-full max-w-3xl px-3 pt-2 pb-6">
@@ -72,7 +73,7 @@ export default function Hashtag() {
         <div className="flex justify-center py-16">
           <LoadingSpinner />
         </div>
-      ) : posts.length === 0 ? (
+      ) : items.length === 0 ? (
         <div className="flex flex-col items-center gap-2 py-16 text-center">
           <div className="mb-1 flex h-14 w-14 items-center justify-center rounded-full bg-muted">
             <Hash className="h-6 w-6 text-muted-foreground" />
@@ -86,18 +87,31 @@ export default function Hashtag() {
         </div>
       ) : (
         <div className="mt-1 grid grid-cols-3 gap-[5px] sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
-          {posts.map((post) => {
-            const thumb = post.photo || post.photos?.[0] || "";
+          {items.map((item) => {
+            const isShot = item.kind === "shot";
+            const thumb = item.photo || item.photos?.[0] || "";
             return (
               <button
-                key={post.id}
-                onClick={() => navigate(`/post/${post.id}`)}
+                key={`${item.kind}-${item.id}`}
+                onClick={() =>
+                  isShot
+                    ? navigate("/shots", { state: { shotId: item.id } })
+                    : navigate(`/post/${item.id}`)
+                }
                 className="group relative aspect-square overflow-hidden rounded-[14px] bg-muted transition-all"
               >
-                {thumb ? (
+                {isShot ? (
+                  <video
+                    src={item.video_url ?? undefined}
+                    playsInline
+                    muted
+                    preload="metadata"
+                    className="h-full w-full bg-black object-cover transition-transform group-hover:scale-110"
+                  />
+                ) : thumb ? (
                   <img
                     src={thumb}
-                    alt={post.description}
+                    alt={item.description}
                     loading="lazy"
                     decoding="async"
                     className="h-full w-full object-cover transition-transform group-hover:scale-110"
@@ -105,17 +119,22 @@ export default function Hashtag() {
                 ) : (
                   <div
                     className="flex h-full w-full items-center justify-center"
-                    style={{ background: getPostGradient(post.id) }}
+                    style={{ background: getPostGradient(item.id) }}
                   >
                     <Hash className="h-6 w-6 text-white/70" />
                   </div>
                 )}
                 <div className="absolute inset-0 bg-black/0 transition-colors group-hover:bg-black/20" />
-                {post.photos && post.photos.length > 1 && (
+                {isShot && (
+                  <div className="absolute right-2 top-2 rounded-md bg-black/55 p-1">
+                    <Video className="h-3.5 w-3.5 text-white" />
+                  </div>
+                )}
+                {!isShot && item.photos && item.photos.length > 1 && (
                   <div className="absolute right-2 top-2 flex items-center gap-0.5 rounded-md bg-white/90 px-1.5 py-0.5">
                     <span className="text-xs font-semibold text-black">📷</span>
                     <span className="text-xs font-semibold text-black">
-                      {post.photos.length}
+                      {item.photos.length}
                     </span>
                   </div>
                 )}

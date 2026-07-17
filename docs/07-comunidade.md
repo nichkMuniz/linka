@@ -54,6 +54,8 @@ Cada conversa exibe:
 | Botão excluir | Ícone `Trash2` sobre fundo vermelho — **revelado por swipe** da direita para a esquerda na linha (padrão iOS); abre AlertDialog de confirmação |
 
 > **Swipe-to-delete (2026-06-27):** Cada linha de conversa é envolvida pelo componente `SwipeableConversationRow` (`client/components/community/`). Arrastar a linha da direita para a esquerda desliza o conteúdo e revela um botão de lixeira com fundo vermelho (`#ef4444`, largura 76px). O gesto tem trava de direção (ignora rolagem vertical), resistência ao passar do limite e animação de snap (abre/fecha) ao soltar. Tocar na linha enquanto aberta apenas fecha o swipe; tocar na lixeira abre o AlertDialog de confirmação. Substitui o antigo botão baseado em `hover`, que não funcionava no toque (alvo iOS).
+>
+> **(2026-07-17 — correção)** O "toque na linha aberta fecha o swipe" (`onClickCapture` → `stopPropagation` + `close`) precisa envolver **só o conteúdo da linha**, nunca o wrapper que também contém o botão de lixeira. Enquanto ele ficou no wrapper (ancestral de ambos), com a linha aberta o `stopPropagation` da fase de captura engolia o `onClick` do botão — tocar na lixeira apenas fechava o swipe e nunca disparava `onDelete`/abria o diálogo. Agora o handler de captura vive no `div` do conteúdo, irmão do botão.
 
 Ao clicar na linha → entra na conversa (viewMode: `conversation`)
 Ao tocar no botão excluir revelado → soft-delete do histórico apenas para o usuário logado (`deleteConversationForMeDb`); o outro participante continua vendo as mensagens normalmente
@@ -84,7 +86,13 @@ Os 3 cards de estatísticas na tela do grupo são interativos:
 |---|---|
 | **Líder** (check-ins do líder) | Abre modal de Classificações |
 | **Você** (posição do usuário) | Abre modal de Classificações |
-| **Dias** (dias restantes) | Abre modal de Detalhes do Grupo |
+| **Dias** (dias restantes) | Abre modal de Detalhes do Grupo (mesmo destino da pill **Detalhes**) |
+
+### Drawer de Classificações
+
+| Elemento | Ação ao clicar |
+|---|---|
+| **Nome do participante** | Abre o `MemberCheckInsDrawer` com o calendário de check-ins dele no grupo |
 
 ### Modal de Detalhes do Grupo
 
@@ -93,17 +101,21 @@ Exibe:
 - Local (UF)
 - Objetivo
 - **Modalidade** (`scoringType`) — ícone + nome do sistema de pontuação do grupo (Contagem de check-in, Dias ativos, Pontos de hustle, Duração, Distância, Passos, Calorias ou Memes). Mesmo catálogo de opções usado no wizard de criação (Passo 4 — Sistema de Pontuação)
-- Regra do desafio (somente quando `scoringType === "memes"` e `memeRule` está definido)
+- Regra do desafio (somente quando `scoringType === "memes"`; em leitura, só aparece se `memeRule` estiver definido)
 - **Data de início** (`createdAt`)
 - **Data de encerramento** (`endDate` — "Sem prazo" se não definido)
 - Botão de sair / apagar grupo (conforme papel do usuário)
 
 **Edição (somente criador):**
 - Botão "Editar" no cabeçalho do modal (visível apenas para o criador)
-- Ao clicar, os campos Nome e Objetivo tornam-se editáveis (Input / Textarea)
+- Ao clicar, tornam-se editáveis: **Nome** (Input), **Objetivo** (Textarea) e — só em grupos de memes — a **Regra do desafio** (Textarea, `maxLength` 200, com o mesmo texto de apoio do wizard)
 - Botões "Cancelar" e "Salvar" aparecem no lugar dos botões de ação
-- Ao salvar → `updateGroupInfoDb(groupId, name, goal)` — atualiza tabela `duel_groups`
+- Ao salvar → `updateGroupInfoDb(groupId, name, goal, memeRule?)` — atualiza tabela `duel_groups`
 - Estado local do grupo (`selectedGroupForView` e `userCreatedGroups`) é atualizado imediatamente sem reload
+
+> **Regra do desafio na edição (2026-07-16):** o campo só aparece quando `scoringType === "memes"` — nas outras modalidades a regra não existe. Diferente do modo leitura, ele aparece **mesmo sem regra salva**, para o criador poder preencher depois. Salvar espelha a validação do wizard: memes sem regra é bloqueado com toast, porque é a regra que justifica classificar/desclassificar um check-in.
+>
+> `updateGroupInfoDb` recebe `memeRule` **opcional**: `undefined` (grupo de outra modalidade) não encosta na coluna `meme_rule`, evitando zerá-la sem querer; string vazia limpa. A modalidade em si segue não editável — trocá-la recalcularia o placar retroativamente.
 
 ---
 
@@ -130,7 +142,7 @@ Exibe:
 - Enter também envia a mensagem
 - **(2026-07-13 — segurança)** Fotos e áudios de DM vão para o bucket **privado** `chat-media`, no caminho `{idA}_{idB}/{uuid}.{ext}` (os dois uuids da conversa, ordenados). Antes iam para o bucket **público** `posts` (`posts/message-images/`, `posts/message-audio/`), com URL pública permanente e caminho previsível — ou seja, mídia de conversa privada era efetivamente pública para quem tivesse o link. A RLS de `storage.objects` só libera leitura/escrita para quem é uma das duas pontas da conversa (`docs/migrations/20260713-security-hardening.sql`).
 - O texto da mensagem passa a guardar `chat:<path>` em vez da URL. Quem resolve para uma URL exibível é `getChatMediaUrlDb()` (`ritmofit-db.ts`), que assina uma **signed URL de 1 h** (com cache em memória e renovação automática ao expirar). Mensagens antigas guardam a URL pública completa e continuam funcionando — o resolver detecta o formato e devolve o valor como está.
-- Renderização: `ChatImageMessage` / `ChatAudioMessage` (`client/components/community/chat-media.tsx`) resolvem a URL em efeito e mostram um placeholder pulsante enquanto a assinatura não chega.
+- Renderização: `ChatImageMessage` / `ChatAudioMessage` (`client/components/community/chat-media.tsx`) resolvem a URL em efeito e mostram um placeholder pulsante enquanto a assinatura não chega. **(2026-07-17)** Se a signed URL já está no cache em memória, `peekChatMediaUrl()` a devolve de forma síncrona e ela entra direto no estado inicial do `useChatMediaUrl` — a bolha nasce com a mídia, sem passar pelo placeholder. O placeholder ficou só para o que é realmente inédito.
 - Mensagens de imagem: prefixo `[image]:` → renderizadas como `<img>` clicável. Ao tocar, abre um **visualizador fullscreen in-app** (overlay preto via portal, botão de fechar e fechar ao tocar fora) — a URL do Supabase Storage **não** é exposta ao usuário (não usa mais o `Browser` do Capacitor)
 - Mensagens de áudio: prefixo `[audio]:` → renderizadas como player `<audio controls>` com `preload="auto"` (pré-carrega o arquivo assim que a bolha monta, para que a reprodução comece instantaneamente ao tocar play, sem o atraso de buffering do `preload="metadata"`); gravação usa MediaRecorder API priorizando **MP4/AAC** (`audio/mp4;codecs=mp4a.40.2` → `audio/mp4` → `audio/aac`), com WebM/Opus apenas como fallback — MP4/AAC é reproduzível nativamente no WebView do iOS (alvo do app), evitando atraso/falha que o WebM causa no iOS; upload para `posts/message-audio/` no Supabase Storage (extensão `.mp4`/`.webm` conforme o tipo do blob)
 - Permissão de microfone já declarada no `Info.plist` iOS (`NSMicrophoneUsageDescription`)
@@ -142,17 +154,33 @@ Exibe:
 - Auto-scroll para última mensagem
 - Marca mensagens como lidas ao abrir a conversa (`markMessagesAsReadDb`) e ao receber mensagem em tempo real
 
-> **Auto-scroll para a última mensagem (2026-07-02):** Ao abrir/reabrir uma conversa, a tela sempre inicia posicionada na última mensagem (enviada ou recebida) — sem animação (`scrollIntoView({ behavior: "auto" })`), evitando o efeito de "rolagem visível" desde o topo. Um `ref` (`hasScrolledForConversationRef`) marca se já houve o scroll inicial daquela conversa e é resetado sempre que `selectedConversation.userId` muda. Como imagens/áudio da conversa podem carregar de forma assíncrona e alterar a altura do conteúdo após o primeiro paint, o scroll inicial é reforçado com dois re-snaps (150ms e 400ms) para garantir que a tela permaneça no fim mesmo após esses ajustes de layout. Mensagens novas (enviadas ou recebidas via realtime) continuam usando `behavior: "smooth"`.
+> **Teclado iOS levanta a conversa (2026-07-17):** A conversa individual é um portal `fixed` próprio (montado em `document.body`), então **não** é um drawer (vaul) nem dialog (radix) e **não herda** o lift automático do `--keyboard-height` que `drawer.tsx`/`dialog.tsx` aplicam. Antes, quando o teclado do iOS abria, ele apenas sobrepunha o webview (Keyboard `resize:'none'`) e a barra de input ficava escondida atrás dele — o usuário não via o que digitava. Correção: o container da conversa usa `bottom: var(--keyboard-height, 0px)` (com `transition: bottom 0.25s`) — subir o `bottom` pela altura do teclado encolhe a conversa a partir de baixo, deixando a barra de input logo acima do teclado e a lista rolando na área restante (comportamento do WhatsApp). O `paddingBottom` das barras de input passou a ser `max(0.85rem, calc(env(safe-area-inset-bottom) - var(--keyboard-height)))`, para não sobrar o vão do home indicator acima do teclado quando ele está aberto. Um efeito assina `subscribeKeyboardHeight` (`client/lib/keyboard.ts`) e re-fixa a rolagem no fim (re-snaps em 0/120/280ms) sempre que o teclado abre/fecha, para a última mensagem continuar visível enquanto a área muda de altura. Fora do nativo (browser) o tracker é no-op → `--keyboard-height` fica 0 e nada muda.
+
+> **Auto-scroll para a última mensagem (2026-07-02, revisto em 2026-07-17):** Ao abrir/reabrir uma conversa, a tela sempre inicia posicionada na última mensagem (enviada ou recebida) — sem animação (`scrollIntoView({ behavior: "auto" })`), evitando o efeito de "rolagem visível" desde o topo. Como imagens/áudio da conversa podem carregar de forma assíncrona e alterar a altura do conteúdo após o primeiro paint, o scroll inicial é reforçado com dois re-snaps (150ms e 400ms) para garantir que a tela permaneça no fim mesmo após esses ajustes de layout. Mensagens novas (enviadas ou recebidas via realtime) continuam usando `behavior: "smooth"`.
+>
+> O que decide entre snap e rolagem suave é o ref `isOpeningConversationRef` (que substituiu `hasScrolledForConversationRef`): ele marca a **fase de abertura** da conversa — vale `true` desde a troca de `selectedConversation.userId` até a busca da rede assentar (flip num `requestAnimationFrame`, no `finally`, para cobrir também o caso de erro). Enquanto está `true`, *qualquer* mudança na lista reposiciona no fim sem animação — é o que faz a semente e a versão da rede entrarem sem rolagem visível. Um flag `cancelled` no cleanup do efeito impede que a carga de uma conversa abandonada encerre a fase de abertura da conversa aberta depois dela.
+
+> **Abertura instantânea da conversa (2026-07-17):** Entrar numa mensagem privada dava a sensação de travar e "recarregar" toda vez. Eram três causas somadas, corrigidas juntas:
+>
+> 1. **A conversa abria vazia.** O efeito de carga fazia `setMessages([])` e só então ia à rede — tela em branco até a query voltar. Agora existe uma **semente de first paint**: `getConversationMessagesDb` grava as últimas 60 mensagens em `lk:q:chatMessages:{viewerId}:{otherId}` (mesmo prefixo do cache de queries, então sign-out/troca de usuário já purga junto), e a tela lê essa semente de forma **síncrona** com `peekConversationMessages()` ao abrir. A conversa nasce pintada e no fim. **A semente não substitui a rede** — `getConversationMessagesDb` é sempre chamada; ela só evita o branco enquanto a resposta não chega. A tela mantém a semente em dia (`cacheConversationMessages()`) sempre que `messages` muda, para cobrir enviadas/recebidas via realtime/apagadas.
+> 2. **A lista inteira remontava ao voltar da rede.** Mesmo quando o servidor devolvia exatamente o que já estava na tela, o array novo re-renderizava todas as bolhas. `sameMessageList()` (em `community-helpers.ts`) compara id/texto/lido/emoji e, se nada mudou, mantém o array anterior — sem re-render.
+> 3. **As bolhas de mídia piscavam placeholder.** `useChatMediaUrl` (`chat-media.tsx`) começava com `url = null` e resolvia em efeito, mesmo com a signed URL já em memória — placeholder → imagem a cada remontagem, e a troca ainda mudava a altura da bolha e empurrava a rolagem. Agora `peekChatMediaUrl()` (leitura **síncrona** do `signedUrlCache`) alimenta o estado inicial: com URL válida em cache, a bolha nasce com a mídia.
+>
+> Além disso, `getConversationMessagesDb` buscava os dois perfis **depois** das mensagens (waterfall de duas idas à rede); agora os três vão no mesmo `Promise.all` — os perfis não dependem das mensagens. Na prática o custo costuma ser zero (`getUserProfileDb` é cacheado), mas no cold start economiza uma ida.
+>
+> **Semente × exclusão de histórico:** a semente persiste no `localStorage`, então **excluir o histórico precisa apagá-la também** — senão ela repinta as mensagens "apagadas" na próxima abertura da conversa (o histórico é soft-deletado, a rede volta vazia, mas a semente entrava antes). `deleteConversationForMeDb` chama `clearConversationSeed(otherUserId, viewerId)` após o soft-delete. Exclusão de **uma** mensagem (dentro da conversa aberta) não precisa disso: a tela atualiza `messages` e o efeito de sincronia reescreve a semente já sem a mensagem.
 
 **Long Press / Segurar Mensagem:**
 - Segurar (touch 450ms) ou clique com botão direito abre um overlay de ações no estilo Instagram
 - O overlay exibe preview da mensagem, 6 emojis rápidos (❤️ 😂 😮 😢 😡 👍) e as seguintes ações:
   - **Responder** — sempre disponível para qualquer mensagem
-  - **Apagar mensagem** — visível apenas para mensagens próprias enviadas há menos de 10 minutos; hard-delete permanente que remove para ambos os participantes (`deleteMessagePermanentlyDb`)
-  - **Apagar para mim** — visível apenas para mensagens do outro usuário; soft-delete que oculta a mensagem somente para o usuário logado (`deleteMessageForMeDb`)
-  - Mensagens próprias com mais de 10 minutos não exibem nenhuma opção de deleção
+  - **Apagar para mim** — sempre disponível (mensagem própria ou do outro usuário); soft-delete que oculta a mensagem somente para o usuário logado (`deleteMessageForMeDb`)
+  - **Apagar para todos** — visível apenas para mensagens **próprias** enviadas há menos de 10 minutos; hard-delete permanente que remove para ambos os participantes (`deleteMessagePermanentlyDb`)
+  - **(2026-07-17)** Uma mensagem **enviada** com menos de 10 min oferece as **duas** opções ("Apagar para mim" e "Apagar para todos"); com mais de 10 min, oferece só "Apagar para mim". Antes, a mensagem própria só mostrava "Apagar mensagem" (para todos) na janela de 10 min e ficava sem nenhuma opção depois. O limite de 10 min do "para todos" foi mantido. Todas as strings do overlay/diálogo agora usam `t()` (chaves `community_msg_*`).
 - **Responder mensagem:** seleciona a mensagem como contexto de reply; um banner aparece acima do input mostrando o texto original com botão "X" para cancelar
 - A mensagem enviada como reply é prefixada com `↩ <texto original>\n\n<nova mensagem>` no banco
+
+> **Arrastar para responder (2026-07-17):** Além do long-press → "Responder", cada bolha pode ser **arrastada para a direita para responder** àquela mensagem específica — padrão WhatsApp. Componente: `SwipeableMessageBubble` (`client/components/community/swipeable-message-bubble.tsx`), que envolve a bolha + o badge de emoji e os translada em bloco. Um ícone de reply (Lucide `Reply`) surge no vão que se abre à esquerda da bolha, com opacidade/escala proporcionais ao arrasto; ao passar do gatilho (`REPLY_TRIGGER = 52px`, limite visual `MAX_DRAG = 76px`) e soltar, dispara `handleReplyToMessage(message)` — ou seja, seleciona **aquela** mensagem como contexto, mesmo que seja a 2ª de uma sequência. Cruzar o gatilho dá um toque de haptics (`hapticLight`). O gesto é só para a direita (à esquerda fica travado em 0) e tem trava de direção: um arrasto vertical deixa a lista rolar normalmente. O **long-press convive** no mesmo componente (timer de 450ms iniciado no touchstart e cancelado a qualquer movimento), então segurar ainda abre o overlay de ações e clicar com o botão direito (`onContextMenu`) também. O container de mensagens ganhou `overflow-x-hidden` para clipar o excedente do arrasto (a bolha própria já fica colada na borda direita) sem afetar a rolagem vertical.
 - Na renderização, mensagens com prefixo `↩` exibem uma citação visual (bloco com borda lateral) antes do texto principal
 
 **Reações de Emoji:**
@@ -200,14 +228,38 @@ Aberta via `openGroupView` (botão "Ver Grupo" da lista). Renderizada em portal 
 - **Fontes:** `Manrope` (corpo, aplicada no container) e `Space Grotesk` (números de destaque, título do hero, label "Grupo"). Ambas importadas junto com Inter em `client/global.css`.
 
 **Estrutura:**
-- **Header** — 3 partes: botão `ArrowLeft` em quadrado de vidro (`GLASS_CARD_STYLE`, `rounded-[11px]`), label central "Grupo" (`Space Grotesk`, `--muted`) e botão de **editar capa** (só criador) em quadrado de vidro com `Edit3` (o input de foto vive aqui agora). Respeita `env(safe-area-inset-top)`.
+- **Header** — 3 partes: botão `ArrowLeft` em quadrado de vidro (`GLASS_CARD_STYLE`, `rounded-[11px]`), label central "Grupo" (`Space Grotesk`, `--muted`) e um **espaçador `h-9 w-9`** à direita. O espaçador não é decorativo: ele equilibra o botão de voltar para o label ficar centrado de verdade — não remover. Respeita `env(safe-area-inset-top)`.
 - **Hero card** — cartão compacto (`h-[130px]`, `rounded-[22px]`, margem lateral `px-5`) com a foto de capa (ou ícone centralizado sem foto), scrim escuro na base e nome do grupo em `Space Grotesk` 24px. Sem foto, o fundo é um gradiente translúcido da marca (azul → roxo) com borda de vidro.
+- **Botão de trocar capa (2026-07-16)** — `Edit3` num quadrado de 36px no **canto superior direito do próprio hero card** (`absolute top-[10px] right-[10px]`), só para o criador; o `<input type="file">` escondido vive junto dele. Ficava no header até 16/07 — foi movido para dentro do frame, onde a ação se aplica.
+- **Enquadramento da capa (2026-07-16)** — escolher a foto **não sobe na hora**: entra em *modo de ajuste* no próprio hero (`InlineCropPreview`, pinch + arraste), com dica e botões **Cancelar / Salvar** abaixo do card. Só ao Salvar o recorte é aplicado (`applyTransformToBlob`) e enviado. No modo de ajuste, scrim, título e botão de editar são ocultados — o frame mostra o recorte cru, que é exatamente o que vai subir. Ao salvar, a URL remota é pré-carregada antes da troca (sem piscada). `openGroupView` limpa `coverCropSrc`, senão um ajuste abandonado reabriria no grupo seguinte.
+  - O mesmo enquadramento existe no **Passo 1 do wizard**, no frame de preview da capa — lá o recorte é aplicado no upload que roda logo após criar o grupo. As refs de medida sobrevivem ao passo desmontar; se nunca mediram (largura 0), sobe o arquivo original como fallback.
+  - **Por que não precisou de tela de crop separada:** o `InlineCropPreview` já fazia zoom/pan no próprio frame — só precisou aceitar frames não-quadrados (ver `docs/13`).
+  - **Fundo próprio (`rgba(0,0,0,.42)` + blur), não `GLASS_CARD_STYLE`:** o scrim do hero é um gradiente que só escurece a **base** do card; no topo a foto aparece crua, e o vidro claro sumiria em capas claras. Não trocar pelo `GLASS_CARD_STYLE` dos botões do header, que vivem sobre o fundo escuro da página.
+  - Aparece **também quando o grupo não tem capa** (estado de ícone) — é justamente quando mais se quer definir uma.
 - **Grade de estatísticas assimétrica** — grid 2 colunas: **card grande "Seu ranking"** (`row-span-2`, gradiente da marca via `GLASS_PRIMARY_BTN_STYLE`) com `#{posição}` em 38px; à direita, dois cartões de vidro (`GLASS_CARD_STYLE`) empilhados: **Líder** (pontuação + "{nome} · líder") e **Dias restantes** (nº + label). Números em `Space Grotesk`/`--accent2`. Clicáveis (ver tabela abaixo): ranking e líder → Classificações; dias → Detalhes.
-- **Pills de seção segmentadas** — única navegação secundária da tela (o bottom nav do mock original foi removido por redundância). Container de vidro `rounded-[15px]` com 3 pills: **Detalhes** (ativo, gradiente da marca, mostra o histórico inline), **Participantes** (abre drawer) e **Ranking** (abre Classificações).
-- **Header "Histórico" + "N registros"** — título 14px + contagem em `--muted`.
+- **Pills segmentadas de atalho** — container de vidro `rounded-[15px]` com 3 botões **visualmente idênticos**, todos abrindo drawers: **Detalhes** (→ Detalhes do Grupo), **Participantes** (→ drawer de participantes) e **Ranking** (→ Classificações). O bottom nav do mock original foi removido por redundância.
+
+> **Não é um tab bar (2026-07-16), apesar do formato segmentado.** Os três são botões que **abrem drawers** — nenhum troca o conteúdo da tela, que é sempre o histórico.
+>
+> **Nenhum leva destaque, e isso é deliberado:** os três são atalhos equivalentes, então pintar um sugeriria "você está aqui", que é falso. Destacar a pill tocada também não resolveria — seria invisível, já que o drawer sobe cobrindo as pills no mesmo instante. Todos usam `font-semibold` + `var(--muted)` + `ChevronRight` (`opacity-60`), que marca "abre painel". **Não reintroduzir `GLASS_PRIMARY_BTN_STYLE` numa delas.**
+>
+> Histórico: até 16/07 o controle era lido como abas quebradas ("cliquei e o destaque não mudou"), porque **Detalhes** era um `<div>` decorativo, sem `onClick`, com o gradiente da marca fixo. Na mesma data virou botão (abrindo o mesmo drawer do card **Dias restantes**) e o gradiente saiu.
+>
+> Se um dia isso virar aba de verdade, o conteúdo dos drawers precisa vir para inline — não adianta só mover o destaque. Resquício dessa história: `activeGroupViewTab` ainda é tipado `"check-ins" | "participants"`, mas `"participants"` nunca é atribuído (sobra de quando Participantes era aba inline); a condição `=== "check-ins"` é sempre verdadeira.
+- **Drawer de Classificações** (`ClassificationsDrawer`) — placar do grupo pelo critério do `scoringType`. O **nome de cada participante é tocável** (chevron à direita) e abre o `MemberCheckInsDrawer` por cima, com o calendário de check-ins daquele membro **neste grupo**.
+- **Drawer de check-ins do participante** (`MemberCheckInsDrawer`) — header com avatar + nome, calendário mensal (`CheckInCalendarGrid`) com os dias marcados em laranja e o dia de hoje contornado, e rodapé com "{n} dias com check-in" + "{n} check-ins neste mês". A navegação de meses alcança o mês do check-in mais antigo do membro. Sem check-ins, mostra estado vazio. Fonte de dados: `groupCheckIns` já carregado na tela, filtrado por `userId` — sem query nova.
+- **Header "Histórico" + "N registros"** — título 14px + contagem em `--muted`. A contagem é sempre o **total** do grupo, não o que está renderizado.
 - **Lista de check-ins** — agrupados por dia (Hoje/Ontem/data, label 10.5px `--muted`); cada item é um cartão de vidro (`GLASS_CARD_STYLE`) `rounded-[17px]` com **borda-esquerda de 3px** (azul da marca `--accent` para os check-ins do próprio usuário, `--line` para os demais), tile 40px `rounded-[12px]` (thumbnail da foto ou avatar quadrado), título em negrito, "{nome} · horário" e pill roxa translúcida `+{nº de grupos musculares}`. Reações de emoji e barra de avaliação (modo memes) permanecem abaixo, alinhadas ao tile. Skeleton e empty state seguem a mesma paleta.
+- **Barra de avaliação (modo memes)** — só existe quando `scoringType === "memes"`. Ninguém avalia o próprio check-in:
+  - **Check-in de outro participante** → rótulo `🎭 avaliar` + botões Classificar (`CheckCircle2`) e Desclassificar (`XCircle`), com o voto do usuário destacado. Tocar de novo no mesmo voto o remove.
+  - **Check-in próprio** → rótulo `⏳ pendente` (sem botões), mais a contagem de votos recebidos quando já houver algum. Quando o check-in está anulado, o rótulo `pendente` some, porque o selo **Anulado** à direita já diz o resultado.
+  - O selo **Anulado** e a opacidade reduzida do cartão aparecem para todos quando `desclassificar > classificar`.
 - **FAB de check-in** — **pill** flutuante (ícone `Plus` + label "Check-in") com o gradiente da marca (`GLASS_PRIMARY_BTN_STYLE`) e glow; desabilitado (acinzentado) quando o grupo está encerrado. Ancorada a `calc(20px + env(safe-area-inset-bottom))` do rodapé (antes precisava de 88px para não sobrepor o bottom nav, que não existe mais).
 - **Overlay de reação (long-press)** — sheet de vidro escuro (`rounded-[28px]`, blur 40px) com preview do check-in, 6 emojis rápidos e botão Cancelar (mantido do design anterior).
+
+> **Paginação do histórico (2026-07-16):** `getGroupCheckInsDb` **não tem `.limit()`** — o placar (`ClassificationsDrawer`), o card do líder e o calendário do membro (`MemberCheckInsDrawer`) são todos calculados no cliente a partir dessa lista, então um teto no fetch não encurtava a tela, dava **pontuação errada** (era o que o antigo `.limit(50)` fazia em grupos grandes). Quem pagina é a **renderização**: `visibleCheckInCount` começa em `CHECKINS_INITIAL_COUNT` (50) e cresce `CHECKINS_PAGE_SIZE` (10) por vez quando a rolagem chega a `CHECKINS_LOAD_MORE_OFFSET` (320px) do fim, via `onGroupViewScroll`. Um rodapé "Role para ver mais {n} registros" indica o que falta, e `openGroupView` reseta a contagem ao trocar de grupo.
+>
+> Dois cuidados ao mexer: (1) o recorte vem **depois** do sort por data — cortar antes agruparia os dias errados; (2) `loadMoreLockRef` limita a um lote por render commitado, porque o scroll dispara dezenas de vezes por segundo e um fling revelaria 40+ cartões de uma vez, anulando a paginação. O teto real passa a ser o limite global de 1000 linhas do PostgREST.
 
 > **Pull-to-refresh (2026-07-02):** O container de conteúdo da tela do grupo (`flex-1 overflow-y-auto`, hero + stats + histórico) suporta o mesmo gesto de puxar-para-baixo do Feed. Puxar a partir do topo (`scrollTop === 0`) além do limiar (72px) chama `refreshGroupView(groupId)`, que invalida o cache (`groupCheckIns`, `groupParticipants`) e recarrega check-ins, participantes, reações e votos (modo memes) do grupo aberto — sem esvaziar a lista atual antes (evita o flash de estado vazio que `openGroupView` causa ao trocar de grupo). Indicador visual: spinner circular azul (`--accent`) que gira conforme a distância puxada e roda continuamente (`animate-spin`) durante o refresh.
 
@@ -226,7 +278,9 @@ Aberta via `openGroupView` (botão "Ver Grupo" da lista). Renderizada em portal 
 **Como criador:**
 - Todas as ações de membro, mais:
 - **Convidar membros** — Drawer com lista de usuários seguidos para convidar
-- **Alterar foto do grupo** — `updateGroupPhotoDb`
+- **Alterar foto do grupo** — `updateGroupPhotoDb`. A capa escolhida aparece na hora (preview local via `URL.createObjectURL`) enquanto o upload roda por baixo; ao terminar, a URL remota é pré-carregada antes de substituir o blob para não piscar. Se o upload falhar, a capa anterior volta e sai toast de erro.
+
+> **Regra de cache da capa:** cada troca envia para um caminho único (`group-covers/{groupId}/{timestamp}.{ext}`, `upsert: false`) e invalida `enrichedDuelGroups`/`followingGroups`/`userDuelGroups`. Nunca reusar um caminho fixo: a URL pública ficaria idêntica e o CDN do Supabase (1h por padrão) mais o WebView continuariam servindo a imagem antiga.
 - **Deletar grupo** — AlertDialog de confirmação → `deleteGroupDb`
 
 **Convites pendentes:**
@@ -237,14 +291,23 @@ Aberta via `openGroupView` (botão "Ver Grupo" da lista). Renderizada em portal 
 
 ### Modal de Criação de Grupo (Wizard 4 steps)
 
-Fluxo em 4 etapas com barra de progresso visual no topo:
+Fluxo em 4 etapas com barra de progresso visual no topo.
+
+> **i18n (2026-07-16):** o wizard era todo hardcoded em PT; hoje usa as chaves `duels_wizard_*` (42, em PT e EN). Dois detalhes ao mexer:
+> - Título e subtítulo de cada passo vêm de **chave dinâmica** — `` t(`duels_wizard_step${groupStep}_title`) ``. Isso é type-safe porque `groupStep` é tipado `1 | 2 | 3 | 4 | 5`: o template resolve para exatamente as 5 chaves e o `tsc` reclama se alguma faltar. **Renomear/remover uma dessas chaves quebra o build de propósito** — mas ela não aparece num grep literal, então procure pelo prefixo.
+> - A data de "Término previsto" usa `language === "pt" ? "pt-BR" : "en-US"` — não fixar `pt-BR`.
+> - Os **nomes dos estados** (Acre, Bahia, …) seguem hardcoded de propósito: são nomes próprios, idênticos nos dois idiomas. Só o rótulo do campo é traduzido.
 
 **Step 1 — Identidade:**
-| Campo | Tipo |
-|---|---|
-| Capa do grupo | Upload de imagem (preview inline) |
-| Nome do grupo | Input |
-| Meta do grupo | Textarea |
+| Campo | Tipo | Obrigatório |
+|---|---|---|
+| Capa do grupo | Upload de imagem (preview inline) | — |
+| Nome do grupo | Input | ✓ — único bloqueio para avançar |
+| Meta do grupo | Textarea | — (opcional desde 2026-07-16) |
+
+> **Meta opcional (2026-07-16):** só o **nome** trava o avanço do Step 1. A coluna `duel_groups.goal` é **NOT NULL**, então meta vazia grava `""` — nunca `null`, que quebraria o insert. Nome e meta são gravados com `.trim()`, senão " " passaria na validação e viraria uma meta de espaço em branco.
+>
+> Quem exibe a meta precisa tratar o vazio: a revisão (Step 5) **oculta** a linha, e o modal de Detalhes mostra "Sem meta definida" (`duels_group_no_goal`) em vez de uma caixa vazia. A edição pelo criador já permitia limpar a meta antes disso — ou seja, grupo sem meta já era possível; o wizard é que exigia.
 
 **Step 2 — Localização:**
 | Campo | Tipo |
@@ -302,7 +365,15 @@ Fluxo em 4 etapas com barra de progresso visual no topo:
 - Lista de exercícios realizados com nome, grupo muscular e carga (kg)
 - Volume total e número de exercícios como stats
 - **Reações de emoji** — 6 emojis rápidos (❤️ 🔥 💪 😮 👏 🏆), toggle por usuário, contador de reações (`duel_check_in_reactions`); sincronizadas em tempo real via Supabase Realtime (canal `checkin-reactions:{groupId}`) — todos os membros veem as reações atualizadas sem precisar recarregar
-- **Seção de comentários** — lista de comentários com avatar + nome + horário, input para enviar novo comentário (`duel_check_in_comments`)
+- **Seção de comentários** — lista de comentários com avatar + nome + horário (`duel_check_in_comments`). No próprio comentário aparecem **editar** (`Pencil`) e **excluir** (`Trash2`).
+- **Input de comentário (2026-07-16)** — **rodapé fixo (`shrink-0`) do drawer, fora do container rolável**, com borda superior. Fica sempre visível, inclusive ao rolar foto e exercícios.
+
+> **Por que o input é rodapé fixo (não mexer):** enquanto ele vivia no fim do container rolável, focar o campo subia o teclado e o lift wrapper erguia a folha, mas **nada rolava até o campo** — o offset dele dentro do conteúdo rolado não mudava. O campo só aparecia na primeira tecla, quando o WebKit leva o cursor à vista sozinho (era esse o sintoma de "a tela só reajusta quando começo a digitar"). Colado na borda inferior da folha, erguer a folha já basta — é o mesmo padrão de `post-comments-dialog.tsx` e `promotion-comments-drawer.tsx`, que nunca tiveram o problema.
+>
+> A correção é **estrutural de propósito**: não envolve tocar na arquitetura de teclado (`resize:'none'` + `--keyboard-height`, ver `docs/13`), nem reativar o `repositionInputs` do vaul, nem furar o guard de `[role="dialog"]` do `scrollPageInputIntoView` em `client/lib/keyboard.ts` — esse guard assume que "drawers cuidam de si", o que só é verdade quando o input é rodapé fixo.
+  - **Excluir comentário (2026-07-16)** — pede confirmação antes, via o `showConfirm` central da tela (o mesmo diálogo do botão de excluir check-in, logo acima no header do drawer). Antes excluía direto no clique, sem volta. O texto reusa as chaves `comments_delete_title` / `comments_delete_desc` dos comentários de post, então a pergunta é idêntica em todo o app. `deletingCommentId` marca a exclusão em voo e desabilita o botão daquele comentário.
+
+> **Confirmação de ações destrutivas nesta tela:** use sempre o `showConfirm(title, description, onConfirm)` (`Community.tsx`), que alimenta um único `AlertDialog` central ("Centralized Confirm Dialog"). Não monte um `AlertDialog` novo por ação — o diálogo já existe e o shadcn dá o mesmo visual, então um segundo só duplicaria estado e JSX.
 
 > **Tabelas necessárias:** `duel_check_in_comments` e `duel_check_in_reactions` — ver migration em `docs/migrations/20260327-community-features.sql`
 
@@ -341,6 +412,9 @@ Dados carregados via `getRankingDb()`
 |---|---|
 | Conversas | `getConversationsDb()` |
 | Mensagens de uma conversa | `getConversationMessagesDb(conversationId)` |
+| Semente de first paint da conversa (leitura síncrona, sem rede) | `peekConversationMessages(otherUserId)` |
+| Atualizar a semente da conversa | `cacheConversationMessages(otherUserId, messages)` |
+| URL de mídia de DM já assinada (leitura síncrona, sem rede) | `peekChatMediaUrl(ref)` |
 | Rotinas concluídas (últimos 7 dias) | `getRecentCompletedRoutinesDb(userId)` |
 | Reações de mensagens | `getMessageReactionsDb(messageIds[])` |
 | Adicionar reação | `addMessageReactionDb(messageId, emoji)` |

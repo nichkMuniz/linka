@@ -17,13 +17,13 @@ Tela de entrada do aplicativo. Permite ao usuário fazer login com email e senha
 Ao abrir `/login`, antes do formulário aparecer, é exibida por ~3.2s uma animação de apresentação em tela cheia (fundo preto, fade-out no final).
 
 - **Estado:** `showSplash` (React.useState, some após `setTimeout` de 3200ms em `Login.tsx`)
-- **Componente ativo (temporário, clima Copa do Mundo 2026):** `LoginSplashCopaReveal` em `client/components/shared/login-splash-copa-reveal.tsx`
+- **Componente ativo:** `LoginSplashOriginal` em `client/components/shared/login-splash-original.tsx`
+  - Assets: `public/linka-reveal-symbol.png`, `public/linka-reveal-wordmark.png`
+- **Componente da campanha da Copa do Mundo 2026 (preservado, fora de uso):** `LoginSplashCopaReveal` em `client/components/shared/login-splash-copa-reveal.tsx`
   - Baseado no design "Linka Copa Reveal" (claude.ai/design, projeto "Linka")
   - Assets: `public/linka-copa-reveal-word.png` (wordmark), `public/linka-copa-reveal-k.png` (K em destaque, verde/amarelo), `public/linka-copa-reveal-ball.png` (bola de futebol)
   - Sequência: aura entra → K em destaque aparece com brilho → bola "chuta" saindo de trás do K, gira e assenta ao lado → wordmark completo emerge → tudo assenta com respiração/brilho contínuo até o fade-out
-- **Componente original (pré-Copa, preservado para reutilização futura):** `LoginSplashOriginal` em `client/components/shared/login-splash-original.tsx`
-  - Assets: `public/linka-reveal-symbol.png`, `public/linka-reveal-wordmark.png`
-  - **Não está em uso no momento** — trocar `LoginSplashCopaReveal` por `LoginSplashOriginal` na importação/render de `Login.tsx` quando a campanha da Copa terminar.
+  - **Não está em uso no momento** — trocar `LoginSplashOriginal` por `LoginSplashCopaReveal` na importação/render de `Login.tsx` para reativar.
 - Ambos respeitam `prefers-reduced-motion` e as safe areas do iOS (padding via `env(safe-area-inset-*)`).
 
 ---

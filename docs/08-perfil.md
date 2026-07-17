@@ -218,6 +218,12 @@ Aberto pelo botão "Configurações". O menu é organizado em seções com separ
 | Gerenciar Perfil Comercial | Botão → Drawer aninhado | Dashboard do negócio com stats e edição |
 | Perfil Comercial | Botão → Drawer aninhado | Formulário de criação *(exibido quando não há perfil comercial)* |
 
+### Seção: Assinatura *(exibida apenas para assinantes — `usePremium().isPremium`)*
+
+| Configuração | Tipo | Descrição |
+|---|---|---|
+| Gerenciar assinatura | Botão → Drawer aninhado | Status, data de início, tipo de cobrança e próxima cobrança/acesso até, lidos de `subscriptions`. Cancelamento é feito pela Apple (`https://apps.apple.com/account/subscriptions`), nunca pelo app. Na Fase 1 (ativação manual, sem cobrança) não há botão de cancelar — só uma nota explicando que não existe cobrança associada. Ver `docs/17-premium.md` |
+
 ### Seção: Preferências
 
 | Configuração | Tipo | Descrição |
@@ -320,8 +326,11 @@ Exibida entre o card de perfil e as tabs, **apenas quando o usuário tem metas**
 - Scroll horizontal de cards compactos (largura fixa 176px cada)
 - Cada card mostra: nome da meta (até 2 linhas) + barra de progresso + percentual
 - **Filtragem:** no perfil de outro usuário, apenas metas com `visibility === 1` são exibidas; no próprio perfil, todas as metas aparecem
+- **Ordenação (`sortedUserGoals`, `React.useMemo`):** metas **pendentes primeiro**, concluídas (`perc >= 100`) empurradas para o fim da strip. O `sort` do JS é estável, então dentro de cada grupo a ordem original de `getUserGoalsByUserIdDb` é preservada
+- **Estado concluído (`perc >= 100`):** o card ganha visual verde para sinalizar a conclusão — fundo `linear-gradient(rgba(34,197,94,.22),rgba(34,197,94,.08))`, borda `rgba(34,197,94,.35)`, barra de progresso `bg-emerald-500` e percentual `text-emerald-400`. O rótulo "Progresso" é substituído por um selo `CheckCircle2` + **"Concluída"** (chave i18n `profile_goal_completed`). Metas pendentes mantêm o card glass branco com barra/percentual `brand`
 - Ícone `Target` (Lucide) com label "Metas" como cabeçalho da seção
 - Seção completamente oculta se `userGoals.length === 0`
+- Tocar num card abre o `GoalDetailDrawer` (`readOnly` no perfil de outro usuário). No **próprio** perfil, metas concluídas exibem lá o botão **"Compartilhar conquista"**, que gera um card em canvas e publica no feed vinculado à meta — ver `docs/05-metas.md` (Compartilhar meta concluída)
 
 ---
 

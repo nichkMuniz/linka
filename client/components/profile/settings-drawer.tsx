@@ -42,6 +42,8 @@ import { Capacitor } from "@capacitor/core";
 import { PushNotifications } from "@capacitor/push-notifications";
 import { LocalNotifications } from "@capacitor/local-notifications";
 import { useLanguage } from "@/lib/language-context";
+import { usePremium } from "@/lib/premium-context";
+import { SubscriptionDrawer } from "@/components/profile/subscription-drawer";
 import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
 import {
   Edit2,
@@ -64,6 +66,7 @@ import {
   Lock,
   ScanFace,
   Repeat,
+  Crown,
 } from "lucide-react";
 import {
   isBiometricSupported,
@@ -107,7 +110,9 @@ export function SettingsDrawer({
 }: SettingsDrawerProps) {
   const navigate = useNavigate();
   const { language, setLanguage, t } = useLanguage();
+  const { isPremium } = usePremium();
   const viewportHeight = useKeyboardAwareHeight();
+  const [isSubscriptionOpen, setIsSubscriptionOpen] = React.useState(false);
 
   const [internalOpen, setInternalOpen] = React.useState(false);
   const isOpen = controlledOpen ?? internalOpen;
@@ -1432,6 +1437,23 @@ export function SettingsDrawer({
                 </div>
               </DrawerContent>
             </Drawer>
+
+            {/* ── Assinatura (só para assinantes; não-assinantes veem a coroa
+                "Seja Premium" no header do AppLayout, que abre o paywall) ── */}
+            {isPremium && (
+              <>
+                <p className="text-xs font-semibold uppercase tracking-wider pt-2 pb-0.5" style={{ color: "rgba(255,255,255,.5)" }}>{t("settings_section_subscription")}</p>
+                <Button onClick={() => setIsSubscriptionOpen(true)} variant="outline" className="gap-2 justify-between">
+                  <span>{t("settings_subscription_manage")}</span>
+                  <Crown className="h-4 w-4" />
+                </Button>
+                <SubscriptionDrawer
+                  open={isSubscriptionOpen}
+                  onOpenChange={setIsSubscriptionOpen}
+                  viewportHeight={viewportHeight}
+                />
+              </>
+            )}
 
             {/* ── Preferências ── */}
             <p className="text-xs font-semibold uppercase tracking-wider pt-2 pb-0.5" style={{ color: "rgba(255,255,255,.5)" }}>{t("settings_section_preferences")}</p>

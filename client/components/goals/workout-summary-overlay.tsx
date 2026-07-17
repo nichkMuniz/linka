@@ -17,6 +17,21 @@ import { renderRouteMapImage } from "@/components/shared/route-map";
 import { addNetworkStatusListener, getNetworkStatus } from "@/lib/network-status";
 import { formatRunTime, formatRunPace, type RunPoint } from "@/lib/run-tracker";
 import type { PostWorkoutSummary } from "@/lib/workout-summary-types";
+import {
+  CANVAS_W,
+  CANVAS_H,
+  FONT,
+  roundRectPath,
+  hexToRgb,
+  fitFontSize,
+  loadLogo,
+  createCardCanvas,
+  canvasSetup,
+  drawCanvasHeader,
+  drawCanvasDivider,
+  drawCanvasFooter,
+  drawCanvasStatPanels,
+} from "@/lib/canvas-card";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -27,6 +42,13 @@ export type WorkoutSummaryData = {
   durationSecs: number;
   badges: string[];
   userId: string;
+  // Meta vinculada à rotina (user_goals.id). Quando presente, o post gerado ao
+  // compartilhar no feed é vinculado a essa meta (posts.user_goal_id) e o feed
+  // exibe a barra de progresso da meta — igual a um post criado pelo NewPost com
+  // meta selecionada. Opcional: rotina sem meta, snapshots antigos e duelo (que
+  // é check-in, não post) não preenchem. NÃO incrementa o progresso da meta — o
+  // check-in do treino já fez isso ao finalizar (evita contar 2x).
+  userGoalId?: string | null;
   completedExercises: Array<{
     name: string;
     totalSets: number;
@@ -73,28 +95,6 @@ function formatVolumeKg(kg: number): string {
     return `${(kg / 1000).toFixed(1).replace(".", ",")} t`;
   }
   return `${kg}kg`;
-}
-
-function roundRectPath(
-  ctx: CanvasRenderingContext2D,
-  x: number, y: number, w: number, h: number, r: number,
-) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.lineTo(x + w - r, y);
-  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-  ctx.lineTo(x + w, y + h - r);
-  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-  ctx.lineTo(x + r, y + h);
-  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-  ctx.lineTo(x, y + r);
-  ctx.quadraticCurveTo(x, y, x + r, y);
-  ctx.closePath();
-}
-
-function hexToRgb(hex: string): [number, number, number] {
-  const m = hex.replace("#", "").match(/.{2}/g)!;
-  return [parseInt(m[0], 16), parseInt(m[1], 16), parseInt(m[2], 16)];
 }
 
 // ─── Auto-generated description ─────────────────────────────────────────────
@@ -174,13 +174,9 @@ function buildPostWorkoutSummary(
 
 // ─── Canvas constants ────────────────────────────────────────────────────────
 
-const CANVAS_W = 540;
-const CANVAS_H = 540;
-// Backing store é desenhado em 3x a resolução lógica (via ctx.scale) para não
-// pixelar quando o feed pede a imagem em 900px (post-carousel POST_PHOTO_WIDTH)
-// ou em telas Retina/@3x. A matemática de layout continua toda em espaço 540x540.
-const CANVAS_SCALE = 3;
-const FONT = `"Inter", -apple-system, system-ui, sans-serif`;
+// CANVAS_W/H/SCALE, FONT e as primitivas de desenho (shell, header, divisores,
+// rodapé, painéis de stat) vivem em @/lib/canvas-card — compartilhados com o
+// card de meta concluída (goal-share-drawer).
 // Mesmo limite usado em NewPost.tsx (MAX_POST_PHOTOS) para manter consistência.
 const MAX_SUMMARY_PHOTOS = 5;
 
@@ -188,20 +184,6 @@ const MAX_SUMMARY_PHOTOS = 5;
 const GLASS_ROOT_BG = "linear-gradient(165deg,#1b1828 0%,#100e18 55%,#0a0910 100%)";
 const GLASS_BAR_BG  = "rgba(14,13,20,0.72)";
 const GLASS_BLUR    = "blur(24px) saturate(180%)";
-
-// Logo oficial (branco) desenhado no header do card gerado. Carregado uma vez e
-// cacheado; mesma origem do app, então não tinge o canvas (toBlob continua ok).
-let logoImgPromise: Promise<HTMLImageElement | null> | null = null;
-function loadLogo(): Promise<HTMLImageElement | null> {
-  if (logoImgPromise) return logoImgPromise;
-  logoImgPromise = new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => resolve(null);
-    img.src = "/linka-copa-5a.png";
-  });
-  return logoImgPromise;
-}
 
 type CanvasVariant = "standard" | "pr" | "machine";
 
@@ -227,106 +209,15 @@ const TEMPLATE_ACCENTS: Record<CanvasTemplate, string | null> = {
 
 // ─── Canvas shared helpers ───────────────────────────────────────────────────
 
-function canvasSetup(
-  canvas: HTMLCanvasElement,
-  bgTop: string, bgBot: string,
-  accent: string, glowStrength: number,
-): CanvasRenderingContext2D | null {
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return null;
-  const W = CANVAS_W, H = CANVAS_H;
-
-  const bg = ctx.createLinearGradient(0, 0, 0, H);
-  bg.addColorStop(0, bgTop);
-  bg.addColorStop(1, bgBot);
-  ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, W, H);
-
-  // Rounded clip
-  roundRectPath(ctx, 0, 0, W, H, 20);
-  ctx.clip();
-
-  const [r, g, b] = hexToRgb(accent);
-  const glow = ctx.createRadialGradient(W / 2, 0, 0, W / 2, 0, H * 0.5);
-  glow.addColorStop(0, `rgba(${r},${g},${b},${glowStrength})`);
-  glow.addColorStop(1, `rgba(${r},${g},${b},0)`);
-  ctx.fillStyle = glow;
-  ctx.fillRect(0, 0, W, H);
-
-  return ctx;
-}
-
-function drawCanvasHeader(
-  ctx: CanvasRenderingContext2D, W: number, accent: string,
-  logo: HTMLImageElement | null,
-) {
-  // Logo oficial branco (ou fallback ao wordmark em texto se não carregar)
-  if (logo && logo.width > 0 && logo.height > 0) {
-    const h = 26;
-    const w = (logo.width / logo.height) * h;
-    ctx.drawImage(logo, 28, 24, w, h);
-  } else {
-    ctx.fillStyle = "#ffffff";
-    ctx.font = `800 18px ${FONT}`;
-    ctx.textAlign = "left";
-    ctx.fillText("LinKa", 28, 44);
-  }
-
-  const today = new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" });
-  ctx.fillStyle = "rgba(255,255,255,0.32)";
-  ctx.font = `500 11px ${FONT}`;
-  ctx.textAlign = "right";
-  ctx.fillText(today, W - 28, 41);
-}
-
-function drawCanvasDivider(ctx: CanvasRenderingContext2D, W: number, y: number) {
-  // Linha que esmaece nas pontas — mais elegante que um traço chapado.
-  const grad = ctx.createLinearGradient(28, 0, W - 28, 0);
-  grad.addColorStop(0, "rgba(255,255,255,0)");
-  grad.addColorStop(0.5, "rgba(255,255,255,0.14)");
-  grad.addColorStop(1, "rgba(255,255,255,0)");
-  ctx.strokeStyle = grad;
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(28, y); ctx.lineTo(W - 28, y);
-  ctx.stroke();
-}
-
 function drawCanvasStats(
   ctx: CanvasRenderingContext2D, W: number, y: number, data: WorkoutSummaryData,
   accent: string,
 ): number {
-  const items: { l: string; v: string }[] = [
+  return drawCanvasStatPanels(ctx, W, y, [
     { l: "DURACAO", v: formatSummaryDuration(data.durationSecs) },
     { l: "SERIES", v: String(data.totalSeries) },
     ...(data.totalVolume > 0 ? [{ l: "VOLUME", v: formatVolumeKg(data.totalVolume) }] : []),
-  ];
-  const cols = items.length;
-  const colW = (W - 40 - (cols - 1) * 8) / cols;
-  const h = 58;
-  const [ar, ag, ab] = hexToRgb(accent);
-  items.forEach(({ l, v }, i) => {
-    const x = 20 + i * (colW + 8), xC = x + colW / 2;
-    // Painel de "vidro" com leve realce superior + borda translúcida
-    const fill = ctx.createLinearGradient(0, y, 0, y + h);
-    fill.addColorStop(0, "rgba(255,255,255,0.09)");
-    fill.addColorStop(1, "rgba(255,255,255,0.04)");
-    roundRectPath(ctx, x, y, colW, h, 14);
-    ctx.fillStyle = fill;
-    ctx.fill();
-    roundRectPath(ctx, x + 0.5, y + 0.5, colW - 1, h - 1, 13.5);
-    ctx.strokeStyle = "rgba(255,255,255,0.10)";
-    ctx.lineWidth = 1;
-    ctx.stroke();
-    ctx.fillStyle = "#ffffff";
-    ctx.font = `800 19px ${FONT}`;
-    ctx.textAlign = "center";
-    ctx.fillText(v, xC, y + 26);
-    ctx.fillStyle = `rgba(${ar},${ag},${ab},0.65)`;
-    ctx.font = `700 9px ${FONT}`;
-    ctx.fillText(l, xC, y + 43);
-  });
-  return y + h;
+  ], accent);
 }
 
 function drawCanvasExercises(
@@ -368,13 +259,6 @@ function drawCanvasExercises(
     y += 18;
   }
   return y;
-}
-
-function drawCanvasFooter(ctx: CanvasRenderingContext2D, W: number, H: number) {
-  ctx.fillStyle = "rgba(255,255,255,0.18)";
-  ctx.font = `500 11px ${FONT}`;
-  ctx.textAlign = "center";
-  ctx.fillText("linka.app", W / 2, H - 18);
 }
 
 // ─── Canvas: Standard (green accent) ────────────────────────────────────────
@@ -627,28 +511,6 @@ function drawMachineMaxCanvas(
 
 function fmtInt(n: number): string {
   return Math.round(n).toLocaleString("pt-BR");
-}
-
-// Reduz o tamanho da fonte até o texto caber em maxW (mantém peso/família,
-// nunca abaixo de 16px). Se ainda assim não couber — base já <=16px, ou o
-// texto é longo demais mesmo no piso (ex.: nome de exercício extenso) — trunca
-// com reticências como fallback, mesmo padrão usado no resto do arquivo.
-// Deixa ctx.font já configurado no tamanho final; retorna o texto a desenhar.
-function fitFontSize(
-  ctx: CanvasRenderingContext2D, text: string, maxW: number,
-  base: number, weight = 900,
-): string {
-  let size = base;
-  ctx.font = `${weight} ${size}px ${FONT}`;
-  while (size > 16 && ctx.measureText(text).width > maxW) {
-    size -= 2;
-    ctx.font = `${weight} ${size}px ${FONT}`;
-  }
-  let out = text;
-  while (ctx.measureText(out).width > maxW && out.length > 3) {
-    out = out.slice(0, -2) + "…";
-  }
-  return out;
 }
 
 // Objetos de comparação do card "Equivalência" — ordenados do mais pesado ao
@@ -1122,14 +984,10 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
   // Draw off-screen canvas — recriado a cada troca de template/comparação para
   // não acumular clip/scale do desenho anterior (a criação é barata e rara).
   React.useEffect(() => {
-    const canvas = document.createElement("canvas");
     // Backing store 3x maior que o layout lógico (540x540) para não pixelar
     // ao ser exibido em telas Retina ou redimensionado pelo CDN do feed.
-    canvas.width = CANVAS_W * CANVAS_SCALE;
-    canvas.height = CANVAS_H * CANVAS_SCALE;
+    const canvas = createCardCanvas();
     canvasRef.current = canvas;
-    const ctx = canvas.getContext("2d");
-    ctx?.scale(CANVAS_SCALE, CANVAS_SCALE);
     let cancelled = false;
     // Aguarda as fontes E o logo antes de desenhar, para o card sair completo.
     Promise.all([document.fonts.ready, loadLogo()]).then(([, logo]) => {
@@ -1295,7 +1153,7 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
       await createPostDb(
         urls,
         description.trim() || t("goals_summary_share_default_desc"),
-        null,
+        data.userGoalId ?? null,
         buildPostWorkoutSummary(data, canvasUrl),
       );
       toast({ title: t("goals_summary_shared_feed"), description: t("goals_summary_shared_feed_desc") });

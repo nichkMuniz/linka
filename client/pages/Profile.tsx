@@ -104,6 +104,7 @@ import {
   Phone,
   ListChecks,
   Target,
+  CheckCircle2,
   ShieldCheck,
   ImagePlus,
   Lock,
@@ -202,6 +203,15 @@ export default function Profile() {
 
   // Goal detail drawer state
   const [selectedGoalForDrawer, setSelectedGoalForDrawer] = React.useState<UserGoal | null>(null);
+
+  // Metas pendentes primeiro; as concluídas (perc >= 100) vão para o fim da strip
+  const sortedUserGoals = React.useMemo(
+    () =>
+      [...userGoals].sort(
+        (a, b) => Number(a.perc >= 100) - Number(b.perc >= 100),
+      ),
+    [userGoals],
+  );
 
   // Edit form state
 
@@ -1158,35 +1168,49 @@ export default function Profile() {
             </span>
           </div>
           <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none -mx-4 px-4">
-            {userGoals.map((goal) => (
-              <button
-                key={goal.id}
-                onClick={() => setSelectedGoalForDrawer(goal)}
-                className="flex-shrink-0 w-44 rounded-xl p-3 space-y-2 text-left active:scale-95 transition-transform"
-                style={{
-                  background: "linear-gradient(rgba(255,255,255,.09),rgba(255,255,255,.03))",
-                  backdropFilter: "blur(16px)",
-                  WebkitBackdropFilter: "blur(16px)",
-                  border: "1px solid rgba(255,255,255,.10)",
-                }}
-              >
-                <p className="text-xs font-medium leading-snug line-clamp-2">
-                  {goal.description}
-                </p>
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-muted-foreground">{t("goals_progress")}</span>
-                    <span className="text-xs font-semibold text-brand">{goal.perc}%</span>
+            {sortedUserGoals.map((goal) => {
+              const isDone = goal.perc >= 100;
+              return (
+                <button
+                  key={goal.id}
+                  onClick={() => setSelectedGoalForDrawer(goal)}
+                  className="flex-shrink-0 w-44 rounded-xl p-3 space-y-2 text-left active:scale-95 transition-transform"
+                  style={{
+                    background: isDone
+                      ? "linear-gradient(rgba(34,197,94,.22),rgba(34,197,94,.08))"
+                      : "linear-gradient(rgba(255,255,255,.09),rgba(255,255,255,.03))",
+                    backdropFilter: "blur(16px)",
+                    WebkitBackdropFilter: "blur(16px)",
+                    border: isDone ? "1px solid rgba(34,197,94,.35)" : "1px solid rgba(255,255,255,.10)",
+                  }}
+                >
+                  <p className="text-xs font-medium leading-snug line-clamp-2">
+                    {goal.description}
+                  </p>
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      {isDone ? (
+                        <span className="flex items-center gap-1 text-xs font-medium text-emerald-400">
+                          <CheckCircle2 className="h-3 w-3" />
+                          {t("profile_goal_completed")}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">{t("goals_progress")}</span>
+                      )}
+                      <span className={`text-xs font-semibold ${isDone ? "text-emerald-400" : "text-brand"}`}>
+                        {goal.perc}%
+                      </span>
+                    </div>
+                    <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all ${isDone ? "bg-emerald-500" : "bg-brand"}`}
+                        style={{ width: `${Math.min(goal.perc, 100)}%` }}
+                      />
+                    </div>
                   </div>
-                  <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
-                    <div
-                      className="h-full rounded-full bg-brand transition-all"
-                      style={{ width: `${Math.min(goal.perc, 100)}%` }}
-                    />
-                  </div>
-                </div>
-              </button>
-            ))}
+                </button>
+              );
+            })}
           </div>
         </div>
       )}

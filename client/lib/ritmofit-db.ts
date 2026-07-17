@@ -397,6 +397,32 @@ function pickLocalized(pt: any, eng: any): string {
   return pt == null ? "" : String(pt);
 }
 
+// Nome no idioma que pickLocalized NÃO escolheu. Só serve para busca: quem usa o
+// app em PT acha "Supino Reto" digitando "bench press" (e vice-versa). Retorna
+// undefined quando não há tradução ou quando ela é igual ao nome exibido.
+function altLocalized(pt: any, eng: any): string | undefined {
+  const shown = pickLocalized(pt, eng).trim().toLowerCase();
+  const other = (getUiLanguage() === "en" ? pt : eng) ?? "";
+  const alt = String(other).trim();
+  if (!alt || alt.toLowerCase() === shown) return undefined;
+  return alt;
+}
+
+function normalizeSearch(s: string): string {
+  return s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+}
+
+/** Busca em item de catálogo pelo nome exibido e pelo nome no outro idioma. */
+export function matchesCatalogSearch(
+  item: { name?: string | null; altName?: string | null },
+  query: string,
+): boolean {
+  const q = normalizeSearch(query);
+  if (!q) return true;
+  if (normalizeSearch(item.name ?? "").includes(q)) return true;
+  return item.altName ? normalizeSearch(item.altName).includes(q) : false;
+}
+
 export type DbProfile = {
   id: string;
   nickname: string;
@@ -1383,10 +1409,19 @@ async function applyGoalProgressOnlineDb(
 
   invalidateQueryCache("userGoals");
 
+  // A descrição NÃO vive em user_goals — vem do catálogo `goals` por join, e o
+  // update acima não a retorna. Quem consome este retorno mostra o nome da meta
+  // (diálogo de meta concluída e legenda do compartilhamento), então relemos a
+  // linha pelo getUserGoalByIdDb, que já trata o join e seu fallback.
+  const withDescription = await getUserGoalByIdDb(userGoalId);
+  if (withDescription?.description) return withDescription;
+
+  // Sem descrição (falha na releitura): ainda devolvemos o progresso, para o
+  // caller não perder o "meta concluída".
   return {
     id: String(data.id),
     goal_id: String(data.goal_id ?? ""),
-    description: "", // Will be fetched separately if needed
+    description: withDescription?.description ?? "",
     duration: Number(data.duration ?? 0),
     quantity: Number(data.quantity ?? 0),
     type_goal: Number(data.type_goal ?? 0),
@@ -1574,6 +1609,44 @@ export async function invalidatePremiumStatus(): Promise<void> {
   if (viewer) invalidateQueryCache(`premium:${viewer.id}`);
 }
 
+export type Subscription = {
+  status: string;            // 'active' | 'inactive' | 'expired' | 'cancelled'
+  product_id: string | null; // 'manual' (Fase 1) | product id do RevenueCat (Fase 2)
+  store: string | null;      // 'manual' | 'app_store'
+  /** NULL = sem expiração (ativação manual da Fase 1). */
+  current_period_end: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/**
+ * Detalhes da assinatura do usuário logado (tela "Gerenciar assinatura").
+ * A policy `subscriptions_select_own` permite ler só a própria linha; quem nunca
+ * teve assinatura não tem linha — daí o null.
+ *
+ * Sem cache de propósito: é lida ao abrir o drawer (raro) e mostrar status/data
+ * de cobrança velhos é pior que um round-trip. `getPremiumStatusDb` cacheia
+ * porque roda em todo gate.
+ */
+export async function getSubscriptionDb(): Promise<Subscription | null> {
+  if (!hasSupabaseConfig || !supabase) return null;
+  const viewer = await getViewer();
+  if (!viewer) return null;
+
+  try {
+    const { data, error } = await supabase
+      .from("subscriptions")
+      .select("status, product_id, store, current_period_end, created_at, updated_at")
+      .eq("user_id", viewer.id)
+      .maybeSingle();
+    if (error) throw error;
+    return (data as Subscription) ?? null;
+  } catch (err) {
+    console.error("Error fetching subscription:", err);
+    throw err;
+  }
+}
+
 export async function updateUserProfileDb(
   userId: string,
   updates: { nickname?: string; bio?: string; photo?: string | null; cover_photo?: string | null; height?: number | null; weight?: number | null; age?: number | null; handle?: string; objectives?: string[] | null; hide_follow_lists?: boolean; hide_posts_from_non_followers?: boolean },
@@ -1739,44 +1812,80 @@ export async function getPostByIdDb(postId: string): Promise<PostWithUser | null
   });
 }
 
-export type HashtagPost = {
+// Um resultado de hashtag pode vir do feed (post) ou dos Shots (vídeo). O `kind`
+// diz qual, já que cada um tem miniatura e destino de navegação próprios.
+export type HashtagItem = {
+  kind: "post" | "shot";
   id: string;
   photo: string;
   photos: string[] | null;
+  video_url: string | null;
   description: string;
   created_at: string;
   user_id: string;
 };
 
-// Busca posts que contenham a hashtag (#tag) na descrição. O filtro do banco é
-// amplo (ILIKE %#tag%) e refinado no cliente por regex com fronteira de palavra,
-// para "#fit" não casar com "#fitness". Ordenado do mais recente para o mais antigo.
-export async function searchPostsByHashtagDb(tag: string): Promise<HashtagPost[]> {
+// Busca posts E shots que contenham a hashtag (#tag) na descrição — as duas
+// superfícies têm legenda com hashtag clicável, então ambas precisam aparecer.
+// O filtro do banco é amplo (ILIKE %#tag%) e refinado no cliente por regex com
+// fronteira de palavra, para "#fit" não casar com "#fitness". As duas fontes são
+// intercaladas por data, do mais recente para o mais antigo.
+export async function searchContentByHashtagDb(tag: string): Promise<HashtagItem[]> {
   if (!hasSupabaseConfig || !supabase) return [];
   const clean = tag.replace(/^#/, "").trim();
   if (!clean) return [];
 
-  const { data, error } = await supabase
-    .from("posts")
-    .select("id, photo, photos, description, created_at, user_id")
-    .ilike("description", `%#${clean}%`)
-    .order("created_at", { ascending: false })
-    .limit(120);
-
-  if (error || !data) return [];
+  const [postsRes, shotsRes] = await Promise.all([
+    supabase
+      .from("posts")
+      .select("id, photo, photos, description, created_at, user_id")
+      .ilike("description", `%#${clean}%`)
+      .order("created_at", { ascending: false })
+      .limit(120),
+    supabase
+      .from("shots")
+      .select("id, video_url, description, created_at, user_id")
+      .ilike("description", `%#${clean}%`)
+      .not("video_url", "is", null)
+      .neq("video_url", "")
+      .order("created_at", { ascending: false })
+      .limit(120),
+  ]);
 
   const escaped = clean.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const re = new RegExp(`#${escaped}(?![\\p{L}\\p{N}_])`, "iu");
-  return data
-    .filter((p: any) => typeof p.description === "string" && re.test(p.description))
+  const matches = (row: any) => typeof row.description === "string" && re.test(row.description);
+
+  // Uma fonte falhar não pode zerar a outra — cada lado degrada sozinho.
+  const posts: HashtagItem[] = (postsRes.error ? [] : (postsRes.data ?? []))
+    .filter(matches)
     .map((p: any) => ({
+      kind: "post" as const,
       id: String(p.id),
       photo: String(p.photo ?? ""),
       photos: Array.isArray(p.photos) ? p.photos : null,
+      video_url: null,
       description: String(p.description ?? ""),
       created_at: String(p.created_at ?? ""),
       user_id: String(p.user_id),
     }));
+
+  const shots: HashtagItem[] = (shotsRes.error ? [] : (shotsRes.data ?? []))
+    .filter(matches)
+    .map((s: any) => ({
+      kind: "shot" as const,
+      id: String(s.id),
+      photo: "",
+      photos: null,
+      video_url: String(s.video_url ?? ""),
+      description: String(s.description ?? ""),
+      created_at: String(s.created_at ?? ""),
+      user_id: String(s.user_id),
+    }));
+
+  return [...posts, ...shots].sort(
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+  );
 }
 
 // ── Marcação de pessoas em posts (post_tags) ────────────────────────────────
@@ -1895,6 +2004,7 @@ export async function getWorkoutsDb(): Promise<Workout[]> {
   const mapRow = (row: any): Workout => ({
     id: String(row.id ?? ""),
     name: pickLocalized(row.name, row.name_eng),
+    altName: altLocalized(row.name, row.name_eng),
     description: pickLocalized(row.description, row.description_eng),
     photo: resolveWorkoutPhotoUrl(row.photo, row.wger_id),
     muscle_group: row.muscle_group ? String(row.muscle_group) : null,
@@ -2193,6 +2303,8 @@ export type RoutineLastSummary = {
 export type Workout = {
   id: string;
   name: string;
+  /** nome no outro idioma (só para busca — ver matchesCatalogSearch) */
+  altName?: string;
   description: string;
   photo: string | null;
   muscle_group?: string | null;
@@ -2776,6 +2888,30 @@ export async function updateRoutineItemScheduledTimeDb(
   return true;
 }
 
+/**
+ * Sets the END time of a single habit (`user_habits.scheduled_end_time`), the
+ * closing edge of its execution window — `scheduled_time` is the start.
+ * Habit-only: workout/diet routines have one shared time, without a window.
+ * `null` clears it (habit with no end time). See migration 20260716-habit-end-time.
+ */
+export async function updateHabitScheduledEndTimeDb(
+  userId: string,
+  itemId: string,
+  endTime: string | null,
+): Promise<boolean> {
+  if (!hasSupabaseConfig || !supabase) return false;
+  const { error } = await supabase
+    .from("user_habits")
+    .update({ scheduled_end_time: endTime })
+    .eq("user_id", userId)
+    .eq("id", itemId);
+  if (error) {
+    console.error("Error updating habit scheduled_end_time:", error);
+    return false;
+  }
+  return true;
+}
+
 export async function deleteRoutineDb(routineId: string, userId: string): Promise<void> {
   if (!hasSupabaseConfig || !supabase) return;
 
@@ -2808,10 +2944,52 @@ export async function deleteRoutineCardDb(
   const { data: idsData } = name ? await idsQuery.eq("name", name) : await idsQuery.is("name", null);
   const rowIds = (idsData ?? []).map((r: any) => String(r.id));
 
-  if (rowIds.length > 0) {
-    const { error: histError } = await supabase.from(histTable).delete().in(histFk, rowIds);
-    if (histError) console.error("Error deleting routine history:", histError);
+  // Ids da(s) linha(s) em `routines` — resolvidos ANTES de apagar qualquer coisa,
+  // porque `user_workouts_hist.routine_id` também vira NULL quando a rotina sai.
+  const routineIdsQuery = supabase
+    .from("routines")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("type", typeCode);
+  const { data: routineRows } = name
+    ? await routineIdsQuery.eq("name", name)
+    : await routineIdsQuery.is("name", null);
+  const routineIds = (routineRows ?? []).map((r: any) => String(r.id));
 
+  // ── Histórico PRIMEIRO ──
+  // As FKs do histórico são ON DELETE SET NULL (não CASCADE): se o item sair
+  // antes, o vínculo vira NULL e o registro fica órfão — impossível de casar
+  // com a rotina depois. Ver docs/migrations/20260716-hist-delete-rls.sql.
+  if (rowIds.length > 0) {
+    // `count` em vez de só `error`: sob RLS, um DELETE sem política permissiva
+    // NÃO falha — volta 200 com 0 linhas. Era exatamente assim que o histórico
+    // sobrevivia em silêncio. Aqui isso vira erro visível.
+    const { error: histError, count } = await supabase
+      .from(histTable)
+      .delete({ count: "exact" })
+      .in(histFk, rowIds);
+    if (histError) throw histError;
+    if (count === 0) {
+      // 0 pode ser legítimo (rotina nunca executada). Só logamos: transformar em
+      // erro impediria de apagar uma rotina sem histórico.
+      console.warn(
+        `[deleteRoutineCardDb] 0 registros de ${histTable} apagados para ${rowIds.length} item(ns). ` +
+          "Se a rotina tinha histórico, a política de DELETE (RLS) não está aplicada — rodar 20260716-hist-delete-rls.sql.",
+      );
+    }
+  }
+
+  // Séries gravadas sem `user_workout_id` (o vínculo do item) só saem por aqui.
+  if (typeCode === 1 && routineIds.length > 0) {
+    const { error: byRoutineError } = await supabase
+      .from("user_workouts_hist")
+      .delete()
+      .eq("user_id", userId)
+      .in("routine_id", routineIds);
+    if (byRoutineError) throw byRoutineError;
+  }
+
+  if (rowIds.length > 0) {
     const { error } = await supabase.from(table).delete().in("id", rowIds);
     if (error) throw error;
   }
@@ -2838,8 +3016,10 @@ export async function deleteRoutineItemDb(
   const histTable = typeCode === 1 ? "user_workouts_hist" : typeCode === 2 ? "user_diets_hist" : "user_habits_hist";
   const histFk = typeCode === 1 ? "user_workout_id" : typeCode === 2 ? "user_diet_id" : "user_habit_id";
 
+  // Histórico primeiro (FK é ON DELETE SET NULL — apagar o item antes deixaria
+  // o registro órfão) e o erro sobe: engolir aqui deixava histórico para trás.
   const { error: histError } = await supabase.from(histTable).delete().eq(histFk, itemId);
-  if (histError) console.error("Error deleting item history:", histError);
+  if (histError) throw histError;
 
   const { error } = await supabase.from(table).delete().eq("id", itemId);
   if (error) throw error;
@@ -2983,13 +3163,23 @@ export async function backfillRoutineIdOnItemsDb(
 
 export async function getRoutinesByGoalIdDb(
   goalId: string,
+  userId?: string,
 ): Promise<Routine[]> {
   if (!hasSupabaseConfig || !supabase) return [];
 
-  const { data, error } = await supabase
+  // `goal_id` aponta para uma meta de catálogo compartilhada entre muitos
+  // usuários — filtrar só por ela devolveria as rotinas de TODO MUNDO que
+  // vinculou uma rotina à mesma meta. O `userId` (dono do post) restringe às
+  // rotinas daquele usuário: no próprio post são "as minhas rotinas"; em post
+  // de outra pessoa, são as rotinas do autor (que podem ser copiadas).
+  let query = supabase
     .from("routines")
     .select("id, user_id, type, goal_id, name")
     .eq("goal_id", goalId);
+
+  if (userId) query = query.eq("user_id", userId);
+
+  const { data, error } = await query;
 
   if (error) {
     const errorMsg = error?.message || String(error);
@@ -3510,7 +3700,10 @@ export type UserHabitWithDetails = {
   habitDescription?: string;
   is_completed?: boolean | null;
   completed_at?: string | null;
+  /** Hora de INÍCIO do hábito. */
   scheduled_time?: string | null;
+  /** Hora de FIM (janela de execução). null = sem hora de fim. */
+  scheduled_end_time?: string | null;
   scheduled_days?: string | null;
   routine_id?: string | null;
 };
@@ -3521,7 +3714,7 @@ export async function getUserHabitsDb(
   if (!hasSupabaseConfig || !supabase) return [];
   const { data, error } = await supabase
     .from("user_habits")
-    .select("id, habit_id, user_id, name, is_completed, completed_at, scheduled_time, scheduled_days, routine_id, habits(name, name_eng, description, description_eng)")
+    .select("id, habit_id, user_id, name, is_completed, completed_at, scheduled_time, scheduled_end_time, scheduled_days, routine_id, habits(name, name_eng, description, description_eng)")
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
@@ -3652,6 +3845,9 @@ export async function getUserHabitsDb(
     is_completed: row.is_completed ?? false,
     completed_at: row.completed_at ?? null,
     scheduled_time: row.scheduled_time ? String(row.scheduled_time) : null,
+    // Ausente nos fallbacks (e antes da migração 20260716) → null, e o app
+    // segue funcionando só com a hora de início.
+    scheduled_end_time: row.scheduled_end_time ? String(row.scheduled_end_time) : null,
     scheduled_days: row.scheduled_days ? String(row.scheduled_days) : null,
     routine_id: row.routine_id != null ? String(row.routine_id) : null,
   }));
@@ -3670,6 +3866,12 @@ export type RoutineScheduleEntry = {
   scheduled_time: string;
   /** comma-separated Monday-first weekday indices (0=Mon…6=Sun); null/"" = daily */
   scheduled_days: string | null;
+  /**
+   * Qual borda da janela este agendamento representa. Um hábito com hora de fim
+   * gera DUAS entradas (início e fim) — assim o agendador continua tratando
+   * cada entrada como "um horário", só mudando o texto da notificação.
+   */
+  phase?: "start" | "end";
 };
 
 export async function getRoutineSchedulesDb(
@@ -3690,7 +3892,7 @@ export async function getRoutineSchedulesDb(
       .not("scheduled_time", "is", null),
     supabase
       .from("user_habits")
-      .select("id, name, scheduled_time, scheduled_days, habits(name, name_eng)")
+      .select("id, name, scheduled_time, scheduled_end_time, scheduled_days, habits(name, name_eng)")
       .eq("user_id", userId)
       .not("scheduled_time", "is", null),
   ]);
@@ -3716,13 +3918,28 @@ export async function getRoutineSchedulesDb(
     });
   });
   (habitsRes.data ?? []).forEach((row: any) => {
+    const name = row.name || pickLocalized((row.habits as any)?.name, (row.habits as any)?.name_eng) || "Hábito";
+    const days = row.scheduled_days ? String(row.scheduled_days) : null;
     results.push({
       id: String(row.id),
       type: "habit",
-      name: row.name || pickLocalized((row.habits as any)?.name, (row.habits as any)?.name_eng) || "Hábito",
+      name,
       scheduled_time: String(row.scheduled_time),
-      scheduled_days: row.scheduled_days ? String(row.scheduled_days) : null,
+      scheduled_days: days,
+      phase: "start",
     });
+    // Hora de fim → um segundo lembrete ("hora de encerrar"). Sem fim
+    // (o normal em hábitos pontuais), nada muda.
+    if (row.scheduled_end_time) {
+      results.push({
+        id: `${row.id}:end`,
+        type: "habit",
+        name,
+        scheduled_time: String(row.scheduled_end_time),
+        scheduled_days: days,
+        phase: "end",
+      });
+    }
   });
 
   return results;
@@ -5099,6 +5316,25 @@ const signedUrlCache = new Map<string, { url: string; expiresAt: number }>();
  * - `chat:<path>`  → signed URL do bucket privado (renovada quando expira).
  * - `https://...`  → mensagem antiga, no bucket público. Devolvida como está.
  */
+/**
+ * Leitura SÍNCRONA do cache de signed URLs. Devolve `null` quando ainda não há
+ * URL válida em memória (aí só resta o caminho assíncrono).
+ *
+ * Existe para o first paint das bolhas de mídia: sem isto, reabrir a conversa
+ * remontava as bolhas com `url = null`, mostrava placeholder e só então trocava
+ * pela imagem — mesmo com a URL já assinada em memória. Além do piscar, a troca
+ * placeholder→imagem muda a altura da bolha e empurra a rolagem.
+ */
+export function peekChatMediaUrl(ref: string): string | null {
+  const value = ref.trim();
+  if (!value) return null;
+  if (!value.startsWith(CHAT_MEDIA_PREFIX)) return value;
+
+  const cachedEntry = signedUrlCache.get(value.slice(CHAT_MEDIA_PREFIX.length));
+  if (cachedEntry && cachedEntry.expiresAt > Date.now() + 60_000) return cachedEntry.url;
+  return null;
+}
+
 export async function getChatMediaUrlDb(ref: string): Promise<string | null> {
   const value = ref.trim();
   if (!value) return null;
@@ -5340,6 +5576,51 @@ export async function getConversationsDb(): Promise<Conversation[]> {
   });
 }
 
+/**
+ * Semente de first paint da conversa (últimas mensagens já vistas neste
+ * aparelho). Guardada no mesmo prefixo `lk:q:` do cache de queries, então o
+ * sign-out / troca de usuário já a purga junto com o resto.
+ *
+ * Não é um cache no sentido de "evita a rede": `getConversationMessagesDb`
+ * SEMPRE vai buscar a versão fresca. A semente só existe para a conversa abrir
+ * já pintada, em vez de abrir vazia e esperar a query.
+ */
+const CHAT_SEED_MAX = 60; // últimas N mensagens — o bastante para encher a tela
+
+function chatSeedKey(viewerId: string, otherUserId: string): string {
+  return `chatMessages:${viewerId}:${otherUserId}`;
+}
+
+/** Leitura SÍNCRONA da semente. `null` = nunca abrimos essa conversa aqui. */
+export function peekConversationMessages(otherUserId: string): MessageWithUser[] | null {
+  const viewerId = getOfflineOwnerId();
+  if (!viewerId) return null;
+  return persistRead<MessageWithUser[]>(chatSeedKey(viewerId, otherUserId))?.data ?? null;
+}
+
+/** Atualiza a semente (chamada também pela tela, ao enviar/receber em tempo real). */
+export function cacheConversationMessages(otherUserId: string, messages: MessageWithUser[]) {
+  const viewerId = getOfflineOwnerId();
+  if (!viewerId) return;
+  persistWrite(chatSeedKey(viewerId, otherUserId), messages.slice(-CHAT_SEED_MAX));
+}
+
+/**
+ * Apaga a semente de uma conversa. Chamada ao excluir o histórico: sem isto, a
+ * semente persistida no localStorage repintava as mensagens "apagadas" na
+ * próxima vez que a conversa fosse aberta — como o histórico é soft-deletado, a
+ * rede volta vazia, mas a semente entrava antes e a antiga conversa reaparecia.
+ * `viewerId` é passado explicitamente por quem tem o viewer em mãos (a leitura
+ * de `getOfflineOwnerId` é um fallback para chamadas sem esse contexto).
+ */
+export function clearConversationSeed(otherUserId: string, viewerId?: string) {
+  const id = viewerId ?? getOfflineOwnerId();
+  if (!id) return;
+  const key = chatSeedKey(id, otherUserId);
+  _queryCache.delete(key);
+  persistDelete(key);
+}
+
 export async function getConversationMessagesDb(
   otherUserId: string,
 ): Promise<MessageWithUser[]> {
@@ -5349,15 +5630,23 @@ export async function getConversationMessagesDb(
   if (!viewer) return [];
 
   try {
-    // Get messages between current user and other user, excluding soft-deleted ones
-    const { data: messages, error } = await supabase
-      .from("messages")
-      .select("id, user_id, following_id, text, read, created_at, emoji, message_deletions!left(user_id)")
-      .or(
-        `and(user_id.eq.${viewer.id},following_id.eq.${otherUserId}),and(user_id.eq.${otherUserId},following_id.eq.${viewer.id})`,
-      )
-      .order("created_at", { ascending: false })
-      .limit(200);
+    // Os perfis não dependem das mensagens — buscar em paralelo, e não depois,
+    // corta uma ida à rede do tempo de abertura da conversa.
+    const [result, senderProfile, recipientProfile] = await Promise.all([
+      // Get messages between current user and other user, excluding soft-deleted ones
+      supabase
+        .from("messages")
+        .select("id, user_id, following_id, text, read, created_at, emoji, message_deletions!left(user_id)")
+        .or(
+          `and(user_id.eq.${viewer.id},following_id.eq.${otherUserId}),and(user_id.eq.${otherUserId},following_id.eq.${viewer.id})`,
+        )
+        .order("created_at", { ascending: false })
+        .limit(200),
+      getUserProfileDb(viewer.id),
+      getUserProfileDb(otherUserId),
+    ]);
+
+    const { data: messages, error } = result;
 
     if (error) {
       console.error("Error fetching messages:", error);
@@ -5370,14 +5659,8 @@ export async function getConversationMessagesDb(
       return !deletions.some((d) => d.user_id === viewer.id);
     });
 
-    // Enrich with user info
-    const [senderProfile, recipientProfile] = await Promise.all([
-      getUserProfileDb(viewer.id),
-      getUserProfileDb(otherUserId),
-    ]);
-
     // Reverse to chronological order (we fetched DESC for limit to get the latest 200)
-    return visible.reverse().map((msg: any) => ({
+    const enriched: MessageWithUser[] = visible.reverse().map((msg: any) => ({
       ...msg,
       senderNickname:
         msg.user_id === viewer.id
@@ -5396,6 +5679,9 @@ export async function getConversationMessagesDb(
           ? senderProfile?.photo || null
           : recipientProfile?.photo || null,
     }));
+
+    cacheConversationMessages(otherUserId, enriched);
+    return enriched;
   } catch (err: any) {
     console.error("Error getting conversation messages:", err);
     return [];
@@ -8881,11 +9167,20 @@ export async function getEnrichedDuelGroupsDb(
 }
 
 // Upload group cover photo and persist URL to DB
-export async function updateGroupInfoDb(groupId: string, name: string, goal: string): Promise<void> {
+export async function updateGroupInfoDb(
+  groupId: string,
+  name: string,
+  goal: string,
+  /** Regra do modo memes. `undefined` não toca na coluna (grupo de outra
+   *  modalidade); string vazia limpa. */
+  memeRule?: string | null,
+): Promise<void> {
   if (!supabase) throw new Error("Supabase not configured");
+  const patch: { name: string; goal: string; meme_rule?: string | null } = { name, goal };
+  if (memeRule !== undefined) patch.meme_rule = memeRule || null;
   const { error } = await supabase
     .from("duel_groups")
-    .update({ name, goal })
+    .update(patch)
     .eq("id", groupId);
   if (error) throw error;
 
@@ -8895,10 +9190,12 @@ export async function updateGroupInfoDb(groupId: string, name: string, goal: str
 export async function updateGroupPhotoDb(groupId: string, file: File): Promise<string> {
   if (!supabase) throw new Error("Supabase not configured");
   const ext = file.name.split(".").pop() ?? "jpg";
-  const path = `group-covers/${groupId}/cover.${ext}`;
+  // Caminho único por upload: reusar `cover.{ext}` fazia o CDN e o WebView
+  // continuarem servindo a capa antiga na mesma URL por até 1h.
+  const path = `group-covers/${groupId}/${Date.now()}.${ext}`;
   const { error: uploadError } = await supabase.storage
     .from("posts")
-    .upload(path, file, { upsert: true, contentType: file.type });
+    .upload(path, file, { upsert: false, contentType: file.type });
   if (uploadError) throw uploadError;
   const { data: urlData } = supabase.storage.from("posts").getPublicUrl(path);
   const photoUrl = urlData.publicUrl;
@@ -8907,6 +9204,8 @@ export async function updateGroupPhotoDb(groupId: string, file: File): Promise<s
     .update({ photo: photoUrl })
     .eq("id", groupId);
   if (updateError) throw updateError;
+
+  invalidateQueryCache("enrichedDuelGroups"); invalidateQueryCache("followingGroups"); invalidateQueryCache("userDuelGroups");
   return photoUrl;
 }
 
@@ -9069,12 +9368,17 @@ export async function getGroupCheckInsDb(groupId: string): Promise<GroupCheckIn[
   return cached(`groupCheckIns:${groupId}`, CACHE_TTL_SHORT, async () => {  if (!supabase) return [];
 
   try {
+    // Sem `.limit()`: o placar, o líder e o calendário de check-ins do membro
+    // são calculados no cliente a partir desta lista, então um teto aqui não
+    // "cortava a lista", ele dava pontuação errada. Quem consome pagina a
+    // *renderização* (ver `visibleCheckInCount` em Community.tsx), que é onde o
+    // custo de verdade estava. O PostgREST ainda aplica o teto global de 1000
+    // linhas, folgado para um grupo de duelo.
     const { data, error } = await supabase
       .from("duel_check_ins")
       .select("id, group_id, user_id, user_name, photo, description, workout_info, muscle_group, muscle_groups, series, volume, duration_minutes, distance_km, steps, calories, created_at")
       .eq("group_id", groupId)
-      .order("created_at", { ascending: false })
-      .limit(50);
+      .order("created_at", { ascending: false });
 
     if (error) console.error("Error getting check-ins:", error);
     if (error || !data) return [];
@@ -9844,6 +10148,8 @@ export async function deleteConversationForMeDb(otherUserId: string): Promise<vo
 
   if (error) throw error;
 
+  // Sem isto, a semente de first paint repinta o histórico "apagado" ao reabrir.
+  clearConversationSeed(otherUserId, viewer.id);
   invalidateQueryCache("conversations"); invalidateQueryCache("unreadMsgCount");
 }
 

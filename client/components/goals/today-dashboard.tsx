@@ -5,7 +5,12 @@ import { useLanguage } from "@/lib/language-context";
 import { formatScheduledTime } from "@/hooks/use-routine-notifications";
 import { isCompletedToday, type RoutineCard } from "@/components/goals/goals-helpers";
 import { buildRoutineWeekdayMap } from "@/components/goals/suggested-routines-data";
-import type { UserGoal } from "@/lib/ritmofit-db";
+import {
+  useWaterLog,
+  WATER_ACCENT,
+  WATER_STEPS_ML,
+} from "@/components/goals/use-water-log";
+import { awardNutritionBadgesDb, type Badge, type UserGoal } from "@/lib/ritmofit-db";
 
 interface TodayDashboardProps {
   cards: RoutineCard[];
@@ -16,7 +21,17 @@ interface TodayDashboardProps {
   activeWorkoutName: string | null;
   onStartWorkout: (card: RoutineCard) => void;
   onOpenCard: (card: RoutineCard) => void;
+  /** Muda quando a água é alterada fora daqui (diário alimentar) → recarrega o slide. */
+  waterRefreshToken?: number;
+  /** Registrou água aqui → o pai recarrega o diário e celebra insígnias. */
+  onWaterLogged?: () => void;
+  onBadgesUnlocked?: (badges: Badge[]) => void;
 }
+
+/** Slide do carrossel: uma rotina de hoje ou o atalho de água. */
+type TodaySlide =
+  | { kind: "routine"; key: string; card: RoutineCard }
+  | { kind: "water"; key: "__water__" };
 
 /** Cada slide do carrossel troca a cada X segundos */
 const AUTO_ADVANCE_MS = 5000;
@@ -51,6 +66,9 @@ export function TodayDashboard({
   activeWorkoutName,
   onStartWorkout,
   onOpenCard,
+  waterRefreshToken,
+  onWaterLogged,
+  onBadgesUnlocked,
 }: TodayDashboardProps) {
   const { t } = useLanguage();
 
@@ -106,6 +124,35 @@ export function TodayDashboard({
     [workoutCards, dietCards, habitCards, isScheduledToday],
   );
 
+  // ── Água ──
+  // Atalho do diário alimentar: registrar sem abrir Dieta → diário → drawer.
+  // Mesma água do diário (useWaterLog), só com o layout do banner.
+  const handleWaterChanged = React.useCallback(() => {
+    onWaterLogged?.();
+    if (!onBadgesUnlocked) return;
+    awardNutritionBadgesDb()
+      .then((awarded) => {
+        if (awarded.length > 0) onBadgesUnlocked(awarded);
+      })
+      .catch(() => { /* insígnia é bônus: nunca derruba o registro */ });
+  }, [onWaterLogged, onBadgesUnlocked]);
+
+  const { water, target: waterTarget, changeWater } = useWaterLog({
+    date: today,
+    refreshToken: waterRefreshToken,
+    onChanged: handleWaterChanged,
+    celebrateOnGoalReached: true, // o Hub sempre registra hoje
+  });
+
+  // Água entra como último slide, depois das rotinas do dia.
+  const slides = React.useMemo<TodaySlide[]>(
+    () => [
+      ...tasks.map((card) => ({ kind: "routine" as const, key: card.key, card })),
+      { kind: "water" as const, key: "__water__" as const },
+    ],
+    [tasks],
+  );
+
   // Dia de descanso: usuário segue um calendário de treino mas hoje não há treino.
   const workoutFollowsSchedule = workoutCards.some(
     (c) =>
@@ -118,7 +165,7 @@ export function TodayDashboard({
     workoutFollowsSchedule;
 
   // ── Carrossel ──
-  const total = tasks.length;
+  const total = slides.length;
   const [active, setActive] = React.useState(0);
   // Pausa o auto-avanço enquanto o usuário está deslizando o dedo.
   const [paused, setPaused] = React.useState(false);
@@ -128,7 +175,7 @@ export function TodayDashboard({
     return () => clearTimeout(id);
   }, [active, total, paused]);
   const idx = total > 0 ? active % total : 0;
-  const activeCard = tasks[idx] ?? null;
+  const activeSlide = slides[idx] ?? null;
 
   const goNext = React.useCallback(() => {
     if (total <= 1) return;
@@ -164,8 +211,9 @@ export function TodayDashboard({
   const yesterdayCard =
     workoutCards.find((c) => cardLastDate(c, routineLastDates) === yesterday) ?? null;
 
-  // Sem nenhuma rotina cadastrada → some a seção inteira.
-  if (cards.length === 0) return null;
+  // Antes a seção sumia sem nenhuma rotina cadastrada. Agora ela sobrevive pelo
+  // slide de água: beber água não depende de ter rotina (vale inclusive no dia
+  // de descanso), e é o atalho mais rápido para registrar.
 
   // ── Render helpers ──
 
@@ -344,11 +392,92 @@ export function TodayDashboard({
   const renderTask = (card: RoutineCard) =>
     isCardDoneToday(card) ? renderCompletedCard(card) : renderBanner(card);
 
-  const hasPending = tasks.some((c) => !isCardDoneToday(c));
+  // Slide de água — mesma moldura do banner (28px / 220px), sem foto: o
+  // conteúdo é o registro em si, não um atalho para outra tela.
+  const waterDone = waterTarget > 0 && water >= waterTarget;
+  const waterPerc = waterTarget > 0 ? Math.min(100, (water / waterTarget) * 100) : 0;
+
+  const renderWaterSlide = () => (
+    <div
+      className="relative overflow-hidden flex flex-col justify-between p-5"
+      style={{
+        borderRadius: "28px",
+        height: "220px",
+        boxShadow: "0 22px 46px -18px rgba(0,0,0,.6)",
+        background: waterDone
+          ? "linear-gradient(150deg,rgba(16,185,129,.22),rgba(6,32,24,.96))"
+          : "linear-gradient(150deg,rgba(74,168,255,.22),rgba(9,20,36,.96))",
+        border: `1px solid ${waterDone ? "rgba(16,185,129,.32)" : "rgba(74,168,255,.28)"}`,
+      }}
+    >
+      <div>
+        <p
+          className="text-[11px] font-bold uppercase tracking-[.06em]"
+          style={{ color: waterDone ? "rgba(52,211,153,.9)" : "rgba(255,255,255,.5)" }}
+        >
+          {waterDone ? t("goals_dash_water_done") : t("goals_dash_water_label")}
+        </p>
+        <div className="mt-1.5 flex items-baseline gap-1.5">
+          <span style={{ fontSize: "20px" }}>💧</span>
+          <span
+            className="text-white tabular-nums"
+            style={{ fontSize: "30px", fontWeight: 800, lineHeight: 1 }}
+          >
+            {water}
+          </span>
+          <span className="text-white/50" style={{ fontSize: "13px" }}>
+            {t("nutrition_water_of_goal").replace("{n}", String(waterTarget))}
+          </span>
+        </div>
+      </div>
+
+      <div className="h-2 w-full rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,.12)" }}>
+        <div
+          className="h-full rounded-full transition-all"
+          style={{
+            width: `${waterPerc}%`,
+            background: waterDone
+              ? "linear-gradient(90deg,#059669,#34d399)"
+              : `linear-gradient(90deg,#2f7fd6,${WATER_ACCENT})`,
+          }}
+        />
+      </div>
+
+      <div className="flex gap-2">
+        {WATER_STEPS_ML.map((ml) => (
+          <button
+            key={ml}
+            onClick={() => changeWater(ml)}
+            className="flex-1 rounded-xl py-2.5 font-semibold active:scale-[0.98] transition-all"
+            style={{
+              fontSize: "13px",
+              color: "#fff",
+              background: "rgba(74,168,255,.18)",
+              border: "1px solid rgba(74,168,255,.36)",
+            }}
+          >
+            + {ml} {t("nutrition_water_unit")}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
+  const renderSlide = (slide: TodaySlide) =>
+    slide.kind === "water" ? renderWaterSlide() : renderTask(slide.card);
+
+  const slideLabel = (slide: TodaySlide) =>
+    slide.kind === "water"
+      ? t("goals_dash_water_label")
+      : (slide.card.name ?? typeTopLabel(slide.card));
+
+  // Água pendente também conta como "em foco" — senão o rótulo sumiria num dia
+  // sem rotinas, com o slide de água sozinho na tela.
+  const hasPending = tasks.some((c) => !isCardDoneToday(c)) || !waterDone;
 
   return (
     <section className="space-y-3">
-      {tasks.length > 0 && hasPending && (
+      {slides.length > 0 && hasPending && (
         <p
           className="px-1 text-[11px] font-bold uppercase tracking-[.06em]"
           style={{ color: "rgba(255,255,255,.45)" }}
@@ -358,27 +487,27 @@ export function TodayDashboard({
       )}
 
       {/* Tarefa de hoje — única ou carrossel auto-rotativo */}
-      {activeCard && (
+      {activeSlide && (
         <div className="space-y-2.5">
           {/* overflow-hidden clipa a animação slide-in que empurra 8px à direita */}
           <div className="overflow-hidden">
             <div
-              key={activeCard.key}
+              key={activeSlide.key}
               className="animate-in fade-in-50 slide-in-from-right-2 duration-500"
               style={{ touchAction: "pan-y" }}
               onTouchStart={total > 1 ? onTouchStart : undefined}
               onTouchEnd={total > 1 ? onTouchEnd : undefined}
             >
-              {renderTask(activeCard)}
+              {renderSlide(activeSlide)}
             </div>
           </div>
           {total > 1 && (
             <div className="flex items-center justify-center gap-1.5">
-              {tasks.map((c, i) => (
+              {slides.map((s, i) => (
                 <button
-                  key={c.key}
+                  key={s.key}
                   onClick={() => setActive(i)}
-                  aria-label={c.name ?? typeTopLabel(c)}
+                  aria-label={slideLabel(s)}
                   className="rounded-full transition-all"
                   style={{
                     height: "6px",

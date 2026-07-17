@@ -1,4 +1,5 @@
 import * as React from "react";
+import { ChevronRight } from "lucide-react";
 import {
   Drawer,
   DrawerContent,
@@ -15,6 +16,8 @@ interface ClassificationsDrawerProps {
   scoringType?: DuelScoringType;
   checkInVotes?: DuelCheckInVote[];
   memeRule?: string | null;
+  /** Tocar num participante abre o calendário de check-ins dele. */
+  onSelectMember?: (member: { userId: string; userName: string; userPhoto: string | null }) => void;
 }
 
 const SCORING_META: Record<DuelScoringType, { label: string; unit: string; format: (v: number) => string }> = {
@@ -39,12 +42,12 @@ function computeScore(
   checkIns: GroupCheckIn[],
   scoringType: DuelScoringType,
   votes: DuelCheckInVote[]
-): Record<string, { userName: string; score: number }> {
-  const acc: Record<string, { userName: string; score: number; dates?: Set<string> }> = {};
+): Record<string, { userName: string; userPhoto: string | null; score: number }> {
+  const acc: Record<string, { userName: string; userPhoto: string | null; score: number; dates?: Set<string> }> = {};
 
   for (const c of checkIns) {
     if (!acc[c.userId]) {
-      acc[c.userId] = { userName: c.userName, score: 0, dates: new Set() };
+      acc[c.userId] = { userName: c.userName, userPhoto: c.userPhoto, score: 0, dates: new Set() };
     }
     const entry = acc[c.userId];
 
@@ -90,6 +93,7 @@ export function ClassificationsDrawer({
   scoringType = "check_in_count",
   checkInVotes = [],
   memeRule,
+  onSelectMember,
 }: ClassificationsDrawerProps) {
   const meta = SCORING_META[scoringType];
 
@@ -116,7 +120,7 @@ export function ClassificationsDrawer({
       <DrawerContent
         handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
         overlayClassName="bg-transparent"
-        className="max-h-[80dvh] flex flex-col z-[100] !rounded-t-[32px] !border-0"
+        className="max-h-[80dvh] flex flex-col !rounded-t-[32px] !border-0"
         style={{
           background: "linear-gradient(rgba(30,28,40,.88),rgba(14,13,20,.96))",
           backdropFilter: "blur(40px) saturate(180%)",
@@ -147,7 +151,17 @@ export function ClassificationsDrawer({
                     {index === 0 ? "🥇" : index === 1 ? "🥈" : index === 2 ? "🥉" : `#${index + 1}`}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold truncate" style={{ color: "#fff" }}>{data.userName}</p>
+                    {onSelectMember ? (
+                      <button
+                        onClick={() => onSelectMember({ userId, userName: data.userName, userPhoto: data.userPhoto })}
+                        className="flex items-center gap-1 max-w-full py-0.5 text-left active:opacity-60 transition-opacity"
+                      >
+                        <span className="text-sm font-semibold truncate" style={{ color: "#fff" }}>{data.userName}</span>
+                        <ChevronRight className="h-3.5 w-3.5 shrink-0" style={{ color: "rgba(255,255,255,.4)" }} />
+                      </button>
+                    ) : (
+                      <p className="text-sm font-semibold truncate" style={{ color: "#fff" }}>{data.userName}</p>
+                    )}
                     <div className="flex items-center gap-2">
                       <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>{meta.format(data.score)}</p>
                       {scoringType === "memes" && (disqualifiedPerUser[userId] || 0) > 0 && (

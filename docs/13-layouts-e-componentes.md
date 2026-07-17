@@ -8,7 +8,7 @@
 client/components/
 ├── ui/             ← Shadcn UI (não mexer)
 ├── layout/         ← Componentes estruturais globais (AppLayout, ShotsLayout, ThemeProvider, FloatingActionMenu)
-├── shared/         ← Componentes reutilizáveis em 2+ domínios (ImageWithFallback, AnimatedLoading, PostIncentiveButton, ExerciseImage, DietImage, EmojiPicker, InlineCropPreview, RouteMap)
+├── shared/         ← Componentes reutilizáveis em 2+ domínios (ImageWithFallback, AnimatedLoading, PostIncentiveButton, ExerciseImage, DietImage, EmojiPicker, InlineCropPreview, RouteMap, CheckInCalendarGrid)
 ├── modals/         ← Modais e Dialogs globais (PostCommentsDialog, PostLikesModal, FlowViewerModal, FlowCreationDialog)
 ├── post/           ← Componentes de post (PostCarousel)
 ├── shots/          ← Componentes de shots/flows (FlowCarousel)
@@ -219,6 +219,17 @@ Seletor de emojis nativo (sem dependência externa):
 
 ---
 
+### CheckInCalendarGrid
+**Arquivo:** `client/components/shared/check-in-calendar-grid.tsx`
+**Usado em:** Metas (`CheckInCalendarModal`), Comunidade (`MemberCheckInsDrawer`)
+
+Grade mensal de check-ins — navegação de mês, cabeçalho de dias da semana e os dias marcados (gradiente laranja; hoje contornado). Só apresentação: quem usa define a moldura (modal em Metas, drawer na Comunidade) e o rodapé.
+- Props: `checkInDates` (dias `YYYY-MM-DD` **locais**), `monthsBack` (default 2), `footer(checkInsNoMêsVisível)`
+- Exporta `localDateStr(date)` — dia local; nunca usar `toISOString().slice(0,10)`, que devolve o dia em UTC e erra a data a oeste de Greenwich
+- O mês visível é estado interno, então **desmontar ao fechar** já reabre em hoje. O `footer` é render prop justamente para o consumidor mostrar a contagem do mês visível sem duplicar esse estado.
+
+---
+
 ### ImageWithFallback
 **Arquivo:** `client/components/shared/image-with-fallback.tsx`
 **Usado em:** Feed, PostDetail, Perfil
@@ -232,7 +243,16 @@ Wrapper de imagem com tratamento de erro:
 
 ### InlineCropPreview
 **Arquivo:** `client/components/shared/inline-crop-preview.tsx`
-**Usado em:** NewPost (Etapa 1, foto de post), WorkoutSummaryOverlay (foto do resumo de treino)
+**Usado em:** NewPost (Etapa 1, foto de post), WorkoutSummaryOverlay (foto do resumo de treino), Comunidade (capa do duelo — wizard Passo 1 e hero do grupo)
+
+> **Frames não-quadrados (2026-07-16):** o módulo assumia frame **quadrado** — `clampedOffset` e `applyTransformToBlob` usavam a largura nos dois eixos. Funcionava por acidente: os dois consumidores originais são 1:1 (NewPost `aspectRatio: 1/1`, WorkoutSummary `540/540`). A capa do duelo é um retângulo largo, então o módulo foi generalizado:
+> - `coverBase(imgW, imgH, frameW, frameH)` centraliza o cálculo de "cover" comparando o aspecto da imagem com o **do frame** (antes, com 1). Em frame quadrado o resultado é idêntico ao anterior — verificado para foto 4:3, retrato, 16:9 e 1:1.
+> - `InlineCropPreview` **mede as duas dimensões** (`clientWidth`/`clientHeight`) em vez de assumir quadrado. Frames 1:1 não mudam de comportamento, pois lá altura == largura.
+> - `clampedOffset(img, containerW, **containerH**, scale, ox, oy)` — parâmetro novo. Era interno; nenhum consumidor importava.
+> - `applyTransformToBlob(dataUrl, transform, frameW, frameH?)` — `frameH` **omitido = quadrado**, mantendo as chamadas existentes intactas.
+> - Prop nova `containerHeightRef`: obrigatória em frame não-quadrado, para repassar a altura ao `applyTransformToBlob`. Sem ela, o recorte exportado não bate com o preview.
+>
+> **Bug corrigido junto:** o teto de export (`MAX_EXPORT = 2160`) clampava largura e altura **independentemente** (`Math.min` em cada), o que **achata** a imagem quando só um lado passa do limite. Invisível em 1:1 (os dois lados são iguais e clampam junto). Agora é um fator único aplicado aos dois eixos.
 
 Zoom/pan direto no frame quadrado da foto (pinch-to-zoom + arraste), **sem** passar por uma tela de crop separada (2026-07-02, extraído do `NewPost.tsx` para reuso). Exporta:
 - `InlineCropPreview` — componente (canvas) que desenha a foto com o `CropTransform` atual e captura gestos de pointer/touch (drag = pan, pinch = zoom, `MIN_SCALE`–`MAX_SCALE` = 1–5)
@@ -474,6 +494,15 @@ Todos os drawers (bottom sheets) do app são renderizados por `DrawerContent`. D
 - **`useKeyboardAwareHeight`** agora retorna `window.innerHeight - getKeyboardHeight()` (do tracker) — continua sendo "a área visível acima do teclado", atualizada em sincronia com a animação. Consumidores não mudam: `maxHeight: min(XXdvh, ${viewportHeight - 8}px)` + `flex-1 min-h-0` na área scrollável.
 - O `repositionInputs` do vaul continua **explicitamente desligado** (`repositionInputs={false}`) — depende de eventos de `visualViewport` instáveis no WKWebView. **Não reativar.** Também continua valendo: nenhum componente deve rodar handler próprio de `visualViewport` para mover drawers.
 
+#### `handleOnly` — fechar só pela alça (2026-07-16)
+
+Prop opt-in (`handleOnly`) no `<Drawer>` **e** no `<DrawerContent>`. Quando ligada, arrastar para baixo só fecha o drawer a partir da **alça** (a pílula do topo); um swipe no **corpo** (rolar a lista, tocar numa opção, digitar) **nunca** dispara o dismiss. Resolve o miss-click de fechar sem querer durante a interação — relatado nos drawers de criar rotina de dieta/hábito.
+
+- **Mecanismo (vaul):** com `handleOnly`, o `onPointerDown`/`onPointerMove` do corpo do sheet retorna cedo (`if (handleOnly) return`), então o corpo não inicia arraste; só o `<Drawer.Handle>` inicia (via `onPress`). Por isso o `DrawerContent`, no modo `handleOnly`, renderiza a alça como **`DrawerPrimitive.Handle`** (que o vaul reconhece) em vez do `<div>` decorativo. As demais formas de fechar continuam: **tocar no overlay**, botões **Cancelar/fechar**, e o **voltar** do Android/gesto.
+- **Aparência:** o vaul injeta estilos default de `[data-vaul-handle]` em runtime, que venceriam utilitárias de igual especificidade; a pílula é forçada com `!` (`!h-1 !w-[38px] !rounded-full !bg-white/25 !opacity-100`), e o `handleClassName` segue mandando na margem. `preventCycle`: sem snap points, o clique na alça não faz nada.
+- **É opt-in de propósito** (default `false`): não muda os ~40 drawers do app. Ligado nos de digitação/seleção da tela de Metas: `create-wizard-drawer`, `food-diary-card`, `goal-detail-drawer`, `routine-detail-drawer`, `goal-share-drawer`. Para ligar em outro drawer, passar `handleOnly` nos **dois** (`<Drawer>` e `<DrawerContent>`).
+- **Bônus:** como o corpo deixa de capturar o gesto para arraste, o **scroll interno** fica mais confiável.
+
 #### Empilhamento (z-index) — regra do overlay dentro do lift wrapper (2026-07-13)
 
 O lift wrapper tem `transform`, e todo elemento com `transform` cria um **stacking context**. Por isso o `z-index` que um sheet declara (`className="z-[500]"`, `z-[330]`, …) só vale **dentro** do wrapper — para o resto da página o sheet continua valendo `z-[310]` (o z do wrapper). Enquanto o overlay ficou **fora** do wrapper, qualquer overlay com z > 310 (ex.: `!z-[490]` do `ImageCropperDrawer`, `z-[320]` dos drawers empilhados de Comunidade) era pintado **por cima do próprio sheet** — tela escura/fosca e nenhum toque funcionando.
@@ -481,6 +510,12 @@ O lift wrapper tem `transform`, e todo elemento com `transform` cria um **stacki
 - **O `DrawerOverlay` é renderizado dentro do lift wrapper**, junto com o sheet. Overlay e sheet compartilham o mesmo stacking context, então `overlay z-490` + `content z-500` volta a significar o que o autor escreveu.
 - O overlay leva `pointer-events-auto` (o wrapper é `pointer-events-none`) e `bottom: calc(-1 * var(--keyboard-height))`, para continuar cobrindo a tela inteira quando o wrapper sobe com o teclado.
 - **Empilhar drawers** (um drawer aberto por cima de outro): não é preciso mexer em z-index — todos os wrappers são `z-[310]` e o portal aberto por último entra depois no DOM, logo pinta por cima. Só use z-index custom para ordenar overlay × conteúdo **do mesmo drawer**.
+
+> **Regra prática (2026-07-16): não declare z-index no `DrawerContent`.** O padrão (content `z-[310]` > overlay `z-[300]`) já está certo, e o `cn()` usa `twMerge` — então um `className="z-[100]"` **substitui** o `z-[310]` da base e enterra o conteúdo sob o próprio overlay.
+>
+> Foi exatamente o que aconteceu: os drawers nasceram com `z-[100]` para empatar com o overlay da época (`z-[100]`/content `z-[110]`), vencendo por ordem no DOM. O commit `3cb0b34` (2026-05-15) subiu a base para `z-[300]`/`z-[310]` e não atualizou quem fixava o valor na mão — desde então `AddMembers`, `NewConversation`, `EditCheckIn`, `SendToFriend` e `TagPeople` abriam **escurecidos e sem aceitar toque** (overlay `bg-black/80` por cima), e o `ClassificationsDrawer` abria visível mas **engolia os toques** (overlay `bg-transparent`). Corrigido em 2026-07-16 removendo o override dos seis.
+>
+> Sintoma típico: drawer abre fosco/escuro, ou visível mas todo toque fecha em vez de acionar. Primeiro lugar a olhar: z-index no `DrawerContent`.
 
 ---
 

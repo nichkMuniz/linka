@@ -60,6 +60,7 @@ import { useLanguage } from "@/lib/language-context";
 import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
 import { hapticLight, hapticMedium } from "@/lib/haptics";
 import { cn } from "@/lib/utils";
+import { renderWithHashtags } from "@/lib/post-visuals";
 
 function formatRelativeTime(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -1133,7 +1134,7 @@ export default function Shots() {
                       >
                         {!isDescTruncatable || isExpanded ? (
                           <>
-                            {description}
+                            {renderWithHashtags(description, (tag) => navigate(`/tag/${encodeURIComponent(tag)}`))}
                             {isDescTruncatable && isExpanded && (
                               <> <button
                                 type="button"
@@ -1146,7 +1147,7 @@ export default function Shots() {
                           </>
                         ) : (
                           <>
-                            {truncatedDescription}
+                            {renderWithHashtags(truncatedDescription, (tag) => navigate(`/tag/${encodeURIComponent(tag)}`))}
                             {"... "}
                             <button
                               type="button"

@@ -40,9 +40,27 @@ As abas usam o **segmented control de vidro**, padronizado com a tela de Comunid
 Fecha o ciclo da feature de hashtags: elas já eram clicáveis nas legendas e já tinham página própria (`/tag/:tag`, `docs/16-hashtag.md`), mas **não eram buscáveis** — não havia como encontrar uma tag sem antes topar com ela num post.
 
 - Campo de busca aceita `#treino` ou `treino` (o `#` é removido antes de consultar)
-- Consulta: `searchPostsByHashtagDb(tag)` — a mesma da página da hashtag
-- Resultado: **grade de miniaturas** `grid-cols-3`, idêntica à de `/tag/:tag`; cada thumb navega para `/post/:id`
+- Consulta: `searchContentByHashtagDb(tag)` — a mesma da página da hashtag
+- Resultado: **grade de miniaturas** `grid-cols-3`, idêntica à de `/tag/:tag`
 - Sem busca digitada: estado inicial convidativo ("Busque por hashtags"), não um vazio seco
+
+#### Posts e Shots na mesma grade (2026-07-16)
+
+A busca cobre as **duas** superfícies com legenda: posts do feed e Shots. Cada item traz o discriminador `kind`, que decide como renderizar e para onde navegar:
+
+| `kind` | Miniatura | Badge | Ao tocar |
+|---|---|---|---|
+| `post` | `photo` / 1ª de `photos`; sem foto → gradiente por id + ícone `Hash` | — | `/post/:id` |
+| `shot` | `<video>` mudo com `preload="metadata"` | Ícone `Video` sobre `bg-black/55` | `/shots` com `state: { shotId }` |
+
+Detalhes em `docs/16-hashtag.md` (seção `searchContentByHashtagDb`).
+
+### Tags sugeridas (2026-07-16)
+
+No estado vazio (sem busca digitada), exibe uma fileira de chips com tags reais e populares (`SUGGESTED_HASHTAGS` em `Search.tsx`), para o usuário não precisar adivinhar o que buscar:
+- Lista fixa levantada a partir de uma consulta pontual nas legendas de **posts e Shots** (contagem de hashtags por frequência) — não é uma query dinâmica em tempo real
+- Ao clicar num chip, preenche o campo de busca com `#tag` e dispara a busca imediatamente (mesmo fluxo de `handleSearch`), pulando o debounce
+- Some assim que o usuário digita algo no campo
 
 ---
 

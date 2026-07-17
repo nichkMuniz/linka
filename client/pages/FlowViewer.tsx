@@ -853,8 +853,15 @@ export default function FlowViewer() {
                         story.text_elements.map((el, idx) => (
                           <div
                             key={idx}
-                            className="absolute px-6 max-w-[90%]"
-                            style={{ left: `${el.x}%`, top: `${el.y}%`, transform: "translate(-50%, -50%)" }}
+                            className="absolute"
+                            style={{
+                              left: `${el.x}%`,
+                              top: `${el.y}%`,
+                              transform: "translate(-50%, -50%)",
+                              width: "max-content",
+                              maxWidth: "80vw",
+                              padding: "0 0.5rem",
+                            }}
                           >
                             <p
                               className="text-3xl leading-tight break-words whitespace-pre-wrap"
@@ -932,8 +939,15 @@ export default function FlowViewer() {
                         {story.text_elements.map((el, idx) => (
                           <div
                             key={idx}
-                            className="absolute px-6 max-w-[90%]"
-                            style={{ left: `${el.x}%`, top: `${el.y}%`, transform: "translate(-50%, -50%)" }}
+                            className="absolute"
+                            style={{
+                              left: `${el.x}%`,
+                              top: `${el.y}%`,
+                              transform: "translate(-50%, -50%)",
+                              width: "max-content",
+                              maxWidth: "80vw",
+                              padding: "0 0.5rem",
+                            }}
                           >
                             <p
                               className="text-3xl leading-tight break-words whitespace-pre-wrap"
@@ -981,10 +995,17 @@ export default function FlowViewer() {
 
             </div>
 
-            {/* Bottom section — Direção B: doca de vidro flutuando sobre a mídia */}
+            {/* Bottom section — Direção B: doca de vidro flutuando sobre a mídia.
+                Sobe junto com o teclado do iOS via --keyboard-height (resize:'none' não
+                encolhe o viewport no device, então erguemos a doca nós mesmos, como
+                drawers/dialogs fazem). Fora do nativo a var fica 0 → sem movimento. */}
             <div
               className="absolute bottom-0 left-0 right-0 pt-14 px-3.5 bg-gradient-to-t from-black/55 via-black/15 to-transparent z-[60] pointer-events-none"
-              style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 0.85rem)" }}
+              style={{
+                paddingBottom: "calc(env(safe-area-inset-bottom) + 0.85rem)",
+                transform: "translateY(calc(-1 * var(--keyboard-height, 0px)))",
+                transition: "transform 0.25s ease-out",
+              }}
             >
               {/* Floating comment bubbles (acima da doca) */}
               <div className="flex flex-col gap-2 items-start max-w-[80%] mb-2 px-1.5">

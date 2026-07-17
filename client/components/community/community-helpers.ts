@@ -1,11 +1,28 @@
 import type { TranslationKey } from "@/lib/i18n";
-import type { DuelScoringType } from "@/lib/ritmofit-db";
+import type { DuelScoringType, MessageWithUser } from "@/lib/ritmofit-db";
 
 // Helpers e constantes puros da tela de Comunidade, extraídos de `Community.tsx`
 // para reduzir o tamanho do arquivo monolítico. Nenhum estado/efeito aqui — só
 // funções puras e dados estáticos.
 
 export type ViewMode = "conversations" | "conversation";
+
+// Duas listas de mensagens representam a mesma tela? Compara só o que a bolha
+// desenha (id, texto, lido, emoji). Serve para descartar a resposta da rede que
+// apenas confirma o que já está renderizado — sem novo array, o React não
+// remonta a lista inteira.
+export function sameMessageList(a: MessageWithUser[], b: MessageWithUser[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((msg, i) => {
+    const other = b[i];
+    return (
+      msg.id === other.id &&
+      msg.text === other.text &&
+      msg.read === other.read &&
+      msg.emoji === other.emoji
+    );
+  });
+}
 
 // Mensagens especiais são codificadas com prefixo no texto ([audio]:, [image]:,
 // [post]:, [shot]:). Em previews (lista de conversas, quote de reply, banner de

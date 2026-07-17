@@ -18,38 +18,52 @@ export function clampVal(v: number, lo: number, hi: number) {
   return Math.min(Math.max(v, lo), hi);
 }
 
+/**
+ * Tamanho da imagem em "cover" dentro de um frame W×H: o menor tamanho que
+ * cobre o frame inteiro, preservando o aspecto. Num frame quadrado isto se
+ * reduz ao caso antigo (comparar `imgAspect` com 1).
+ */
+function coverBase(
+  imgW: number,
+  imgH: number,
+  frameW: number,
+  frameH: number,
+): { baseW: number; baseH: number } {
+  const imgAspect = imgW / imgH;
+  const frameAspect = frameW / frameH;
+  if (imgAspect > frameAspect) return { baseW: frameH * imgAspect, baseH: frameH };
+  return { baseW: frameW, baseH: frameW / imgAspect };
+}
+
 export function clampedOffset(
   imgEl: HTMLImageElement,
   containerW: number,
+  containerH: number,
   scale: number,
   ox: number,
   oy: number
 ): { offsetX: number; offsetY: number } {
-  const imgAspect = imgEl.naturalWidth / imgEl.naturalHeight;
-  let baseW: number, baseH: number;
-  if (imgAspect > 1) { baseH = containerW; baseW = containerW * imgAspect; }
-  else { baseW = containerW; baseH = containerW / imgAspect; }
+  const { baseW, baseH } = coverBase(imgEl.naturalWidth, imgEl.naturalHeight, containerW, containerH);
   const dW = baseW * scale;
   const dH = baseH * scale;
   const maxX = Math.max(0, (dW - containerW) / 2);
-  const maxY = Math.max(0, (dH - containerW) / 2);
+  const maxY = Math.max(0, (dH - containerH) / 2);
   return { offsetX: clampVal(ox, -maxX, maxX), offsetY: clampVal(oy, -maxY, maxY) };
 }
 
 export function applyTransformToBlob(
   dataUrl: string,
   transform: CropTransform,
-  containerWidth: number
+  containerWidth: number,
+  /** Altura do frame. Omitir = quadrado (comportamento histórico). */
+  containerHeight: number = containerWidth,
 ): Promise<Blob> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
       const frameW = containerWidth;
-      const frameH = containerWidth;
-      const imgAspect = img.naturalWidth / img.naturalHeight;
-      let baseW: number, baseH: number;
-      if (imgAspect > 1) { baseH = frameH; baseW = frameH * imgAspect; }
-      else { baseW = frameW; baseH = frameW / imgAspect; }
+      const frameH = containerHeight;
+      const { baseW, baseH } = coverBase(img.naturalWidth, img.naturalHeight, frameW, frameH);
       const { scale, offsetX, offsetY } = transform;
       const cssPerNatX = (baseW * scale) / img.naturalWidth;
       const cssPerNatY = (baseH * scale) / img.naturalHeight;
@@ -57,9 +71,14 @@ export function applyTransformToBlob(
       const cropOriginY = ((baseH * scale - frameH) / 2 - offsetY) / cssPerNatY;
       const cropNatW = frameW / cssPerNatX;
       const cropNatH = frameH / cssPerNatY;
+      // Teto de export aplicado como fator ÚNICO nos dois eixos: clampar cada
+      // um por si achataria a imagem quando só um lado passa do limite. Em
+      // frame quadrado cropNatW === cropNatH, então isto dá no mesmo — o bug
+      // só existia para frames não-quadrados.
       const MAX_EXPORT = 2160;
-      const exportW = Math.round(Math.min(cropNatW, MAX_EXPORT));
-      const exportH = Math.round(Math.min(cropNatH, MAX_EXPORT));
+      const exportRatio = Math.min(1, MAX_EXPORT / Math.max(cropNatW, cropNatH));
+      const exportW = Math.round(cropNatW * exportRatio);
+      const exportH = Math.round(cropNatH * exportRatio);
       const canvas = document.createElement("canvas");
       canvas.width = exportW;
       canvas.height = exportH;
@@ -166,17 +185,22 @@ export function InlineCropPreview({
   transform,
   onTransformChange,
   containerWidthRef,
+  containerHeightRef,
 }: {
   imageSrc: string;
   transform: CropTransform;
   onTransformChange: (t: CropTransform) => void;
   containerWidthRef: React.MutableRefObject<number>;
+  /** Necessário só em frames não-quadrados: repasse a `applyTransformToBlob`
+   *  junto com a largura, senão o recorte exportado não bate com o preview. */
+  containerHeightRef?: React.MutableRefObject<number>;
 }) {
   const containerRef = React.useRef<HTMLDivElement>(null);
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
   const imgRef = React.useRef<HTMLImageElement | null>(null);
   const [imageLoaded, setImageLoaded] = React.useState(false);
   const [containerW, setContainerW] = React.useState(0);
+  const [containerH, setContainerH] = React.useState(0);
   const gestureRef = React.useRef<{
     type: "none" | "drag" | "pinch";
     lastX: number; lastY: number; lastDist: number; lastScale: number;
@@ -203,22 +227,24 @@ export function InlineCropPreview({
   React.useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const ro = new ResizeObserver(() => {
+    const measure = () => {
       const w = el.clientWidth;
+      const h = el.clientHeight;
       setContainerW(w);
+      setContainerH(h);
       containerWidthRef.current = w;
-    });
+      if (containerHeightRef) containerHeightRef.current = h;
+    };
+    const ro = new ResizeObserver(measure);
     ro.observe(el);
-    const w = el.clientWidth;
-    setContainerW(w);
-    containerWidthRef.current = w;
+    measure();
     return () => ro.disconnect();
   }, []);
 
   // Draw canvas — useLayoutEffect to run synchronously after DOM update, avoiding flicker
   React.useLayoutEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || containerW === 0) return;
+    if (!canvas || containerW === 0 || containerH === 0) return;
     // Always look up the image directly from cache so we get the correct image
     // even when imageSrc changes but imageLoaded stays true (avoiding stale imgRef).
     const img = getCachedImage(imageSrc);
@@ -226,24 +252,21 @@ export function InlineCropPreview({
     imgRef.current = img;
     const dpr = window.devicePixelRatio || 1;
     canvas.width = Math.round(containerW * dpr);
-    canvas.height = Math.round(containerW * dpr);
+    canvas.height = Math.round(containerH * dpr);
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     ctx.scale(dpr, dpr);
-    ctx.clearRect(0, 0, containerW, containerW);
+    ctx.clearRect(0, 0, containerW, containerH);
     const { scale, offsetX, offsetY } = transform;
-    const imgAspect = img.naturalWidth / img.naturalHeight;
-    let baseW: number, baseH: number;
-    if (imgAspect > 1) { baseH = containerW; baseW = containerW * imgAspect; }
-    else { baseW = containerW; baseH = containerW / imgAspect; }
+    const { baseW, baseH } = coverBase(img.naturalWidth, img.naturalHeight, containerW, containerH);
     const drawW = baseW * scale;
     const drawH = baseH * scale;
-    ctx.drawImage(img, (containerW - drawW) / 2 + offsetX, (containerW - drawH) / 2 + offsetY, drawW, drawH);
-  }, [transform, imageLoaded, containerW, imageSrc]);
+    ctx.drawImage(img, (containerW - drawW) / 2 + offsetX, (containerH - drawH) / 2 + offsetY, drawW, drawH);
+  }, [transform, imageLoaded, containerW, containerH, imageSrc]);
 
   const getClampedOffset = (scale: number, ox: number, oy: number) => {
-    if (!imgRef.current || containerW === 0) return { offsetX: ox, offsetY: oy };
-    return clampedOffset(imgRef.current, containerW, scale, ox, oy);
+    if (!imgRef.current || containerW === 0 || containerH === 0) return { offsetX: ox, offsetY: oy };
+    return clampedOffset(imgRef.current, containerW, containerH, scale, ox, oy);
   };
 
   const onPointerDown = (e: React.PointerEvent) => {

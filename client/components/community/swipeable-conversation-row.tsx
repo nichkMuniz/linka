@@ -98,7 +98,6 @@ export function SwipeableConversationRow({
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
         onTouchCancel={handleTouchEnd}
-        onClickCapture={handleClickCapture}
         className="flex"
         style={{
           width: `calc(100% + ${REVEAL_WIDTH}px)`,
@@ -106,7 +105,12 @@ export function SwipeableConversationRow({
           transition: isDragging ? "none" : "transform 0.25s cubic-bezier(0.22,0.61,0.36,1)",
         }}
       >
-        <div className="flex-1 min-w-0">
+        {/* O "toque fecha o swipe" vive só no conteúdo — nunca envolvendo o botão
+            de lixeira. Antes o onClickCapture ficava no wrapper (ancestral de
+            AMBOS): com a linha aberta, o stopPropagation da fase de captura
+            engolia o onClick do botão, então tocar na lixeira só fechava o swipe
+            e nunca disparava onDelete. */}
+        <div className="flex-1 min-w-0" onClickCapture={handleClickCapture}>
           {children}
         </div>
         <button

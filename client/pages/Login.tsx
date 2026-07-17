@@ -26,8 +26,7 @@ import {
 import { Upload, X, Check, ArrowLeft, Eye, EyeOff, Plus, Trash2, ScanFace } from "lucide-react";
 import { createOrUpdateCommercialProfileDb, saveCommercialPlansDb, type ServicePlan, checkEmailExistsDb } from "@/lib/ritmofit-db";
 import { ImageCropperDrawer } from "@/components/shared/image-cropper-drawer";
-// Animação temporária (clima Copa do Mundo). Original preservada em login-splash-original.tsx.
-import { LoginSplashCopaReveal } from "@/components/shared/login-splash-copa-reveal";
+import { LoginSplashOriginal } from "@/components/shared/login-splash-original";
 import {
   isBiometricSupported,
   isBiometricEnabled,
@@ -82,7 +81,7 @@ function formatPhoneDisplay(value: string): string {
 function BrandHeader() {
   return (
     <div className="flex items-center justify-center">
-      <img src="/linka-copa-5a.png" alt="LinKa" className="h-28 w-auto" />
+      <img src="/logo-horizontal-icone-branco.png" alt="LinKa" className="h-28 w-auto" />
     </div>
   );
 }
@@ -859,9 +858,7 @@ export default function Login() {
   };
 
   if (showSplash) {
-    // Temporário: animação no clima da Copa do Mundo. A original está preservada
-    // em client/components/shared/login-splash-original.tsx (trocar de volta depois da Copa).
-    return <LoginSplashCopaReveal />;
+    return <LoginSplashOriginal />;
   }
 
   return (

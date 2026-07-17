@@ -5,9 +5,11 @@ import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { useLanguage } from "@/lib/language-context";
-import { ArrowLeft, Edit2, Trash2, MoreVertical, UsersRound, SendHorizontal } from "lucide-react";
+import { ArrowLeft, Edit2, Trash2, MoreVertical, UsersRound, Share2 } from "lucide-react";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { SendToFriendDrawer } from "@/components/shared/send-to-friend-drawer";
+import { ShareDrawer } from "@/components/shared/share-drawer";
+import { postShareUrl } from "@/lib/share-url";
 import { FollowListDrawer } from "@/components/profile/follow-list-drawer";
 import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
 import { PostCarousel } from "@/components/post/post-carousel";
@@ -24,6 +26,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import {
   AlertDialog,
@@ -55,6 +58,7 @@ export default function PostDetail() {
   const [carouselIndex, setCarouselIndex] = React.useState(0);
   const [taggedOpen, setTaggedOpen] = React.useState(false);
   const [sendToFriendOpen, setSendToFriendOpen] = React.useState(false);
+  const [shareDrawerOpen, setShareDrawerOpen] = React.useState(false);
 
   // Edit post state
   const [editDialogOpen, setEditDialogOpen] = React.useState(false);
@@ -277,35 +281,42 @@ export default function PostDetail() {
             )}
           </div>
 
-          {/* Context menu (top-right) — owner only */}
-          {post.user_id === user?.id && (
-            <div className="absolute top-3 right-3 z-10">
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    className="flex items-center justify-center text-white active:scale-90 transition-transform"
-                    style={{ width: 36, height: 36, borderRadius: "50%", background: "rgba(0,0,0,.28)", backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)", border: "1px solid rgba(255,255,255,.16)" }}
-                  >
-                    <MoreVertical className="h-4 w-4" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-44">
-                  <DropdownMenuItem onSelect={handleEditOpen}>
-                    <Edit2 className="h-4 w-4 mr-2" />
-                    {t("post_edit_label")}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onSelect={() => setDeleteDialogOpen(true)}
-                    className="text-red-500 focus:text-red-500 focus:bg-red-50 dark:focus:bg-red-950"
-                  >
-                    <Trash2 className="h-4 w-4 mr-2" />
-                    {t("post_delete_label")}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          )}
+          {/* Context menu (top-right) — compartilhar para todos; editar/excluir só para o dono */}
+          <div className="absolute top-3 right-3 z-10">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="flex items-center justify-center text-white active:scale-90 transition-transform"
+                  style={{ width: 36, height: 36, borderRadius: "50%", background: "rgba(0,0,0,.28)", backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)", border: "1px solid rgba(255,255,255,.16)" }}
+                >
+                  <MoreVertical className="h-4 w-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuItem onSelect={() => setShareDrawerOpen(true)}>
+                  <Share2 className="h-4 w-4 mr-2" />
+                  {t("share_title")}
+                </DropdownMenuItem>
+                {post.user_id === user?.id && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onSelect={handleEditOpen}>
+                      <Edit2 className="h-4 w-4 mr-2" />
+                      {t("post_edit_label")}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onSelect={() => setDeleteDialogOpen(true)}
+                      className="text-red-500 focus:text-red-500 focus:bg-red-50 dark:focus:bg-red-950"
+                    >
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      {t("post_delete_label")}
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
 
           {/* Bottom: description + glass action bar */}
           <div className="absolute bottom-3 left-3 right-3 z-10 pointer-events-auto">
@@ -440,14 +451,6 @@ export default function PostDetail() {
                     defaultOpen={navState?.openComments === true}
                   />
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setSendToFriendOpen(true)}
-                  className="flex items-center justify-center text-white active:scale-90 transition-transform"
-                  aria-label={t("send_to_friend_title")}
-                >
-                  <SendHorizontal className="h-5 w-5" />
-                </button>
               </div>
             </div>
           </div>
@@ -458,6 +461,17 @@ export default function PostDetail() {
         open={likesModalOpen}
         onOpenChange={setLikesModalOpen}
         likes={postLikes}
+      />
+
+      <ShareDrawer
+        open={shareDrawerOpen}
+        onOpenChange={setShareDrawerOpen}
+        text={description
+          ? `${t("share_post_text").replace("{handle}", post.userNickname ?? "")}\n"${description}"`
+          : t("share_post_text").replace("{handle}", post.userNickname ?? "")}
+        url={postShareUrl(post.id)}
+        title={t("feed_share_post_title")}
+        onSendToFriend={() => setSendToFriendOpen(true)}
       />
 
       <SendToFriendDrawer

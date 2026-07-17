@@ -34,20 +34,19 @@ import {
   getDietsDb,
   createCustomDietDb,
   awardNutritionBadgesDb,
-  getWaterLogDb,
-  setWaterLogDb,
   type FoodLog,
   type FoodLogMealType,
   type NutritionGoals,
   type Diet,
   type Badge,
 } from "@/lib/ritmofit-db";
+import {
+  useWaterLog,
+  WATER_ACCENT,
+  WATER_STEPS_ML,
+} from "@/components/goals/use-water-log";
 
 const ACCENT = "#3ddc84";
-const WATER_ACCENT = "#4aa8ff";
-/** Meta de água padrão (2 L) quando o usuário não definiu a dele. Espelha o default da insígnia. */
-const DEFAULT_WATER_TARGET_ML = 2000;
-const WATER_STEPS_ML = [250, 500];
 const MEAL_TYPES: FoodLogMealType[] = [0, 1, 2, 3];
 const MEAL_EMOJI: Record<FoodLogMealType, string> = { 0: "☕", 1: "🍽️", 2: "🍎", 3: "🌙" };
 
@@ -173,9 +172,6 @@ export function FoodDiaryDrawer({
   const [manualFat, setManualFat] = React.useState("");
   const [manualSugar, setManualSugar] = React.useState("");
 
-  // ── Água (ml do dia exibido) ──
-  const [water, setWater] = React.useState(0);
-
   // ── Meta diária ──
   const [goalKcal, setGoalKcal] = React.useState("");
   const [goalProtein, setGoalProtein] = React.useState("");
@@ -183,10 +179,10 @@ export function FoodDiaryDrawer({
   const [goalFat, setGoalFat] = React.useState("");
   const [goalWater, setGoalWater] = React.useState("");
 
+  // A água do dia é do useWaterLog (compartilhado com o slide do Hub do Hoje).
   const loadDay = React.useCallback(async (d: string) => {
-    const [rows, ml] = await Promise.all([getFoodLogsDb(d), getWaterLogDb(d)]);
+    const rows = await getFoodLogsDb(d);
     setLogs(rows);
-    setWater(ml);
     if (d === localDateISO()) setTodayLogs(rows);
   }, []);
 
@@ -252,18 +248,13 @@ export function FoodDiaryDrawer({
       .catch(() => { /* insígnia é bônus: nunca derruba o registro */ });
   };
 
-  const changeWater = async (deltaMl: number) => {
-    const next = Math.max(0, water + deltaMl);
-    const prev = water;
-    setWater(next); // otimista: o toque no copo precisa responder na hora
-    try {
-      await setWaterLogDb(date, next);
-      checkNutritionBadges();
-    } catch {
-      setWater(prev);
-      toast({ title: t("nutrition_error"), variant: "destructive" });
-    }
-  };
+  const { water, target: waterTarget, changeWater } = useWaterLog({
+    date,
+    targetMl: goals?.water_target_ml ?? null,
+    refreshToken,
+    onChanged: checkNutritionBadges,
+    celebrateOnGoalReached: date === today, // não celebra ao editar dia passado
+  });
 
   // ── Totais ──
   const sum = (rows: FoodLog[], key: "calories" | "protein_g" | "carbs_g" | "fat_g" | "sugar_g") =>
@@ -271,7 +262,6 @@ export function FoodDiaryDrawer({
 
   const dayKcal = sum(logs, "calories");
   const target = goals?.calories_target ?? null;
-  const waterTarget = goals?.water_target_ml ?? DEFAULT_WATER_TARGET_ML;
 
   const maybeAskRoutine = (createdForDate: string, updatedLogs: FoodLog[]) => {
     if (createdForDate !== today) return;
@@ -491,8 +481,8 @@ export function FoodDiaryDrawer({
   const trendPoints = dayTotals.map((d) => ({ label: dateLabel(d.date), value: d.calories }));
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent {...GLASS_SHEET_PROPS} style={GLASS_SHEET_STYLE}>
+    <Drawer open={open} onOpenChange={onOpenChange} handleOnly>
+      <DrawerContent {...GLASS_SHEET_PROPS} handleOnly style={GLASS_SHEET_STYLE}>
         <div
           className="flex flex-col px-5 pt-2 overflow-y-auto"
           style={{ paddingBottom: "max(24px, env(safe-area-inset-bottom))" }}

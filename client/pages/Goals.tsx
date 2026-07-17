@@ -39,6 +39,7 @@ import {
   updateRoutineItemsScheduledTimeDb,
   updateRoutineItemsScheduledDaysDb,
   updateRoutineItemScheduledTimeDb,
+  updateHabitScheduledEndTimeDb,
   updateRoutineGoalDb,
   updateRoutineLastSummaryDb,
   updateUserGoalDb,
@@ -80,6 +81,7 @@ import { CreateWizardDrawer } from "@/components/goals/create-wizard-drawer";
 import { RoutineListDrawer } from "@/components/goals/routine-list-drawer";
 import { RoutineDetailDrawer } from "@/components/goals/routine-detail-drawer";
 import { GoalDetailDrawer } from "@/components/goals/goal-detail-drawer";
+import { GoalShareDrawer } from "@/components/goals/goal-share-drawer";
 import {
   WorkoutSessionDialog,
   type WorkoutSessionSummary,
@@ -207,17 +209,23 @@ export default function Goals() {
   // Bump força o FoodDiaryDrawer a recarregar quando o diário muda fora dele
   // (auto-log ao marcar/desmarcar um item da rotina de dieta).
   const [foodDiaryVersion, setFoodDiaryVersion] = React.useState(0);
+  // Água é registrada em dois lugares (slide do Hub e diário) — cada bump faz o
+  // outro reler, para os dois nunca mostrarem valores diferentes.
+  const [waterVersion, setWaterVersion] = React.useState(0);
   // Diário alimentar — aberto pelo card de tipo "Dieta" em "Suas rotinas".
   const [foodDiaryOpen, setFoodDiaryOpen] = React.useState(false);
   const [summaryData, setSummaryData] = React.useState<WorkoutSummaryData | null>(null);
   const [unlockedBadges, setUnlockedBadges] = React.useState<Badge[]>([]);
-  const [completedGoalDesc, setCompletedGoalDesc] = React.useState<string | null>(null);
+  // Meta recém-concluída (100%) — alimenta o diálogo de celebração e, se o
+  // usuário tocar em "Compartilhar conquista", o GoalShareDrawer.
+  const [completedGoal, setCompletedGoal] = React.useState<UserGoal | null>(null);
+  const [goalToShare, setGoalToShare] = React.useState<UserGoal | null>(null);
   // Diálogos (insígnia/meta) ficam pendentes enquanto o resumo do treino está
   // aberto. São diálogos Radix (z-300/310) que abririam ATRÁS do resumo (z-9500)
   // e, sendo modais, travariam o body com pointer-events:none — deixando o resumo
   // visível porém congelado. Por isso só os exibimos após fechar o resumo.
   const [pendingBadges, setPendingBadges] = React.useState<Badge[]>([]);
-  const [pendingGoalDesc, setPendingGoalDesc] = React.useState<string | null>(null);
+  const [pendingGoal, setPendingGoal] = React.useState<UserGoal | null>(null);
   const [sessionCardKey, setSessionCardKey] = React.useState<string | null>(null);
 
   const loadData = React.useCallback(async () => {
@@ -549,6 +557,11 @@ export default function Goals() {
     resetWorkoutState();
     setSessionCardKey(null);
     showRoutineCompleteToast({ type: 1, name: card?.name ?? null });
+    // Meta vinculada à rotina → o resumo leva o user_goals.id para que, ao
+    // compartilhar no feed, o post apareça com a barra de progresso da meta.
+    const linkedUserGoal = card?.goalId
+      ? userGoals.find((g) => g.goal_id === card.goalId)
+      : undefined;
     setSummaryData({
       routineName: card?.name ?? t("goals_rt_exercises"),
       totalSeries: summary.totalSeries,
@@ -556,6 +569,7 @@ export default function Goals() {
       durationSecs: summary.durationSecs,
       badges: [],
       userId: user?.id ?? "",
+      userGoalId: linkedUserGoal?.id ?? null,
       completedExercises: summary.completedExercises,
       prExercises: summary.prExercises,
       machinedExercises: summary.machinedExercises,
@@ -622,7 +636,11 @@ export default function Goals() {
         try {
           const updated = await incrementGoalProgressDb(ug.id);
           // Adiado: só mostra o diálogo de meta após o resumo fechar.
-          if (updated && updated.perc >= 100) setPendingGoalDesc(updated.description);
+          // `ug` (de userGoals) já tem a descrição vinda do join — usada como
+          // rede de segurança caso o retorno do update venha sem ela.
+          if (updated && updated.perc >= 100) {
+            setPendingGoal({ ...updated, description: updated.description || ug.description });
+          }
         } catch {
           /* ignore */
         }
@@ -637,9 +655,15 @@ export default function Goals() {
   // época). userGroups é resolvido de novo para refletir os duelos atuais.
   const handleViewRoutineSummary = (card: RoutineCard) => {
     if (!card.lastSummary) return;
+    // Resolve a meta vinculada AGORA (o snapshot persistido não guarda o vínculo,
+    // que pode ter mudado) para que reabrir e compartilhar leve o progresso da meta.
+    const linkedUserGoal = card.goalId
+      ? userGoals.find((g) => g.goal_id === card.goalId)
+      : undefined;
     setSummaryData({
       ...card.lastSummary,
       userId: user?.id ?? "",
+      userGoalId: linkedUserGoal?.id ?? null,
       userGroups: [],
     });
     if (!user) return;
@@ -735,7 +759,9 @@ export default function Goals() {
         const ug = userGoals.find((g) => g.goal_id === card.goalId);
         if (ug) {
           const updated = await incrementGoalProgressDb(ug.id);
-          if (updated && updated.perc >= 100) setCompletedGoalDesc(updated.description);
+          if (updated && updated.perc >= 100) {
+            setCompletedGoal({ ...updated, description: updated.description || ug.description });
+          }
         }
       }
       // Só aqui vale pagar a recarga: streak, semana, insígnias e metas mudaram.
@@ -774,6 +800,14 @@ export default function Goals() {
   const handleSetItemTime = async (item: RoutineItem, time: string | null) => {
     if (!user || !selectedCard) return;
     await updateRoutineItemScheduledTimeDb(user.id, selectedCard.type, item.id, time);
+    window.dispatchEvent(new CustomEvent("ritmofit-routines-changed"));
+    await loadData();
+  };
+
+  // Hora de fim do hábito (só user_habits tem a coluna — ver migração 20260716).
+  const handleSetItemEndTime = async (item: RoutineItem, endTime: string | null) => {
+    if (!user || selectedCard?.type !== 3) return;
+    await updateHabitScheduledEndTimeDb(user.id, item.id, endTime);
     window.dispatchEvent(new CustomEvent("ritmofit-routines-changed"));
     await loadData();
   };
@@ -900,6 +934,11 @@ export default function Goals() {
           activeWorkoutName={activeWorkoutName}
           onStartWorkout={handleStartWorkout}
           onOpenCard={(card) => setSelectedCardKey(card.key)}
+          waterRefreshToken={waterVersion}
+          // Registrou água no Hub → o diário relê ao abrir.
+          onWaterLogged={() => setFoodDiaryVersion((v) => v + 1)}
+          // Aqui não há drawer por cima, então a insígnia pode celebrar na hora.
+          onBadgesUnlocked={setUnlockedBadges}
         />
 
         <RoutineTypeCards
@@ -927,12 +966,16 @@ export default function Goals() {
         open={foodDiaryOpen}
         onOpenChange={(o) => {
           setFoodDiaryOpen(o);
-          // Insígnia conquistada dentro do diário só é celebrada ao fechá-lo —
-          // o BadgeUnlockedDialog (Radix) abriria atrás do drawer.
-          if (!o && pendingBadges.length > 0) {
-            setUnlockedBadges(pendingBadges);
-            setPendingBadges([]);
-            loadData();
+          if (!o) {
+            // O diário pode ter mexido na água — o slide do Hub precisa reler.
+            setWaterVersion((v) => v + 1);
+            // Insígnia conquistada dentro do diário só é celebrada ao fechá-lo —
+            // o BadgeUnlockedDialog (Radix) abriria atrás do drawer.
+            if (pendingBadges.length > 0) {
+              setUnlockedBadges(pendingBadges);
+              setPendingBadges([]);
+              loadData();
+            }
           }
         }}
         refreshToken={foodDiaryVersion}
@@ -951,6 +994,10 @@ export default function Goals() {
             if (!o) {
               setCreateOpen(false);
               setEditRoutineCard(null);
+              // Fecha = fim do fluxo de meta. Sem isso o flag vaza para a
+              // próxima abertura e o wizard cai em "goal-origin" mesmo quando
+              // pedimos criação/edição de ROTINA (só openCreateGoal o liga).
+              setCreateGoalFlow(false);
             }
           }}
           userId={user.id}
@@ -970,6 +1017,7 @@ export default function Goals() {
           onCreated={() => {
             setCreateOpen(false);
             setEditRoutineCard(null);
+            setCreateGoalFlow(false);
             loadData();
           }}
         />
@@ -985,7 +1033,7 @@ export default function Goals() {
         activeWorkoutName={activeWorkoutName}
         onStartWorkout={(card) => { setListType(null); handleStartWorkout(card); }}
         onOpenCard={(card) => { setListType(null); setSelectedCardKey(card.key); }}
-        onCreate={() => { const tp = listType ?? 1; setListType(null); setCreateType(tp); setCreateOpen(true); }}
+        onCreate={() => { const tp = listType ?? 1; setListType(null); setCreateGoalFlow(false); setCreateType(tp); setCreateOpen(true); }}
       />
 
       <RoutineDetailDrawer
@@ -994,13 +1042,14 @@ export default function Goals() {
         onClose={() => setSelectedCardKey(null)}
         onStartWorkout={handleStartWorkout}
         onViewSummary={handleViewRoutineSummary}
-        onAddItems={(card) => setEditRoutineCard(card)}
+        onAddItems={(card) => { setCreateGoalFlow(false); setEditRoutineCard(card); }}
         onToggleItem={handleToggleItem}
         onDeleteItem={handleDeleteItem}
         onRename={handleRename}
         onSetTime={handleSetTime}
         onSetDays={handleSetDays}
         onSetItemTime={handleSetItemTime}
+        onSetItemEndTime={handleSetItemEndTime}
         onLinkGoal={handleLinkGoal}
         onDeleteCard={handleDeleteCard}
       />
@@ -1057,7 +1106,7 @@ export default function Goals() {
             // para que a publicação recém-criada já apareça no topo.
             setSummaryData(null);
             setPendingBadges([]);
-            setPendingGoalDesc(null);
+            setPendingGoal(null);
             navigate("/", { state: { refreshFeed: true } });
           }}
           onClose={() => {
@@ -1067,9 +1116,9 @@ export default function Goals() {
               setUnlockedBadges(pendingBadges);
               setPendingBadges([]);
             }
-            if (pendingGoalDesc) {
-              setCompletedGoalDesc(pendingGoalDesc);
-              setPendingGoalDesc(null);
+            if (pendingGoal) {
+              setCompletedGoal(pendingGoal);
+              setPendingGoal(null);
             }
           }}
         />
@@ -1079,12 +1128,21 @@ export default function Goals() {
         <BadgeUnlockedDialog badges={unlockedBadges} onClose={() => setUnlockedBadges([])} />
       )}
 
-      {completedGoalDesc && (
+      {completedGoal && (
         <GoalCompletedDialog
-          goalDescription={completedGoalDesc}
-          onClose={() => setCompletedGoalDesc(null)}
+          goalDescription={completedGoal.description}
+          onShare={() => {
+            // Fecha a celebração ANTES de abrir o drawer: o diálogo Radix e o
+            // drawer dividem z-300/310, e o body fica com pointer-events:none
+            // enquanto o diálogo estiver montado.
+            setGoalToShare(completedGoal);
+            setCompletedGoal(null);
+          }}
+          onClose={() => setCompletedGoal(null)}
         />
       )}
+
+      <GoalShareDrawer goal={goalToShare} onClose={() => setGoalToShare(null)} />
     </div>
   );
 }

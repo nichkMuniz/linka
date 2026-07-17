@@ -59,9 +59,11 @@ Como a tela sempre exibe exatamente **1 post**, ela não tem scroll de página �
 - Badge 🎯 com percentual da meta vinculada (`postGoal.perc`), quando o post tem `user_goal_id`
 
 ### Menu de Opções (⋮) — topo-direita, sobreposto
-- Botão circular translúcido (`backdrop-blur`), visível apenas para o dono do post
-- **Editar** — abre `EditPostDrawer` (descrição, meta vinculada e **pessoas marcadas** — ver `docs/01-feed.md`). O `onSaved` devolve `(newDescription, newTaggedUsers)` e a tela atualiza o post em memória sem refetch
-- **Excluir** — `AlertDialog` de confirmação → `deletePostDb`
+- Botão circular translúcido (`backdrop-blur`), **visível para todos os usuários** (antes era exclusivo do dono)
+- **Compartilhar** (2026-07-16) — primeira opção, disponível para qualquer usuário. Abre o `ShareDrawer` (`client/components/shared/share-drawer.tsx`) com o link do post (`postShareUrl(post.id)`) e o texto `share_post_text` + a descrição do post. Mesmo padrão do feed (ver `docs/01-feed.md`). O `onSendToFriend` do drawer abre o `SendToFriendDrawer` — o envio por mensagem privada continua disponível, agora como o botão "Amigos" dentro do drawer de compartilhamento
+- As opções abaixo aparecem **apenas para o dono do post** (separadas por `DropdownMenuSeparator`):
+  - **Editar** — abre `EditPostDrawer` (descrição, meta vinculada e **pessoas marcadas** — ver `docs/01-feed.md`). O `onSaved` devolve `(newDescription, newTaggedUsers)` e a tela atualiza o post em memória sem refetch
+  - **Excluir** — `AlertDialog` de confirmação → `deletePostDb`
 
 ### Descrição (com truncamento — igual ao feed)
 - Sobreposta na parte inferior da foto, texto branco com `textShadow` para legibilidade
@@ -87,7 +89,8 @@ Como a tela sempre exibe exatamente **1 post**, ela não tem scroll de página �
 | Incentivos (6 tipos) | Esquerda | `PostIncentiveButton` |
 | Contagem de incentivos | Direita (antes do separador) | Abre `PostLikesModal` |
 | Comentários | Direita | `PostCommentsDialog` |
-| Enviar para amigo (avião de papel, 2026-07-12) | Direita | Abre `SendToFriendDrawer` — envia o post via mensagem privada (prefixo `[post]:<postId>`) |
+
+> **2026-07-16:** o botão de avião de papel ("enviar para", adicionado em 2026-07-12) foi **removido da barra de ações**. O envio por mensagem privada (prefixo `[post]:<postId>`) agora é alcançado por ⋮ → **Compartilhar** → **Amigos**, igual ao feed.
 
 Fundo com efeito vidro (`GLASS_ACTION` de `client/lib/post-visuals.tsx`), mesma barra usada no feed.
 

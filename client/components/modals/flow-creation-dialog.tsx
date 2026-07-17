@@ -28,16 +28,28 @@ const GRADIENT_PRESETS = [
   { id: "forest", value: "linear-gradient(135deg, #1B5E20 0%, #66BB6A 100%)", label: "Floresta" },
 ];
 
+// Fontes disponíveis para legendas. Todas são fontes de sistema pré-instaladas no
+// iOS (ou keywords CSS `ui-*` suportadas no WKWebView) com fallback genérico, então
+// renderizam sem carregar nenhum arquivo de fonte externo.
 const FONT_OPTIONS = [
-  { id: "bold",  label: "Bold",  family: "system-ui, -apple-system, sans-serif", weight: 800 },
-  { id: "light", label: "Light", family: "system-ui, -apple-system, sans-serif", weight: 300 },
-  { id: "serif", label: "Serif", family: "Georgia, 'Times New Roman', serif",    weight: 700 },
-  { id: "mono",  label: "Mono",  family: "'Courier New', Courier, monospace",    weight: 400 },
+  { id: "bold",       label: "Bold",    family: "system-ui, -apple-system, sans-serif",                 weight: 800 },
+  { id: "light",      label: "Light",   family: "system-ui, -apple-system, sans-serif",                 weight: 300 },
+  { id: "rounded",    label: "Rounded", family: "ui-rounded, 'SF Pro Rounded', system-ui, sans-serif",  weight: 700 },
+  { id: "condensed",  label: "Impact",  family: "'Impact', 'Haettenschweiler', system-ui, sans-serif",  weight: 900 },
+  { id: "serif",      label: "Serif",   family: "Georgia, 'Times New Roman', serif",                    weight: 700 },
+  { id: "elegant",    label: "Elegant", family: "'Didot', 'Hoefler Text', Georgia, serif",              weight: 600 },
+  { id: "script",     label: "Script",  family: "'Snell Roundhand', 'Zapfino', cursive",                weight: 700 },
+  { id: "marker",     label: "Marker",  family: "'Marker Felt', 'Chalkboard SE', 'Comic Sans MS', cursive", weight: 600 },
+  { id: "typewriter", label: "Type",    family: "'American Typewriter', 'Courier New', monospace",      weight: 600 },
+  { id: "mono",       label: "Mono",    family: "ui-monospace, 'Courier New', Courier, monospace",      weight: 500 },
 ] as const;
 
 const TEXT_COLORS = [
-  "#ffffff", "#000000", "#FF0080", "#3A8DFF",
-  "#FFD600", "#00C853", "#FF8A2A", "#7B3FF2",
+  "#ffffff", "#000000", "#8E8E93", "#FF3B30",
+  "#FF2D55", "#FF0080", "#FF8A2A", "#FF9500",
+  "#FFD600", "#FFE066", "#34C759", "#00C853",
+  "#00BCD4", "#3A8DFF", "#5856D6", "#7B3FF2",
+  "#AF52DE", "#A0522D",
 ];
 
 type TextStyle = {
@@ -203,7 +215,9 @@ export function FlowCreationDialog({
   const [description, setDescription] = React.useState("");
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [selectedGradient, setSelectedGradient] = React.useState(GRADIENT_PRESETS[0].value);
-  const [facingMode, setFacingMode] = React.useState<"user" | "environment">("environment");
+  // Flow abre sempre na câmera frontal (selfie) por padrão; o usuário pode
+  // alternar para a traseira com o botão de virar câmera.
+  const [facingMode, setFacingMode] = React.useState<"user" | "environment">("user");
   const [cameraError, setCameraError] = React.useState<string | null>(null);
   const [cameraReady, setCameraReady] = React.useState(false);
   const [isRecording, setIsRecording] = React.useState(false);
@@ -261,6 +275,10 @@ export function FlowCreationDialog({
     origY: number;
     moved: boolean;
   } | null>(null);
+  // Detecta um "toque" na foto (down+up curto, sem arrastar/pinçar) para abrir
+  // um novo texto — mesmo efeito do botão "+ Aa". Invalidado por multitoque ou
+  // movimento acima do limite, para não disparar durante ajuste da mídia.
+  const mediaTapRef = React.useRef<{ x: number; y: number; t: number } | null>(null);
 
   const stopStream = React.useCallback(() => {
     wantRecordingRef.current = false;
@@ -348,6 +366,14 @@ export function FlowCreationDialog({
       );
     }
   }, [stopStream]);
+
+  // Cada vez que o dialog abre, volta para a câmera frontal — o instance do
+  // componente persiste entre aberturas, então sem isto uma troca anterior para
+  // a traseira ficaria "grudada" na próxima abertura. (setState com o mesmo valor
+  // é no-op no React, então na primeira abertura não reinicia o stream.)
+  React.useEffect(() => {
+    if (open) setFacingMode("user");
+  }, [open]);
 
   React.useEffect(() => {
     if (open && step === "camera") {
@@ -781,12 +807,22 @@ export function FlowCreationDialog({
   const handleMediaPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
     pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    // Candidato a toque apenas enquanto for um único dedo; multitoque cancela.
+    mediaTapRef.current =
+      pointersRef.current.size === 1
+        ? { x: e.clientX, y: e.clientY, t: Date.now() }
+        : null;
     beginMediaGesture();
   };
 
   const handleMediaPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!pointersRef.current.has(e.pointerId)) return;
     pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    // Movimento acima do limite deixa de ser toque e vira arraste/pinça.
+    const tap = mediaTapRef.current;
+    if (tap && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) > 8) {
+      mediaTapRef.current = null;
+    }
     const start = gestureStartRef.current;
     if (!start) return;
     const pts = Array.from(pointersRef.current.values());
@@ -818,6 +854,14 @@ export function FlowCreationDialog({
     if (pointersRef.current.size > 0) {
       beginMediaGesture();
     } else {
+      // Toque curto sem arraste/pinça em área vazia da foto → abre novo texto,
+      // igual ao botão "+ Aa". (Textos já postos têm handlers próprios que param
+      // a propagação, então tocar sobre eles não cai aqui.)
+      const tap = mediaTapRef.current;
+      mediaTapRef.current = null;
+      if (tap && !isEditingText && Date.now() - tap.t < 300) {
+        beginNewText();
+      }
       gestureStartRef.current = null;
     }
   };
@@ -1044,7 +1088,7 @@ export function FlowCreationDialog({
   const textStyleControls = (
     <>
       {/* Cores da fonte */}
-      <div className="flex gap-2 justify-center">
+      <div className="flex gap-2 overflow-x-auto no-scrollbar px-1 py-1">
         {TEXT_COLORS.map((color) => (
           <button
             key={color}
@@ -1062,14 +1106,14 @@ export function FlowCreationDialog({
       </div>
 
       {/* Fontes */}
-      <div className="flex gap-1.5 justify-center">
+      <div className="flex gap-1.5 overflow-x-auto no-scrollbar px-1 py-1">
         {FONT_OPTIONS.map((font) => {
           const isActive = editingStyle.fontFamily === font.family && editingStyle.fontWeight === font.weight;
           return (
             <button
               key={font.id}
               onClick={() => setEditingStyle((s) => ({ ...s, fontFamily: font.family, fontWeight: font.weight }))}
-              className="px-3 py-0.5 rounded-full text-sm transition-all"
+              className="px-3 py-0.5 rounded-full text-sm transition-all shrink-0 whitespace-nowrap"
               style={{
                 fontFamily: font.family,
                 fontWeight: font.weight,
@@ -1628,7 +1672,7 @@ export function FlowCreationDialog({
             {!isEditingText && !isMediaTransformed(mediaTransform) && texts.length === 0 && (
               <div className="relative z-10 flex justify-center pt-2 pointer-events-none">
                 <span className="text-white/80 text-xs bg-black/35 backdrop-blur rounded-full px-3 py-1">
-                  Belisque para ajustar • toque em “+ Aa” para escrever
+                  Toque na foto para escrever • belisque para ajustar
                 </span>
               </div>
             )}

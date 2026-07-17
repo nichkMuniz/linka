@@ -50,10 +50,12 @@ import {
   getUserSelectedGoalIdsDb,
   getWorkoutNameIdIndexDb,
   getWorkoutsDb,
+  matchesCatalogSearch,
   updateRoutineGoalDb,
   updateRoutineItemsScheduledTimeDb,
   updateRoutineItemsScheduledDaysDb,
   updateRoutineItemScheduledTimeDb,
+  updateHabitScheduledEndTimeDb,
   updateRoutineProgramMetaDb,
   upsertFitnessProfileDb,
   type Diet,
@@ -71,6 +73,7 @@ import {
   type SuggestedExercise,
   type WeeklyProgram,
 } from "@/components/goals/suggested-routines-data";
+import { HabitTimeRow } from "@/components/goals/habit-time-row";
 import {
   generateProgram,
   MUSCLE_EMPHASES,
@@ -97,8 +100,11 @@ type WizardStep =
   | "build-name"
   | "build"
   | "build-schedule"
+  | "edit-item-times"
   | "goal-origin"
   | "goal-catalog"
+  | "goal-adjust"
+  | "goal-adjust-edit"
   | "goal-custom";
 
 // Dias da semana (seg→dom), índices 0–6 — convenção Monday-first do app.
@@ -246,6 +252,8 @@ export function CreateWizardDrawer({
   const [scheduledTime, setScheduledTime] = React.useState("");
   // Horários individuais por hábito (chave = habit_id do catálogo) quando a rotina tem 2+ hábitos
   const [habitTimes, setHabitTimes] = React.useState<Record<string, string>>({});
+  // Hora de FIM por hábito (opcional) — mesma chave (habit_id do catálogo).
+  const [habitEndTimes, setHabitEndTimes] = React.useState<Record<string, string>>({});
   const [scheduledDays, setScheduledDays] = React.useState<Set<number>>(new Set());
   const [linkGoalId, setLinkGoalId] = React.useState<string | null>(null);
   const [searchQuery, setSearchQuery] = React.useState("");
@@ -295,6 +303,27 @@ export function CreateWizardDrawer({
   const [goalFrequency, setGoalFrequency] = React.useState("");
   const [addingGoalId, setAddingGoalId] = React.useState<string | null>(null);
 
+  // Meta do catálogo escolhida, aguardando "manter original" ou "alterar".
+  // Duração/frequência ficam em campos próprios (não reusam os do goal-custom)
+  // para o passo poder voltar ao original sem perder o que o usuário digitou.
+  const [catalogGoal, setCatalogGoal] = React.useState<ProgrammedGoal | null>(null);
+  const [catalogDuration, setCatalogDuration] = React.useState("");
+  const [catalogFrequency, setCatalogFrequency] = React.useState("");
+
+  // Teto da frequência: dias por semana (7) e nunca mais que a duração — só
+  // alcançável pela duração personalizada, já que os presets são 30/60/90.
+  const goalDurationValue = useCustomDuration
+    ? Math.max(1, Number(goalCustomDuration) || 1)
+    : goalDuration;
+  const maxGoalFrequency = Math.min(7, goalDurationValue);
+
+  // Mesmo teto para o ajuste da meta de catálogo.
+  const parsedCatalogDuration = parseInt(catalogDuration, 10);
+  const maxCatalogFrequency = Math.min(
+    7,
+    Number.isFinite(parsedCatalogDuration) && parsedCatalogDuration > 0 ? parsedCatalogDuration : 7,
+  );
+
   // reset on close
   React.useEffect(() => {
     if (!open) {
@@ -305,6 +334,7 @@ export function CreateWizardDrawer({
       setSelectedIds(new Set());
       setScheduledTime("");
       setHabitTimes({});
+      setHabitEndTimes({});
       setScheduledDays(new Set());
       setLinkGoalId(null);
       setSearchQuery("");
@@ -331,6 +361,9 @@ export function CreateWizardDrawer({
       setGoalCustomDuration("");
       setUseCustomDuration(false);
       setGoalFrequency("");
+      setCatalogGoal(null);
+      setCatalogDuration("");
+      setCatalogFrequency("");
     } else if (editRoutine) {
       setStep("build");
       setHistory([]);
@@ -343,6 +376,10 @@ export function CreateWizardDrawer({
       setShowCustomForm(false);
       setCustomName("");
       setCustomExtra("");
+      // Horários dos hábitos NOVOS começam em branco (o passo é justamente para
+      // perguntar) — sem isso sobrariam valores de um uso anterior do wizard.
+      setHabitTimes({});
+      setHabitEndTimes({});
     } else {
       setStep(initialStep);
       setRoutineType(initialRoutineType);
@@ -435,6 +472,13 @@ export function CreateWizardDrawer({
     ? Array.from(selectedIds).filter((id) => !existingIdsSet.has(id)).length
     : selectedIds.size;
 
+  // Hábitos que estão sendo ADICIONADOS a uma rotina existente — só eles ganham
+  // o passo de horário (os que já estavam mantêm o horário que têm).
+  const newHabitsForSchedule = React.useMemo(
+    () => habits.filter((h) => selectedIds.has(h.id) && !existingIdsSet.has(h.id)),
+    [habits, selectedIds, existingIdsSet],
+  );
+
   const muscleGroups = React.useMemo(() => {
     const set = new Set<string>();
     workouts.forEach((w) => w.muscle_group && set.add(w.muscle_group));
@@ -448,31 +492,31 @@ export function CreateWizardDrawer({
   }, [diets]);
 
   const filteredItems = React.useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
+    const q = searchQuery.trim();
     if (routineType === 1) {
       return workouts.filter(
         (w) =>
-          (!q || w.name.toLowerCase().includes(q)) &&
+          matchesCatalogSearch(w, q) &&
           (!muscleFilter || w.muscle_group === muscleFilter),
       );
     }
     if (routineType === 2) {
       return diets.filter(
         (d) =>
-          (!q || d.name.toLowerCase().includes(q)) &&
+          matchesCatalogSearch(d, q) &&
           (!muscleFilter || d.category === muscleFilter),
       );
     }
-    return habits.filter((h) => !q || h.name.toLowerCase().includes(q));
+    return habits.filter((h) => matchesCatalogSearch(h, q));
   }, [routineType, workouts, diets, habits, searchQuery, muscleFilter]);
 
-  // Rotinas de hábito com 2+ itens ganham um horário por item no passo de agendamento,
-  // em vez de um único horário aplicado a todos.
+  // TODA rotina de hábito agenda por item — inclusive com um único hábito, que
+  // também tem janela início→fim (o input único não comporta o fim).
   const selectedHabitsForSchedule = React.useMemo(
     () => habits.filter((h) => selectedIds.has(h.id)),
     [habits, selectedIds],
   );
-  const isMultiHabitSchedule = routineType === 3 && selectedHabitsForSchedule.length > 1;
+  const isHabitSchedule = routineType === 3 && selectedHabitsForSchedule.length > 0;
 
   /** find the just-created routines row (type+name) and link it to a goal */
   const linkNewRoutineToGoal = async (type: RoutineTypeCode, name: string | null, goalUserGoal: string) => {
@@ -521,13 +565,18 @@ export function CreateWizardDrawer({
 
       // Rotina de hábito com 2+ itens: aplica um horário por item (casado por habit_id)
       // em vez do horário único de `scheduledTime`.
-      const hasIndividualHabitTimes = isMultiHabitSchedule && insertedHabits.length > 1;
+      const hasIndividualHabitTimes = isHabitSchedule && insertedHabits.length > 0;
       if (hasIndividualHabitTimes) {
         await Promise.all(
-          insertedHabits.map((row) => {
+          insertedHabits.flatMap((row) => {
             const time = habitTimes[row.habit_id] || null;
-            if (!time) return Promise.resolve();
-            return updateRoutineItemScheduledTimeDb(userId, 3, row.id, time).catch(() => {});
+            if (!time) return [];
+            const end = habitEndTimes[row.habit_id] || null;
+            return [
+              updateRoutineItemScheduledTimeDb(userId, 3, row.id, time).catch(() => {}),
+              // Fim é opcional — só grava quando o usuário definiu.
+              ...(end ? [updateHabitScheduledEndTimeDb(userId, row.id, end).catch(() => {})] : []),
+            ];
           }),
         );
       } else if (scheduledTime) {
@@ -570,6 +619,7 @@ export function CreateWizardDrawer({
     try {
       const { type, name, routineId, scheduledTime, scheduledDays } = editRoutine;
       let insertedIds: string[] = [];
+      let insertedHabits: UserHabit[] = [];
       if (type === 1) {
         const inserted = await createUserWorkoutsDb(userId, newIds, {
           name: name || undefined,
@@ -588,6 +638,7 @@ export function CreateWizardDrawer({
           routine_id: routineId,
         });
         insertedIds = inserted.map((i) => i.id);
+        insertedHabits = inserted;
       }
 
       // legacy rows without a resolved routine_id: fall back to the name-matching
@@ -596,14 +647,40 @@ export function CreateWizardDrawer({
         await backfillRoutineIdOnItemsDb(userId, type, name, insertedIds).catch(() => {});
       }
 
-      // keep the new items in sync with the routine's existing reminder/days
-      if (scheduledTime) {
-        await updateRoutineItemsScheduledTimeDb(userId, type, name, scheduledTime).catch(() => {});
+      // Horário: SEMPRE só nos itens recém-inseridos (por id). Aplicar por nome
+      // atinge a rotina inteira e, em hábitos, o horário é POR ITEM — como
+      // `editRoutine.scheduledTime` é só o do PRIMEIRO item com horário
+      // (`goals-helpers.ts`), o update por nome carimbava esse valor único em
+      // todos, apagando o horário de cada hábito (Almoçar 13h virava 21h).
+      let anyTimeSet = false;
+      if (type === 3) {
+        // Hábito: o horário de cada item novo veio do passo `edit-item-times`.
+        // Em branco = sem lembrete para aquele hábito (escolha válida).
+        await Promise.all(
+          insertedHabits.flatMap((row) => {
+            const time = habitTimes[row.habit_id] || null;
+            if (!time) return [];
+            anyTimeSet = true;
+            const end = habitEndTimes[row.habit_id] || null;
+            return [
+              updateRoutineItemScheduledTimeDb(userId, 3, row.id, time).catch(() => {}),
+              ...(end ? [updateHabitScheduledEndTimeDb(userId, row.id, end).catch(() => {})] : []),
+            ];
+          }),
+        );
+      } else if (scheduledTime) {
+        // Treino/dieta: horário único da rotina, herdado pelos itens novos.
+        anyTimeSet = true;
+        await Promise.all(
+          insertedIds.map((id) =>
+            updateRoutineItemScheduledTimeDb(userId, type, id, scheduledTime).catch(() => {}),
+          ),
+        );
       }
       if (scheduledDays) {
         await updateRoutineItemsScheduledDaysDb(userId, type, name, scheduledDays).catch(() => {});
       }
-      if (scheduledTime) {
+      if (anyTimeSet) {
         window.dispatchEvent(new CustomEvent("ritmofit-routines-changed"));
       }
 
@@ -754,8 +831,8 @@ export function CreateWizardDrawer({
   };
 
   const exercisePickerResults = React.useMemo(() => {
-    const q = exerciseSearch.trim().toLowerCase();
-    const list = q ? workouts.filter((w) => w.name.toLowerCase().includes(q)) : workouts;
+    const q = exerciseSearch.trim();
+    const list = q ? workouts.filter((w) => matchesCatalogSearch(w, q)) : workouts;
     return list.slice(0, 20);
   }, [workouts, exerciseSearch]);
 
@@ -853,11 +930,21 @@ export function CreateWizardDrawer({
     }
   };
 
-  const handleSelectProgrammedGoal = async (goal: ProgrammedGoal) => {
-    setAddingGoalId(goal.id);
+  // Selecionar no catálogo não cria mais na hora: leva ao passo de ajuste, onde
+  // o usuário mantém a duração/frequência originais ou define as suas.
+  const handleSelectProgrammedGoal = (goal: ProgrammedGoal) => {
+    setCatalogGoal(goal);
+    setCatalogDuration(String(goal.duration));
+    setCatalogFrequency(String(goal.quantity));
+    goTo("goal-adjust");
+  };
+
+  const handleCreateProgrammedGoal = async (duration: number, quantity: number) => {
+    if (!catalogGoal) return;
+    setAddingGoalId(catalogGoal.id);
     try {
-      await createUserGoalDb(goal.id, userId, goal.type, goal.duration, goal.quantity);
-      toast({ title: t("goals_created_toast"), description: goal.description });
+      await createUserGoalDb(catalogGoal.id, userId, catalogGoal.type, duration, quantity);
+      toast({ title: t("goals_created_toast"), description: catalogGoal.description });
       onOpenChange(false);
       onCreated("goal");
     } catch (err: any) {
@@ -869,6 +956,14 @@ export function CreateWizardDrawer({
     } finally {
       setAddingGoalId(null);
     }
+  };
+
+  const handleConfirmAdjustedGoal = () => {
+    const duration = parseInt(catalogDuration, 10);
+    const rawQuantity = parseInt(catalogFrequency, 10);
+    if (!duration || duration < 1 || !rawQuantity || rawQuantity < 1) return;
+    // Mesma invariante do resto das metas: frequência é 1–7 e nunca passa da duração.
+    handleCreateProgrammedGoal(duration, Math.min(rawQuantity, Math.min(7, duration)));
   };
 
   const handleCreateCustomGoal = async () => {
@@ -885,7 +980,12 @@ export function CreateWizardDrawer({
       const duration = useCustomDuration
         ? Math.max(1, Number(goalCustomDuration) || 1)
         : goalDuration;
-      const frequency = Math.max(1, Number(goalFrequency) || 1);
+      // Frequência = dias por semana (teto 7) e nunca mais dias do que a meta
+      // dura — uma meta de 3 dias não pode ser executada 7x.
+      const frequency = Math.min(
+        Math.max(1, Number(goalFrequency) || 1),
+        Math.min(7, duration),
+      );
       await createCustomGoalAndSelectDb(userId, goalDescription.trim(), goalType, duration, frequency);
       toast({ title: t("goals_created_toast"), description: goalDescription.trim() });
       onOpenChange(false);
@@ -915,8 +1015,11 @@ export function CreateWizardDrawer({
     "build-name": t("goals_wizard_name_title"),
     "build": t("goals_wizard_items_title"),
     "build-schedule": t("goals_wizard_schedule_title"),
+    "edit-item-times": t("goals_wizard_new_habit_times_title"),
     "goal-origin": t("goals_onboarding_title"),
     "goal-catalog": t("goals_available"),
+    "goal-adjust": t("goals_adjust_title"),
+    "goal-adjust-edit": t("goals_adjust_edit_title"),
     "goal-custom": t("goals_create_title"),
   };
 
@@ -1002,8 +1105,9 @@ export function CreateWizardDrawer({
 
   return (
     <>
-    <Drawer open={open} onOpenChange={onOpenChange} fixed>
+    <Drawer open={open} onOpenChange={onOpenChange} fixed handleOnly>
       <DrawerContent
+        handleOnly
         handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
         className="flex flex-col !rounded-t-[32px] !border-0"
         style={{
@@ -1402,7 +1506,11 @@ export function CreateWizardDrawer({
                                         ))
                                       )}
                                       {exerciseSearch.trim() &&
-                                        !workouts.some((w) => w.name.trim().toLowerCase() === exerciseSearch.trim().toLowerCase()) && (
+                                        !workouts.some((w) =>
+                                          [w.name, w.altName].some(
+                                            (n) => n?.trim().toLowerCase() === exerciseSearch.trim().toLowerCase(),
+                                          ),
+                                        ) && (
                                           <button
                                             type="button"
                                             onClick={() => {
@@ -1833,33 +1941,26 @@ export function CreateWizardDrawer({
           {/* ── Step 3: schedule (time + weekdays + goal) ─────────── */}
           {step === "build-schedule" && (
             <>
-              {isMultiHabitSchedule ? (
+              {isHabitSchedule ? (
                 <div className="space-y-2">
                   <Label className="text-sm font-semibold" style={{ color: "#fff" }}>{t("goals_edit_routine_time_label")}</Label>
-                  <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>
-                    {t("goals_wizard_habit_time_per_item_hint")}
-                  </p>
-                  <div className="space-y-2">
+                  {/* "Cada hábito pode ter seu próprio horário" só faz sentido
+                      quando há mais de um. */}
+                  {selectedHabitsForSchedule.length > 1 && (
+                    <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>
+                      {t("goals_wizard_habit_time_per_item_hint")}
+                    </p>
+                  )}
+                  <div className="space-y-3">
                     {selectedHabitsForSchedule.map((h) => (
-                      <div key={h.id} className="flex items-center gap-2">
-                        <span className="flex-1 min-w-0 truncate text-sm" style={{ color: "#fff" }}>
-                          {h.name}
-                        </span>
-                        <div
-                          className="w-[128px] h-11 rounded-xl overflow-hidden shrink-0"
-                          style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)" }}
-                        >
-                          <input
-                            type="time"
-                            value={habitTimes[h.id] ?? ""}
-                            onChange={(e) =>
-                              setHabitTimes((prev) => ({ ...prev, [h.id]: e.target.value }))
-                            }
-                            className="block w-full h-full px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                            style={{ fontSize: "16px", minWidth: 0, maxWidth: "100%", boxSizing: "border-box", background: "transparent", border: "none", color: "#fff" }}
-                          />
-                        </div>
-                      </div>
+                      <HabitTimeRow
+                        key={h.id}
+                        name={h.name}
+                        start={habitTimes[h.id] ?? ""}
+                        end={habitEndTimes[h.id] ?? ""}
+                        onStartChange={(v) => setHabitTimes((prev) => ({ ...prev, [h.id]: v }))}
+                        onEndChange={(v) => setHabitEndTimes((prev) => ({ ...prev, [h.id]: v }))}
+                      />
                     ))}
                   </div>
                 </div>
@@ -1875,7 +1976,9 @@ export function CreateWizardDrawer({
                       value={scheduledTime}
                       onChange={(e) => setScheduledTime(e.target.value)}
                       className="block w-full h-full px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                      style={{ fontSize: "16px", minWidth: 0, maxWidth: "100%", boxSizing: "border-box", background: "transparent", border: "none", color: "#fff" }}
+                      // textAlign center: horário centralizado no campo (o iOS não
+                      // centraliza o <input type="time"> sozinho).
+                      style={{ fontSize: "16px", minWidth: 0, maxWidth: "100%", boxSizing: "border-box", background: "transparent", border: "none", color: "#fff", textAlign: "center" }}
                     />
                   </div>
                 </div>
@@ -1950,6 +2053,39 @@ export function CreateWizardDrawer({
             </>
           )}
 
+          {/* ── Step: horário dos hábitos NOVOS (modo adicionar itens) ── */}
+          {step === "edit-item-times" && (
+            <>
+              <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>
+                {t("goals_wizard_new_habit_times_hint")}
+              </p>
+              <div className="space-y-3">
+                {newHabitsForSchedule.map((h) => (
+                  <HabitTimeRow
+                    key={h.id}
+                    name={h.name}
+                    start={habitTimes[h.id] ?? ""}
+                    end={habitEndTimes[h.id] ?? ""}
+                    onStartChange={(v) => setHabitTimes((prev) => ({ ...prev, [h.id]: v }))}
+                    onEndChange={(v) => setHabitEndTimes((prev) => ({ ...prev, [h.id]: v }))}
+                  />
+                ))}
+              </div>
+              <Button
+                className="w-full rounded-full h-12"
+                style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}
+                disabled={isSaving}
+                onClick={handleAddItemsToRoutine}
+              >
+                {isSaving ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  t("goals_wizard_add_items_btn").replace("{n}", String(newSelectedCount))
+                )}
+              </Button>
+            </>
+          )}
+
           {/* ── Step: goal origin ────────────────────────────────── */}
           {step === "goal-origin" && (
             <>
@@ -1997,14 +2133,9 @@ export function CreateWizardDrawer({
                       <Button
                         size="sm"
                         className="w-full rounded-full"
-                        disabled={addingGoalId !== null}
                         onClick={() => handleSelectProgrammedGoal(g)}
                       >
-                        {addingGoalId === g.id ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          t("goals_select")
-                        )}
+                        {t("goals_select")}
                       </Button>
                     </div>
                   ))
@@ -2012,6 +2143,106 @@ export function CreateWizardDrawer({
               {!goalsLoading && programmedGoals.filter((g) => !selectedGoalIds.includes(g.id)).length === 0 && (
                 <p className="text-sm text-center py-8" style={{ color: "rgba(255,255,255,.5)" }}>{t("goals_empty")}</p>
               )}
+            </>
+          )}
+
+          {/* ── Step: adjust catalog goal ────────────────────────── */}
+          {step === "goal-adjust" && catalogGoal && (
+            <>
+              <div className="rounded-2xl p-4 space-y-3" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}>
+                <p className="text-sm font-semibold" style={{ color: "#fff" }}>{catalogGoal.description}</p>
+                <div className="flex gap-2">
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-blue-500/10 text-blue-400 text-xs font-semibold">
+                    <Calendar className="h-3.5 w-3.5" />
+                    {catalogGoal.duration} {t("goals_catalog_days_label")}
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-orange-500/10 text-orange-400 text-xs font-semibold">
+                    <Repeat2 className="h-3.5 w-3.5" />
+                    {catalogGoal.quantity}{t("goals_catalog_per_week")}
+                  </span>
+                </div>
+              </div>
+              <p className="text-sm" style={{ color: "rgba(255,255,255,.6)" }}>
+                {t("goals_adjust_question")}
+              </p>
+              {optionCard(
+                () => handleCreateProgrammedGoal(catalogGoal.duration, catalogGoal.quantity),
+                <Check className="h-5 w-5" />,
+                t("goals_adjust_keep_title"),
+                t("goals_adjust_keep_desc")
+                  .replace("{d}", String(catalogGoal.duration))
+                  .replace("{q}", String(catalogGoal.quantity)),
+              )}
+              {optionCard(
+                () => {
+                  // Volta os campos ao original a cada entrada — "alterar" parte
+                  // sempre do valor de catálogo, não de uma edição abandonada.
+                  setCatalogDuration(String(catalogGoal.duration));
+                  setCatalogFrequency(String(catalogGoal.quantity));
+                  goTo("goal-adjust-edit");
+                },
+                <Pencil className="h-5 w-5" />,
+                t("goals_adjust_change_title"),
+                t("goals_adjust_change_desc"),
+              )}
+              {addingGoalId !== null && (
+                <div className="flex justify-center pt-2">
+                  <Loader2 className="h-5 w-5 animate-spin" style={{ color: "rgba(255,255,255,.5)" }} />
+                </div>
+              )}
+            </>
+          )}
+
+          {/* ── Step: adjust catalog goal — fields ───────────────── */}
+          {step === "goal-adjust-edit" && catalogGoal && (
+            <>
+              <div className="space-y-2">
+                <Label className="text-sm font-semibold" style={{ color: "#fff" }}>{t("goals_gd_edit_duration")}</Label>
+                <Input
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  value={catalogDuration}
+                  onChange={(e) => {
+                    setCatalogDuration(e.target.value);
+                    const d = parseInt(e.target.value, 10);
+                    const f = parseInt(catalogFrequency, 10);
+                    if (Number.isFinite(d) && d > 0 && Number.isFinite(f) && f > d) {
+                      setCatalogFrequency(String(Math.min(7, d)));
+                    }
+                  }}
+                  style={{ fontSize: "16px", background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-sm font-semibold" style={{ color: "#fff" }}>{t("goals_create_label_frequency")}</Label>
+                <Input
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  max={maxCatalogFrequency}
+                  placeholder={t("goals_create_frequency_placeholder")}
+                  value={catalogFrequency}
+                  onChange={(e) => {
+                    const v = Number(e.target.value);
+                    if (e.target.value === "" || (v >= 1 && v <= maxCatalogFrequency)) {
+                      setCatalogFrequency(e.target.value);
+                    }
+                  }}
+                  style={{ fontSize: "16px", background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }}
+                />
+                <p className="text-xs" style={{ color: "rgba(255,255,255,.45)" }}>
+                  {t("goals_gd_edit_frequency_hint").replace("{max}", String(maxCatalogFrequency))}
+                </p>
+              </div>
+              <Button
+                className="w-full rounded-full h-12"
+                style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}
+                disabled={addingGoalId !== null || !catalogDuration || !catalogFrequency}
+                onClick={handleConfirmAdjustedGoal}
+              >
+                {addingGoalId !== null ? <Loader2 className="h-4 w-4 animate-spin" /> : t("goals_adjust_confirm")}
+              </Button>
             </>
           )}
 
@@ -2071,7 +2302,16 @@ export function CreateWizardDrawer({
                     inputMode="numeric"
                     placeholder={t("goals_duration_days")}
                     value={goalCustomDuration}
-                    onChange={(e) => setGoalCustomDuration(e.target.value)}
+                    onChange={(e) => {
+                      setGoalCustomDuration(e.target.value);
+                      // Duração menor que a frequência já digitada → acompanha
+                      // o novo teto (senão o campo mostraria um valor inválido).
+                      const d = parseInt(e.target.value, 10);
+                      const f = parseInt(goalFrequency, 10);
+                      if (Number.isFinite(d) && d > 0 && Number.isFinite(f) && f > d) {
+                        setGoalFrequency(String(Math.min(7, d)));
+                      }
+                    }}
                     style={{ fontSize: "16px", background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }}
                   />
                 )}
@@ -2082,17 +2322,17 @@ export function CreateWizardDrawer({
                   type="number"
                   inputMode="numeric"
                   min={1}
-                  max={7}
+                  max={maxGoalFrequency}
                   placeholder={t("goals_create_frequency_placeholder")}
                   value={goalFrequency}
                   onChange={(e) => {
                     const v = Number(e.target.value);
-                    if (e.target.value === "" || (v >= 1 && v <= 7)) setGoalFrequency(e.target.value);
+                    if (e.target.value === "" || (v >= 1 && v <= maxGoalFrequency)) setGoalFrequency(e.target.value);
                   }}
                   style={{ fontSize: "16px", background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }}
                 />
                 <p className="text-xs" style={{ color: "rgba(255,255,255,.45)" }}>
-                  {t("goals_create_frequency_hint")}
+                  {t("goals_gd_edit_frequency_hint").replace("{max}", String(maxGoalFrequency))}
                 </p>
               </div>
               <Button
@@ -2123,14 +2363,21 @@ export function CreateWizardDrawer({
               className="w-full rounded-full h-12"
               style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}
               disabled={isSaving}
-              onClick={() => (editRoutine ? handleAddItemsToRoutine() : goTo("build-schedule"))}
+              onClick={() => {
+                if (!editRoutine) return goTo("build-schedule");
+                // Hábito: pergunta o horário de cada item novo antes de salvar.
+                // Treino/dieta têm horário único, que os novos itens herdam —
+                // não há o que perguntar.
+                if (editRoutine.type === 3) return goTo("edit-item-times");
+                return handleAddItemsToRoutine();
+              }}
             >
               {isSaving ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
-              ) : editRoutine ? (
+              ) : editRoutine && editRoutine.type !== 3 ? (
                 t("goals_wizard_add_items_btn").replace("{n}", String(newSelectedCount))
               ) : (
-                `${t("goals_continue")} · ${selectedIds.size}`
+                `${t("goals_continue")} · ${newSelectedCount}`
               )}
             </Button>
           </div>

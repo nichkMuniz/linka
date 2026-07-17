@@ -1,5 +1,5 @@
 import * as React from "react";
-import { BarChart3, Bell, Check, ChevronDown, ListPlus, Pencil, Play, Target, Trash2 } from "lucide-react";
+import { BarChart3, Bell, Check, ChevronDown, Flame, ListPlus, Pencil, Play, Target, Trash2 } from "lucide-react";
 import {
   Drawer,
   DrawerContent,
@@ -22,6 +22,7 @@ import { ExerciseImage } from "@/components/shared/exercise-image";
 import { PremiumGate } from "@/components/shared/premium-gate";
 import { TrendChart } from "@/components/shared/trend-chart";
 import { useLanguage } from "@/lib/language-context";
+import { HabitTimeRow } from "@/components/goals/habit-time-row";
 import type { TranslationKey } from "@/lib/i18n";
 import { formatScheduledTime } from "@/hooks/use-routine-notifications";
 import { getSuggestedSetsForCard, isCompletedToday, type RoutineCard, type RoutineItem } from "@/components/goals/goals-helpers";
@@ -47,6 +48,8 @@ interface RoutineDetailDrawerProps {
   onSetTime: (card: RoutineCard, time: string | null) => Promise<void>;
   onSetDays: (card: RoutineCard, days: string | null) => Promise<void>;
   onSetItemTime: (item: RoutineItem, time: string | null) => Promise<void>;
+  /** Hora de fim de um hábito (janela de execução). null limpa. */
+  onSetItemEndTime: (item: RoutineItem, endTime: string | null) => Promise<void>;
   onLinkGoal: (card: RoutineCard, goal: UserGoal | null) => Promise<void>;
   onDeleteCard: (card: RoutineCard) => Promise<void>;
 }
@@ -64,6 +67,7 @@ export function RoutineDetailDrawer({
   onSetTime,
   onSetDays,
   onSetItemTime,
+  onSetItemEndTime,
   onLinkGoal,
   onDeleteCard,
 }: RoutineDetailDrawerProps) {
@@ -73,6 +77,8 @@ export function RoutineDetailDrawer({
   const [timeValue, setTimeValue] = React.useState("");
   // Per-item reminder times for habit routines with 2+ items (item.id → "HH:MM")
   const [itemTimes, setItemTimes] = React.useState<Record<string, string>>({});
+  // Hora de fim por hábito (item.id → "HH:MM"); "" = sem fim
+  const [itemEndTimes, setItemEndTimes] = React.useState<Record<string, string>>({});
   // Set of Monday-first weekday indices (0=Mon … 6=Sun), empty = every day
   const [selectedDays, setSelectedDays] = React.useState<Set<number>>(new Set());
   const [isBusy, setIsBusy] = React.useState(false);
@@ -116,16 +122,39 @@ export function RoutineDetailDrawer({
     [card],
   );
 
+  // Hábitos são exibidos na ORDEM DE EXECUÇÃO (por horário) — a lista vira a
+  // agenda do dia. Sem horário vai para o fim (nada a agendar). Só hábito:
+  // em TREINO a ordem dos exercícios é a da sessão e não pode ser mexida, e
+  // DIETA usa horário único compartilhado (ordenar não mudaria nada).
+  // `sort` é estável, então itens no mesmo horário mantêm a ordem de criação.
+  const orderedItems = React.useMemo(() => {
+    const items = card?.items ?? [];
+    if (card?.type !== 3) return items;
+    return [...items].sort((a, b) => {
+      const ta = a.scheduled_time ?? "";
+      const tb = b.scheduled_time ?? "";
+      if (!ta && !tb) return 0;
+      if (!ta) return 1;
+      if (!tb) return -1;
+      return ta < tb ? -1 : ta > tb ? 1 : 0;
+    });
+  }, [card]);
+
   React.useEffect(() => {
     if (card) {
       setEditor(null);
       setRenameValue(card.name ?? "");
       setTimeValue(card.scheduledTime ? card.scheduledTime.slice(0, 5) : "");
       const times: Record<string, string> = {};
+      const endTimes: Record<string, string> = {};
       card.items.forEach((i) => {
         times[i.id] = i.scheduled_time ? i.scheduled_time.slice(0, 5) : "";
+        // Só hábito tem hora de fim (a coluna existe apenas em user_habits).
+        endTimes[i.id] =
+          i.kind === "habit" && i.scheduled_end_time ? i.scheduled_end_time.slice(0, 5) : "";
       });
       setItemTimes(times);
+      setItemEndTimes(endTimes);
       const parsed = (card.scheduledDays ?? "")
         .split(",")
         .map(Number)
@@ -146,8 +175,10 @@ export function RoutineDetailDrawer({
         ? t("goals_rt_diets")
         : t("goals_rt_habits"));
   const linkedGoal = card.goalId ? userGoals.find((g) => g.goal_id === card.goalId) : null;
-  // Rotinas de hábito com 2+ itens ganham um horário por item em vez de um único horário para a rotina toda
-  const isMultiHabit = card.type === 3 && card.items.length > 1;
+  // TODA rotina de hábito edita por item — inclusive com um único hábito, que
+  // também tem janela início→fim (o input único não comporta o fim, e o fim
+  // ficaria salvo porém invisível/inatingível aqui).
+  const isHabitRoutine = card.type === 3;
 
   const runAction = async (fn: () => Promise<void>) => {
     setIsBusy(true);
@@ -160,8 +191,9 @@ export function RoutineDetailDrawer({
   };
 
   return (
-    <Drawer open onOpenChange={(o) => !o && onClose()} fixed>
+    <Drawer open onOpenChange={(o) => !o && onClose()} fixed handleOnly>
       <DrawerContent
+        handleOnly
         handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
         className="flex flex-col !rounded-t-[32px] !border-0"
         style={{
@@ -210,7 +242,7 @@ export function RoutineDetailDrawer({
         <div className="flex-1 overflow-y-auto px-4 pb-8 space-y-3">
           {/* Items */}
           <div className="space-y-1.5">
-            {card.items.map((item) => {
+            {orderedItems.map((item) => {
               const itemName =
                 item.kind === "workout"
                   ? item.workoutName
@@ -219,10 +251,15 @@ export function RoutineDetailDrawer({
                     : item.habitName;
               const completed = card.type !== 1 && isCompletedToday(item as any);
               const isWorkout = item.kind === "workout";
+              // Hábito tem horário POR ITEM (o chip do header mostra só o do
+              // primeiro), então a linha expande para revelar o horário dele.
+              const isHabit = item.kind === "habit";
+              // Dieta expande para mostrar a informação nutricional do alimento.
+              const isDiet = item.kind === "diet";
               const sug = isWorkout
                 ? suggestedSets.get((item.workoutName || "").trim().toLowerCase())
                 : undefined;
-              const expanded = isWorkout && expandedItem === item.id;
+              const expanded = expandedItem === item.id;
               const isCardio = item.kind === "workout" && (item.muscle_group || "").toLowerCase().includes("cardio");
               const progressPts = isWorkout ? progressByItem[item.id] : undefined;
               const subtitle =
@@ -274,14 +311,35 @@ export function RoutineDetailDrawer({
                         >
                           <Check className="h-5 w-5" />
                         </button>
-                        <div className="flex-1 min-w-0">
-                          <p className={`text-sm font-medium truncate ${completed ? "line-through" : ""}`} style={{ color: completed ? "rgba(255,255,255,.4)" : "#fff" }}>
-                            {itemName}
-                          </p>
-                          <p className="text-xs truncate" style={{ color: "rgba(255,255,255,.5)" }}>
-                            {subtitle}
-                          </p>
-                        </div>
+                        {isHabit || isDiet ? (
+                          <button
+                            onClick={() => setExpandedItem(expanded ? null : item.id)}
+                            className="flex items-center gap-2 flex-1 min-w-0 text-left"
+                            aria-expanded={expanded}
+                          >
+                            <div className="flex-1 min-w-0">
+                              <p className={`text-sm font-medium truncate ${completed ? "line-through" : ""}`} style={{ color: completed ? "rgba(255,255,255,.4)" : "#fff" }}>
+                                {itemName}
+                              </p>
+                              <p className="text-xs truncate" style={{ color: "rgba(255,255,255,.5)" }}>
+                                {subtitle}
+                              </p>
+                            </div>
+                            <ChevronDown
+                              className={`h-4 w-4 shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`}
+                              style={{ color: "rgba(255,255,255,.5)" }}
+                            />
+                          </button>
+                        ) : (
+                          <div className="flex-1 min-w-0">
+                            <p className={`text-sm font-medium truncate ${completed ? "line-through" : ""}`} style={{ color: completed ? "rgba(255,255,255,.4)" : "#fff" }}>
+                              {itemName}
+                            </p>
+                            <p className="text-xs truncate" style={{ color: "rgba(255,255,255,.5)" }}>
+                              {subtitle}
+                            </p>
+                          </div>
+                        )}
                       </>
                     )}
                     <button
@@ -299,10 +357,41 @@ export function RoutineDetailDrawer({
                         className="flex items-center justify-between rounded-xl px-3 py-2.5"
                         style={{ background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.08)" }}
                       >
-                        <span className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>
-                          {t("goals_detail_series_reps_caption")}
+                        <span className="text-xs flex items-center gap-1.5" style={{ color: "rgba(255,255,255,.5)" }}>
+                          {isHabit && <Bell className="h-3 w-3" />}
+                          {isDiet && <Flame className="h-3 w-3" />}
+                          {isHabit
+                            ? t("goals_detail_item_time_caption")
+                            : isDiet
+                              ? t("goals_detail_item_calories_caption")
+                              : t("goals_detail_series_reps_caption")}
                         </span>
-                        {sug ? (
+                        {isDiet ? (
+                          item.dietCalories != null ? (
+                            <span className="text-sm font-bold tabular-nums" style={{ color: "#3ddc84" }}>
+                              {Math.round(item.dietCalories)} {t("nutrition_kcal")}
+                            </span>
+                          ) : (
+                            // O catálogo de alimentos foi semeado sem dado
+                            // nutricional — sem isso a linha ficaria em branco.
+                            <span className="text-xs text-right max-w-[55%]" style={{ color: "rgba(255,255,255,.5)" }}>
+                              {t("goals_detail_item_no_calories")}
+                            </span>
+                          )
+                        ) : isHabit ? (
+                          item.scheduled_time ? (
+                            <span className="text-sm font-bold tabular-nums" style={{ color: "#5b8cff" }}>
+                              {formatScheduledTime(item.scheduled_time)}
+                              {item.kind === "habit" && item.scheduled_end_time
+                                ? ` – ${formatScheduledTime(item.scheduled_end_time)}`
+                                : ""}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-right max-w-[55%]" style={{ color: "rgba(255,255,255,.5)" }}>
+                              {t("goals_detail_item_no_time")}
+                            </span>
+                          )
+                        ) : sug ? (
                           <span className="text-sm font-bold tabular-nums" style={{ color: "#fff" }}>
                             {sug.series} × {sug.reps}
                           </span>
@@ -312,6 +401,29 @@ export function RoutineDetailDrawer({
                           </span>
                         )}
                       </div>
+
+                      {/* Macros — só quando o alimento tem algum valor. */}
+                      {isDiet &&
+                        (item.dietProtein != null || item.dietCarbs != null || item.dietFat != null) && (
+                          <div className="mt-2 grid grid-cols-3 gap-2">
+                            {[
+                              { l: t("nutrition_protein_short"), v: item.dietProtein },
+                              { l: t("nutrition_carbs_short"), v: item.dietCarbs },
+                              { l: t("nutrition_fat_short"), v: item.dietFat },
+                            ].map((m) => (
+                              <div
+                                key={m.l}
+                                className="rounded-xl px-2 py-2 text-center"
+                                style={{ background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.08)" }}
+                              >
+                                <div className="text-white tabular-nums font-semibold" style={{ fontSize: "13px" }}>
+                                  {m.v != null ? `${Math.round(m.v)}g` : "—"}
+                                </div>
+                                <div style={{ fontSize: "10.5px", color: "rgba(255,255,255,.45)" }}>{m.l}</div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
 
                       {!isCardio && progressPts && progressPts.length >= 2 && (
                         <PremiumGate feature="charts" className="mt-2">
@@ -371,32 +483,24 @@ export function RoutineDetailDrawer({
 
           {editor === "time" && (
             <div className="rounded-2xl p-3 space-y-3" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}>
-              {isMultiHabit ? (
+              {isHabitRoutine ? (
                 <>
                   <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>
                     {t("goals_edit_habit_time_per_item_hint")}
                   </p>
-                  <div className="space-y-2">
-                    {card.items.map((item) => (
-                      <div key={item.id} className="flex items-center gap-2">
-                        <span className="flex-1 min-w-0 truncate text-sm" style={{ color: "#fff" }}>
-                          {item.kind === "habit" ? item.habitName : ""}
-                        </span>
-                        <div
-                          className="w-[128px] h-11 rounded-xl overflow-hidden shrink-0"
-                          style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)" }}
-                        >
-                          <input
-                            type="time"
-                            value={itemTimes[item.id] ?? ""}
-                            onChange={(e) =>
-                              setItemTimes((prev) => ({ ...prev, [item.id]: e.target.value }))
-                            }
-                            className="block w-full h-full px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                            style={{ fontSize: "16px", minWidth: 0, maxWidth: "100%", boxSizing: "border-box", background: "transparent", border: "none", color: "#fff" }}
-                          />
-                        </div>
-                      </div>
+                  {/* Mesma ordem da lista de cima (por horário) — as duas listas
+                      são os mesmos hábitos; ordens diferentes confundiriam. Só
+                      reordena quando o card recarrega, nunca enquanto digita. */}
+                  <div className="space-y-3">
+                    {orderedItems.map((item) => (
+                      <HabitTimeRow
+                        key={item.id}
+                        name={item.kind === "habit" ? item.habitName ?? "" : ""}
+                        start={itemTimes[item.id] ?? ""}
+                        end={itemEndTimes[item.id] ?? ""}
+                        onStartChange={(v) => setItemTimes((prev) => ({ ...prev, [item.id]: v }))}
+                        onEndChange={(v) => setItemEndTimes((prev) => ({ ...prev, [item.id]: v }))}
+                      />
                     ))}
                   </div>
                 </>
@@ -414,7 +518,9 @@ export function RoutineDetailDrawer({
                       value={timeValue}
                       onChange={(e) => setTimeValue(e.target.value)}
                       className="block w-full h-full px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                      style={{ fontSize: "16px", minWidth: 0, maxWidth: "100%", boxSizing: "border-box", background: "transparent", border: "none", color: "#fff" }}
+                      // textAlign center: o horário selecionado fica centralizado
+                      // no campo (o iOS não centraliza o <input type="time"> sozinho).
+                      style={{ fontSize: "16px", minWidth: 0, maxWidth: "100%", boxSizing: "border-box", background: "transparent", border: "none", color: "#fff", textAlign: "center" }}
                     />
                   </div>
                 </>
@@ -460,6 +566,11 @@ export function RoutineDetailDrawer({
                     disabled={isBusy}
                     onClick={() => runAction(async () => {
                       await onSetTime(card, null);
+                      // Desligar tudo inclui a hora de fim — sem isso o fim
+                      // ficaria no banco sem um início, órfão e invisível.
+                      if (isHabitRoutine) {
+                        await Promise.all(card.items.map((item) => onSetItemEndTime(item, null)));
+                      }
                       await onSetDays(card, null);
                     })}
                   >
@@ -470,13 +581,21 @@ export function RoutineDetailDrawer({
                   size="sm"
                   className="flex-1 rounded-full"
                   style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}
-                  disabled={(!isMultiHabit && !timeValue) || isBusy}
+                  disabled={(!isHabitRoutine && !timeValue) || isBusy}
                   onClick={() => {
                     const daysStr = Array.from(selectedDays).sort((a, b) => a - b).join(",");
                     runAction(async () => {
-                      if (isMultiHabit) {
+                      if (isHabitRoutine) {
                         await Promise.all(
-                          card.items.map((item) => onSetItemTime(item, itemTimes[item.id] || null)),
+                          card.items.flatMap((item) => [
+                            onSetItemTime(item, itemTimes[item.id] || null),
+                            // Sem início não há janela: garante que o fim não
+                            // fique órfão quando o horário é limpo.
+                            onSetItemEndTime(
+                              item,
+                              itemTimes[item.id] ? itemEndTimes[item.id] || null : null,
+                            ),
+                          ]),
                         );
                       } else {
                         await onSetTime(card, timeValue);

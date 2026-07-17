@@ -1,5 +1,5 @@
 import * as React from "react";
-import { getChatMediaUrlDb } from "@/lib/ritmofit-db";
+import { getChatMediaUrlDb, peekChatMediaUrl } from "@/lib/ritmofit-db";
 
 /**
  * Mídia de mensagem direta.
@@ -11,12 +11,20 @@ import { getChatMediaUrlDb } from "@/lib/ritmofit-db";
  * conseguem gerar (RLS em storage.objects).
  *
  * Como assinar é assíncrono, a URL é resolvida em efeito e a bolha mostra um
- * placeholder até chegar.
+ * placeholder até chegar. Quando a URL já está assinada em memória
+ * (`peekChatMediaUrl`), ela entra direto no estado inicial: a bolha nasce com a
+ * mídia, sem passar pelo placeholder — é o caso de toda reabertura da conversa.
  */
 function useChatMediaUrl(ref: string): string | null {
-  const [url, setUrl] = React.useState<string | null>(null);
+  const [url, setUrl] = React.useState<string | null>(() => peekChatMediaUrl(ref));
 
   React.useEffect(() => {
+    const cachedUrl = peekChatMediaUrl(ref);
+    if (cachedUrl) {
+      setUrl(cachedUrl);
+      return;
+    }
+
     let active = true;
     setUrl(null);
     getChatMediaUrlDb(ref)

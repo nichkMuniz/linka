@@ -22,6 +22,30 @@ Princípio de produto: **nunca gatear os loops de retenção** (feed/social/DMs,
 | `PremiumProvider` / `usePremium()` | `client/lib/premium-context.tsx` | `{ isPremium, loading, refresh }`; montado em `App.tsx` dentro de `AuthProvider` |
 | `PaywallDrawer` | `client/components/shared/paywall-drawer.tsx` | Drawer glass com os 4 benefícios (destaca o `feature` que motivou); CTA Fase 1 = toast "em breve" |
 | `PremiumGate` | `client/components/shared/premium-gate.tsx` | Blur(8px) + cadeado + CTA sobre conteúdo premium; premium vê os children direto |
+| `getSubscriptionDb()` | `client/lib/ritmofit-db.ts` | Lê a **própria** linha de `subscriptions` (policy `subscriptions_select_own`) para a tela de gerenciar assinatura. **Sem cache** de propósito — é lida ao abrir o drawer (raro), e status/data velhos são piores que um round-trip |
+| `SubscriptionDrawer` | `client/components/profile/subscription-drawer.tsx` | Detalhes da assinatura + cancelamento (ver abaixo) |
+
+## Gerenciar assinatura (Configurações → Assinatura)
+
+Seção **"Assinatura"** no `settings-drawer.tsx`, entre Negócio e Preferências, renderizada **só quando `usePremium().isPremium`** — quem não assina vê a coroa "Seja Premium" no header do `AppLayout`, que abre o paywall. O item "Gerenciar assinatura" abre o `SubscriptionDrawer` (aninhado, padrão glass do settings), que relê `getSubscriptionDb()` **a cada abertura** (quem escreve a linha é um terceiro — service role/webhook —, então o valor da abertura anterior pode estar velho).
+
+O drawer exibe apenas o que existe de fato na tabela:
+
+| Campo exibido | Origem | Observação |
+|---|---|---|
+| Status | `subscriptions.status` | Pill colorida: verde (ativa), laranja (cancelada/expirada), cinza (inativa) |
+| Início | `subscriptions.created_at` | Formatado no locale do app (pt-BR / en-US) |
+| Cobrança | `subscriptions.store` | `app_store` → "App Store"; `manual`/null → "Ativação manual" |
+| Próxima cobrança / Acesso até | `subscriptions.current_period_end` | O **rótulo muda com o status**: cancelada/expirada → "Acesso até" (o período pago continua valendo); ativa → "Próxima cobrança". `NULL` → "Sem data de expiração" |
+
+> **Não há preço na tela — de propósito.** A tabela `subscriptions` não tem coluna de valor e a Fase 1 não cobra nada; exibir um preço aqui seria número inventado. Na Fase 2 o valor vem do RevenueCat (`Purchases.getOfferings`) e esta tabela ganha o campo correspondente.
+
+**Cancelamento.** O app **não cancela** a assinatura — no iOS isso é impossível por design: a Apple não expõe API de cancelamento de IAP, e a Guideline 3.1.2 exige mandar o usuário para a tela de assinaturas do Apple ID. Então:
+
+- `store = 'app_store'` → botão **"Gerenciar na App Store"** + **"Cancelar assinatura"** (só se `status = 'active'`). O cancelar abre um `AlertDialog` explicando que quem cancela é a Apple e que o acesso continua até o fim do período pago, e o CTA abre `https://apps.apple.com/account/subscriptions` via `Browser.open` (@capacitor/browser; no iOS essa URL cai direto na tela de assinaturas).
+- `store = 'manual'` ou null (**Fase 1 atual**) → **nenhum botão de cancelar**. Mostra a nota `settings_subscription_manual_note`: o acesso foi concedido manualmente, não há cobrança nem renovação, logo não há o que cancelar. Inventar um botão que abre a tela da Apple aqui levaria o usuário a uma lista vazia.
+
+Constante `APPLE_SUBSCRIPTIONS_URL` no próprio componente.
 
 ## Mapa de gates (v1)
 
@@ -61,7 +85,7 @@ O cache do status tem TTL de 60s — aguardar 1 min ou relogar para refletir.
 1. **Produtos** no App Store Connect (ex: `linka_premium_monthly`, `linka_premium_yearly`) + conta RevenueCat com entitlement `premium`.
 2. **Plugin** `@revenuecat/purchases-capacitor` (compatível com Capacitor 7). `app_user_id` = `user.id` do Supabase Auth. Atenção Appflow: deps novas exigem atualizar o lockfile que o Appflow usa.
 3. **Webhook**: edge function Supabase nova (ex: `revenuecat-webhook`) seguindo o padrão de `send-push-notification` — `verify_jwt` off + secret no header comparado com `Deno.env.get("REVENUECAT_WEBHOOK_SECRET")` via comparação em tempo constante; escreve em `subscriptions` com service role.
-4. **CTA do PaywallDrawer** troca o toast "em breve" pelo fluxo de compra (`Purchases.purchasePackage`) + botão "Restaurar compras" na `settings-drawer.tsx`, chamando `usePremium().refresh()` ao concluir.
+4. **CTA do PaywallDrawer** troca o toast "em breve" pelo fluxo de compra (`Purchases.purchasePackage`) + botão "Restaurar compras" na seção **Assinatura** do `settings-drawer.tsx`, chamando `usePremium().refresh()` ao concluir. O `SubscriptionDrawer` já existe e passa a mostrar dados reais sozinho assim que o webhook gravar `store = 'app_store'` + `current_period_end` — falta só **preço** (vem de `Purchases.getOfferings`, exigindo coluna nova ou leitura do RevenueCat) e o botão de restaurar.
 5. **RLS server-side** dos limites (D3): `WITH CHECK (is_premium(auth.uid()) OR <contagem dentro do limite>)` em `user_workouts`/`user_diets`/`user_habits`/`duel_groups`.
 6. Regras da Apple: assinatura de conteúdo digital **só** via IAP; exibir preço/termos no paywall; link de gerenciamento da assinatura.
 

@@ -167,6 +167,17 @@
 }
 
 @layer utilities {
+  /* Hide scrollbars while keeping scroll (usado em rows horizontais: pickers de
+     cor/fonte no flow, chips, etc.). No iOS os scrollbars já são overlay/invisíveis;
+     isto cobre o browser de dev e outras engines. */
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
   /* Brand gradient — azul #3A8DFF → roxo #7B3FF2 → laranja #FF8A2A */
   .bg-brand-gradient {
     background: linear-gradient(135deg, #3A8DFF 0%, #7B3FF2 50%, #FF8A2A 100%);

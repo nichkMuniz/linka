@@ -346,7 +346,7 @@ Catálogo de dietas disponíveis na plataforma.
 | `description_eng` | text | — | — | Descrição da dieta em inglês. Populada a partir de tradução PT→EN (`docs/migrations/20260704-catalog-eng-data.sql`) |
 | `photo` | bytea | — | — | Imagem da dieta (binário) |
 | `created_at` | timestamptz | ✓ | `now()` | Data de criação |
-| `calories` | real | — | — | Calorias associadas (por porção) |
+| `calories` | real | — | — | Calorias associadas (por porção). ⚠️ **O catálogo foi semeado do TheMealDB, que não fornece nutrição** — em 16/07/2026, 601 dos 603 alimentos estavam com `NULL` (os 2 preenchidos eram itens custom do usuário). `docs/migrations/20260716-diets-nutrition.sql` preenche **171** deles (pratos conhecidos + itens do usuário) com **estimativas por porção**; os ~432 restantes seguem `NULL` de propósito (a UI mostra "Sem informação nutricional"). Para completar: as receitas têm `mealdb_id` → buscar ingredientes na API do TheMealDB e calcular via Edamam/Nutritionix |
 | `mealdb_id` | integer | — | — | ID de referência no MealDB |
 | `category` | text | — | — | Categoria da dieta |
 | `protein_g` | real | — | — | Proteína por porção (g). Migração `20260714-food-diary.sql` |
@@ -420,6 +420,10 @@ Grupos de duelo criados por usuários para desafios coletivos.
 | `updated_at` | timestamptz | — | `now()` | Data de atualização |
 | `end_date` | timestamptz | — | — | Data de encerramento do duelo |
 | `photo` | text | — | — | URL da foto do grupo |
+| `scoring_type` | text | — | `'check_in_count'` | Modalidade de pontuação: `check_in_count`, `active_days`, `hustle_points`, `duration`, `distance`, `steps`, `calories` ou `memes`. Definida no Passo 4 do wizard e **não editável** depois |
+| `meme_rule` | text | — | — | Regra do desafio, só usada quando `scoring_type = 'memes'`. Obrigatória nesse modo (validado no cliente, tanto no wizard quanto na edição); `NULL` nas demais modalidades |
+
+> **Editável pelo criador:** `name`, `goal`, `photo` e `meme_rule` (este só em grupos de memes) — via `updateGroupInfoDb` / `updateGroupPhotoDb`. `scoring_type`, `location` e `end_date` são definidos na criação e não têm UI de edição: mudar a modalidade recalcularia todo o placar retroativamente.
 
 ---
 
@@ -1109,7 +1113,8 @@ Hábitos ativos associados a um usuário.
 | `updated_at` | timestamp | — | `now()` | Data de atualização |
 | `is_completed` | boolean | — | `false` | Concluído hoje |
 | `name` | text | — | — | Nome customizado (denormalizado) |
-| `scheduled_time` | time | — | — | Horário diário de lembrete (ex: `07:30:00`) |
+| `scheduled_time` | time | — | — | Hora de **início** do hábito (ex: `07:30:00`). É **por item** (cada hábito da rotina tem o seu) |
+| `scheduled_end_time` | time | — | — | **(2026-07-16)** Hora de **fim** do hábito — o outro lado da janela de execução (`09:00–18:00`). **NULL = sem hora de fim** (hábito pontual como "Tomar remédio", ou de dia inteiro como "Não fumar"); nunca preenchido sem `scheduled_time`. **Pode ser menor que o início**: janelas que viram a noite são válidas (Dormir `23:00–07:00`) — não há constraint de ordem. Gera um **2º lembrete** ("hora de encerrar") em `getRoutineSchedulesDb`, que emite uma entrada `phase:"start"` e outra `phase:"end"`. Só existe em `user_habits` (treino/dieta têm horário único por rotina, sem janela). Gravado por `updateHabitScheduledEndTimeDb`. Migração: `docs/migrations/20260716-habit-end-time.sql` |
 | `scheduled_days` | text | — | — | Dias da semana do lembrete: índices seg→dom (0–6) separados por vírgula (ex: `0,2,4`). NULL/vazio = todos os dias |
 | `routine_id` | bigint | FK → `routines.id` ON DELETE SET NULL | — | Rotina à qual este hábito pertence |
 

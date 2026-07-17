@@ -563,7 +563,7 @@ export function AppLayout() {
           )}
         >
           {sidebarExpanded
-            ? <img src="/linka-copa-5a.png" alt="LinKa" className="h-7" />
+            ? <img src="/logo-branco.png" alt="LinKa" className="h-7" />
             : <img src="/SIMBOLO.png" alt="LinKa" className="h-8 w-8 object-contain" />
           }
         </button>
@@ -726,7 +726,7 @@ export function AppLayout() {
               aria-label="Ir para Home ou Atualizar Feed"
               className="flex items-center cursor-pointer"
             >
-              <img src="/linka-copa-5a.png" alt="LinKa" className="h-6 w-auto object-contain" />
+              <img src="/logo-branco.png" alt="LinKa" className="h-6 w-auto object-contain" />
             </button>
           </div>
 

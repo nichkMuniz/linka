@@ -30,6 +30,21 @@ function getTypeLabels(): Record<string, string> {
   }
 }
 
+// Textos do lembrete de FIM da janela do hábito. Ficam aqui (e não no i18n.ts)
+// pelo mesmo motivo dos TYPE_LABELS: o agendador roda fora do React, sem acesso
+// ao hook de idioma — lê o idioma direto do localStorage.
+const END_LABELS_PT = { one: "Hora de encerrar", many: "Hora de encerrar ({n} hábitos)" };
+const END_LABELS_EN = { one: "Time to wrap up", many: "Time to wrap up ({n} habits)" };
+
+function getEndLabels(): { one: string; many: string } {
+  try {
+    const lang = localStorage.getItem("ritmofit-language") || "pt";
+    return lang === "en" ? END_LABELS_EN : END_LABELS_PT;
+  } catch {
+    return END_LABELS_PT;
+  }
+}
+
 /**
  * Requests notification permission using the native Capacitor plugin.
  * Returns "granted", "denied", or "unavailable".
@@ -112,26 +127,34 @@ async function applySchedulesNative(schedules: RoutineScheduleEntry[]): Promise<
   // produce a single notification instead of N.
   const groups = new Map<
     string,
-    { type: string; name: string; time: string; days: string; count: number }
+    { type: string; name: string; time: string; days: string; count: number; phase: "start" | "end" }
   >();
   for (const e of schedules) {
     if (!e.scheduled_time) continue;
     const time = e.scheduled_time.slice(0, 5);
     const days = (e.scheduled_days ?? "").trim();
-    const key = `${e.type}|${e.name ?? ""}|${time}|${days}`;
+    const phase = e.phase ?? "start";
+    // `phase` entra na chave: início e fim são lembretes distintos e não podem
+    // se fundir num só, mesmo que caiam no mesmo horário.
+    const key = `${e.type}|${e.name ?? ""}|${time}|${days}|${phase}`;
     const existing = groups.get(key);
     if (existing) {
       existing.count += 1;
     } else {
-      groups.set(key, { type: e.type, name: e.name, time, days, count: 1 });
+      groups.set(key, { type: e.type, name: e.name, time, days, count: 1, phase });
     }
   }
 
   const labels = getTypeLabels();
+  const endLabels = getEndLabels();
   const toSchedule = Array.from(groups.values()).flatMap<LocalNotificationSchema>((g) => {
-    const title = `${TYPE_ICONS[g.type] || "🔔"} ${g.name || labels[g.type] || "Rotina"}`;
-    const body =
-      g.count > 1
+    const isEnd = g.phase === "end";
+    const title = `${isEnd ? "🏁" : TYPE_ICONS[g.type] || "🔔"} ${g.name || labels[g.type] || "Rotina"}`;
+    const body = isEnd
+      ? g.count > 1
+        ? `${endLabels.many.replace("{n}", String(g.count))}`
+        : endLabels.one
+      : g.count > 1
         ? `Hora da sua rotina (${g.count} ${labels[g.type] || "itens"})`
         : `Hora da sua rotina: ${labels[g.type] || "item"}`;
     const routineKey = `${ROUTINE_TYPE_CODE[g.type] ?? g.type}::${g.name ?? ""}`;
@@ -146,7 +169,7 @@ async function applySchedulesNative(schedules: RoutineScheduleEntry[]): Promise<
     if (weekdays.length === 0) {
       return [{
         ...base,
-        id: entryToNotifId(`${g.type}|${g.name}|${g.time}`),
+        id: entryToNotifId(`${g.type}|${g.name}|${g.time}|${g.phase}`),
         schedule: { at: nextOccurrence(g.time), repeats: true, every: "day" as const },
       }];
     }
@@ -154,7 +177,7 @@ async function applySchedulesNative(schedules: RoutineScheduleEntry[]): Promise<
     const [hh, mm] = g.time.split(":").map(Number);
     return weekdays.map((capWeekday) => ({
       ...base,
-      id: entryToNotifId(`${g.type}|${g.name}|${g.time}|${capWeekday}`),
+      id: entryToNotifId(`${g.type}|${g.name}|${g.time}|${capWeekday}|${g.phase}`),
       schedule: { on: { weekday: capWeekday, hour: hh, minute: mm }, repeats: true },
     }));
   });

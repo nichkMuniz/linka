@@ -105,6 +105,7 @@ Feed de vídeos curtos no estilo TikTok/Reels. O usuário rola verticalmente ent
 - Ao expandir, texto completo aparece com scroll interno limitado (`max-h-[40vh]`) e botão "ver menos" (`feed_description_less`) para recolher
 - Clique na descrição (ou nos botões) usa `stopPropagation` para não disparar o toggle de play/pause do vídeo
 - Estado de expansão controlado por shot via `expandedDescriptions` (Set de IDs)
+- **Hashtags:** renderizadas via `renderWithHashtags` (mesmo utilitário do feed/`PostDetail`, em `lib/post-visuals.tsx`) — tokens `#tag` aparecem em azul (`#9db8ff`) e são clicáveis, navegando para `/tag/:tag` (tela de Hashtag). O clique usa `stopPropagation` para não disparar o toggle de expandir/recolher da descrição nem o play/pause do vídeo
 
 ### Controle de Áudio
 - Ícone `Volume2` (com som) / `VolumeX` (mutado)

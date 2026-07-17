@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Check, CheckCircle2, Pencil, Plus, Trash2, X } from "lucide-react";
+import { Check, CheckCircle2, Pencil, Plus, Share2, Trash2, X } from "lucide-react";
 import {
   Drawer,
   DrawerContent,
@@ -21,6 +21,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useLanguage } from "@/lib/language-context";
+import { GoalShareDrawer } from "@/components/goals/goal-share-drawer";
 import type { Routine, UserGoal } from "@/lib/ritmofit-db";
 
 interface GoalDetailDrawerProps {
@@ -52,6 +53,9 @@ export function GoalDetailDrawer({
   const [deleteConfirmOpen, setDeleteConfirmOpen] = React.useState(false);
   const [isDeleting, setIsDeleting] = React.useState(false);
   const [togglingId, setTogglingId] = React.useState<string | null>(null);
+  // Meta em compartilhamento — guardada em estado próprio (em vez de um boolean)
+  // para o card continuar montado enquanto este drawer fecha ao publicar.
+  const [goalToShare, setGoalToShare] = React.useState<UserGoal | null>(null);
 
   const routineTypeLabel = (type: number) =>
     type === 2 ? t("goals_rt_diets") : type === 3 ? t("goals_rt_habits") : t("goals_rt_exercises");
@@ -73,6 +77,7 @@ export function GoalDetailDrawer({
       setDurationValue(String(goal.duration));
       setFrequencyValue(String(goal.quantity));
       setDeleteConfirmOpen(false);
+      setGoalToShare(null);
     }
   }, [goal?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -82,13 +87,25 @@ export function GoalDetailDrawer({
   const perc = Math.min(100, Math.round(goal.perc));
   const daysRemaining = Math.max(0, goal.duration - goal.days_completed);
 
+  // Frequência = dias por semana, logo nunca passa de 7; e não faz sentido
+  // executar mais dias do que a meta dura (duração 3 dias ⇒ no máx. 3x).
+  const parsedDuration = parseInt(durationValue, 10);
+  const maxFrequency = Math.min(
+    7,
+    Number.isFinite(parsedDuration) && parsedDuration > 0 ? parsedDuration : 7,
+  );
+
   const handleSave = async () => {
     const duration = parseInt(durationValue, 10);
-    const quantity = parseInt(frequencyValue, 10);
-    if (!duration || duration < 1 || !quantity || quantity < 1) return;
+    const rawQuantity = parseInt(frequencyValue, 10);
+    if (!duration || duration < 1 || !rawQuantity || rawQuantity < 1) return;
+    // Guarda final: o campo já barra valores fora da faixa, mas a duração pode
+    // ter sido reduzida depois da frequência ter sido digitada.
+    const quantity = Math.min(rawQuantity, Math.min(7, duration));
     setIsSaving(true);
     try {
       await onEditGoal(goal, { duration, quantity });
+      setFrequencyValue(String(quantity));
       setEditing(false);
     } finally {
       setIsSaving(false);
@@ -97,8 +114,9 @@ export function GoalDetailDrawer({
 
   return (
     <>
-      <Drawer open={!!goal} onOpenChange={(open) => !open && onClose()}>
+      <Drawer open={!!goal} onOpenChange={(open) => !open && onClose()} handleOnly>
         <DrawerContent
+          handleOnly
           handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
           className="!rounded-t-[32px] !border-0"
           style={{
@@ -137,7 +155,13 @@ export function GoalDetailDrawer({
                   {perc}%
                 </span>
               </div>
-              <Progress value={perc} className="h-3 rounded-full" />
+              {/* Verde emerald (mesmo do "%" acima) num trilho translúcido:
+                  sobre o vidro escuro o roxo do tema (bg-primary) se confundia
+                  com o fundo. `[&>div]` mira o indicador do Radix. */}
+              <Progress
+                value={perc}
+                className="h-3 rounded-full bg-white/10 [&>div]:bg-emerald-500"
+              />
             </div>
 
             {editing ? (
@@ -148,9 +172,19 @@ export function GoalDetailDrawer({
                   <Input
                     id="gd-duration"
                     type="number"
+                    inputMode="numeric"
                     min={1}
                     value={durationValue}
-                    onChange={(e) => setDurationValue(e.target.value)}
+                    onChange={(e) => {
+                      setDurationValue(e.target.value);
+                      // Baixar a duração abaixo da frequência deixaria o par
+                      // inválido — acompanha o novo teto.
+                      const d = parseInt(e.target.value, 10);
+                      const f = parseInt(frequencyValue, 10);
+                      if (Number.isFinite(d) && d > 0 && Number.isFinite(f) && f > d) {
+                        setFrequencyValue(String(Math.min(7, d)));
+                      }
+                    }}
                     className="rounded-md"
                     style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }}
                   />
@@ -160,12 +194,24 @@ export function GoalDetailDrawer({
                   <Input
                     id="gd-frequency"
                     type="number"
+                    inputMode="numeric"
                     min={1}
+                    max={maxFrequency}
                     value={frequencyValue}
-                    onChange={(e) => setFrequencyValue(e.target.value)}
+                    onChange={(e) => {
+                      // Mesmo padrão do wizard: só aceita a digitação dentro da
+                      // faixa (o `max` do input não impede digitar no iOS).
+                      const v = Number(e.target.value);
+                      if (e.target.value === "" || (v >= 1 && v <= maxFrequency)) {
+                        setFrequencyValue(e.target.value);
+                      }
+                    }}
                     className="rounded-md"
                     style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }}
                   />
+                  <p className="text-xs" style={{ color: "rgba(255,255,255,.45)" }}>
+                    {t("goals_gd_edit_frequency_hint").replace("{max}", String(maxFrequency))}
+                  </p>
                 </div>
                 <div className="grid grid-cols-2 gap-2.5 pt-1">
                   <Button
@@ -251,6 +297,16 @@ export function GoalDetailDrawer({
                 {/* Actions (ocultos em modo readOnly) */}
                 {!readOnly && (
                   <div className="space-y-2.5 pt-1">
+                    {isCompleted && (
+                      <Button
+                        className="w-full rounded-full gap-2"
+                        style={{ background: "#22c55e", color: "#fff" }}
+                        onClick={() => setGoalToShare(goal)}
+                      >
+                        <Share2 className="h-4 w-4" />
+                        {t("goals_gd_share")}
+                      </Button>
+                    )}
                     {!isCompleted && (
                       <Button
                         variant="outline"
@@ -277,6 +333,12 @@ export function GoalDetailDrawer({
           </div>
         </DrawerContent>
       </Drawer>
+
+      <GoalShareDrawer
+        goal={goalToShare}
+        onClose={() => setGoalToShare(null)}
+        onShared={onClose}
+      />
 
       <AlertDialog
         open={deleteConfirmOpen}

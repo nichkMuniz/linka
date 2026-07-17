@@ -50,6 +50,12 @@ interface WorkoutContextValue {
   // Currently expanded exercise card (persisted so it survives minimize + navigation)
   workoutExpandedId: string | null;
   setWorkoutExpandedId: React.Dispatch<React.SetStateAction<string | null>>;
+  // Exercícios marcados como "máquina zerada" nesta sessão (workout_id) — o
+  // usuário confirma via prompt ao concluir uma série pesada. Persistido para
+  // sobreviver a minimizar/reload; alimenta a borda dourada do card e o
+  // machinedExercises do resumo. Array (não Set) para serializar no localStorage.
+  maxedExerciseIds: string[];
+  setMaxedExerciseIds: React.Dispatch<React.SetStateAction<string[]>>;
   // Reset all workout state
   resetWorkoutState: () => void;
   // Rest timer (shared so FAB can display it)
@@ -92,6 +98,8 @@ const WorkoutContext = React.createContext<WorkoutContextValue>({
   setWorkoutRemovedIds: () => {},
   workoutExpandedId: null,
   setWorkoutExpandedId: () => {},
+  maxedExerciseIds: [],
+  setMaxedExerciseIds: () => {},
   resetWorkoutState: () => {},
   globalRestTimerRemaining: 0,
   setGlobalRestTimerRemaining: () => {},
@@ -120,6 +128,7 @@ function loadPersistedWorkout() {
       workoutExtraItems?: UserWorkoutWithDetails[];
       workoutRemovedIds?: string[];
       workoutExpandedId?: string | null;
+      maxedExerciseIds?: string[];
     };
   } catch {
     return null;
@@ -161,6 +170,9 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
   const [workoutExpandedId, setWorkoutExpandedId] = React.useState<string | null>(
     () => persisted?.workoutExpandedId ?? null
   );
+  const [maxedExerciseIds, setMaxedExerciseIds] = React.useState<string[]>(
+    () => persisted?.maxedExerciseIds ?? []
+  );
   const [globalRestTimerRemaining, setGlobalRestTimerRemaining] = React.useState(0);
   const [globalRestTimerActive, setGlobalRestTimerActive] = React.useState(false);
   const [globalRestTimerPaused, setGlobalRestTimerPaused] = React.useState(false);
@@ -179,9 +191,10 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
         workoutExtraItems,
         workoutRemovedIds,
         workoutExpandedId,
+        maxedExerciseIds,
       }));
     }
-  }, [workoutSeries, workoutStartTime, selectedRoutineName, workoutExerciseRestTimes, workoutExerciseNotes, workoutExtraItems, workoutRemovedIds, workoutExpandedId, workoutModalOpen, workoutMinimized]);
+  }, [workoutSeries, workoutStartTime, selectedRoutineName, workoutExerciseRestTimes, workoutExerciseNotes, workoutExtraItems, workoutRemovedIds, workoutExpandedId, maxedExerciseIds, workoutModalOpen, workoutMinimized]);
 
   // Workout duration timer — calculates from startTime so background/lock doesn't break it
   React.useEffect(() => {
@@ -325,6 +338,7 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
     setWorkoutExtraItems([]);
     setWorkoutRemovedIds([]);
     setWorkoutExpandedId(null);
+    setMaxedExerciseIds([]);
     setWorkoutMinimized(false);
     setWorkoutModalOpen(false);
     setGlobalRestTimerRemaining(0);
@@ -348,6 +362,7 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
       workoutExtraItems, setWorkoutExtraItems,
       workoutRemovedIds, setWorkoutRemovedIds,
       workoutExpandedId, setWorkoutExpandedId,
+      maxedExerciseIds, setMaxedExerciseIds,
       resetWorkoutState,
       globalRestTimerRemaining, setGlobalRestTimerRemaining,
       globalRestTimerActive, setGlobalRestTimerActive,

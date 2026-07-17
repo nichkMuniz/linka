@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import {
   searchUsersDb,
   searchRoutinesDb,
-  searchPostsByHashtagDb,
+  searchContentByHashtagDb,
   getAllUsersDb,
   getFollowingIdsDb,
   getRoutineWorkoutsDb,
@@ -15,17 +15,22 @@ import {
   type SearchUser,
   type RoutineResult,
   type RoutineItemRow,
-  type HashtagPost,
+  type HashtagItem,
 } from "@/lib/ritmofit-db";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/components/ui/use-toast";
-import { ChevronDown, ChevronUp, Copy, Dumbbell, Users, Salad, SearchX, Hash } from "lucide-react";
+import { ChevronDown, ChevronUp, Copy, Dumbbell, Users, Salad, SearchX, Hash, Video } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useLanguage } from "@/lib/language-context";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { FollowButton } from "@/components/shared/follow-button";
 import { SearchResultsSkeleton, GridSkeleton } from "@/components/shared/animated-loading";
 import { getPostGradient } from "@/lib/post-visuals";
+
+// Tags reais mais usadas nas legendas de posts e Shots — dão um ponto de partida
+// para quem abre a aba sem saber o que buscar (levantado via consulta na base em
+// 2026-07-16). Lista estática: é um empurrão inicial, não um ranking ao vivo.
+const SUGGESTED_HASHTAGS = ["linka", "fitness", "recordepessoal", "treino", "caminhada"];
 
 type RoutineCardProps = {
   routine: RoutineResult;
@@ -165,7 +170,7 @@ export default function Search() {
   const [isLoadingPeople, setIsLoadingPeople] = React.useState(false);
   const [isLoadingWorkouts, setIsLoadingWorkouts] = React.useState(false);
   const [isLoadingDiets, setIsLoadingDiets] = React.useState(false);
-  const [hashtagPosts, setHashtagPosts] = React.useState<HashtagPost[]>([]);
+  const [hashtagItems, setHashtagItems] = React.useState<HashtagItem[]>([]);
   const [isLoadingHashtags, setIsLoadingHashtags] = React.useState(false);
   const [followingIds, setFollowingIds] = React.useState<Set<string>>(new Set());
 
@@ -216,7 +221,7 @@ export default function Search() {
         if (activeTab === "people") setSearchUsers(allUsers);
         else if (activeTab === "workouts") setSearchWorkouts(allWorkouts);
         else if (activeTab === "diets") setSearchDiets(allDiets);
-        else if (activeTab === "hashtags") setHashtagPosts([]);
+        else if (activeTab === "hashtags") setHashtagItems([]);
         return;
       }
 
@@ -237,8 +242,8 @@ export default function Search() {
           setSearchDiets(diets);
         } else if (activeTab === "hashtags") {
           // Aceita "#treino" ou "treino" — a busca do banco espera a tag sem "#".
-          const posts = await searchPostsByHashtagDb(query.trim().replace(/^#/, ""));
-          setHashtagPosts(posts);
+          const items = await searchContentByHashtagDb(query.trim().replace(/^#/, ""));
+          setHashtagItems(items);
         }
       } catch (err) {
         console.error("Error searching:", err);
@@ -252,6 +257,12 @@ export default function Search() {
     [activeTab, allUsers, allWorkouts, allDiets, user?.id],
   );
 
+  const handleSuggestedTagClick = (tag: string) => {
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    setSearchQuery(`#${tag}`);
+    handleSearch(tag);
+  };
+
   const handleTabChange = (tab: string) => {
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
     setActiveTab(tab);
@@ -259,7 +270,7 @@ export default function Search() {
     if (tab === "people") setSearchUsers(allUsers);
     else if (tab === "workouts") setSearchWorkouts(allWorkouts);
     else if (tab === "diets") setSearchDiets(allDiets);
-    else if (tab === "hashtags") setHashtagPosts([]);
+    else if (tab === "hashtags") setHashtagItems([]);
   };
 
   const handleToggleExpand = React.useCallback(
@@ -322,7 +333,7 @@ export default function Search() {
           : t("search_placeholder_diets");
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 px-4">
       <Input
         placeholder={searchPlaceholder}
         value={searchQuery}
@@ -526,7 +537,7 @@ export default function Search() {
         <TabsContent value="hashtags">
           {isLoadingHashtags ? (
             <GridSkeleton />
-          ) : hashtagPosts.length === 0 ? (
+          ) : hashtagItems.length === 0 ? (
             <div className="relative flex flex-col items-center justify-center py-16 text-center overflow-hidden">
               <Hash className="absolute opacity-[0.04] h-48 w-48 text-foreground" aria-hidden="true" />
               <div className="relative flex flex-col items-center gap-3">
@@ -541,22 +552,54 @@ export default function Search() {
                     {t("search_hashtags_hint")}
                   </p>
                 </div>
+                {!searchQuery.trim() && (
+                  <div className="w-full space-y-2 pt-2">
+                    <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70">
+                      {t("search_hashtags_suggestions_label")}
+                    </p>
+                    <div className="flex flex-wrap items-center justify-center gap-2">
+                      {SUGGESTED_HASHTAGS.map((tag) => (
+                        <button
+                          key={tag}
+                          onClick={() => handleSuggestedTagClick(tag)}
+                          className="rounded-full px-3 py-1.5 text-xs font-medium text-white/80 hover:text-white transition-colors active:scale-95"
+                          style={{ background: "rgba(255,255,255,.08)", border: "1px solid rgba(255,255,255,.14)" }}
+                        >
+                          #{tag}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           ) : (
             <div className="grid grid-cols-3 gap-[5px]">
-              {hashtagPosts.map((post) => {
-                const thumb = post.photo || post.photos?.[0] || "";
+              {hashtagItems.map((item) => {
+                const isShot = item.kind === "shot";
+                const thumb = item.photo || item.photos?.[0] || "";
                 return (
                   <button
-                    key={post.id}
-                    onClick={() => navigate(`/post/${post.id}`)}
+                    key={`${item.kind}-${item.id}`}
+                    onClick={() =>
+                      isShot
+                        ? navigate("/shots", { state: { shotId: item.id } })
+                        : navigate(`/post/${item.id}`)
+                    }
                     className="relative aspect-square overflow-hidden rounded-[14px] bg-muted active:opacity-80 transition-opacity"
                   >
-                    {thumb ? (
+                    {isShot ? (
+                      <video
+                        src={item.video_url ?? undefined}
+                        playsInline
+                        muted
+                        preload="metadata"
+                        className="h-full w-full bg-black object-cover"
+                      />
+                    ) : thumb ? (
                       <img
                         src={thumb}
-                        alt={post.description}
+                        alt={item.description}
                         loading="lazy"
                         decoding="async"
                         className="h-full w-full object-cover"
@@ -564,9 +607,14 @@ export default function Search() {
                     ) : (
                       <div
                         className="flex h-full w-full items-center justify-center"
-                        style={{ background: getPostGradient(post.id) }}
+                        style={{ background: getPostGradient(item.id) }}
                       >
                         <Hash className="h-6 w-6 text-white/70" />
+                      </div>
+                    )}
+                    {isShot && (
+                      <div className="absolute right-1.5 top-1.5 rounded-md bg-black/55 p-1">
+                        <Video className="h-3 w-3 text-white" />
                       </div>
                     )}
                   </button>
