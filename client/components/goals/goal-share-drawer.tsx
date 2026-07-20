@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
 import { useLanguage } from "@/lib/language-context";
 import { useAuth } from "@/hooks/useAuth";
+import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
 import { createPostDb, uploadWorkoutImageDb, type UserGoal } from "@/lib/ritmofit-db";
 import { addNetworkStatusListener, getNetworkStatus } from "@/lib/network-status";
 import {
@@ -180,6 +181,9 @@ export function GoalShareDrawer({ goal, onClose, onShared }: GoalShareDrawerProp
   const { user } = useAuth();
 
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
+  // A legenda fica abaixo do preview do card — no iOS o teclado a cobria.
+  const scrollRef = React.useRef<HTMLDivElement | null>(null);
+  useKeyboardInputScroll(scrollRef, !!goal);
   const [previewUrl, setPreviewUrl] = React.useState<string | null>(null);
   const [description, setDescription] = React.useState("");
   const [isSharing, setIsSharing] = React.useState(false);
@@ -287,8 +291,9 @@ export function GoalShareDrawer({ goal, onClose, onShared }: GoalShareDrawerProp
         </DrawerHeader>
 
         <div
+          ref={scrollRef}
           className="px-4 pt-4 space-y-4 overflow-y-auto"
-          style={{ paddingBottom: "calc(1.25rem + env(safe-area-inset-bottom))" }}
+          style={{ paddingBottom: "calc(1.25rem + env(safe-area-inset-bottom) + var(--keyboard-height, 0px))" }}
         >
           {/* Preview do card gerado */}
           <div

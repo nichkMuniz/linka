@@ -45,6 +45,7 @@ import {
   WATER_ACCENT,
   WATER_STEPS_ML,
 } from "@/components/goals/use-water-log";
+import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
 
 const ACCENT = "#3ddc84";
 const MEAL_TYPES: FoodLogMealType[] = [0, 1, 2, 3];
@@ -480,12 +481,18 @@ export function FoodDiaryDrawer({
 
   const trendPoints = dayTotals.map((d) => ({ label: dateLabel(d.date), value: d.calories }));
 
+  // Busca, registro manual e metas vivem no fundo deste scroll único — sem
+  // assistência, o iOS deixava esses campos atrás do teclado. Ver hook.
+  const scrollRef = React.useRef<HTMLDivElement | null>(null);
+  useKeyboardInputScroll(scrollRef, open);
+
   return (
     <Drawer open={open} onOpenChange={onOpenChange} handleOnly>
       <DrawerContent {...GLASS_SHEET_PROPS} handleOnly style={GLASS_SHEET_STYLE}>
         <div
+          ref={scrollRef}
           className="flex flex-col px-5 pt-2 overflow-y-auto"
-          style={{ paddingBottom: "max(24px, env(safe-area-inset-bottom))" }}
+          style={{ paddingBottom: "calc(max(24px, env(safe-area-inset-bottom)) + var(--keyboard-height, 0px))" }}
         >
           {/* ── Vista: diário do dia ── */}
           {view === "diary" && (

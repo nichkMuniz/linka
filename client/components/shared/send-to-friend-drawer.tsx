@@ -21,6 +21,7 @@ import {
 import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
 import { useAuth } from "@/hooks/useAuth";
 import { useLanguage } from "@/lib/language-context";
+import { videoPosterSrc } from "@/lib/video-thumb";
 
 /** Conteúdo interno do app que pode ser enviado via mensagem privada. */
 export type SendableContent = {
@@ -210,7 +211,7 @@ export function SendToFriendDrawer({ open, onOpenChange, content }: SendToFriend
               {content.previewImage ? (
                 content.kind === "shot" ? (
                   <video
-                    src={content.previewImage}
+                    src={videoPosterSrc(content.previewImage)}
                     muted
                     playsInline
                     preload="metadata"

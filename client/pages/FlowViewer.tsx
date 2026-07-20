@@ -17,6 +17,7 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
+import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
 import {
   getActiveStoriesDb,
   getUserStoryLikesDb,
@@ -133,6 +134,9 @@ export default function FlowViewer() {
   const [editCommentDraft, setEditCommentDraft] = React.useState("");
   const [savingEditCommentId, setSavingEditCommentId] = React.useState<string | null>(null);
   const [restartKey, setRestartKey] = React.useState(0);
+  // Responder o flow já sobe com o teclado (doca com transform próprio). Este hook
+  // cobre a textarea de EDIÇÃO inline dentro da lista de comentários.
+  useKeyboardInputScroll();
 
   const timerIntervalRef = React.useRef<NodeJS.Timeout | null>(null);
   const videoRafRef = React.useRef<number | null>(null);

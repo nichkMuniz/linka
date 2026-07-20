@@ -4,6 +4,7 @@ import { Scale, Trash2, TrendingUp, TrendingDown, Check, ChevronRight } from "lu
 import { useLanguage } from "@/lib/language-context";
 import { PremiumGate } from "@/components/shared/premium-gate";
 import { TrendChart } from "@/components/shared/trend-chart";
+import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
 import {
   GLASS_SHEET_PROPS,
   GLASS_SHEET_STYLE,
@@ -85,6 +86,11 @@ export function WeightTrackerCard({ logs, onAddWeight, onDeleteWeight }: WeightT
   const loggedRecently = lastLoggedAt ? daysSinceISODate(lastLoggedAt) < LOG_INTERVAL_DAYS : false;
 
   const points = logs.map((l) => ({ label: fmtDate(l.logged_at, language), value: l.weight }));
+
+  // O input "registrar peso" fica no meio do scroll do drawer (gráfico acima,
+  // histórico abaixo) — sem assistência ele some atrás do teclado no iOS.
+  const historyScrollRef = React.useRef<HTMLDivElement | null>(null);
+  useKeyboardInputScroll(historyScrollRef, open);
 
   // Após confirmar, o card some sozinho depois de alguns segundos (com fade).
   React.useEffect(() => {
@@ -242,7 +248,11 @@ export function WeightTrackerCard({ logs, onAddWeight, onDeleteWeight }: WeightT
       {/* Drawer de histórico + gráfico (aberto pelo link "Histórico") */}
       <Drawer open={open} onOpenChange={setOpen}>
         <DrawerContent {...GLASS_SHEET_PROPS} style={GLASS_SHEET_STYLE}>
-          <div className="flex flex-col px-5 pb-6 pt-2 overflow-y-auto">
+          <div
+            ref={historyScrollRef}
+            className="flex flex-col px-5 pt-2 overflow-y-auto"
+            style={{ paddingBottom: "calc(1.5rem + var(--keyboard-height, 0px))" }}
+          >
             <h2 className="text-white text-lg font-bold">{t("goals_weight_title")}</h2>
 
             {hasLogs ? (

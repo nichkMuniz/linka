@@ -133,8 +133,10 @@ import { SharedContentMessage } from "@/components/community/shared-content-mess
 import { ChatImageMessage, ChatAudioMessage } from "@/components/community/chat-media";
 import { RankingTab } from "@/components/community/ranking-tab";
 import { subscribeKeyboardHeight } from "@/lib/keyboard";
+import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
 import {
   specialMessageLabel,
+  conversationPreviewText,
   formatTimeAgo,
   sameMessageList,
   DEFAULT_CHECKIN_PHOTO,
@@ -159,6 +161,11 @@ export default function Community() {
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const { t, language } = useLanguage();
+  // A conversa de DM já encolhe com o teclado (bottom: --keyboard-height). Este
+  // hook cobre os formulários dos drawers (criar duelo, check-in, editar grupo,
+  // editar comentário) cujos campos ficam no meio do scroll. Ref-less: rola o
+  // container ativo detectado a partir do campo em foco. Ver hook.
+  useKeyboardInputScroll();
 
   const [activeTab, setActiveTab] = React.useState("messages");
 
@@ -891,6 +898,9 @@ export default function Community() {
     // a lista da conversa anterior: ou é a semente desta, ou vazio.
     setMessages(peekConversationMessages(targetUserId) ?? []);
     isOpeningConversationRef.current = true;
+    // A resposta em preparo pertence à conversa anterior — sem isto, o banner de
+    // reply (e o prefixo `↩` ao enviar) vazava da conversa de X para a de Y.
+    setReplyingTo(null);
 
     const loadMessages = async () => {
       try {
@@ -1891,7 +1901,7 @@ export default function Community() {
                             </p>
                           </div>
                           <p className={`text-sm truncate ${conversation.unreadCount > 0 ? "font-medium text-white/80" : "text-white/55"}`}>
-                            {specialMessageLabel(conversation.lastMessage, t) ?? (conversation.lastMessage || t("community_start_conversation"))}
+                            {conversationPreviewText(conversation.lastMessage, t) ?? t("community_start_conversation")}
                           </p>
                         </div>
                       </button>

@@ -75,7 +75,14 @@ export default function ResetPassword() {
   return (
     <div
       className="fixed inset-0 flex items-center justify-center bg-background px-6"
-      style={{ paddingTop: "max(1.5rem, env(safe-area-inset-top))", paddingBottom: "max(1.5rem, env(safe-area-inset-bottom))" }}
+      style={{
+        paddingTop: "max(1.5rem, env(safe-area-inset-top))",
+        // Soma a altura do teclado iOS ao padding inferior: como o card é
+        // centralizado (justify-center), isso o reposiciona na área visível
+        // acima do teclado (mesmo padrão do dialog.tsx). Ver keyboard.ts.
+        paddingBottom: "calc(max(1.5rem, env(safe-area-inset-bottom)) + var(--keyboard-height, 0px))",
+        transition: "padding-bottom 0.25s ease-out",
+      }}
     >
       <div className="w-full max-w-sm space-y-6">
         <div className="text-center space-y-1">

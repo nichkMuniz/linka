@@ -494,6 +494,27 @@ Todos os drawers (bottom sheets) do app são renderizados por `DrawerContent`. D
 - **`useKeyboardAwareHeight`** agora retorna `window.innerHeight - getKeyboardHeight()` (do tracker) — continua sendo "a área visível acima do teclado", atualizada em sincronia com a animação. Consumidores não mudam: `maxHeight: min(XXdvh, ${viewportHeight - 8}px)` + `flex-1 min-h-0` na área scrollável.
 - O `repositionInputs` do vaul continua **explicitamente desligado** (`repositionInputs={false}`) — depende de eventos de `visualViewport` instáveis no WKWebView. **Não reativar.** Também continua valendo: nenhum componente deve rodar handler próprio de `visualViewport` para mover drawers.
 
+#### `useKeyboardInputScroll` — revelar input no meio de um scroll (2026-07-20)
+
+**Arquivo:** `client/hooks/use-keyboard-input-scroll.ts`
+
+O lift wrapper ergue o **sheet inteiro** acima do teclado, mas não rola o **conteúdo interno** até o campo em foco. Quando um input (ou textarea) fica **no meio de uma área `overflow-y-auto` própria** — formulário rolável de drawer, overlay `position:fixed` de tela cheia, ou corpo rolável de página — o iOS deixava o campo atrás do teclado ("o teclado sobe mas eu não vejo o que digito"). O scroll-assist global de `keyboard.ts` (`scrollPageInputIntoView`) não cobre esses casos: usa `window.scrollBy` (no-op num container com scroll próprio) e ainda pula qualquer `[role="dialog"]`.
+
+Este hook é a peça que faltava. Ao focar um campo / abrir o teclado, ele rola o **container interno** até o campo ficar acima do teclado:
+
+- **API:** `useKeyboardInputScroll(scrollRef?, enabled = true)`.
+  - Com `scrollRef`: rola aquele container (passe `enabled` = estado `open` do drawer para só escutar quando aberto).
+  - **Sem ref** (ref-less): sobe do campo em foco até o ancestral rolável mais próximo. Ideal para telas com **vários** containers roláveis independentes (ex.: `settings-drawer`, um sub-drawer por seção; `Community`, dezenas de drawers de formulário) — uma única chamada cobre todos.
+- **Sempre combine com** `paddingBottom: "calc(<folga> + var(--keyboard-height, 0px))"` no MESMO container rolável — sem esse espaço extra não há para onde rolar o último campo.
+- **Imune ao lift do drawer:** a referência de "área visível" é `min(fundo do container, linha do teclado)`. Como container e input são medidos no mesmo instante, a conta é invariante ao `transform` do lift — não há dupla contagem mesmo medindo no meio da animação. A mesma fórmula serve para overlay fixo que não sobe (a linha do teclado vence).
+- **Não briga com campos já tratados:** um input que **não** está dentro de um `overflow-y-auto` (rodapé fixo `shrink-0`, campo centralizado, barra com `translateY(--keyboard-height)` própria) faz o hook não encontrar container rolável → no-op. Por isso é seguro chamar o ref-less numa tela que já trata o campo principal de outro jeito (ex.: `Community` trata o chat encolhendo o container; `flow-viewer` ergue a barra de resposta).
+
+**Quando NÃO precisa do hook:** (1) input é **rodapé fixo** do drawer (`shrink-0` fora do scroll) — o lift já o mantém acima do teclado (ex.: `post-comments-dialog`, `promotion-comments-drawer`, `send-to-friend-drawer`); (2) input fica **no topo** fixo (busca em `new-conversation`, `tag-people`, `add-members`); (3) `<input type="time"/date>` — abre o **picker de roda** do iOS, não teclado; (4) página que rola com **`window`** (o `scrollPageInputIntoView` global já cobre — ex.: `Admin`).
+
+**Campos centrados / barras próprias** (não-scroll) têm solução própria, não o hook: somar `var(--keyboard-height)` ao `padding-bottom` do wrapper de centralização (`ResetPassword`, `dialog.tsx`, `alert-dialog.tsx`) ou aplicar `transform: translateY(calc(-1 * var(--keyboard-height)))` na barra (`flow-creation-dialog`, `flow-viewer`).
+
+> **Referências pré-existentes** com a mesma lógica inline (não migradas, funcionam): `workout-session-dialog.tsx` (overlay de registrar treino) e `Login.tsx` (form de cadastro rolável). Código novo deve usar o hook.
+
 #### `handleOnly` — fechar só pela alça (2026-07-16)
 
 Prop opt-in (`handleOnly`) no `<Drawer>` **e** no `<DrawerContent>`. Quando ligada, arrastar para baixo só fecha o drawer a partir da **alça** (a pílula do topo); um swipe no **corpo** (rolar a lista, tocar numa opção, digitar) **nunca** dispara o dismiss. Resolve o miss-click de fechar sem querer durante a interação — relatado nos drawers de criar rotina de dieta/hábito.

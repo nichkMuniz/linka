@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/useAuth";
+import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
 import { hasSupabaseConfig, supabase } from "@/lib/supabase";
 import { withNetworkRetry } from "@/lib/network-status";
 import {
@@ -152,6 +153,9 @@ export default function NewPost() {
     () => sessionStorage.getItem("newpost_video_description") || "",
   );
   const captionTextareaRef = React.useRef<HTMLTextAreaElement>(null);
+  // A legenda fica abaixo das fotos, dentro do corpo rolável — o teclado iOS a
+  // cobria (window.scrollBy não rola esse container interno). Ver hook.
+  useKeyboardInputScroll();
   const [emojiPickerOpen, setEmojiPickerOpen] = React.useState(false);
   const [isLocating, setIsLocating] = React.useState(false);
 
@@ -1335,7 +1339,7 @@ export default function NewPost() {
       </div>
 
       {/* ── Scrollable body ── */}
-      <div className="flex-1 overflow-y-auto relative z-10 px-4" style={{ paddingBottom: 110 }}>
+      <div className="flex-1 overflow-y-auto relative z-10 px-4" style={{ paddingBottom: "calc(110px + var(--keyboard-height, 0px))" }}>
 
         {/* Author row */}
         <div style={{ display: "flex", gap: 13, marginBottom: 16, alignItems: "center" }}>

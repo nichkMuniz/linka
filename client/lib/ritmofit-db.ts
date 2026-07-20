@@ -23,6 +23,27 @@ export async function checkEmailExistsDb(email: string): Promise<boolean> {
   return data === true;
 }
 
+/**
+ * Verifica se um handle (@usuário) já está em uso por outro perfil.
+ * Compara de forma normalizada (sem "@", minúsculo). Retorna true se ocupado.
+ * `excludeUserId` ignora o próprio perfil (usado ao editar nas configurações).
+ * Usa a RPC `check_handle_exists` (SECURITY DEFINER), então funciona mesmo antes
+ * de o usuário estar autenticado (etapa de cadastro). Se a RPC ainda não existir
+ * (migração 20260720 não rodada), degrada para "disponível".
+ */
+export async function checkHandleExistsDb(
+  handle: string,
+  excludeUserId?: string,
+): Promise<boolean> {
+  if (!supabase) return false;
+  const { data, error } = await supabase.rpc("check_handle_exists", {
+    p_handle: handle.trim().toLowerCase(),
+    p_exclude_user: excludeUserId ?? null,
+  });
+  if (error) return false;
+  return data === true;
+}
+
 // ─── Input validation helpers ────────────────────────────────────────────────
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -1667,6 +1688,10 @@ export async function updateUserProfileDb(
     const errorMsg = error?.message || String(error);
     const errorCode = error?.code || "UNKNOWN";
     console.error(`Error updating user profile [${errorCode}]:`, errorMsg);
+    // 23505 = unique_violation → o handle escolhido já pertence a outra pessoa.
+    if (errorCode === "23505" && errorMsg.toLowerCase().includes("handle")) {
+      throw new Error("Esse @usuário já está em uso. Escolha outro.");
+    }
     throw new Error(`Erro ao atualizar perfil: ${errorMsg}`);
   }
 
@@ -11362,7 +11387,7 @@ export async function awardBadgesForCheckInsDb(
   if (isLikelyOffline()) return [];
   try {
     // Buscar dados em paralelo para minimizar latência
-    const [totalCheckIns, allBadges, existingRows, weekCount, streak, prevCheckinDate, weekWorkouts, checkinHours] =
+    const [totalCheckIns, allBadges, existingRows, weekCount, streak, prevCheckinDate, weekWorkouts, checkinHours, isPremium] =
       await Promise.all([
         getTotalCheckInsDb(userId),
         getAllBadgesDb(),
@@ -11372,6 +11397,7 @@ export async function awardBadgesForCheckInsDb(
         _getPreviousCheckinDateDb(userId),
         _getWeekWorkoutCountDb(userId),
         _getCheckinHoursDb(userId),
+        getPremiumStatusDb(),
       ]);
 
     // Falha ao ler as badges existentes (ex.: rede caiu no meio) → aborta em
@@ -11398,7 +11424,11 @@ export async function awardBadgesForCheckInsDb(
     const candidates = allBadges.filter(
       (b) =>
         !alreadyEarnedIds.has(String(b.id)) &&
-        CHECKIN_CONDITIONS.includes(b.condition_type)
+        CHECKIN_CONDITIONS.includes(b.condition_type) &&
+        // Insígnia premium só é concedida a assinante ativo (is_premium → tabela
+        // subscriptions). As 2 premium são checkin_total com required_checkins=0,
+        // então SEM este gate qualquer check-in as liberava para todo mundo.
+        !(b.premium && !isPremium)
     );
 
     const context = { totalCheckIns, weekCount, streak, prevCheckinDate, weekWorkouts, checkinHours };
@@ -11462,7 +11492,7 @@ export async function awardNutritionBadgesDb(userId?: string): Promise<Badge[]> 
     since.setDate(since.getDate() - 60);
     const sinceISO = fmtLocalDate(since);
 
-    const [logsRes, waterRes, allBadges, existingRows, goals] = await Promise.all([
+    const [logsRes, waterRes, allBadges, existingRows, goals, isPremium] = await Promise.all([
       supabase
         .from("user_food_logs")
         .select("log_date, protein_g, sugar_g, diet_id, diets(food_quality)")
@@ -11476,6 +11506,7 @@ export async function awardNutritionBadgesDb(userId?: string): Promise<Badge[]> 
       getAllBadgesDb(),
       supabase.from("user_badges").select("badge_id").eq("user_id", uid),
       getNutritionGoalsDb(),
+      getPremiumStatusDb(),
     ]);
     if (logsRes.error) throw logsRes.error;
     if (existingRows.error) throw existingRows.error;
@@ -11564,6 +11595,8 @@ export async function awardNutritionBadgesDb(userId?: string): Promise<Badge[]> 
 
     const newBadges = allBadges.filter((b) => {
       if (alreadyEarned.has(String(b.id))) return false;
+      // Premium só para assinante ativo (mesmo gate do award de check-in).
+      if (b.premium && !isPremium) return false;
       const threshold = Math.max(1, b.required_checkins ?? 1);
       switch (b.condition_type) {
         case "nutrition_no_ultra":

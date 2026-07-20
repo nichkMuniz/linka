@@ -164,9 +164,12 @@ Grade de thumbnails dos clipes do usuário.
 
 **Layout:** Grid 3 colunas (mesmo grid dos posts), itens quadrados
 
+**Privacidade:** se o dono ativou **Ocultar posts de quem não te segue** (`hide_posts_from_non_followers`), a aba exibe um estado bloqueado ("Clipes privados" + cadeado) para não seguidores — mesma regra e condição da aba Posts. Ver "Drawer de Privacidade".
+
 Cada shot na grade:
-- Preview do vídeo via `<video muted playsInline preload="metadata">` — só os metadados são baixados, não o vídeo inteiro
-- Ao clicar → navega para `/shots` com o shot aberto
+- **Preview do frame do vídeo** via `<video muted playsInline preload="metadata">` com o `src` passado por **`videoPosterSrc()`** (`client/lib/video-thumb.ts`, anexa `#t=0.1`) — o media fragment força o WebView a fazer *seek* e **pintar** esse frame como thumbnail. Sem ele, `preload="metadata"` sozinho deixa o `<video>` preto no WKWebView do iOS até dar play (era por isso que os previews não apareciam). Mesmo helper usado nas grades de Busca/Hashtag, na bolha de chat compartilhado e no arquivo de flows — ver `docs/15-design-system.md` §7.4
+- Glyph de **play** central (`Play`, `pointer-events-none`) sobre o tile, sinalizando que é um vídeo clicável
+- Ao clicar → navega para `/shots` com o shot aberto (que é movido para o topo da lista — ver `docs/03-shots.md`)
 - O rótulo da tab só mostra a contagem `(n)` depois que o batch 2 termina (evita o flicker "Shots (0)")
 
 **Botão de edição (próprio perfil apenas):**
@@ -241,9 +244,11 @@ Dois toggles que salvam imediatamente em `profiles` via `updateUserProfileDb` (a
 | Toggle | Coluna | Efeito |
 |---|---|---|
 | Ocultar seguidores e seguindo | `hide_follow_lists` | No perfil visto por **outros** usuários, os cards de Seguidores/Seguindo exibem um cadeado e, ao tocar, mostram "Esta lista é privada" em vez de abrir a lista. No próprio perfil continua tudo acessível. |
-| Ocultar posts de quem não te segue | `hide_posts_from_non_followers` | A aba **Posts** do perfil só é exibida a quem **segue** o dono. Para não seguidores aparece um estado bloqueado ("Publicações privadas" + cadeado). O dono e seus seguidores veem normalmente. |
+| Ocultar posts de quem não te segue | `hide_posts_from_non_followers` | As abas **Posts** e **Shots** do perfil só são exibidas a quem **segue** o dono. Para não seguidores aparece um estado bloqueado ("Publicações privadas" / "Clipes privados" + cadeado). O dono e seus seguidores veem normalmente. |
 
-O status de seguimento do visitante é carregado com `isFollowingDb(profileUserId)` no carregamento do perfil. O gating é client-side (consistente com o filtro de visibilidade das metas). Ao tocar em **Seguir/Deixar de seguir**, o `onFollowChange` do `FollowButton` atualiza `viewerFollowsProfile` imediatamente — a aba Posts destrava/trava na hora, sem precisar recarregar o perfil.
+O status de seguimento do visitante é carregado com `isFollowingDb(profileUserId)` no carregamento do perfil. O gating é client-side (consistente com o filtro de visibilidade das metas). Ao tocar em **Seguir/Deixar de seguir**, o `onFollowChange` do `FollowButton` atualiza `viewerFollowsProfile` imediatamente — as abas Posts e Shots destravam/travam na hora, sem precisar recarregar o perfil.
+
+> **Escopo:** o mesmo toggle controla Posts e Shots (mesma condição `hide_posts_from_non_followers && !viewerFollowsProfile`). É um gate **da aba do perfil**, não uma ACL de conteúdo: como já acontece com os posts, um shot desse usuário ainda pode aparecer para não seguidores no feed global de `/shots`, na Busca e nas Hashtags — `getShotsDb` não filtra por esse setting. Bloquear essas superfícies exigiria filtro server-side (fora do escopo desta feature, igual aos posts).
 
 ### Seção: Outros
 
@@ -359,6 +364,7 @@ Exibida entre o card de perfil e as tabs, **apenas quando o usuário tem metas**
 - **Guard de corrida no `loadProfile`:** como o componente fica montado ao navegar entre perfis, loads concorrentes podem resolver fora de ordem. Um contador (`loadSeqRef`) garante que só a requisição mais recente grava estado — a mais antiga é descartada silenciosamente
 - **Batch 2 não é fatal:** se o batch 1 (perfil/stats/posts) sucede e o batch 2 (rotinas/metas/shots/comercial) falha, a tela permanece com o perfil carregado e só exibe um toast — antes a tela inteira era trocada pela tela de erro. `profileError` também é resetado no início de todo load
 - **Pull-to-refresh imperativo:** o gesto atualiza o indicador direto no DOM via refs (sem `setState` por `touchmove`, que re-renderizava a árvore inteira a ~60fps). Ao soltar, o refresh é **soft** — invalida os caches e recarrega mantendo o conteúdo atual na tela, sem voltar ao skeleton
+  - **Não dispara a partir de drawers/dialogs abertos (corrigido 2026-07-20):** os handlers de touch ficam no `<div>` raiz do perfil. Drawers (vaul) e dialogs (Radix) são portados para `document.body` (`DrawerPortal`), mas continuam **filhos na árvore React** — então o swipe para fechar um drawer borbulhava pelos **eventos sintéticos** do React até o `onTouchStart` do perfil e disparava o pull-to-refresh por baixo. O guard `if (!e.currentTarget.contains(e.target as Node)) return;` ignora todo gesto cujo alvo real esteja fora do container do perfil (i.e., dentro de qualquer portal). Cobre vaul, Radix e overlays via `createPortal` sem depender de atributos internos de cada biblioteca
 - Imagens de banner e avatar são hospedadas no Supabase Storage
 
 ### Cache de Dados

@@ -86,10 +86,12 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/useAuth";
+import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
 import { ProfileSkeleton } from "@/components/shared/animated-loading";
 import { ShareDrawer } from "@/components/shared/share-drawer";
 import { ImageCropperDrawer } from "@/components/shared/image-cropper-drawer";
 import { profileShareUrl } from "@/lib/share-url";
+import { videoPosterSrc } from "@/lib/video-thumb";
 import {
   Edit2,
   ArrowLeft,
@@ -108,6 +110,7 @@ import {
   ShieldCheck,
   ImagePlus,
   Lock,
+  Play,
 } from "lucide-react";
 import { resetSupabaseAuth, supabase } from "@/lib/supabase";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
@@ -121,6 +124,8 @@ export default function Profile() {
   const location = useLocation();
   const { userId } = useParams<{ userId?: string }>();
   const { t } = useLanguage();
+  // Drawer de editar post (legenda mid-scroll) — mantém o campo acima do teclado.
+  useKeyboardInputScroll();
 
   // Pull-to-refresh (handlers declared after loadProfile). Todo o gesto é
   // controlado por refs + estilo imperativo no DOM: um setState por touchmove
@@ -358,6 +363,15 @@ export default function Profile() {
   // Atualizam o indicador direto no DOM — nenhum re-render React durante o gesto.
   const onTouchStart = React.useCallback((e: React.TouchEvent) => {
     if (window.scrollY > 0) return;
+    // Ignora gestos nascidos dentro de um drawer/dialog/modal. Eles são portados
+    // para fora da árvore DOM do perfil (DrawerPortal → document.body), mas
+    // continuam FILHOS na árvore React — então um swipe para fechar o drawer
+    // borbulha pelos eventos sintéticos até estes handlers e disparava o
+    // pull-to-refresh. Como o alvo real do toque está no portal (fora do
+    // container raiz do perfil), `contains` é false e o gesto é ignorado aqui.
+    // Cobre vaul, Radix (dialog/alert) e overlays via createPortal, sem depender
+    // de atributos internos de cada biblioteca.
+    if (!e.currentTarget.contains(e.target as Node)) return;
     pullStartY.current = e.touches[0].clientY;
     isPullingRef.current = true;
     pullDistanceRef.current = 0;
@@ -1296,7 +1310,13 @@ export default function Profile() {
 
         {/* Shots Tab */}
         <TabsContent value="shots" className="space-y-4">
-          {shots.length > 0 ? (
+          {isViewingOtherProfile && profile?.hide_posts_from_non_followers && !viewerFollowsProfile ? (
+            <div className="rounded-xl p-8 text-center flex flex-col items-center gap-2" style={{ background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.08)" }}>
+              <Lock className="h-6 w-6" style={{ color: "rgba(255,255,255,.5)" }} />
+              <p className="text-sm font-medium text-white">{t("profile_shots_private")}</p>
+              <p className="text-xs text-white/50">{t("profile_shots_private_desc")}</p>
+            </div>
+          ) : shots.length > 0 ? (
             <div className="grid gap-[5px] grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
               {shots.map((shot) => (
                 <div
@@ -1308,13 +1328,21 @@ export default function Profile() {
                     className="w-full h-full cursor-pointer"
                   >
                     <video
-                      src={shot.video_url}
+                      // videoPosterSrc anexa #t=0.1 para o WebView pintar o frame
+                      // como preview (senão fica preto no iOS até dar play).
+                      src={videoPosterSrc(shot.video_url)}
                       playsInline
                       muted
                       preload="metadata"
                       className="h-full w-full object-cover group-hover:scale-110 transition-transform"
                     />
                     <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
+                    {/* Glyph de play — sinaliza que o tile é um vídeo clicável */}
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                      <div className="rounded-full bg-black/35 backdrop-blur-[2px] p-1.5">
+                        <Play className="h-4 w-4 text-white" style={{ fill: "rgba(255,255,255,0.85)" }} />
+                      </div>
+                    </div>
                   </button>
 
                   {!isViewingOtherProfile && (

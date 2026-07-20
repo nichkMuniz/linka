@@ -15,6 +15,7 @@ import {
 } from "@/lib/ritmofit-db";
 import { PromotionCommentsDrawer } from "@/components/modals/promotion-comments-drawer";
 import { useAuth } from "@/hooks/useAuth";
+import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
 import { toast } from "@/components/ui/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -90,6 +91,7 @@ import {
   AlertTriangle,
   ListChecks,
   History,
+  X,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
@@ -872,7 +874,11 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
           </DrawerTitle>
         </DrawerHeader>
 
-        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4 space-y-4 pb-2" onPointerDown={(e) => e.stopPropagation()}>
+        <div
+          className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4 space-y-4"
+          style={{ paddingBottom: "calc(0.5rem + var(--keyboard-height, 0px))" }}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
           {/* ── Step 1: Link ── */}
           <div
             className="space-y-3 rounded-2xl p-3 transition-colors"
@@ -1093,7 +1099,19 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
 
               {/* Expires at */}
               <div className="space-y-1.5">
-                <label className={GLASS_LABEL_CLASS}>Válido até</label>
+                <div className="flex items-center justify-between">
+                  <label className={GLASS_LABEL_CLASS}>Válido até</label>
+                  {expiresAt && (
+                    <button
+                      type="button"
+                      onClick={() => { setExpiresAt(""); setExpiresAtKey((k) => k + 1); }}
+                      className="flex items-center gap-1 text-xs text-white/50 hover:text-white transition-colors"
+                    >
+                      <X className="h-3 w-3" />
+                      Limpar
+                    </button>
+                  )}
+                </div>
                 <Input
                   key={expiresAtKey}
                   type="date"
@@ -1103,12 +1121,13 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
                     const v = e.target.value;
                     setExpiresAt(v);
                     // WebKit/iOS: o botão nativo de limpar do <input type="date">
-                    // dispara o evento mas o campo às vezes não repinta
-                    // visualmente ao voltar para vazio. Forçar remontagem
-                    // (via key) contorna o bug de renderização do WKWebView.
+                    // nem sempre dispara o evento de mudança — o "Limpar" acima
+                    // é o caminho confiável. Mesmo assim, forçar remontagem
+                    // (via key) contorna o bug de renderização do WKWebView
+                    // nos casos em que o evento nativo dispara.
                     if (!v) setExpiresAtKey((k) => k + 1);
                   }}
-                  className={GLASS_FIELD_CLASS}
+                  className={`[&::-webkit-clear-button]:hidden ${GLASS_FIELD_CLASS}`}
                   style={GLASS_FIELD_STYLE}
                 />
               </div>
@@ -1294,7 +1313,11 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
           </DrawerTitle>
         </DrawerHeader>
 
-        <div className="flex-1 min-h-0 overflow-y-auto px-4 space-y-4 pb-6" onPointerDown={(e) => e.stopPropagation()}>
+        <div
+          className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4 space-y-4"
+          style={{ paddingBottom: "calc(1.5rem + var(--keyboard-height, 0px))" }}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
           {/* Title */}
           <div className="space-y-1.5">
             <label className={GLASS_LABEL_CLASS}>Título *</label>
@@ -1341,7 +1364,7 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
 
           {/* Prices */}
           <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
+            <div className="space-y-1.5 min-w-0">
               <label className={GLASS_LABEL_CLASS}>Preço original (R$)</label>
               <Input
                 type="text"
@@ -1349,11 +1372,11 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
                 placeholder="99,90"
                 value={originalPrice}
                 onChange={(e) => setOriginalPrice(sanitizePriceInput(e.target.value))}
-                className={GLASS_FIELD_CLASS}
+                className={`w-full min-w-0 ${GLASS_FIELD_CLASS}`}
                 style={GLASS_FIELD_STYLE}
               />
             </div>
-            <div className="space-y-1.5">
+            <div className="space-y-1.5 min-w-0">
               <label className={GLASS_LABEL_CLASS}>Preço promo (R$)</label>
               <Input
                 type="text"
@@ -1361,7 +1384,7 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
                 placeholder="74,90"
                 value={promoPrice}
                 onChange={(e) => setPromoPrice(sanitizePriceInput(e.target.value))}
-                className={GLASS_FIELD_CLASS}
+                className={`w-full min-w-0 ${GLASS_FIELD_CLASS}`}
                 style={GLASS_FIELD_STYLE}
               />
             </div>
@@ -1455,7 +1478,19 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
 
           {/* Expires at */}
           <div className="space-y-1.5">
-            <label className={GLASS_LABEL_CLASS}>Válido até</label>
+            <div className="flex items-center justify-between">
+              <label className={GLASS_LABEL_CLASS}>Válido até</label>
+              {expiresAt && (
+                <button
+                  type="button"
+                  onClick={() => { setExpiresAt(""); setExpiresAtKey((k) => k + 1); }}
+                  className="flex items-center gap-1 text-xs text-white/50 hover:text-white transition-colors"
+                >
+                  <X className="h-3 w-3" />
+                  Limpar
+                </button>
+              )}
+            </div>
             <Input
               key={expiresAtKey}
               type="date"
@@ -1465,12 +1500,13 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
                 const v = e.target.value;
                 setExpiresAt(v);
                 // WebKit/iOS: o botão nativo de limpar do <input type="date">
-                // dispara o evento mas o campo às vezes não repinta
-                // visualmente ao voltar para vazio. Forçar remontagem
-                // (via key) contorna o bug de renderização do WKWebView.
+                // nem sempre dispara o evento de mudança — o "Limpar" acima
+                // é o caminho confiável. Mesmo assim, forçar remontagem
+                // (via key) contorna o bug de renderização do WKWebView
+                // nos casos em que o evento nativo dispara.
                 if (!v) setExpiresAtKey((k) => k + 1);
               }}
-              className={GLASS_FIELD_CLASS}
+              className={`[&::-webkit-clear-button]:hidden ${GLASS_FIELD_CLASS}`}
               style={GLASS_FIELD_STYLE}
             />
           </div>
@@ -1721,6 +1757,9 @@ function ProfessionalCard({ professional: pro, onViewProfile, onMessage, onViewP
 export default function Store() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  // Drawers de criar/editar promoção têm formulários longos — mantém o campo em
+  // foco acima do teclado iOS (ref-less: rola o container ativo detectado).
+  useKeyboardInputScroll();
 
   // Tab state
   const [activeTab, setActiveTab] = React.useState<"promocoes" | "profissionais">("promocoes");

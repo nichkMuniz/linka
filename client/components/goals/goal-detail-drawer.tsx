@@ -21,6 +21,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useLanguage } from "@/lib/language-context";
+import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
 import { GoalShareDrawer } from "@/components/goals/goal-share-drawer";
 import type { Routine, UserGoal } from "@/lib/ritmofit-db";
 
@@ -56,6 +57,9 @@ export function GoalDetailDrawer({
   // Meta em compartilhamento — guardada em estado próprio (em vez de um boolean)
   // para o card continuar montado enquanto este drawer fecha ao publicar.
   const [goalToShare, setGoalToShare] = React.useState<UserGoal | null>(null);
+  // O form de edição (duração/frequência) fica no scroll — teclado não pode cobri-lo.
+  const scrollRef = React.useRef<HTMLDivElement | null>(null);
+  useKeyboardInputScroll(scrollRef, !!goal);
 
   const routineTypeLabel = (type: number) =>
     type === 2 ? t("goals_rt_diets") : type === 3 ? t("goals_rt_habits") : t("goals_rt_exercises");
@@ -142,8 +146,9 @@ export function GoalDetailDrawer({
           </DrawerHeader>
 
           <div
-            className="px-4 pt-5 pb-4 space-y-5 overflow-y-auto"
-            style={{ paddingBottom: "calc(1.25rem + env(safe-area-inset-bottom))" }}
+            ref={scrollRef}
+            className="px-4 pt-5 space-y-5 overflow-y-auto"
+            style={{ paddingBottom: "calc(1.25rem + env(safe-area-inset-bottom) + var(--keyboard-height, 0px))" }}
           >
             {/* Progress */}
             <div className="space-y-2">

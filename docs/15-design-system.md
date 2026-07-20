@@ -387,6 +387,19 @@ Padrão para deixar o usuário escolher entre **variações visuais do mesmo con
 - Background: `card` token (não `background`)
 - Padding de conteúdo: `p-4` (mobile) / `p-6` (CardContent padrão)
 
+### 7.4 Thumbnail de vídeo (preview de frame) — Obrigatório
+
+Qualquer `<video>` usado como **thumbnail/preview estático** (grade de shots, bolha de chat, preview de compartilhamento, arquivo de flows) deve ter o `src` passado por **`videoPosterSrc()`** (`client/lib/video-thumb.ts`), que anexa o media fragment `#t=0.1` à URL.
+
+- **Motivo:** `<video preload="metadata">` sozinho **não pinta** frame no WKWebView do iOS — o elemento fica preto até dar play. O fragment força o WebView a fazer *seek* e pintar aquele frame, servindo de poster sem precisar de coluna de thumbnail no banco.
+- **Sempre** acompanhar de `muted playsInline preload="metadata"` e, quando o tile é clicável para assistir, um glyph `Play` central (`pointer-events-none`).
+- **Não** se aplica a `<video controls>` / players que já dão autoplay (viewer de shot, flow fullscreen) — esses tocam e pintam sozinhos.
+
+```tsx
+import { videoPosterSrc } from "@/lib/video-thumb";
+<video src={videoPosterSrc(shot.video_url)} muted playsInline preload="metadata" className="... object-cover" />
+```
+
 ---
 
 ## 8. Componentes — Formulários

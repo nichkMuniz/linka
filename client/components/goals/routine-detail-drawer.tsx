@@ -22,6 +22,7 @@ import { ExerciseImage } from "@/components/shared/exercise-image";
 import { PremiumGate } from "@/components/shared/premium-gate";
 import { TrendChart } from "@/components/shared/trend-chart";
 import { useLanguage } from "@/lib/language-context";
+import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
 import { HabitTimeRow } from "@/components/goals/habit-time-row";
 import type { TranslationKey } from "@/lib/i18n";
 import { formatScheduledTime } from "@/hooks/use-routine-notifications";
@@ -86,6 +87,9 @@ export function RoutineDetailDrawer({
   const [expandedItem, setExpandedItem] = React.useState<string | null>(null);
   // Progressão de carga por exercício (lazy: carrega ao expandir a linha)
   const [progressByItem, setProgressByItem] = React.useState<Record<string, ExerciseProgressPoint[]>>({});
+  // O editor "renomear" abre um input no meio do scroll — mantê-lo acima do teclado.
+  const scrollRef = React.useRef<HTMLDivElement | null>(null);
+  useKeyboardInputScroll(scrollRef, !!card);
 
   // Reset da progressão ao trocar de rotina (ids de item podem colidir entre cards)
   React.useEffect(() => {
@@ -239,7 +243,11 @@ export function RoutineDetailDrawer({
           </div>
         </DrawerHeader>
 
-        <div className="flex-1 overflow-y-auto px-4 pb-8 space-y-3">
+        <div
+          ref={scrollRef}
+          className="flex-1 overflow-y-auto px-4 space-y-3"
+          style={{ paddingBottom: "calc(2rem + var(--keyboard-height, 0px))" }}
+        >
           {/* Items */}
           <div className="space-y-1.5">
             {orderedItems.map((item) => {

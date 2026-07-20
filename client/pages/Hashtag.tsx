@@ -4,6 +4,7 @@ import { ArrowLeft, Hash, Video } from "lucide-react";
 import { useLanguage } from "@/lib/language-context";
 import { searchContentByHashtagDb, type HashtagItem } from "@/lib/ritmofit-db";
 import { getPostGradient } from "@/lib/post-visuals";
+import { videoPosterSrc } from "@/lib/video-thumb";
 import { LoadingSpinner } from "@/components/shared/animated-loading";
 
 /**
@@ -102,7 +103,7 @@ export default function Hashtag() {
               >
                 {isShot ? (
                   <video
-                    src={item.video_url ?? undefined}
+                    src={videoPosterSrc(item.video_url)}
                     playsInline
                     muted
                     preload="metadata"

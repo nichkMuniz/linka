@@ -97,13 +97,26 @@ export function buildRoutineCards(
         (itemRoutineId ? routineById.get(String(itemRoutineId)) : null) ??
         routineByTypeName.get(key) ??
         null;
+      // Deduplica por id de catálogo (workout_id/diet_id/habit_id): uma rotina
+      // nunca lista o mesmo exercício/dieta/hábito duas vezes. Linhas duplicadas
+      // em user_workouts (mesmo item inserido mais de uma vez) inflavam a
+      // contagem — "aparecem mais exercícios do que criei". Mantém a 1ª
+      // ocorrência (os itens já vêm ordenados por created_at desc).
+      const seenCatalogIds = new Set<string>();
+      const uniqueItems = items.filter((i: any) => {
+        const cid = String(i.workout_id ?? i.diet_id ?? i.habit_id ?? i.id ?? "");
+        if (!cid) return true;
+        if (seenCatalogIds.has(cid)) return false;
+        seenCatalogIds.add(cid);
+        return true;
+      });
       cards.push({
         key,
         type,
         name,
         routineId: routine?.id ?? null,
         goalId: routine?.goal_id ?? null,
-        items: items.map((i) => ({ ...i, kind }) as RoutineItem),
+        items: uniqueItems.map((i) => ({ ...i, kind }) as RoutineItem),
         scheduledTime: items.find((i: any) => i.scheduled_time)?.scheduled_time ?? null,
         scheduledDays:
           items.find((i: any) => i.scheduled_days && String(i.scheduled_days).trim())

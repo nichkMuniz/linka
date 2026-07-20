@@ -13,6 +13,7 @@ import { toast } from "@/components/ui/use-toast";
 import { X, Plus, ChevronLeft, ChevronRight, Image } from "lucide-react";
 import { updateGroupCheckInDb, uploadCheckInPhotoDb, type GroupCheckIn } from "@/lib/ritmofit-db";
 import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
+import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
 
 interface EditCheckInDrawerProps {
   open: boolean;
@@ -38,6 +39,10 @@ export function EditCheckInDrawer({
   const [isSaving, setIsSaving] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const viewportHeight = useKeyboardAwareHeight();
+  // Exercício e descrição ficam no meio do scroll (fotos/stats/salvar abaixo) —
+  // manter o campo em foco acima do teclado iOS.
+  const scrollRef = React.useRef<HTMLDivElement | null>(null);
+  useKeyboardInputScroll(scrollRef, open);
 
   React.useEffect(() => {
     if (open && checkIn) {
@@ -142,7 +147,11 @@ export function EditCheckInDrawer({
           <DrawerDescription className="sr-only">Edite as informações do seu check-in</DrawerDescription>
         </DrawerHeader>
 
-        <div className="flex-1 overflow-y-auto px-4 pb-4">
+        <div
+          ref={scrollRef}
+          className="flex-1 overflow-y-auto px-4"
+          style={{ paddingBottom: "calc(1rem + var(--keyboard-height, 0px))" }}
+        >
           {checkIn && (
             <div className="space-y-4">
               <div className="space-y-2">

@@ -4,6 +4,7 @@ import { ImageOff, Play } from "lucide-react";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { getPostByIdDb, getShotByIdDb } from "@/lib/ritmofit-db";
 import { useLanguage } from "@/lib/language-context";
+import { videoPosterSrc } from "@/lib/video-thumb";
 
 interface SharedContentMessageProps {
   kind: "post" | "shot";
@@ -123,7 +124,7 @@ export function SharedContentMessage({ kind, contentId }: SharedContentMessagePr
         <div className="relative">
           {preview.isVideo ? (
             <video
-              src={preview.image}
+              src={videoPosterSrc(preview.image)}
               muted
               playsInline
               preload="metadata"

@@ -22,6 +22,7 @@ import {
 import { useAuth } from "@/hooks/useAuth";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
+import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
 import { cn } from "@/lib/utils";
 
 export function PromotionCommentsDrawer({
@@ -42,6 +43,9 @@ export function PromotionCommentsDrawer({
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [editDraft, setEditDraft] = React.useState("");
   const [savingEditId, setSavingEditId] = React.useState<string | null>(null);
+  // Compor comentário é rodapé fixo (já acima do teclado). Este hook cobre a
+  // textarea de EDIÇÃO inline, no meio da lista rolável.
+  useKeyboardInputScroll();
 
   React.useEffect(() => {
     if (!open) {

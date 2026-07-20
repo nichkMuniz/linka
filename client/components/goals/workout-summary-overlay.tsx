@@ -14,6 +14,7 @@ import {
   applyTransformToBlob,
 } from "@/components/shared/inline-crop-preview";
 import { renderRouteMapImage } from "@/components/shared/route-map";
+import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
 import { addNetworkStatusListener, getNetworkStatus } from "@/lib/network-status";
 import { formatRunTime, formatRunPace, type RunPoint } from "@/lib/run-tracker";
 import type { PostWorkoutSummary } from "@/lib/workout-summary-types";
@@ -918,6 +919,11 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const cropContainerWidthRef = React.useRef<number>(0);
+  // A legenda editável fica no fim deste overlay rolável (position:fixed) — o
+  // scroll-assist de página (window.scrollBy) não rola um overlay fixo, então
+  // usamos o hook apontando para o próprio container. Ver use-keyboard-input-scroll.
+  const overlayRef = React.useRef<HTMLDivElement | null>(null);
+  useKeyboardInputScroll(overlayRef);
 
   const [description, setDescription] = React.useState(() => generateDefaultDescription(data));
   const [userPhotos, setUserPhotos] = React.useState<File[]>([]);
@@ -1288,6 +1294,7 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
 
   return (
     <div
+      ref={overlayRef}
       style={{
         position: "fixed", inset: 0, zIndex: 9500,
         background: GLASS_ROOT_BG,
@@ -1297,6 +1304,8 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
         // pointer-events:none no body — este overlay é a camada de topo.
         pointerEvents: "auto",
         paddingTop: "max(0px, env(safe-area-inset-top))",
+        // Espaço extra ao abrir o teclado iOS para rolar a legenda acima dele.
+        paddingBottom: "var(--keyboard-height, 0px)",
         fontFamily: "'Inter', system-ui, sans-serif",
       }}
     >

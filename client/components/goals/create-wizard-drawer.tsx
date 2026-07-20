@@ -32,6 +32,7 @@ import { usePremium } from "@/lib/premium-context";
 import { useLanguage } from "@/lib/language-context";
 import type { TranslationKey } from "@/lib/i18n";
 import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
+import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
 import {
   backfillRoutineIdOnItemsDb,
   createCustomDietDb,
@@ -227,6 +228,10 @@ export function CreateWizardDrawer({
   const { t, language } = useLanguage();
   const { isPremium } = usePremium();
   const viewportHeight = useKeyboardAwareHeight();
+  // Nomes, buscas e campos numéricos (séries/reps/duração) espalhados pelos passos
+  // ficam no meio deste scroll — mantê-los acima do teclado iOS.
+  const scrollRef = React.useRef<HTMLDivElement | null>(null);
+  useKeyboardInputScroll(scrollRef, open);
 
   const [step, setStep] = React.useState<WizardStep>(initialStep);
   const [history, setHistory] = React.useState<WizardStep[]>([]);
@@ -1137,7 +1142,11 @@ export function CreateWizardDrawer({
           </div>
         </DrawerHeader>
 
-        <div className="flex-1 overflow-y-auto px-4 pb-8 space-y-3">
+        <div
+          ref={scrollRef}
+          className="flex-1 overflow-y-auto px-4 space-y-3"
+          style={{ paddingBottom: "calc(2rem + var(--keyboard-height, 0px))" }}
+        >
           {/* ── Step: what to create ─────────────────────────────── */}
           {step === "what" && (
             <>

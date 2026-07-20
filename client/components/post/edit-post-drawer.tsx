@@ -20,6 +20,7 @@ import { ImageWithFallback } from "@/components/shared/image-with-fallback";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { TagPeopleDrawer } from "@/components/shared/tag-people-drawer";
 import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
+import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
 import { useLanguage } from "@/lib/language-context";
 
 interface EditPostTarget {
@@ -42,6 +43,9 @@ export function EditPostDrawer({ open, onOpenChange, post, onSaved }: EditPostDr
   const [description, setDescription] = React.useState("");
   const [goalId, setGoalId] = React.useState<string | null>(null);
   const viewportHeight = useKeyboardAwareHeight();
+  // A legenda fica logo abaixo da foto (mid-scroll) — teclado não pode cobri-la.
+  const scrollRef = React.useRef<HTMLDivElement | null>(null);
+  useKeyboardInputScroll(scrollRef, open);
   const [userGoals, setUserGoals] = React.useState<Array<{ id: string; description: string }>>([]);
   const [isLoadingGoals, setIsLoadingGoals] = React.useState(false);
   const [isSaving, setIsSaving] = React.useState(false);
@@ -129,7 +133,11 @@ export function EditPostDrawer({ open, onOpenChange, post, onSaved }: EditPostDr
         <DrawerHeader>
           <DrawerTitle style={{ color: "#fff" }}>{t("post_edit_label")}</DrawerTitle>
         </DrawerHeader>
-        <div className="flex-1 overflow-y-auto px-4 pb-6 space-y-4">
+        <div
+          ref={scrollRef}
+          className="flex-1 overflow-y-auto px-4 space-y-4"
+          style={{ paddingBottom: "calc(1.5rem + var(--keyboard-height, 0px))" }}
+        >
 
           {photos.length > 0 && (
             <div className="space-y-2">

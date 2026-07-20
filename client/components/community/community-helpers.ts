@@ -39,6 +39,34 @@ export function specialMessageLabel(
   return null;
 }
 
+/**
+ * Texto do preview de uma conversa (última mensagem na lista). Trata dois casos
+ * que o `specialMessageLabel` sozinho não cobria:
+ *
+ * - **Respostas** (`↩ <original>\n\n<nova>`): o texto começa com `↩ `, então o
+ *   `specialMessageLabel` não casava o prefixo `[audio]:`/`[image]:`… e caía no
+ *   fallback cru — a lista mostrava `↩ [audio]:https://…supabase.co/…`. Agora o
+ *   preview mostra a **resposta** (o texto novo que o usuário digitou), com um
+ *   `↩` na frente para sinalizar que é uma resposta; se a resposta em si for
+ *   especial, usa o rótulo curto.
+ * - **Mensagens especiais soltas**: delega ao `specialMessageLabel` (🎤 Áudio…).
+ *
+ * Retorna `null` só quando não há texto (o chamador cai no "iniciar conversa").
+ */
+export function conversationPreviewText(
+  text: string | null | undefined,
+  t: (key: TranslationKey) => string,
+): string | null {
+  if (!text) return null;
+  const replyMatch = text.match(/^↩ .+?\n\n([\s\S]*)$/);
+  if (replyMatch) {
+    const body = replyMatch[1].trim();
+    if (!body) return null;
+    return `↩ ${specialMessageLabel(body, t) ?? body}`;
+  }
+  return specialMessageLabel(text, t) ?? text;
+}
+
 // Fallback photo for check-ins posted without a photo, so the card/detail
 // never renders with an empty image slot.
 export const DEFAULT_CHECKIN_PHOTO = "/Monstrinho_segurando_pesinho_202603301834.jpeg";

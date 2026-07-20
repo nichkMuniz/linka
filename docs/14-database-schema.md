@@ -776,13 +776,19 @@ Perfil público dos usuários da plataforma.
 | `height` | bigint[] | — | — | altura do usuario |
 | `weight` | float[] | — | — | peso do usuario |
 | `age` | bigint[] | — | — | idade do usuario |
-| `handle` | text[] | — | — | handle do usuario |
+| `handle` | text | — | — | @usuário. Guardado **sem** o prefixo `@` e em minúsculo (o `@` é só exibição). **Único global** via índice `profiles_handle_unique_idx` (`unique (lower(handle)) where handle is not null and handle <> ''`). Escrito pelo trigger `handle_new_user` (com de-colisão por sufixo) e sobrescrito pelo `UPDATE` do cliente no fim do cadastro. Migration: `docs/migrations/20260720-profiles-signup-fixes.sql` |
 | `is_verified` | boolean | ✓ | `false` | Indica conta oficial verificada (badge dourado). Só pode ser alterado via service_role (admin). |
 | `hide_follow_lists` | boolean | ✓ | `false` | Privacidade: quando `true`, outros usuários não conseguem abrir as listas de seguidores/seguindo deste perfil (gating client-side em `Profile.tsx`). |
 | `hide_posts_from_non_followers` | boolean | ✓ | `false` | Privacidade: quando `true`, a aba Posts do perfil só é visível para quem segue o dono. |
 | `selected_badge_id` | uuid | — | `null` | FK → `badges.id`. Insígnia que o usuário **escolheu** exibir. Persistente: check-ins e novas conquistas **nunca** a alteram — só uma troca explícita no `InsigniasDrawer`. `null` = nunca escolheu (exibe a de maior `sort_order` do acervo). Migration: `docs/migrations/20260714-badge-selection-persist.sql` |
 
 > Migration: `docs/migrations/20260626-profile-privacy.sql`
+
+**RLS / funções (migration `20260720-profiles-signup-fixes.sql`):**
+- `profiles_insert_own` (INSERT, `with check (auth.uid() = user_id)`) — sem ela, o `upsert` do cliente no cadastro/`ensureProfile` era barrado no braço de INSERT e falhava em silêncio (foto e handle não gravavam). Complementa `profiles_update_own`.
+- `profiles_handle_unique_idx` — índice único case-insensitive garante handle único global.
+- `check_handle_exists(p_handle text, p_exclude_user uuid default null) → boolean` — RPC `SECURITY DEFINER` (grant `anon, authenticated`) para checar disponibilidade de handle em tempo real no cadastro (`checkHandleExistsDb`), normalizando com/sem `@`.
+- `handle_new_user` reescrito: grava `handle` **sem** `@`, com de-colisão por sufixo numérico (nunca quebra o `signUp` por handle duplicado).
 
 ---
 

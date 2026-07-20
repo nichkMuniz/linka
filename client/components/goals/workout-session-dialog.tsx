@@ -11,6 +11,7 @@ import { RouteMap } from "@/components/shared/route-map";
 import { ExerciseImage } from "@/components/shared/exercise-image";
 import { getNetworkStatus } from "@/lib/network-status";
 import { subscribeKeyboardHeight, getKeyboardHeight } from "@/lib/keyboard";
+import { isCardioExercise } from "@/lib/cardio-exercises";
 import { toast } from "@/components/ui/use-toast";
 import {
   saveWorkoutHistoryDb,
@@ -492,11 +493,21 @@ export function WorkoutSessionDialog({
     setCreatePhotoPreview(null);
   }, []);
 
-  // Lista completa de itens da sessão
-  const allItems = React.useMemo(
-    () => [...items, ...workoutExtraItems].filter((i) => !workoutRemovedIds.includes(i.workout_id)),
-    [items, workoutExtraItems, workoutRemovedIds],
-  );
+  // Lista completa de itens da sessão.
+  // Dedup por workout_id: um exercício criado/adicionado durante a sessão entra
+  // em `workoutExtraItems` E é vinculado à rotina (`createUserWorkoutsDb`); quando
+  // um `loadData()` roda (ex.: evento `ritmofit-routines-changed`), ele passa a vir
+  // também em `items`, aparecendo duplicado na tela. Mantém a 1ª ocorrência —
+  // `items` (item real da rotina) vem primeiro, então prevalece sobre o extra.
+  const allItems = React.useMemo(() => {
+    const seen = new Set<string>();
+    return [...items, ...workoutExtraItems].filter((i) => {
+      if (workoutRemovedIds.includes(i.workout_id)) return false;
+      if (seen.has(i.workout_id)) return false;
+      seen.add(i.workout_id);
+      return true;
+    });
+  }, [items, workoutExtraItems, workoutRemovedIds]);
 
   // Rotina atual (para vincular exercícios criados/adicionados aos itens persistidos).
   // O id/nome autoritativos vêm do card (props); os itens podem ter routine_id nulo
@@ -584,7 +595,7 @@ export function WorkoutSessionDialog({
     let volume = 0, totalDone = 0, doneEx = 0;
     allItems.forEach((item) => {
       const series = workoutSeries[item.workout_id] ?? [];
-      const isCardio = (item.muscle_group ?? "").toLowerCase() === "cardio";
+      const isCardio = isCardioExercise(item.muscle_group, item.workout_id);
       let any = false;
       series.forEach((s) => {
         if (s.completed) {
@@ -988,11 +999,12 @@ export function WorkoutSessionDialog({
   };
 
   // Uma série só pode ser concluída com os dados preenchidos:
-  // força (kg E reps) / cardio (min OU km)
+  // força → só REPS (o kg é opcional: peso do corpo/máquina = 0 é válido)
+  // cardio → min OU km
   const canCompleteSeries = (row: { kg: number; reps: number }, isCardio: boolean) =>
     isCardio
       ? (row.kg || 0) > 0 || (row.reps || 0) > 0
-      : (row.kg || 0) > 0 && (row.reps || 0) > 0;
+      : (row.reps || 0) > 0;
 
   const toggleCompleted = (workoutId: string, index: number, isCardio: boolean) => {
     // Lê o estado atual de forma síncrona — o updater do setState só roda na
@@ -1123,7 +1135,7 @@ export function WorkoutSessionDialog({
         await Promise.all(
           exerciseEntries.map(async ([workoutId]) => {
             const row = allItemsForSave.find((w) => w.workout_id === workoutId);
-            const isCardio = (row?.muscle_group || "").toLowerCase() === "cardio";
+            const isCardio = isCardioExercise(row?.muscle_group, workoutId);
             if (!isCardio) {
               const prev = await getPreviousBestKgDb(userId, workoutId).catch(() => 0);
               prevBests.set(workoutId, prev);
@@ -1136,7 +1148,7 @@ export function WorkoutSessionDialog({
         const completed = series.filter((s) => s.completed);
 
         const row = allItemsForSave.find((w) => w.workout_id === workoutId);
-        const isCardio = (row?.muscle_group || "").toLowerCase() === "cardio";
+        const isCardio = isCardioExercise(row?.muscle_group, workoutId);
         const isExtra = workoutExtraItems.some((e) => e.workout_id === workoutId);
         const rawId = isExtra ? null : (row?.id ?? null);
         const userWorkoutId: number | null = rawId && !isNaN(Number(rawId)) ? Number(rawId) : null;
@@ -1565,7 +1577,7 @@ export function WorkoutSessionDialog({
           const isExpanded = expandedId === item.workout_id;
           const doneSeries = series.filter((s) => s.completed).length;
           const restSecs = workoutExerciseRestTimes[item.workout_id] ?? 60;
-          const isCardio = (item.muscle_group ?? "").toLowerCase() === "cardio";
+          const isCardio = isCardioExercise(item.muscle_group, item.workout_id);
           // Corrida ao Ar Livre: modo GPS estilo Strava — a tabela de séries
           // (MIN×KM manual) fica oculta; quem registra é o painel de corrida.
           const isRunExercise = isOutdoorRun(item.workoutName);
@@ -1905,7 +1917,10 @@ export function WorkoutSessionDialog({
                           : "—";
 
                       const rowInvalid = invalidSeries.has(seriesKey(item.workout_id, idx));
-                      const kgInvalid = rowInvalid && (row.kg || 0) <= 0;
+                      // Força: kg é opcional (peso do corpo/máquina = 0), então o
+                      // campo kg nunca fica inválido — só reps. Cardio: exige MIN OU
+                      // KM, então destaca os dois campos quando ambos vazios.
+                      const kgInvalid = rowInvalid && isCardio && (row.kg || 0) <= 0;
                       const repsInvalid = rowInvalid && (row.reps || 0) <= 0;
 
                       const sKey = seriesKey(item.workout_id, idx);

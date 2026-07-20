@@ -23,8 +23,9 @@ import {
   getNetworkStatus,
   withNetworkRetry,
 } from "@/lib/network-status";
+import { getKeyboardHeight, subscribeKeyboardHeight } from "@/lib/keyboard";
 import { Upload, X, Check, ArrowLeft, Eye, EyeOff, Plus, Trash2, ScanFace } from "lucide-react";
-import { createOrUpdateCommercialProfileDb, saveCommercialPlansDb, type ServicePlan, checkEmailExistsDb } from "@/lib/ritmofit-db";
+import { createOrUpdateCommercialProfileDb, saveCommercialPlansDb, type ServicePlan, checkEmailExistsDb, checkHandleExistsDb, invalidateProfileCache } from "@/lib/ritmofit-db";
 import { ImageCropperDrawer } from "@/components/shared/image-cropper-drawer";
 import { LoginSplashOriginal } from "@/components/shared/login-splash-original";
 import {
@@ -101,6 +102,9 @@ export default function Login() {
 
   const [showSplash, setShowSplash] = React.useState(true);
 
+  // Contêiner rolável da tela — usado para erguer o campo focado acima do teclado iOS.
+  const scrollContainerRef = React.useRef<HTMLDivElement | null>(null);
+
   React.useEffect(() => {
     // Reveal animation: aura/símbolo entram em ~1.5s, wordmark emerge até ~2.9s.
     // Mantemos o lockup respirando por mais um instante antes de revelar o form.
@@ -129,6 +133,8 @@ export default function Login() {
   const [selectedSegments, setSelectedSegments] = React.useState<Set<string>>(new Set());
   const [signupEmailExists, setSignupEmailExists] = React.useState<boolean | null>(null);
   const [checkingSignupEmail, setCheckingSignupEmail] = React.useState(false);
+  const [signupHandleExists, setSignupHandleExists] = React.useState<boolean | null>(null);
+  const [checkingSignupHandle, setCheckingSignupHandle] = React.useState(false);
   const [showForgotPassword, setShowForgotPassword] = React.useState(false);
   const [forgotPasswordEmail, setForgotPasswordEmail] = React.useState("");
   const [isResettingPassword, setIsResettingPassword] = React.useState(false);
@@ -184,6 +190,54 @@ export default function Login() {
     return unsubscribe;
   }, []);
 
+  // iOS: com resize 'none' o webview não encolhe quando o teclado abre, então o
+  // campo focado pode ficar atrás do teclado. O padding-bottom (var --keyboard-height)
+  // recentraliza o formulário acima do teclado; aqui rolamos o próprio contêiner
+  // (window.scrollBy é no-op num contêiner com overflow próprio) para revelar campos
+  // mais abaixo, como os de senha nos passos de cadastro. Correção local — não mexer
+  // em keyboard.ts (ver docs/13-layouts-e-componentes.md).
+  React.useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const revealActiveInput = () => {
+      const el = document.activeElement as HTMLElement | null;
+      if (!el) return;
+      const isField =
+        el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable;
+      if (!isField) return;
+      // Inputs dentro de drawers/dialogs (cropper, etc.) cuidam de si mesmos.
+      if (el.closest('[role="dialog"]')) return;
+      const keyboardHeight = getKeyboardHeight();
+      if (keyboardHeight <= 0) return;
+      const rect = el.getBoundingClientRect();
+      const visibleBottom = window.innerHeight - keyboardHeight - 16;
+      if (rect.bottom > visibleBottom) {
+        container.scrollBy({ top: rect.bottom - visibleBottom, behavior: "smooth" });
+      }
+    };
+
+    // Aguarda o layout reagir ao novo padding-bottom antes de medir o campo.
+    const scheduleReveal = () =>
+      requestAnimationFrame(() => requestAnimationFrame(revealActiveInput));
+
+    // Teclado abrindo (ou mudando de altura): revela o campo já focado.
+    const unsubscribe = subscribeKeyboardHeight((height) => {
+      if (height > 0) scheduleReveal();
+    });
+
+    // Trocar o foco entre campos com o teclado aberto.
+    const handleFocusIn = () => {
+      if (getKeyboardHeight() > 0) scheduleReveal();
+    };
+    container.addEventListener("focusin", handleFocusIn);
+
+    return () => {
+      unsubscribe();
+      container.removeEventListener("focusin", handleFocusIn);
+    };
+  }, []);
+
   // Check if signup email already exists — debounced 600ms
   React.useEffect(() => {
     if (tab !== "signup" || signupStep !== 1) return;
@@ -199,6 +253,24 @@ export default function Login() {
     }, 600);
     return () => clearTimeout(timer);
   }, [email, tab, signupStep]);
+
+  // Check if the chosen @handle is already taken — debounced 500ms (Step 2).
+  React.useEffect(() => {
+    if (tab !== "signup" || signupStep !== 2) return;
+    const normalized = username.trim().toLowerCase();
+    if (normalized.length < 3) {
+      setSignupHandleExists(null);
+      setCheckingSignupHandle(false);
+      return;
+    }
+    setCheckingSignupHandle(true);
+    const timer = setTimeout(async () => {
+      const exists = await checkHandleExistsDb(normalized);
+      setSignupHandleExists(exists);
+      setCheckingSignupHandle(false);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [username, tab, signupStep]);
 
   // Detect password recovery session via Supabase auth event
   React.useEffect(() => {
@@ -508,6 +580,22 @@ export default function Login() {
       });
       return;
     }
+    if (username.trim().length < 3) {
+      toast({
+        title: "@usuário muito curto",
+        description: "Use um @ com pelo menos 3 caracteres.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (signupHandleExists === true) {
+      toast({
+        title: "@usuário já em uso",
+        description: "Esse @ já foi escolhido por outra pessoa. Tente outro.",
+        variant: "destructive",
+      });
+      return;
+    }
     // If commercial profile, go to commercial data wizard, else go to physical data step
     if (hasCommercialProfile) {
       setCommercialWizardStep(1);
@@ -628,12 +716,28 @@ export default function Login() {
         if (weight) profilePayload.weight = parseFloat(weight);
 
         if (Object.keys(profilePayload).length > 0) {
-          await supabase
+          // A linha do profile já existe (criada pelo trigger handle_new_user).
+          // Usamos UPDATE (policy profiles_update_own) em vez de UPSERT: o braço de
+          // INSERT do upsert era barrado pelo RLS e falhava em silêncio, então a foto
+          // e o handle escolhidos no cadastro nunca eram gravados.
+          const { error: profileError } = await supabase
             .from("profiles")
-            .upsert(
-              { user_id: authUser.id, ...profilePayload, updated_at: new Date().toISOString() },
-              { onConflict: "user_id" },
-            );
+            .update({ ...profilePayload, updated_at: new Date().toISOString() })
+            .eq("user_id", authUser.id);
+
+          if (profileError) {
+            console.error("Erro ao salvar perfil no cadastro:", profileError);
+            // Corrida rara: o handle foi ocupado entre a validação e o envio.
+            if (profileError.code === "23505" && String(profileError.message).toLowerCase().includes("handle")) {
+              toast({
+                title: "@usuário já em uso",
+                description: "Esse @ acabou de ser escolhido por outra pessoa. Você pode alterá-lo depois no seu perfil.",
+                variant: "destructive",
+              });
+            }
+          }
+          // Garante que o feed leia foto/handle atualizados, não o cache do trigger.
+          invalidateProfileCache(authUser.id);
         }
 
         // Save commercial profile if user selected it
@@ -863,10 +967,16 @@ export default function Login() {
 
   return (
     <div
+      ref={scrollContainerRef}
       className="flex min-h-dvh items-center justify-center bg-background p-6 overflow-y-auto"
       style={{
         paddingTop: "max(1.5rem, env(safe-area-inset-top))",
-        paddingBottom: "max(1.5rem, env(safe-area-inset-bottom))",
+        // Reserva a altura do teclado iOS (var publicada por keyboard.ts): com o
+        // formulário centralizado (my-auto), isso o ergue acima do teclado e cria
+        // espaço para rolar os campos mais abaixo para a área visível.
+        paddingBottom:
+          "calc(max(1.5rem, env(safe-area-inset-bottom)) + var(--keyboard-height, 0px))",
+        transition: "padding-bottom 0.25s ease",
       }}
     >
       <div className="mx-auto grid w-full max-w-md gap-6 my-auto">
@@ -1399,14 +1509,33 @@ export default function Login() {
                             onChange={(e) => {
                               const val = e.target.value.replace(/[^a-zA-Z0-9_.]/g, "").replace(/\s/g, "");
                               setUsername(val);
+                              setSignupHandleExists(null);
                             }}
                             placeholder="seunome"
                             autoComplete="off"
-                            className="pl-7"
+                            className={`pl-7 ${
+                              signupHandleExists === true
+                                ? "border-red-500"
+                                : signupHandleExists === false
+                                ? "border-green-500"
+                                : ""
+                            }`}
                             maxLength={30}
                           />
                         </div>
                         <p className="text-xs text-muted-foreground">Apenas letras, números, _ e . Sem espaços.</p>
+                        {username.trim().length > 0 && username.trim().length < 3 && (
+                          <p className="text-xs text-muted-foreground">O @ deve ter ao menos 3 caracteres.</p>
+                        )}
+                        {username.trim().length >= 3 && checkingSignupHandle && (
+                          <p className="text-xs text-muted-foreground">Verificando disponibilidade...</p>
+                        )}
+                        {username.trim().length >= 3 && !checkingSignupHandle && signupHandleExists === true && (
+                          <p className="text-xs text-red-600">❌ Esse @ já está em uso. Escolha outro.</p>
+                        )}
+                        {username.trim().length >= 3 && !checkingSignupHandle && signupHandleExists === false && (
+                          <p className="text-xs text-green-600">✓ @ disponível</p>
+                        )}
                       </div>
 
                       <div className="grid gap-2">
@@ -1477,7 +1606,12 @@ export default function Login() {
                           type="button"
                           className="rounded-full flex-1"
                           onClick={handleSignupStep2}
-                          disabled={!displayName.trim() || !username.trim()}
+                          disabled={
+                            !displayName.trim() ||
+                            username.trim().length < 3 ||
+                            checkingSignupHandle ||
+                            signupHandleExists !== false
+                          }
                         >
                           Próximo
                         </Button>
@@ -1494,6 +1628,14 @@ export default function Login() {
                           }
                           if (!username.trim()) {
                             toast({ title: "@usuário obrigatório", description: "Por favor, informe seu @.", variant: "destructive" });
+                            return;
+                          }
+                          if (username.trim().length < 3) {
+                            toast({ title: "@usuário muito curto", description: "Use um @ com pelo menos 3 caracteres.", variant: "destructive" });
+                            return;
+                          }
+                          if (signupHandleExists === true) {
+                            toast({ title: "@usuário já em uso", description: "Esse @ já foi escolhido por outra pessoa. Tente outro.", variant: "destructive" });
                             return;
                           }
                           setSignupStep(2.8);

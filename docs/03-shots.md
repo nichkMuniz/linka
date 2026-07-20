@@ -45,7 +45,7 @@ Feed de vídeos curtos no estilo TikTok/Reels. O usuário rola verticalmente ent
 | Vídeo | Fundo | Reprodução em loop, objeto fit cover |
 | Barra de progresso | Superior (topo da tela) | Linha fina mostrando o avanço do vídeo — toque ou arraste para avançar/retroceder |
 | Avatar do criador | Inferior esquerdo | Link para perfil (`/usuario/:userId`) |
-| Nome do criador | Inferior esquerdo | Nickname do usuário |
+| Nome do criador | Inferior esquerdo | Nickname do usuário + `VerifiedBadge` (se verificado) + `UserInsignias` (insígnia selecionada, mesmo componente do feed/perfil) |
 | Botão Seguir/Seguindo | Inferior esquerdo | Follow/unfollow inline |
 | Descrição | Inferior esquerdo | Texto descritivo do clipe. Se ultrapassar 80 caracteres ou tiver quebra de linha, é truncado com botão "ver mais/menos" (mesmo padrão do feed) — evita que uma descrição longa ocupe a tela toda |
 | Menu de opções (⋮) | Superior direito | Editar, Ver incentivos, Ver visualizações ou Excluir (só para o dono) |
@@ -79,7 +79,13 @@ Feed de vídeos curtos no estilo TikTok/Reels. O usuário rola verticalmente ent
 - Ícone `Send` (avião de papel) abaixo do botão de comentários
 - Abre o `SendToFriendDrawer` (`components/shared/`) com preview do shot (frame do vídeo)
 - Envia mensagem privada com prefixo `[shot]:<shotId>` para até 10 pessoas de uma vez, com texto opcional
-- **Deep link de shot compartilhado:** ao abrir `/shots` com `location.state.shotId`, a tela reutiliza o scroll-to existente; se o shot não estiver entre os 50 do feed, é buscado individualmente via `getShotByIdDb` e inserido no topo da lista
+- **Deep link de shot (perfil / mensagem compartilhada):** ao abrir `/shots` com `location.state.shotId`, o shot-alvo é **movido para o índice 0** da lista no carregamento — se já está no feed mas fundo, é reordenado para o topo (preservando o resto); se não está entre os shots do feed, é buscado via `getShotByIdDb` e inserido no topo. Ver "Bug do vídeo congelado" em Observações Técnicas
+
+### Insígnia do Criador
+- Componente `UserInsignias` (`components/profile/user-insignias.tsx`) ao lado do nome, dentro do botão que abre o perfil do usuário — mesmo padrão do feed (`PostCard`) e da tela de Comunidade
+- Mostra a insígnia **selecionada** pelo dono do shot (`getDisplayBadgeDb`, persistida em `profiles.selected_badge_id`) — não a "mais alta" automaticamente
+- Clicável: abre o `InsigniasDrawer` com todas as insígnias (desbloqueadas e bloqueadas) do usuário; usa `stopPropagation` (interno ao componente + wrapper) para não disparar a navegação para `/usuario/:userId` do botão pai
+- Funciona tanto para o próprio dono do shot quanto para outros usuários — qualquer pessoa pode ver a insígnia de quem postou
 
 ### Seguir / Deixar de Seguir
 - Botão `UserPlus` (não seguindo) ou `UserCheck` (seguindo)
@@ -185,6 +191,7 @@ Feed de vídeos curtos no estilo TikTok/Reels. O usuário rola verticalmente ent
 |---|---|
 | Lista de shots | `getShotsDb()` |
 | Status de seguimento | `getFollowingStatusBatchDb()` |
+| Insígnia exibida do criador | `getDisplayBadgeDb(userId)` — carregado pelo `UserInsignias`, um por shot visível (cacheado 30s) |
 | Comentários do shot | `getShotCommentsDb(shotId)` |
 | Quem mandou incentivos | `getShotLikeUsersDb(shotId)` — carregado sob demanda pelo dono |
 | Quem visualizou o shot | `getShotViewersDb(shotId)` — carregado sob demanda pelo dono |
@@ -197,6 +204,7 @@ Feed de vídeos curtos no estilo TikTok/Reels. O usuário rola verticalmente ent
 - Referências de vídeo armazenadas em `videoRefsMap` (ref map por shotId)
 - `IntersectionObserver` detecta qual vídeo está visível e controla play/pause
 - **Preload sob demanda (performance):** o atributo `preload` de cada `<video>` é dinâmico conforme a distância para o shot visível — visível = `auto` (buffer), vizinhos imediatos = `metadata`, demais = `none`. Evita que os 50 vídeos baixem metadata ao mesmo tempo no WebView do iOS, acelerando o primeiro frame
+- **Bug do vídeo congelado ao abrir um shot pelo perfil (corrigido 2026-07-20):** abrir o shot de outro usuário (ou um shot compartilhado) que estava fundo no feed reproduzia o áudio mas deixava o **frame congelado** no iOS. Causa: aquele `<video>` renderizava com `preload="none"` (por estar longe do `visibleIndex`) e, no WKWebView, um vídeo que nunca foi compositado, ao ser rolado para a viewport e receber `play()`, toca o áudio sem pintar o primeiro frame. A rolagem normal não sofre disso porque os vizinhos são pré-aquecidos com `preload="metadata"` antes de entrarem; e o próprio perfil "funcionava" só porque os shots do dono ficam no topo do feed (índice pequeno). **Correção:** o shot-alvo é sempre movido para o índice 0 no carregamento, então monta já visível com `preload="auto"`, igual ao primeiro shot do feed. Isso também eliminou um áudio duplicado (o efeito "auto-play first video" tocava o `feed[0]` errado enquanto a tela rolava até o alvo)
 - O hint de swipe é persistido em `localStorage` para não aparecer novamente
 - O componente aceita props `footerHeight` e `isDesktop` para ajuste de layout no ShotsLayout
 - Ao navegar de uma notificação com `location.state = { openComments: true, shotId }`, o drawer de comentários abre automaticamente para o shot correto

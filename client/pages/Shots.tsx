@@ -58,9 +58,11 @@ import { UserAvatar } from "@/components/shared/user-avatar";
 import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
 import { useLanguage } from "@/lib/language-context";
 import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
+import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
 import { hapticLight, hapticMedium } from "@/lib/haptics";
 import { cn } from "@/lib/utils";
 import { renderWithHashtags } from "@/lib/post-visuals";
+import { UserInsignias } from "@/components/profile/user-insignias";
 
 function formatRelativeTime(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -94,6 +96,9 @@ export default function Shots() {
   const [commentText, setCommentText] = React.useState("");
   const [currentUserPhoto, setCurrentUserPhoto] = React.useState<string | null>(null);
   const viewportHeight = useKeyboardAwareHeight();
+  // O input de comentar é rodapé fixo do drawer (já sobe com o lift). Este hook
+  // cobre a textarea de EDIÇÃO inline, no meio da lista de comentários.
+  useKeyboardInputScroll();
   const [isLoadingComments, setIsLoadingComments] = React.useState(false);
   const [isAddingComment, setIsAddingComment] = React.useState(false);
   const [followingStatus, setFollowingStatus] = React.useState<
@@ -415,12 +420,28 @@ export default function Shots() {
       try {
         let shotsData = await getShotsDb();
 
-        // Shot aberto via mensagem compartilhada pode não estar entre os 50 do
-        // feed — busca individualmente e coloca no topo para o scroll-to achar.
+        // Shot aberto vindo do perfil / de uma mensagem: precisa ficar no
+        // ÍNDICE 0. Se ficar no meio da lista, ele renderiza com preload="none"
+        // (distância do visibleIndex) e, no iOS, ao ser rolado para a viewport e
+        // receber play(), o áudio sai mas o frame congela — o <video> nunca foi
+        // compositado. No topo, monta já visível com preload="auto", como o
+        // primeiro shot do feed (que sempre funciona). Também evita o áudio
+        // duplicado do efeito "auto-play first", que tocaria o feed[0] errado.
         const requestedShotId = (location.state as { shotId?: string } | null)?.shotId;
-        if (requestedShotId && !shotsData.some((s) => s.id === requestedShotId)) {
-          const requested = await getShotByIdDb(requestedShotId).catch(() => null);
-          if (requested) shotsData = [requested, ...shotsData];
+        if (requestedShotId) {
+          const idx = shotsData.findIndex((s) => s.id === requestedShotId);
+          if (idx > 0) {
+            // Já está no feed, mas fundo: move para o topo preservando o resto.
+            shotsData = [
+              shotsData[idx],
+              ...shotsData.slice(0, idx),
+              ...shotsData.slice(idx + 1),
+            ];
+          } else if (idx === -1) {
+            // Não está entre os shots do feed — busca individualmente.
+            const requested = await getShotByIdDb(requestedShotId).catch(() => null);
+            if (requested) shotsData = [requested, ...shotsData];
+          }
         }
         setShots(shotsData);
 
@@ -1086,6 +1107,9 @@ export default function Shots() {
                     <p className="text-sm font-bold text-white drop-shadow-md truncate">
                       {shot.userNickname || t("shots_user_fallback")}
                     </p>
+                    <span className="inline-flex items-center flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                      <UserInsignias userId={shot.user_id} />
+                    </span>
                   </button>
                   {shot.userHandle && (
                     <p className="text-xs text-white/70 drop-shadow-md">

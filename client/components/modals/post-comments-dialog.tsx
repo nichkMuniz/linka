@@ -34,6 +34,7 @@ import { UserAvatar } from "@/components/shared/user-avatar";
 import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
 import { useLanguage } from "@/lib/language-context";
 import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
+import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
 import { MessageCircle } from "lucide-react";
 import { motion } from "framer-motion";
 
@@ -145,6 +146,9 @@ export function PostCommentsDialog({
   const [editDraft, setEditDraft] = React.useState("");
   const [savingEditId, setSavingEditId] = React.useState<string | null>(null);
   const [currentUserPhoto, setCurrentUserPhoto] = React.useState<string | null>(null);
+  // O input de escrever comentário é rodapé fixo (já acima do teclado). Este hook
+  // cobre a textarea de EDIÇÃO inline, que fica no meio da lista rolável.
+  useKeyboardInputScroll();
 
   // Fix for iOS WebView (Capacitor): vaul can leave scroll-lock attributes/styles stuck
   React.useEffect(() => {

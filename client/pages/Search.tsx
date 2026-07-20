@@ -26,6 +26,7 @@ import { UserAvatar } from "@/components/shared/user-avatar";
 import { FollowButton } from "@/components/shared/follow-button";
 import { SearchResultsSkeleton, GridSkeleton } from "@/components/shared/animated-loading";
 import { getPostGradient } from "@/lib/post-visuals";
+import { videoPosterSrc } from "@/lib/video-thumb";
 
 // Tags reais mais usadas nas legendas de posts e Shots — dão um ponto de partida
 // para quem abre a aba sem saber o que buscar (levantado via consulta na base em
@@ -590,7 +591,7 @@ export default function Search() {
                   >
                     {isShot ? (
                       <video
-                        src={item.video_url ?? undefined}
+                        src={videoPosterSrc(item.video_url)}
                         playsInline
                         muted
                         preload="metadata"

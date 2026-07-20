@@ -31,14 +31,20 @@ const AlertDialogContent = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <AlertDialogPortal>
     <AlertDialogOverlay />
-    {/* Safe-area centering wrapper — ensures dialog never overlaps notch/home-indicator */}
+    {/* Safe-area centering wrapper — ensures dialog never overlaps notch/home-indicator.
+        --keyboard-height (client/lib/keyboard.ts, Keyboard resize:'none') entra no
+        padding inferior para recentralizar o dialog na área visível acima do teclado
+        (mesmo padrão do dialog.tsx) — alert dialogs com input (ex.: renomear) ficavam
+        atrás do teclado no iOS. */}
     <div
       className="fixed inset-0 z-[360] flex items-center justify-center pointer-events-none md:ml-[122px]"
       style={{
         paddingTop: "max(1rem, env(safe-area-inset-top))",
-        paddingBottom: "max(1rem, env(safe-area-inset-bottom))",
+        paddingBottom:
+          "calc(max(1rem, env(safe-area-inset-bottom)) + var(--keyboard-height, 0px))",
         paddingLeft: "max(1rem, env(safe-area-inset-left))",
         paddingRight: "max(1rem, env(safe-area-inset-right))",
+        transition: "padding-bottom 0.28s cubic-bezier(0.38, 0.7, 0.125, 1)",
       }}
     >
       <AlertDialogPrimitive.Content

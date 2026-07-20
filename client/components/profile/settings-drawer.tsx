@@ -42,9 +42,11 @@ import { Capacitor } from "@capacitor/core";
 import { PushNotifications } from "@capacitor/push-notifications";
 import { LocalNotifications } from "@capacitor/local-notifications";
 import { useLanguage } from "@/lib/language-context";
+import { videoPosterSrc } from "@/lib/video-thumb";
 import { usePremium } from "@/lib/premium-context";
 import { SubscriptionDrawer } from "@/components/profile/subscription-drawer";
 import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
+import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
 import {
   Edit2,
   Upload,
@@ -112,6 +114,10 @@ export function SettingsDrawer({
   const { language, setLanguage, t } = useLanguage();
   const { isPremium } = usePremium();
   const viewportHeight = useKeyboardAwareHeight();
+  // Vários sub-drawers (perfil, conta, comercial, limite de tempo) têm formulários
+  // longos. Sem ref: o hook rola o container ativo detectado a partir do campo em
+  // foco, mantendo-o acima do teclado iOS. Ver use-keyboard-input-scroll.
+  useKeyboardInputScroll();
   const [isSubscriptionOpen, setIsSubscriptionOpen] = React.useState(false);
 
   const [internalOpen, setInternalOpen] = React.useState(false);
@@ -1807,7 +1813,7 @@ export function SettingsDrawer({
                             >
                               {flow.media_url ? (
                                 flow.media_url.match(/\.(mp4|mov|webm)/) ? (
-                                  <video src={flow.media_url} className="w-full h-full object-cover" muted playsInline />
+                                  <video src={videoPosterSrc(flow.media_url)} className="w-full h-full object-cover" muted playsInline preload="metadata" />
                                 ) : (
                                   <img src={flow.media_url} alt="flow" className="w-full h-full object-cover" />
                                 )

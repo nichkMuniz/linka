@@ -11,6 +11,7 @@ import { Edit2, Trash2 } from "lucide-react";
 import { toast } from "@/components/ui/use-toast";
 import { updateShotDb, deleteShotDb, type ShotWithUser } from "@/lib/ritmofit-db";
 import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
+import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
 
 interface ShotEditorDrawerProps {
   open: boolean;
@@ -30,6 +31,9 @@ export function ShotEditorDrawer({
   const [isEditing, setIsEditing] = React.useState(false);
   const [description, setDescription] = React.useState("");
   const viewportHeight = useKeyboardAwareHeight();
+  // Ao editar, a descrição fica abaixo do vídeo (mid-scroll) — teclado não cobre.
+  const scrollRef = React.useRef<HTMLDivElement | null>(null);
+  useKeyboardInputScroll(scrollRef, open);
   const [isSaving, setIsSaving] = React.useState(false);
   const [confirmDelete, setConfirmDelete] = React.useState(false);
 
@@ -94,7 +98,11 @@ export function ShotEditorDrawer({
         </DrawerHeader>
 
         {shot && (
-          <div className="flex-1 overflow-y-auto px-4 pb-6 space-y-4">
+          <div
+            ref={scrollRef}
+            className="flex-1 overflow-y-auto px-4 space-y-4"
+            style={{ paddingBottom: "calc(1.5rem + var(--keyboard-height, 0px))" }}
+          >
             <div className="relative aspect-square overflow-hidden rounded-2xl bg-black" style={{ border: "1px solid rgba(255,255,255,.1)" }}>
               <video
                 src={shot.video_url}

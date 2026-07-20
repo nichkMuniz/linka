@@ -1394,7 +1394,13 @@ export function FlowCreationDialog({
             {isEditingText && (
               <div
                 className="absolute inset-x-0 z-[5] flex items-center justify-center px-6 pointer-events-none"
-                style={{ top: "52%", transform: "translateY(-50%)" }}
+                style={{
+                  top: "52%",
+                  // Sobe ~metade da altura do teclado iOS para o texto centralizado
+                  // não ficar atrás dele ao digitar (var publicada por keyboard.ts).
+                  transform: "translateY(calc(-50% - var(--keyboard-height, 0px) / 2))",
+                  transition: "transform 0.25s ease-out",
+                }}
               >
                 <textarea
                   ref={textareaRef}
@@ -1621,7 +1627,13 @@ export function FlowCreationDialog({
                 </div>
                 <div
                   className="absolute inset-x-0 z-[22] flex items-center justify-center px-6 pointer-events-none"
-                  style={{ top: "52%", transform: "translateY(-50%)" }}
+                  style={{
+                  top: "52%",
+                  // Sobe ~metade da altura do teclado iOS para o texto centralizado
+                  // não ficar atrás dele ao digitar (var publicada por keyboard.ts).
+                  transform: "translateY(calc(-50% - var(--keyboard-height, 0px) / 2))",
+                  transition: "transform 0.25s ease-out",
+                }}
                 >
                   <textarea
                     ref={textareaRef}
@@ -1682,7 +1694,13 @@ export function FlowCreationDialog({
             {!isEditingText && (
               <div
                 className="relative z-10 px-4 space-y-3"
-                style={{ paddingBottom: "max(1.5rem, env(safe-area-inset-bottom))" }}
+                style={{
+                  paddingBottom: "max(1.5rem, env(safe-area-inset-bottom))",
+                  // Sobe junto com o teclado iOS para a descrição/CTA não ficarem
+                  // atrás dele (var publicada por keyboard.ts; 0 no web/fechado).
+                  transform: "translateY(calc(-1 * var(--keyboard-height, 0px)))",
+                  transition: "transform 0.25s ease-out",
+                }}
               >
                 <Textarea
                   placeholder="Adicione uma descrição..."

@@ -124,10 +124,14 @@ Fluxo multi-etapas com 5 passos:
 | Campo | Tipo | Descrição |
 |---|---|---|
 | Nome completo | Input text | Obrigatório |
-| @ de usuário | Input text | Obrigatório. Só permite letras, números, `_` e `.`. Sem espaços ou caracteres especiais. Salvo no campo `handle` de `profiles`. |
-| Foto de perfil | File upload | Imagem (upload para Supabase Storage), opcional |
+| @ de usuário | Input text | Obrigatório, **mínimo 3 caracteres** e **único** (ver abaixo). Só permite letras, números, `_` e `.`. Sem espaços/caracteres especiais. Salvo em `profiles.handle` **sem** o prefixo `@` (o `@` é apenas visual/exibição). |
+| Foto de perfil | File upload | Imagem (upload para bucket `posts`), opcional |
 | Bio | Textarea | Descrição pessoal, opcional |
 | Perfil comercial | Toggle | Ativa campos de negócio |
+
+**Handle único (trava anti-duplicidade):** enquanto o usuário digita o `@`, é feita uma verificação com debounce (500ms) via RPC `check_handle_exists` (`checkHandleExistsDb`). Feedback inline: "Verificando disponibilidade…" / "❌ Esse @ já está em uso" / "✓ @ disponível". O botão **Próximo** (e o atalho "Personalizar depois") ficam desabilitados até o `@` ter ≥3 caracteres e estar disponível. A unicidade é garantida no banco por um índice único case-insensitive (`profiles_handle_unique_idx`); numa corrida rara, o `INSERT`/`UPDATE` retorna `23505` e o usuário é avisado. O mesmo `check_handle_exists` cobre a edição de handle nas Configurações.
+
+**Persistência de foto + handle no cadastro (correção 2026-07-20):** a gravação do perfil no fim do cadastro (`handleSignupStep3`) usa `UPDATE` na linha já criada pelo trigger `handle_new_user` (policy `profiles_update_own`). Antes usava `upsert`, cujo braço de `INSERT` era barrado pelo RLS (não havia policy de INSERT) e falhava **em silêncio** — por isso a foto não virava avatar e o handle escolhido não sobrescrevia o valor do trigger (que era gravado com `@`, causando exibição com a 1ª letra "comida"). A migração `20260720` adiciona a policy `profiles_insert_own`, normaliza handles legados (remove `@`) e passa o trigger a gravar o handle sem `@`. Após o `UPDATE`, o cache do perfil é invalidado (`invalidateProfileCache`) para o feed ler os dados novos.
 
 **Se perfil comercial ativado → abre wizard comercial (Step 2.5) com 4 sub-etapas:**
 
@@ -202,6 +206,21 @@ Seleção de objetivos fitness (múltipla escolha). Os valores selecionados são
 - Exibe foto e nome de cada usuário
 
 **Botões:** Voltar | **Criar conta** (finaliza cadastro)
+
+---
+
+## Teclado iOS (campos acima do teclado)
+
+Com `Keyboard: { resize: 'none' }` o WebView não encolhe quando o teclado abre, então os campos de email/senha ficavam **atrás do teclado**, sem o usuário ver o que digitava.
+
+Correção **local à tela** (a assistência global de `keyboard.ts` usa `window.scrollBy`, que é no-op aqui porque o contêiner da tela tem `overflow-y-auto` próprio):
+
+- O contêiner rolável (`scrollContainerRef`) recebe `padding-bottom: calc(safe-area + var(--keyboard-height))`. Como o formulário é centralizado com `my-auto`, reservar a altura do teclado o **ergue acima do teclado** e cria espaço de rolagem.
+- Um efeito assina `subscribeKeyboardHeight` + `focusin` no contêiner e rola **o próprio contêiner** (`container.scrollBy`) para revelar o campo focado acima de `innerHeight − keyboardHeight − 16` — útil para os campos mais abaixo nos passos de cadastro.
+- Inputs dentro de drawers/dialogs (`[role="dialog"]`, ex.: cropper de imagem) são ignorados — eles se erguem sozinhos via a arquitetura de teclado.
+- A transição de `padding-bottom` (0.25s) sincroniza a subida com a animação do teclado. `var(--keyboard-height, 0px)` = 0 na web, então o comportamento é inerte fora do iOS.
+
+> Regra: não alterar `client/lib/keyboard.ts` para resolver isso — a correção é sempre local ao componente com contêiner rolável próprio.
 
 ---
 
