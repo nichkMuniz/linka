@@ -13,7 +13,7 @@ import {
   getProfessionalsDb,
   type ProfessionalProfile,
 } from "@/lib/ritmofit-db";
-import { PromotionCommentsDrawer } from "@/components/modals/promotion-comments-drawer";
+import { PromotionCommentsDrawer, PromotionCommentsSection } from "@/components/modals/promotion-comments-drawer";
 import { useAuth } from "@/hooks/useAuth";
 import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
 import { toast } from "@/components/ui/use-toast";
@@ -460,6 +460,18 @@ function PromotionDetailDrawer({
               <span className="text-xs">· {promo.likes_count}</span>
             )}
           </button>
+
+          {/* Comentários — embutidos aqui para debater sem sair do drawer */}
+          <div className="pt-3 space-y-3" style={{ borderTop: "1px solid rgba(255,255,255,.1)" }}>
+            <div className="flex items-center gap-1.5 text-sm font-medium text-white/85">
+              <MessageCircle className="h-4 w-4 text-brand" />
+              Comentários
+              {(promo.comments_count ?? 0) > 0 && (
+                <span className="text-xs font-normal text-white/40">({promo.comments_count})</span>
+              )}
+            </div>
+            <PromotionCommentsSection promotionId={promo.id} />
+          </div>
         </div>
       </DrawerContent>
     </Drawer>

@@ -57,19 +57,31 @@ type TextStyle = {
   fontWeight: number;
   align: "left" | "center" | "right";
   color: string;
+  fontSize: number; // px
 };
+
+// Tamanho da legenda (px). O padrão 30 equivale ao text-3xl usado antes; o usuário
+// diminui para focar na mídia ou aumenta para focar no texto.
+const MIN_CAPTION_FONT = 16;
+const MAX_CAPTION_FONT = 64;
+const DEFAULT_CAPTION_FONT = 30;
 
 const DEFAULT_TEXT_STYLE: TextStyle = {
   fontFamily: FONT_OPTIONS[0].family,
   fontWeight: FONT_OPTIONS[0].weight,
   align: "center",
   color: "#ffffff",
+  fontSize: DEFAULT_CAPTION_FONT,
 };
 
 // Quanto tempo segurando o obturador até começar a gravar vídeo (toque rápido = foto)
 const LONG_PRESS_MS = 400;
-// Duração máxima de gravação do flow em vídeo
-const MAX_RECORD_MS = 30000;
+// Duração máxima de gravação do flow em vídeo (1 min)
+const MAX_RECORD_MS = 60000;
+// Duração máxima aceita para vídeos (gravados ou da galeria) — mantém os flows curtos
+const MAX_VIDEO_DURATION_S = 60;
+// Tamanho máximo de arquivo de mídia (vídeos editados/da galeria costumam ser pesados)
+const MAX_MEDIA_BYTES = 100 * 1024 * 1024;
 
 function pickVideoMimeType(): string {
   if (typeof MediaRecorder === "undefined" || !MediaRecorder.isTypeSupported) return "";
@@ -123,6 +135,22 @@ function coverRect(iw: number, ih: number, fw: number, fh: number) {
   return { dx: (fw - dw) / 2, dy: (fh - dh) / 2, dw, dh };
 }
 
+// Retângulo equivalente ao object-contain: cabe a imagem INTEIRA dentro de (fw x fh)
+// preservando o aspecto (sobra vira letterbox, preenchido pelo fundo desfocado).
+function containRect(iw: number, ih: number, fw: number, fh: number) {
+  const ir = iw / ih;
+  const fr = fw / fh;
+  let dw: number, dh: number;
+  if (ir > fr) {
+    dw = fw;
+    dh = fw / ir;
+  } else {
+    dh = fh;
+    dw = fh * ir;
+  }
+  return { dx: (fw - dw) / 2, dy: (fh - dh) / 2, dw, dh };
+}
+
 // Compõe a imagem transformada num canvas (com fundo desfocado) para que o
 // resultado compartilhado seja exatamente o que o usuário enxerga.
 async function bakeTransformedImage(
@@ -130,6 +158,7 @@ async function bakeTransformedImage(
   frameW: number,
   frameH: number,
   t: MediaTransform,
+  fit: "cover" | "contain" = "cover",
 ): Promise<string | null> {
   try {
     if (frameW <= 0 || frameH <= 0) return null;
@@ -177,7 +206,9 @@ async function bakeTransformedImage(
     ctx.translate(cx + t.x * sx, cy + t.y * sx);
     ctx.scale(t.scale, t.scale);
     ctx.translate(-cx, -cy);
-    const fc = coverRect(img.width, img.height, outW, outH);
+    // "contain" (imagem inteira, sem cortar → galeria) ou "cover" (full-bleed → câmera),
+    // batendo com o object-fit usado no preview.
+    const fc = (fit === "contain" ? containRect : coverRect)(img.width, img.height, outW, outH);
     ctx.drawImage(img, fc.dx, fc.dy, fc.dw, fc.dh);
     ctx.restore();
 
@@ -212,6 +243,10 @@ export function FlowCreationDialog({
   const [step, setStep] = React.useState<Step>("camera");
   const [mediaPreview, setMediaPreview] = React.useState<string | null>(null);
   const [mediaIsVideo, setMediaIsVideo] = React.useState(false);
+  // Imagem veio da galeria (vs. capturada pela câmera). A da galeria é exibida
+  // inteira (object-contain + fundo desfocado) para não cortar o conteúdo; a da
+  // câmera é full-bleed (object-cover), pois o viewfinder já é WYSIWYG.
+  const [mediaFromGallery, setMediaFromGallery] = React.useState(false);
   const [description, setDescription] = React.useState("");
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [selectedGradient, setSelectedGradient] = React.useState(GRADIENT_PRESETS[0].value);
@@ -516,6 +551,7 @@ export function FlowCreationDialog({
     }
     const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
     setMediaIsVideo(false);
+    setMediaFromGallery(false);
     setMediaPreview(dataUrl);
     setStep("caption");
   };
@@ -664,10 +700,10 @@ export function FlowCreationDialog({
       if (chunks.length === 0) return;
       const blobType = recorder.mimeType || mimeType || "video/mp4";
       const blob = new Blob(chunks, { type: blobType });
-      if (blob.size > 50 * 1024 * 1024) {
+      if (blob.size > MAX_MEDIA_BYTES) {
         toast({
-          title: "Vídeo muito longo",
-          description: "Grave um vídeo mais curto (máximo de 50MB)",
+          title: "Vídeo muito pesado",
+          description: "O flow aceita vídeos de até 100MB",
           variant: "destructive",
         });
         return;
@@ -675,6 +711,7 @@ export function FlowCreationDialog({
       // Blob URL evita o problema de tela preta que data: URLs causam no WebView do iOS
       const blobUrl = URL.createObjectURL(blob);
       setMediaIsVideo(true);
+      setMediaFromGallery(false);
       setMediaPreview(blobUrl);
       setStep("caption");
     };
@@ -741,27 +778,56 @@ export function FlowCreationDialog({
     event.target.value = "";
     if (!file) return;
 
-    if (file.size > 50 * 1024 * 1024) {
+    if (file.size > MAX_MEDIA_BYTES) {
       toast({
         title: "Arquivo muito grande",
-        description: "Máximo de 50MB",
+        description: "Máximo de 100MB",
         variant: "destructive",
       });
       return;
     }
 
+    if (file.type.startsWith("video/")) {
+      // Vídeo → Blob URL (não data URL): data URL de um vídeo grande vira uma string
+      // base64 ~33% maior, estoura memória no WebView do iOS e causa tela preta. O
+      // Blob URL é revogado em handleRetake/resetForm (que checam o prefixo blob:).
+      const blobUrl = URL.createObjectURL(file);
+      // Sonda a duração antes de aceitar — mantém o flow em até 1 min.
+      const probe = document.createElement("video");
+      probe.preload = "metadata";
+      const accept = () => {
+        setMediaIsVideo(true);
+        setMediaFromGallery(true);
+        setMediaPreview(blobUrl);
+        setStep("caption");
+      };
+      probe.onloadedmetadata = () => {
+        if (Number.isFinite(probe.duration) && probe.duration > MAX_VIDEO_DURATION_S + 1) {
+          URL.revokeObjectURL(blobUrl);
+          toast({
+            title: "Vídeo muito longo",
+            description: "O flow aceita vídeos de até 1 minuto",
+            variant: "destructive",
+          });
+          return;
+        }
+        accept();
+      };
+      // Se o WebView não conseguir ler a metadata, segue mesmo assim (o limite de
+      // tamanho já protege) em vez de travar o usuário.
+      probe.onerror = accept;
+      probe.src = blobUrl;
+      return;
+    }
+
+    // Imagem → data URL (leve; o pipeline de imagem compõe o enquadramento num canvas
+    // a partir dessa URL).
     const reader = new FileReader();
     reader.onload = (e) => {
-      const result = e.target?.result as string;
-      if (file.type.startsWith("video/")) {
-        setMediaIsVideo(true);
-        setMediaPreview(result);
-        setStep("caption");
-      } else {
-        setMediaIsVideo(false);
-        setMediaPreview(result);
-        setStep("caption");
-      }
+      setMediaIsVideo(false);
+      setMediaFromGallery(true);
+      setMediaPreview(e.target?.result as string);
+      setStep("caption");
     };
     reader.readAsDataURL(file);
   };
@@ -872,6 +938,7 @@ export function FlowCreationDialog({
       return null;
     });
     setMediaIsVideo(false);
+    setMediaFromGallery(false);
     setDescription("");
     setTexts([]);
     setEditingId(null);
@@ -886,28 +953,38 @@ export function FlowCreationDialog({
       let mediaToShare = mediaPreview;
       let mediaTransformPayload: MediaTransform | null = null;
       const t = transformRef.current;
-      if (isMediaTransformed(t)) {
-        const frame = captionFrameRef.current;
-        const fw = frame?.clientWidth || window.innerWidth;
-        const fh = frame?.clientHeight || window.innerHeight;
-        // Enquadramento em % (translate relativo ao tamanho do elemento → resolução-independente)
-        const percentTransform: MediaTransform = {
-          scale: Math.round(t.scale * 1000) / 1000,
-          x: Math.round((t.x / fw) * 1000) / 10,
-          y: Math.round((t.y / fh) * 1000) / 10,
-        };
-        if (mediaIsVideo) {
-          // Vídeo não pode ser recomposto no cliente → persiste o enquadramento
+      const frame = captionFrameRef.current;
+      const fw = frame?.clientWidth || window.innerWidth;
+      const fh = frame?.clientHeight || window.innerHeight;
+      // Enquadramento em % (translate relativo ao tamanho do elemento → resolução-independente)
+      const percentTransform: MediaTransform = {
+        scale: Math.round(t.scale * 1000) / 1000,
+        x: Math.round((t.x / fw) * 1000) / 10,
+        y: Math.round((t.y / fh) * 1000) / 10,
+      };
+      if (mediaIsVideo) {
+        // Vídeo não pode ser recomposto no cliente → persiste o enquadramento (só
+        // quando houve pinça/arraste; sem transform o viewer usa object-cover puro).
+        if (isMediaTransformed(t)) mediaTransformPayload = percentTransform;
+      } else if (mediaFromGallery) {
+        // Imagem da galeria: SEMPRE compõe no frame 9:16 (imagem inteira via "contain"
+        // + fundo desfocado nas bordas), mesmo sem pinça/zoom. Assim o resultado postado
+        // é idêntico ao preview e nada é cortado — o viewer só dá object-cover sobre um
+        // frame que já tem o aspecto certo. Se a composição falhar, cai para o original.
+        const baked = await bakeTransformedImage(mediaPreview, fw, fh, t, "contain");
+        if (baked) {
+          mediaToShare = baked;
+        } else if (isMediaTransformed(t)) {
           mediaTransformPayload = percentTransform;
+        }
+      } else if (isMediaTransformed(t)) {
+        // Imagem da câmera: full-bleed (object-cover). Só recompõe se houve pinça/arraste;
+        // sem transform o original já preenche a tela via object-cover no viewer.
+        const baked = await bakeTransformedImage(mediaPreview, fw, fh, t, "cover");
+        if (baked) {
+          mediaToShare = baked;
         } else {
-          // Imagem: compõe num canvas (enquadramento "queimado" na imagem final)
-          const baked = await bakeTransformedImage(mediaPreview, fw, fh, t);
-          if (baked) {
-            mediaToShare = baked;
-          } else {
-            // Fallback: se a composição falhar, mantém o original e persiste o enquadramento
-            mediaTransformPayload = percentTransform;
-          }
+          mediaTransformPayload = percentTransform;
         }
       }
       // Frases posicionadas sobre a foto (renderizadas ao vivo no FlowViewer,
@@ -982,6 +1059,7 @@ export function FlowCreationDialog({
       return null;
     });
     setMediaIsVideo(false);
+    setMediaFromGallery(false);
     setDescription("");
     setSelectedGradient(GRADIENT_PRESETS[0].value);
     setTexts([]);
@@ -1145,6 +1223,34 @@ export function FlowCreationDialog({
           );
         })}
       </div>
+
+      {/* Tamanho da legenda — "A" pequeno → grande. Diminuir foca na mídia; aumentar
+          foca no texto. accentColor branco deixa o slider nativo visível no overlay. */}
+      <div className="flex items-center gap-3 px-2 pt-0.5">
+        <span
+          className="shrink-0 font-bold text-white leading-none"
+          style={{ fontSize: 13, textShadow: "0 1px 4px rgba(0,0,0,.5)" }}
+        >
+          A
+        </span>
+        <input
+          type="range"
+          min={MIN_CAPTION_FONT}
+          max={MAX_CAPTION_FONT}
+          step={1}
+          value={editingStyle.fontSize}
+          onChange={(e) => setEditingStyle((s) => ({ ...s, fontSize: Number(e.target.value) }))}
+          className="flex-1 h-6 cursor-pointer bg-transparent"
+          style={{ accentColor: "#ffffff" }}
+          aria-label="Tamanho do texto"
+        />
+        <span
+          className="shrink-0 font-bold text-white leading-none"
+          style={{ fontSize: 26, textShadow: "0 1px 4px rgba(0,0,0,.5)" }}
+        >
+          A
+        </span>
+      </div>
     </>
   );
 
@@ -1169,11 +1275,12 @@ export function FlowCreationDialog({
       onPointerCancel={(e) => handleTextPointerUp(e, item)}
     >
       <p
-        className="text-3xl leading-tight break-words whitespace-pre-wrap"
+        className="leading-tight break-words whitespace-pre-wrap"
         style={{
           textShadow: "0 1px 6px rgba(0,0,0,0.45)",
           fontFamily: item.style.fontFamily,
           fontWeight: item.style.fontWeight,
+          fontSize: item.style.fontSize,
           textAlign: item.style.align,
           color: item.style.color,
         }}
@@ -1409,11 +1516,12 @@ export function FlowCreationDialog({
                   onClick={(e) => e.stopPropagation()}
                   maxLength={200}
                   placeholder="Digite aqui..."
-                  className="w-full bg-transparent text-3xl leading-tight placeholder:text-white/60 resize-none outline-none border-0 pointer-events-auto"
+                  className="w-full bg-transparent leading-tight placeholder:text-white/60 resize-none outline-none border-0 pointer-events-auto"
                   style={{
                     textShadow: "0 1px 6px rgba(0,0,0,0.45)",
                     fontFamily: editingStyle.fontFamily,
                     fontWeight: editingStyle.fontWeight,
+                    fontSize: editingStyle.fontSize,
                     textAlign: editingStyle.align,
                     color: editingStyle.color,
                   }}
@@ -1584,7 +1692,11 @@ export function FlowCreationDialog({
                     src={mediaPreview}
                     alt="Preview"
                     draggable={false}
-                    className="h-full w-full object-cover select-none"
+                    // Galeria → object-contain: mostra a imagem INTEIRA por padrão (nada
+                    // cortado), com o fundo desfocado preenchendo as bordas; o usuário pode
+                    // dar pinça/zoom/arraste para reenquadrar/cortar como preferir.
+                    // Câmera → object-cover: full-bleed, pois o viewfinder já é WYSIWYG.
+                    className={`h-full w-full select-none ${mediaFromGallery ? "object-contain" : "object-cover"}`}
                   />
                 )}
               </div>
@@ -1642,11 +1754,12 @@ export function FlowCreationDialog({
                     onClick={(e) => e.stopPropagation()}
                     maxLength={200}
                     placeholder="Digite aqui..."
-                    className="w-full bg-transparent text-3xl leading-tight placeholder:text-white/60 resize-none outline-none border-0 pointer-events-auto"
+                    className="w-full bg-transparent leading-tight placeholder:text-white/60 resize-none outline-none border-0 pointer-events-auto"
                     style={{
                       textShadow: "0 1px 6px rgba(0,0,0,0.45)",
                       fontFamily: editingStyle.fontFamily,
                       fontWeight: editingStyle.fontWeight,
+                      fontSize: editingStyle.fontSize,
                       textAlign: editingStyle.align,
                       color: editingStyle.color,
                     }}

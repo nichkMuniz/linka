@@ -81,6 +81,8 @@ const TITLE_BY_TYPE: Record<number, string> = {
   11: "Check-in no duelo 💪",
   12: "Curtida na promoção ❤️",
   13: "Promoção expirada ⏳",
+  14: "Check-in classificado ✅",
+  15: "Check-in desclassificado ⛔",
 };
 
 // Mesmos nomes exibidos no app (INCENTIVE_CONFIG / i18n)
@@ -145,12 +147,14 @@ async function buildBody(
     return data?.title ? short(String(data.title)) : null;
   };
 
-  // Onde a interação aconteceu (post / shot / flow)
-  const context = record.shots_id
-    ? "no seu shot"
-    : record.flow_id
-      ? "no seu flow"
-      : "na sua publicação";
+  // Onde a interação aconteceu (check-in de duelo / shot / flow / post)
+  const context = record.duel_check_in_id || record.shots_id?.startsWith("checkin:")
+    ? "no seu check-in"
+    : record.shots_id
+      ? "no seu shot"
+      : record.flow_id
+        ? "no seu flow"
+        : "na sua publicação";
 
   switch (type) {
     case 1:
@@ -207,6 +211,10 @@ async function buildBody(
         ? `${name} marcou sua promoção "${promo}" como expirada.`
         : `${name} marcou sua promoção como expirada.`;
     }
+    case 14:
+      return `${name} classificou seu check-in no duelo.`;
+    case 15:
+      return `${name} desclassificou seu check-in no duelo.`;
     default:
       return "Você tem uma nova notificação no LinKa.";
   }
@@ -217,6 +225,15 @@ async function buildBody(
  * O `post_id` guarda o id do grupo de duelo (tipo 11) ou da promoção (8, 12, 13).
  */
 function deepLinkFor(type: number, record: NotifRecord): string {
+  // Comentário (3), reações (6/7), check-in de membro do duelo (11) e avaliação
+  // do check-in (14/15) abrem o próprio check-in — mesmo destino do card na
+  // tela de Notificações.
+  if (
+    record.duel_check_in_id &&
+    (type === 3 || type === 6 || type === 7 || type === 11 || type === 14 || type === 15)
+  ) {
+    return `/comunidade?checkin=${record.duel_check_in_id}`;
+  }
   switch (type) {
     case 10:
       return record.follower_id ? `/comunidade?user=${record.follower_id}` : "/comunidade";

@@ -2034,6 +2034,8 @@ export async function getWorkoutsDb(): Promise<Workout[]> {
     photo: resolveWorkoutPhotoUrl(row.photo, row.wger_id),
     muscle_group: row.muscle_group ? String(row.muscle_group) : null,
     type: row.type != null ? Number(row.type) : null,
+    // Editável só quando é custom E o dono é o próprio usuário.
+    isCustom: !!row.created_by_user && !!userId && String(row.created_by ?? "") === userId,
   });
 
   // Fetch all workouts including created_by_user for client-side filtering
@@ -2203,7 +2205,116 @@ export async function createCustomWorkoutDb(
     description: String(data.description ?? ""),
     photo: data.photo ? resolveWorkoutPhotoUrl(data.photo) : null,
     muscle_group: data.muscle_group ? String(data.muscle_group) : null,
+    // Acabou de ser criado por este usuário → já nasce editável, sem esperar
+    // um refetch do catálogo.
+    isCustom: true,
   };
+}
+
+/**
+ * Edita um exercício criado manualmente pelo próprio usuário (nome, descrição,
+ * grupo muscular e/ou foto). Só campos presentes em `updates` são alterados.
+ *
+ * O `.eq("created_by", viewer.id)` garante que só o dono edita — item de catálogo
+ * ou de outro usuário não é alcançado nem se o id vazar na UI. Como UPDATE
+ * barrado por RLS é **no-op silencioso** (0 linhas, sem erro — ver
+ * docs/migrations/20260716-hist-delete-rls.sql), pedimos as linhas afetadas de
+ * volta e tratamos "0 linhas" como falha, em vez de fingir sucesso.
+ */
+export async function updateCustomWorkoutDb(
+  workoutId: string,
+  updates: {
+    name?: string;
+    description?: string;
+    muscleGroup?: string | null;
+    photo?: string | null;
+  },
+): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) throw new Error("Supabase não configurado");
+  const viewer = await getViewer();
+  if (!viewer) throw new Error("Usuário não autenticado");
+
+  const payload: Record<string, any> = {};
+  if (updates.name !== undefined) payload.name = updates.name;
+  if (updates.description !== undefined) payload.description = updates.description;
+  if (updates.muscleGroup !== undefined) payload.muscle_group = updates.muscleGroup || null;
+  if (updates.photo !== undefined) payload.photo = updates.photo;
+  if (Object.keys(payload).length === 0) return;
+
+  const { data, error } = await supabase
+    .from("workouts")
+    .update(payload)
+    .eq("id", workoutId)
+    .eq("created_by", viewer.id)
+    .select("id");
+
+  if (error) {
+    console.error("Error updating custom workout:", error);
+    throw error;
+  }
+  if (!data || data.length === 0) {
+    throw new Error("Não foi possível editar este exercício (ele não é seu ou foi removido).");
+  }
+
+  // O nome/foto aparecem tanto no catálogo quanto nos itens de rotina (join).
+  invalidateQueryCache("workouts:");
+  invalidateQueryCache("catalogWorkouts:");
+  invalidateQueryCache("workoutHistory:");
+  invalidateQueryCache("completedRoutines:");
+}
+
+/**
+ * Apaga por completo um exercício criado manualmente pelo próprio usuário —
+ * some do catálogo E de todas as rotinas dele. Para "criei errado, quero remover".
+ *
+ * Ordem obedece as FKs (`user_workouts.workout_id` e `user_workouts_hist.workout_id`
+ * apontam para `workouts.id`, sem cascade): 1) histórico deste exercício, 2)
+ * vínculos com rotinas (`user_workouts`), 3) a linha do catálogo. Só o dono
+ * alcança a linha do catálogo (`.eq("created_by", viewer.id)`); como DELETE
+ * barrado por RLS é no-op silencioso (ver 20260716-hist-delete-rls), pedimos as
+ * linhas de volta e tratamos "0 linhas" como erro.
+ */
+export async function deleteCustomWorkoutDb(workoutId: string): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) throw new Error("Supabase não configurado");
+  const viewer = await getViewer();
+  if (!viewer) throw new Error("Usuário não autenticado");
+
+  // 1. Histórico deste exercício (antes dos vínculos, para não violar FK).
+  const { error: histError } = await supabase
+    .from("user_workouts_hist")
+    .delete()
+    .eq("user_id", viewer.id)
+    .eq("workout_id", workoutId);
+  if (histError) throw histError;
+
+  // 2. Vínculos com rotinas — remove o exercício de todas as rotinas do usuário.
+  const { error: linkError } = await supabase
+    .from("user_workouts")
+    .delete()
+    .eq("user_id", viewer.id)
+    .eq("workout_id", workoutId);
+  if (linkError) throw linkError;
+
+  // 3. Linha do catálogo — só o dono; detecta o no-op silencioso de RLS.
+  const { data, error } = await supabase
+    .from("workouts")
+    .delete()
+    .eq("id", workoutId)
+    .eq("created_by", viewer.id)
+    .select("id");
+  if (error) {
+    console.error("Error deleting custom workout:", error);
+    throw error;
+  }
+  if (!data || data.length === 0) {
+    throw new Error("Não foi possível apagar este exercício (ele não é seu ou foi removido).");
+  }
+
+  invalidateQueryCache("workouts:");
+  invalidateQueryCache("catalogWorkouts:");
+  invalidateQueryCache("userWorkouts:");
+  invalidateQueryCache("workoutHistory:");
+  invalidateQueryCache("completedRoutines:");
 }
 
 // Upload da foto de um exercício criado pelo usuário → retorna URL pública.
@@ -2334,6 +2445,12 @@ export type Workout = {
   photo: string | null;
   muscle_group?: string | null;
   type?: number | null;
+  /**
+   * true = exercício criado manualmente PELO usuário logado (created_by_user +
+   * created_by = viewer). É o que habilita a edição (nome/descrição/foto) —
+   * itens do catálogo e de outros usuários não são editáveis.
+   */
+  isCustom?: boolean;
 };
 
 export type Diet = {
@@ -3338,6 +3455,12 @@ export type UserWorkoutWithDetails = {
   notes?: string | null;
   routine_id?: string | null;
   time_to_rest?: number | null;
+  /**
+   * true = o exercício do catálogo foi criado manualmente por ESTE usuário
+   * (`workouts.created_by_user` + `created_by` = dono). Habilita a edição de
+   * nome/descrição/foto no detalhe do exercício.
+   */
+  isCustom?: boolean;
 };
 
 export async function getUserWorkoutsDb(
@@ -3347,7 +3470,7 @@ export async function getUserWorkoutsDb(
   const { data, error } = await supabase
     .from("user_workouts")
     .select(
-      "id, workout_id, user_id, name, created_at, scheduled_time, scheduled_days, notes, routine_id, time_to_rest, workouts(name, name_eng, photo, description, description_eng, muscle_group, wger_id)",
+      "id, workout_id, user_id, name, created_at, scheduled_time, scheduled_days, notes, routine_id, time_to_rest, workouts(name, name_eng, photo, description, description_eng, muscle_group, wger_id, created_by_user, created_by)",
     )
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
@@ -3448,6 +3571,10 @@ export async function getUserWorkoutsDb(
     notes: row.notes ? String(row.notes) : null,
     routine_id: row.routine_id != null ? String(row.routine_id) : null,
     time_to_rest: row.time_to_rest != null ? Number(row.time_to_rest) : null,
+    // Editável só quando o exercício do catálogo é custom E pertence a quem pediu.
+    isCustom:
+      !!(row.workouts as any)?.created_by_user &&
+      String((row.workouts as any)?.created_by ?? "") === userId,
   }));
   offlineCopyWrite(`userWorkouts:${userId}`, rows);
   return rows;
@@ -4444,6 +4571,7 @@ export type StoryTextStyle = {
   fontWeight?: number;
   align?: "left" | "center" | "right";
   color?: string;
+  fontSize?: number; // px; ausente em flows antigos → cai para 30 (equivalente ao text-3xl)
 };
 export type StoryTextElement = { text: string; x: number; y: number; style?: StoryTextStyle }; // x/y in %
 // Enquadramento da mídia (vídeo): scale unitário, x/y em % do tamanho do elemento
@@ -5471,32 +5599,30 @@ export async function sendMessageDb(
 }
 
 /**
- * Notificação de mensagem privada (tipo 10).
+ * Notificação de mensagem privada (tipo 10) — **só push, nunca card na lista**.
  *
- * Cada linha inserida em `notifications` dispara o webhook → push do iOS, então
- * o destinatário é avisado a cada nova mensagem. Para não gerar uma enxurrada de
- * linhas (e de pushes) numa conversa em ritmo de bate-papo, mensagens do mesmo
- * remetente dentro de 60s de uma notificação ainda não lida não geram outra.
- * Na tela de Notificações os cards do tipo 10 são colapsados em um por remetente.
+ * A linha em `notifications` existe por um único motivo: é ela que dispara o
+ * webhook `notify-push-on-notification` → edge function → push no iPhone. Não há
+ * como pedir o push sem gravar a linha (o segredo do webhook não pode viver no
+ * cliente). Por isso a linha continua sendo criada, mas o tipo 10 é **filtrado na
+ * leitura**, em `getNotificationsDb` e `getUnreadNotificationsCountDb`.
+ *
+ * Motivo (2026-07-21): uma conversa em ritmo de bate-papo enchia a tela de
+ * Notificações de cards de mensagem, empurrando para baixo o que o usuário
+ * realmente quer ver ali. Quem avisa de mensagem não lida dentro do app é o badge
+ * da Comunidade (`getUnreadMessageCountDb`, que lê a tabela `messages`).
+ *
+ * Um push por mensagem é **deliberado** — é o comportamento normal de um
+ * mensageiro, e o iOS já agrupa os banners por remetente. A janela de dedup de 60s
+ * que existia aqui foi removida: ela nunca funcionou (o `SELECT` em `notifications`
+ * do destinatário sempre volta vazio sob RLS, ver docs/10-notificacoes.md) e, com
+ * os cards fora da lista, o que ela protegia deixou de existir.
  */
 async function sendMessageNotificationDb(recipientId: string): Promise<void> {
   if (!hasSupabaseConfig || !supabase) return;
 
   const viewer = await getViewer();
   if (!viewer || viewer.id === recipientId) return;
-
-  const { data: recent } = await supabase
-    .from("notifications")
-    .select("created_at")
-    .eq("user_id", recipientId)
-    .eq("follower_id", viewer.id)
-    .eq("type", 10)
-    .eq("read", false)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (recent?.created_at && Date.now() - new Date(recent.created_at).getTime() < 60_000) return;
 
   const { error } = await supabase.from("notifications").insert({
     user_id: recipientId,
@@ -5507,11 +5633,7 @@ async function sendMessageNotificationDb(recipientId: string): Promise<void> {
 
   if (error) {
     console.error("Error inserting message notification:", error);
-    return;
   }
-
-  invalidateQueryCache("notifications");
-  invalidateQueryCache("unreadNotifCount");
 }
 
 export async function getConversationsDb(): Promise<Conversation[]> {
@@ -6812,7 +6934,7 @@ export async function toggleUserHabitCompletionDb(
 // Notifications functionality
 export type NotificationItem = {
   id: string;
-  type: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13; // 1 = new follower, 2 = incentive, 3 = comment, 4 = duel invite, 5 = join request, 6 = comment reaction, 7 = check-in reaction, 8 = promotion comment, 9 = tagged in post, 10 = private message, 11 = duel check-in, 12 = promotion like, 13 = promotion expired
+  type: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15; // 1 = new follower, 2 = incentive, 3 = comment, 4 = duel invite, 5 = join request, 6 = comment reaction, 7 = check-in reaction, 8 = promotion comment, 9 = tagged in post, 10 = private message, 11 = duel check-in, 12 = promotion like, 13 = promotion expired, 14 = check-in classificado, 15 = check-in desclassificado
   userId: string;
   userNickname: string;
   userPhoto: string | null;
@@ -6820,7 +6942,7 @@ export type NotificationItem = {
   postId?: string;
   shotId?: string; // Present when notification relates to a shot (from shots_id column in notifications)
   flowId?: string; // Present when type=6 and reaction was on a flow comment (decoded from shots_id "flow:<id>")
-  checkInId?: string; // Present when type=6/7 and reaction was on a checkin comment or checkin itself (decoded from shots_id "checkin:<id>" or from duel_check_in_id column)
+  checkInId?: string; // Check-in de duelo: comentário (3), reação em comentário (6), reação no check-in (7), check-in de membro (11) e avaliação classificado/desclassificado (14/15) — vem da coluna duel_check_in_id ou do prefixo legado "checkin:<id>" em shots_id
   promotionId?: string; // For types 8/12/13 (promotion comment, like, expired) — stored in post_id column
   postPhoto?: string;
   incentiveType?: number; // For type 2 (incentive): 1=apoio, 2=continua, 3=ganhador, 4=consegueMais, 5=limiteMaior, 6=maisAlgum
@@ -6831,7 +6953,12 @@ export type NotificationItem = {
 
 // A coluna post_id é reaproveitada por vários tipos: nestes ela guarda o id de um
 // grupo de duelo (4, 5, 11) ou de uma promoção (8, 12, 13) — nunca o id de um post.
-const NOTIF_TYPES_WITHOUT_POST = new Set([4, 5, 7, 8, 11, 12, 13]);
+// Os tipos de check-in (7, 14, 15) não usam post_id de forma alguma.
+const NOTIF_TYPES_WITHOUT_POST = new Set([4, 5, 7, 8, 11, 12, 13, 14, 15]);
+
+// Mensagem privada: a linha só existe para disparar o push, então some da lista
+// e da contagem do sino. Ver sendMessageNotificationDb.
+const NOTIF_TYPE_PUSH_ONLY = 10;
 
 export async function getNotificationsDb(): Promise<NotificationItem[]> {
   if (!hasSupabaseConfig || !supabase) return [];
@@ -6858,6 +6985,9 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
       `
       )
       .eq("user_id", viewer.id)
+      // Tipo 10 (mensagem privada) é só gatilho de push — nunca vira card aqui.
+      // Ver sendMessageNotificationDb.
+      .neq("type", NOTIF_TYPE_PUSH_ONLY)
       .order("created_at", { ascending: false })
       .limit(100);
 
@@ -7219,6 +7349,8 @@ export async function getUnreadNotificationsCountDb(): Promise<number> {
       .select("id, type, follower_id, post_id, shots_id, flow_id, read")
       .eq("user_id", viewer.id)
       .eq("read", false)
+      // Fora da lista, fora do badge — o tipo 10 só existe para gerar o push.
+      .neq("type", NOTIF_TYPE_PUSH_ONLY)
       .limit(200);
 
     // If read column doesn't exist, fallback to fetching all
@@ -7227,7 +7359,8 @@ export async function getUnreadNotificationsCountDb(): Promise<number> {
       const { data: allData, error: fallbackError } = await supabase
         .from("notifications")
         .select("id, type, follower_id, post_id, shots_id, flow_id")
-        .eq("user_id", viewer.id);
+        .eq("user_id", viewer.id)
+        .neq("type", NOTIF_TYPE_PUSH_ONLY);
 
       if (fallbackError) {
         const errorMsg = typeof fallbackError === 'object' ? JSON.stringify(fallbackError) : String(fallbackError);
@@ -7244,16 +7377,13 @@ export async function getUnreadNotificationsCountDb(): Promise<number> {
     if (!data || data.length === 0) return 0;
 
     // Apply the same grouping as the UI: incentive notifications (type 2) for the same
-    // post/shot are collapsed into a single entry regardless of incentive subtype or sender,
-    // and private messages (type 10) are collapsed into one entry per sender.
+    // post/shot are collapsed into a single entry regardless of incentive subtype or sender.
     const seenPostKeys = new Set<string>();
     let groupedCount = 0;
 
     for (const n of data) {
-      if (n.type === 2 || n.type === 10) {
-        const key = n.type === 10
-          ? `msg:${n.follower_id}`
-          : String(n.flow_id ?? n.shots_id ?? n.post_id ?? n.id);
+      if (n.type === 2) {
+        const key = String(n.flow_id ?? n.shots_id ?? n.post_id ?? n.id);
         if (!seenPostKeys.has(key)) {
           seenPostKeys.add(key);
           groupedCount++;
@@ -7300,6 +7430,12 @@ export async function markNotificationsAsReadDb(): Promise<boolean> {
       return false;
     }
 
+    // Invalidar ANTES do return (antes ficava depois dele, código morto): sem
+    // isto o badge do sino continuava lendo a contagem velha do cache — e o
+    // cache persistido servia esse valor até no relaunch do app, então o
+    // indicador de pendência voltava mesmo com tudo já lido no banco.
+    invalidateQueryCache("notifications");
+    invalidateQueryCache("unreadNotifCount");
     return true;
   } catch (err: any) {
     const errorMsg = typeof err === 'object' ? JSON.stringify(err) : String(err);
@@ -7307,8 +7443,6 @@ export async function markNotificationsAsReadDb(): Promise<boolean> {
     // Don't fail the operation if read column doesn't exist
     return true;
   }
-
-  invalidateQueryCache("notifications"); invalidateQueryCache("unreadNotifCount");
 }
 
 export async function clearNotificationsDb(): Promise<boolean> {
@@ -7330,6 +7464,10 @@ export async function clearNotificationsDb(): Promise<boolean> {
       return false;
     }
 
+    // Mesma armadilha do markNotificationsAsReadDb: sem invalidar, a lista e a
+    // contagem do sino continuavam vindo do cache como se nada tivesse mudado.
+    invalidateQueryCache("notifications");
+    invalidateQueryCache("unreadNotifCount");
     return true;
   } catch (err: any) {
     const errorMsg = typeof err === 'object' ? JSON.stringify(err) : String(err);
@@ -7443,13 +7581,12 @@ export async function createPostDb(
       if (tagsError) console.error("Error tagging users in post:", tagsError);
     }
 
+    invalidateQueryCache("userPosts"); invalidateQueryCache("post:");
     return postId;
   } catch (err: any) {
     console.error("Error creating post:", err);
     throw err;
   }
-
-  invalidateQueryCache("userPosts"); invalidateQueryCache("post:");
 }
 
 // Delete Post Function
@@ -8959,6 +9096,7 @@ export async function createDuelGroupDb(
     }
 
 
+    invalidateQueryCache("enrichedDuelGroups"); invalidateQueryCache("followingGroups"); invalidateQueryCache("userDuelGroups");
     return {
       id: groupData.id,
       createdBy: groupData.created_by,
@@ -8978,8 +9116,6 @@ export async function createDuelGroupDb(
     console.error("Full error details:", error);
     throw new Error(errorMsg);
   }
-
-  invalidateQueryCache("enrichedDuelGroups"); invalidateQueryCache("followingGroups"); invalidateQueryCache("userDuelGroups");
 }
 
 // Get group by ID with participant count
@@ -9311,6 +9447,7 @@ export async function addGroupCheckInDb(
       console.error("Error sending duel check-in notifications:", err),
     );
 
+    invalidateQueryCache("groupCheckIns");
     return {
       id: data.id,
       groupId: data.group_id,
@@ -9336,8 +9473,6 @@ export async function addGroupCheckInDb(
     console.error("Error adding check-in:", error);
     throw error;
   }
-
-  invalidateQueryCache("groupCheckIns");
 }
 
 /**
@@ -10505,7 +10640,13 @@ export async function addCheckInCommentDb(checkInId: string, text: string): Prom
     .eq("user_id", viewer.id)
     .maybeSingle();
 
-  // Notify check-in owner (type 6, commentType "checkin") — skip if commenting on own check-in
+  // Avisa o dono do check-in — pulado quando comenta no próprio check-in.
+  //
+  // Tipo 3 (comentário), NÃO tipo 6: até 2026-07-21 esta inserção usava o tipo 6,
+  // que é "reagiu ao seu comentário". Quem recebia um comentário no check-in lia
+  // "fulano reagiu ao seu comentário" — evento errado, e indistinguível da reação
+  // real (que também grava tipo 6 + duel_check_in_id, em toggleCommentReactionDb).
+  // Com o tipo 3 + duel_check_in_id o texto vira "fulano comentou no seu check-in".
   const { data: checkInRow } = await supabase
     .from("duel_check_ins")
     .select("user_id")
@@ -10515,7 +10656,7 @@ export async function addCheckInCommentDb(checkInId: string, text: string): Prom
     await supabase.from("notifications").insert({
       user_id: checkInRow.user_id,
       follower_id: viewer.id,
-      type: 6,
+      type: 3,
       duel_check_in_id: checkInId,
       read: false,
     });

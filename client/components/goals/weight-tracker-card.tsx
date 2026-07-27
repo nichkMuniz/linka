@@ -1,19 +1,12 @@
 import * as React from "react";
-import { Drawer, DrawerContent } from "@/components/ui/drawer";
-import { Scale, Trash2, TrendingUp, TrendingDown, Check, ChevronRight } from "lucide-react";
+import { Scale, Check, ChevronRight } from "lucide-react";
 import { useLanguage } from "@/lib/language-context";
-import { PremiumGate } from "@/components/shared/premium-gate";
-import { TrendChart } from "@/components/shared/trend-chart";
-import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
 import {
-  GLASS_SHEET_PROPS,
-  GLASS_SHEET_STYLE,
-  GLASS_PANEL_STYLE,
-  GLASS_PRIMARY_BTN_STYLE,
-} from "@/lib/glass-styles";
+  WeightHistoryDrawer,
+  fmtWeight,
+} from "@/components/shared/weight-history-drawer";
+import { GLASS_PRIMARY_BTN_STYLE } from "@/lib/glass-styles";
 import type { WeightLog } from "@/lib/ritmofit-db";
-
-const ACCENT = "#5b8cff";
 
 // Cadência do lembrete de peso. SEMANAL (7) é o recomendado por profissionais de
 // saúde: o peso oscila 1–2 kg por dia (água/comida/treino) e pesagens diárias
@@ -40,22 +33,6 @@ interface WeightTrackerCardProps {
   onDeleteWeight: (id: string) => Promise<void>;
 }
 
-const MONTHS: Record<string, string[]> = {
-  pt: ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"],
-  en: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
-};
-
-function fmtDate(iso: string, lang: string): string {
-  const [, m, d] = iso.split("-").map(Number);
-  const months = MONTHS[lang] ?? MONTHS.pt;
-  return `${d} ${months[(m ?? 1) - 1] ?? ""}`;
-}
-
-function fmtWeight(v: number, lang: string): string {
-  const s = v.toFixed(1);
-  return lang === "pt" ? s.replace(".", ",") : s;
-}
-
 // Dias inteiros entre a data (YYYY-MM-DD) e hoje.
 function daysSinceISODate(iso: string): number {
   const last = Date.parse(iso + "T00:00:00");
@@ -67,7 +44,6 @@ function daysSinceISODate(iso: string): number {
 export function WeightTrackerCard({ logs, onAddWeight, onDeleteWeight }: WeightTrackerCardProps) {
   const { t, language } = useLanguage();
   const [open, setOpen] = React.useState(false);
-  const [input, setInput] = React.useState("");
   const [inlineInput, setInlineInput] = React.useState("");
   const [saving, setSaving] = React.useState(false);
   // Fluxo "registrou → confirma → some"
@@ -77,20 +53,9 @@ export function WeightTrackerCard({ logs, onAddWeight, onDeleteWeight }: WeightT
 
   const hasLogs = logs.length > 0;
   const current = hasLogs ? logs[logs.length - 1].weight : null;
-  const previous = logs.length > 1 ? logs[logs.length - 2].weight : null;
-  const deltaPrev = current != null && previous != null ? current - previous : 0;
-  const first = hasLogs ? logs[0].weight : null;
-  const deltaTotal = current != null && first != null ? current - first : 0;
 
   const lastLoggedAt = hasLogs ? logs[logs.length - 1].logged_at : null;
   const loggedRecently = lastLoggedAt ? daysSinceISODate(lastLoggedAt) < LOG_INTERVAL_DAYS : false;
-
-  const points = logs.map((l) => ({ label: fmtDate(l.logged_at, language), value: l.weight }));
-
-  // O input "registrar peso" fica no meio do scroll do drawer (gráfico acima,
-  // histórico abaixo) — sem assistência ele some atrás do teclado no iOS.
-  const historyScrollRef = React.useRef<HTMLDivElement | null>(null);
-  useKeyboardInputScroll(historyScrollRef, open);
 
   // Após confirmar, o card some sozinho depois de alguns segundos (com fade).
   React.useEffect(() => {
@@ -109,30 +74,11 @@ export function WeightTrackerCard({ logs, onAddWeight, onDeleteWeight }: WeightT
     setSaving(true);
     try {
       await onAddWeight(parsed);
-      setInput("");
       setInlineInput("");
-      setOpen(false);
       setConfirmedValue(parsed);
     } finally {
       setSaving(false);
     }
-  };
-
-  const renderDelta = (delta: number, big?: boolean) => {
-    if (Math.abs(delta) < 0.05) return null;
-    const up = delta > 0;
-    const color = up ? "#ff8a2a" : "#3ddc84";
-    const Icon = up ? TrendingUp : TrendingDown;
-    return (
-      <span
-        className="inline-flex items-center gap-1 tabular-nums"
-        style={{ color, fontSize: big ? "13px" : "11.5px", fontWeight: 600 }}
-      >
-        <Icon className={big ? "h-3.5 w-3.5" : "h-3 w-3"} />
-        {up ? "+" : "−"}
-        {fmtWeight(Math.abs(delta), language)} {t("goals_weight_unit")}
-      </span>
-    );
   };
 
   // ── Renderização por estado ──
@@ -245,110 +191,15 @@ export function WeightTrackerCard({ logs, onAddWeight, onDeleteWeight }: WeightT
         </div>
       </div>
 
-      {/* Drawer de histórico + gráfico (aberto pelo link "Histórico") */}
-      <Drawer open={open} onOpenChange={setOpen}>
-        <DrawerContent {...GLASS_SHEET_PROPS} style={GLASS_SHEET_STYLE}>
-          <div
-            ref={historyScrollRef}
-            className="flex flex-col px-5 pt-2 overflow-y-auto"
-            style={{ paddingBottom: "calc(1.5rem + var(--keyboard-height, 0px))" }}
-          >
-            <h2 className="text-white text-lg font-bold">{t("goals_weight_title")}</h2>
-
-            {hasLogs ? (
-              <>
-                <div className="mt-3 flex items-end justify-between">
-                  <div>
-                    <div className="flex items-baseline gap-1.5">
-                      <span className="text-white tabular-nums" style={{ fontSize: "34px", fontWeight: 780, lineHeight: 1 }}>
-                        {fmtWeight(current as number, language)}
-                      </span>
-                      <span className="text-white/50" style={{ fontSize: "15px" }}>{t("goals_weight_unit")}</span>
-                    </div>
-                    {logs.length > 1 && <div className="mt-1.5">{renderDelta(deltaTotal, true)}</div>}
-                  </div>
-                </div>
-
-                <PremiumGate feature="charts" className="mt-4">
-                  <div className="rounded-2xl p-3" style={GLASS_PANEL_STYLE}>
-                    <TrendChart points={points} color={ACCENT} height={150} />
-                    <div className="mt-1 flex justify-between px-1">
-                      <span className="text-white/35" style={{ fontSize: "10.5px" }}>{points[0]?.label}</span>
-                      <span className="text-white/35" style={{ fontSize: "10.5px" }}>{points[points.length - 1]?.label}</span>
-                    </div>
-                  </div>
-                </PremiumGate>
-              </>
-            ) : (
-              <p className="mt-2 text-sm text-white/60">{t("goals_weight_empty_desc")}</p>
-            )}
-
-            {/* Registrar peso (também disponível aqui dentro) */}
-            <div className="mt-4 flex items-center gap-2">
-              <div className="relative flex-1">
-                <input
-                  type="number"
-                  inputMode="decimal"
-                  step="0.1"
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") submitWeight(input);
-                  }}
-                  placeholder={t("goals_weight_input_placeholder")}
-                  className="w-full rounded-xl px-3 py-3 text-white placeholder:text-white/35 outline-none"
-                  style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)" }}
-                />
-                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40" style={{ fontSize: "13px" }}>
-                  {t("goals_weight_unit")}
-                </span>
-              </div>
-              <button
-                onClick={() => submitWeight(input)}
-                disabled={saving || !input.trim()}
-                className="rounded-xl px-4 py-3 text-sm font-semibold disabled:opacity-50"
-                style={GLASS_PRIMARY_BTN_STYLE}
-              >
-                {t("goals_weight_log_cta")}
-              </button>
-            </div>
-
-            {/* Histórico (mais recente primeiro) */}
-            {hasLogs && (
-              <div className="mt-5">
-                <div className="text-white/50 mb-2" style={{ fontSize: "12px", fontWeight: 600 }}>
-                  {t("goals_weight_history")}
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  {[...logs].reverse().map((l) => (
-                    <div
-                      key={l.id}
-                      className="flex items-center justify-between rounded-xl px-3 py-2.5"
-                      style={GLASS_PANEL_STYLE}
-                    >
-                      <span className="text-white/70" style={{ fontSize: "13px" }}>
-                        {fmtDate(l.logged_at, language)}
-                      </span>
-                      <div className="flex items-center gap-3">
-                        <span className="text-white tabular-nums font-semibold" style={{ fontSize: "14px" }}>
-                          {fmtWeight(l.weight, language)} {t("goals_weight_unit")}
-                        </span>
-                        <button
-                          onClick={() => onDeleteWeight(l.id)}
-                          className="text-white/40 hover:text-red-400 transition-colors"
-                          aria-label={t("goals_weight_delete")}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        </DrawerContent>
-      </Drawer>
+      {/* Histórico + gráfico — componente compartilhado com Configurações */}
+      <WeightHistoryDrawer
+        open={open}
+        onOpenChange={setOpen}
+        logs={logs}
+        onAddWeight={onAddWeight}
+        onDeleteWeight={onDeleteWeight}
+        onLogged={(w) => setConfirmedValue(w)}
+      />
     </>
   );
 }

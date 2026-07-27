@@ -686,19 +686,64 @@ export default function Login() {
         return;
       }
 
-      // Upload photo and save bio if provided
-      const { data: { user: authUser } } = await supabase.auth.getUser();
+      // Upload photo and save bio if provided.
+      // A sessão recém-criada nem sempre está pronta no primeiro getUser() (iOS):
+      // antes, se viesse null, TODO o bloco abaixo era pulado em silêncio e o
+      // usuário caía no feed sem foto e sem os dados do cadastro.
+      let resolvedUser = (await supabase.auth.getUser()).data.user;
+      if (!resolvedUser) {
+        await new Promise((resolve) => setTimeout(resolve, 800));
+        resolvedUser = (await supabase.auth.getUser()).data.user;
+      }
+      if (!resolvedUser) {
+        console.error("Cadastro: sessão indisponível — perfil não foi gravado.");
+        toast({
+          title: "Conta criada",
+          description: "Não conseguimos salvar sua foto e seus dados agora. Ajuste em Editar perfil.",
+          variant: "destructive",
+        });
+      }
+      const authUser = resolvedUser;
+
       if (authUser) {
         let photoUrl: string | undefined;
         if (photoFile) {
-          const extension = photoFile.name.split(".").pop() || "jpg";
-          const filePath = `${authUser.id}/profile-${Date.now()}.${extension}`;
-          const { error: uploadError } = await supabase.storage
-            .from("posts")
-            .upload(filePath, photoFile, { contentType: photoFile.type });
-          if (!uploadError) {
+          // O cropper SEMPRE exporta JPEG. Usar a extensão do arquivo original
+          // (no iOS costuma ser .heic) gravava uma key que não batia com o
+          // conteúdo, e a imagem podia ser servida com content-type errado —
+          // o feed então caía no avatar padrão do ImageWithFallback.
+          const filePath = `${authUser.id}/profile-${Date.now()}.jpg`;
+          // upsert:true para que uma retentativa sobrescreva em vez de falhar
+          // com "duplicate" caso a 1ª tentativa tenha subido mas perdido a resposta.
+          const { error: uploadError } = await withNetworkRetry(
+            () =>
+              supabase!.storage
+                .from("posts")
+                .upload(filePath, photoFile, { contentType: "image/jpeg", upsert: true }),
+            { retries: 2, delayMs: 1200 },
+          );
+
+          if (uploadError) {
+            // Antes esse erro era engolido (`if (!uploadError)`) e não sobrava
+            // nenhuma pista de por que a foto não aparecia.
+            console.error("Erro ao enviar a foto de perfil no cadastro:", uploadError);
+            toast({
+              title: "Não foi possível enviar sua foto",
+              description: "Sua conta foi criada. Tente adicionar a foto em Editar perfil.",
+              variant: "destructive",
+            });
+          } else {
             const { data: { publicUrl } } = supabase.storage.from("posts").getPublicUrl(filePath);
             photoUrl = publicUrl;
+
+            // Espelha a foto no metadata do auth. Se a linha de `profiles` ainda
+            // não existir, quem cria o perfil é o ensureProfile() do feed — e ele
+            // tira a foto de `user_metadata.avatar_url`, que o cadastro nunca
+            // preenchia; era por isso que o usuário caía no feed sem avatar.
+            const { error: metaError } = await supabase.auth.updateUser({
+              data: { avatar_url: publicUrl },
+            });
+            if (metaError) console.error("Erro ao gravar avatar_url no metadata:", metaError);
           }
         }
 
@@ -720,10 +765,18 @@ export default function Login() {
           // Usamos UPDATE (policy profiles_update_own) em vez de UPSERT: o braço de
           // INSERT do upsert era barrado pelo RLS e falhava em silêncio, então a foto
           // e o handle escolhidos no cadastro nunca eram gravados.
-          const { error: profileError } = await supabase
-            .from("profiles")
-            .update({ ...profilePayload, updated_at: new Date().toISOString() })
-            .eq("user_id", authUser.id);
+          // O .select() devolve as linhas afetadas: um UPDATE barrado por RLS
+          // afeta 0 linhas SEM retornar erro (mesmo no-op silencioso do DELETE),
+          // então sem isso não há como distinguir "gravou" de "não gravou".
+          const { data: savedRows, error: profileError } = await withNetworkRetry(
+            async () =>
+              await supabase!
+                .from("profiles")
+                .update({ ...profilePayload, updated_at: new Date().toISOString() })
+                .eq("user_id", authUser.id)
+                .select("photo, handle"),
+            { retries: 2, delayMs: 1200 },
+          );
 
           if (profileError) {
             console.error("Erro ao salvar perfil no cadastro:", profileError);
@@ -732,6 +785,37 @@ export default function Login() {
               toast({
                 title: "@usuário já em uso",
                 description: "Esse @ acabou de ser escolhido por outra pessoa. Você pode alterá-lo depois no seu perfil.",
+                variant: "destructive",
+              });
+            } else {
+              toast({
+                title: "Não foi possível salvar seu perfil",
+                description: "Sua conta foi criada. Revise seus dados em Editar perfil.",
+                variant: "destructive",
+              });
+            }
+          } else if (!savedRows || savedRows.length === 0) {
+            // 0 linhas sem erro = a linha ainda não existe (trigger handle_new_user
+            // ausente/atrasado). Cria o perfil em vez de perder foto e dados.
+            // Requer a policy `profiles_insert_own` (migração 20260720).
+            console.error("Cadastro: UPDATE não afetou linhas — criando o perfil.");
+            const { error: insertError } = await withNetworkRetry(
+              async () =>
+                await supabase!.from("profiles").upsert(
+                  {
+                    user_id: authUser.id,
+                    ...profilePayload,
+                    updated_at: new Date().toISOString(),
+                  },
+                  { onConflict: "user_id" },
+                ),
+              { retries: 2, delayMs: 1200 },
+            );
+            if (insertError) {
+              console.error("Erro ao criar perfil no cadastro:", insertError);
+              toast({
+                title: "Não foi possível salvar seu perfil",
+                description: "Sua conta foi criada. Revise foto e dados em Editar perfil.",
                 variant: "destructive",
               });
             }

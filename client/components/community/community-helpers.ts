@@ -40,6 +40,24 @@ export function specialMessageLabel(
 }
 
 /**
+ * Prefixo de citação de uma resposta: `↩ <original>\n\n`. Usado por TODOS os
+ * envios (texto, foto e áudio) para que a mídia enviada em cima de uma mensagem
+ * marcada também apareça como resposta àquela mensagem.
+ *
+ * Se a mensagem citada já for ela mesma uma resposta, cita apenas o conteúdo
+ * próprio dela (o texto novo), nunca a citação aninhada: o parser da bolha corta
+ * no primeiro `\n\n`, então empilhar `↩` embaralharia quote e corpo.
+ *
+ * Retorna string vazia quando não há resposta marcada — aí o texto segue puro.
+ */
+export function buildReplyPrefix(replyTo: { text: string } | null | undefined): string {
+  if (!replyTo) return "";
+  const quoted = replyTo.text.replace(/^↩ .+?\n\n/, "").trim();
+  if (!quoted) return "";
+  return `↩ ${quoted}\n\n`;
+}
+
+/**
  * Texto do preview de uma conversa (última mensagem na lista). Trata dois casos
  * que o `specialMessageLabel` sozinho não cobria:
  *

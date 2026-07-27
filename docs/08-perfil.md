@@ -211,8 +211,18 @@ Aberto pelo botão "Configurações". O menu é organizado em seções com separ
 
 | Configuração | Tipo | Descrição |
 |---|---|---|
-| Meu Perfil | Botão → Drawer aninhado com abas | Drawer unificado com duas abas: **Público** (foto, nome, bio, handle) e **Pessoal** (sexo, altura, peso, idade, objetivos) |
+| Meu Perfil | Botão → Drawer aninhado com abas | Drawer unificado com duas abas: **Público** (foto, nome, bio, handle) e **Pessoal** (sexo, altura, peso, idade, objetivos). O campo **Peso** tem ao lado um botão **"Histórico"** (ícone `LineChart`) — ver abaixo |
 | Conta e Segurança | Botão → Drawer aninhado | Email (editável com confirmação via link), redefinir senha e zona de perigo (encerrar conta) |
+
+#### Histórico de peso (Meu Perfil → Pessoal)
+
+Ao lado do rótulo **Peso (kg)** há um botão **"Histórico"** (`LineChart`, chave `settings_weight_history`) que abre o **`WeightHistoryDrawer`** — o **mesmo** componente usado pelo lembrete semanal de peso da tela de Metas (`docs/05-metas.md`), agora em `client/components/shared/weight-history-drawer.tsx`.
+
+Conteúdo do drawer: peso atual em destaque + **variação total** desde o primeiro registro, gráfico de tendência (`TrendChart`, sob `PremiumGate feature="charts"`), input para registrar um novo peso e a lista do histórico (mais recente primeiro) com a **variação em relação ao registro anterior** e ação de excluir.
+
+- Dados: `getWeightLogsDb(90)` / `addWeightLogDb` / `deleteWeightLogDb` (tabela `user_weight_logs`, um registro por dia via upsert)
+- Os logs são carregados **só ao abrir** o histórico (a maioria das visitas às configurações não o abre; a função já é cacheada por usuário)
+- `addWeightLogDb` também grava `profiles.weight`, então após registrar o campo Peso do formulário é atualizado localmente para não exibir valor defasado
 
 ### Seção: Negócio *(exibida apenas se o usuário tem perfil comercial)*
 

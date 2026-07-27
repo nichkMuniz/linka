@@ -200,6 +200,42 @@ export default function Shots() {
     }
   }, [t]);
 
+  // Autoplay resiliente à política do iOS.
+  //
+  // Os shots tocam COM som (isMuted começa false). No WKWebView, play() num
+  // vídeo com áudio exige gesto do usuário — e o autoplay ao abrir a tela roda
+  // num efeito assíncrono (depois do await getShotsDb()), quando o contexto do
+  // toque que originou a navegação já se perdeu. Resultado: play() rejeita com
+  // NotAllowedError e o vídeo fica congelado no primeiro frame (era o bug de
+  // abrir um shot pelo perfil/busca). O bloqueio é por documento e depende de
+  // interação prévia na sessão, por isso parecia funcionar "às vezes".
+  //
+  // Fallback: se o play com som for barrado, toca MUDO (sempre permitido) e
+  // reflete no botão de som — o usuário reativa o áudio com um toque, que aí
+  // sim é um gesto válido. Sempre melhor que a tela parada.
+  const playVideoSafely = React.useCallback(async (video: HTMLVideoElement) => {
+    try {
+      await video.play();
+    } catch (err: any) {
+      const name = err?.name;
+      if (name === "AbortError" || name === "NotSupportedError") return;
+      if (name !== "NotAllowedError") {
+        console.error("Erro ao reproduzir vídeo:", err);
+        return;
+      }
+      video.muted = true;
+      setIsMuted(true);
+      try {
+        await video.play();
+        // Destaca o botão de som por alguns segundos: sem isso o usuário só vê
+        // o vídeo mudo sem entender por quê nem que basta um toque para ligar.
+        revealSoundLabel();
+      } catch {
+        /* sem autoplay nem mudo — resta o toque do usuário */
+      }
+    }
+  }, [revealSoundLabel]);
+
   const handleVideoTap = React.useCallback((shotId: string) => {
     const now = Date.now();
     const last = lastTapRef.current;
@@ -502,9 +538,7 @@ export default function Shots() {
           );
         }
         const video = videoRefsMap.current[shotId];
-        if (video) {
-          video.play().catch((err) => { if (err?.name !== "AbortError" && err?.name !== "NotSupportedError") console.error("Erro ao reproduzir vídeo:", err); });
-        }
+        if (video) void playVideoSafely(video);
       });
     }, observerOptions);
 
@@ -530,18 +564,16 @@ export default function Shots() {
       observer.disconnect();
       mutationObserver.disconnect();
     };
-  }, [shots]); // re-run when shots load so containerRef is populated
+  }, [shots, playVideoSafely]); // re-run when shots load so containerRef is populated
 
   // Auto-play first video when shots load
   React.useEffect(() => {
     if (shots.length > 0 && !visibleShotId) {
       const firstShotId = shots[0].id;
       const firstVideo = videoRefsMap.current[firstShotId];
-      if (firstVideo) {
-        firstVideo.play().catch((err) => { if (err?.name !== "AbortError") console.error("Erro ao reproduzir primeiro vídeo:", err); });
-      }
+      if (firstVideo) void playVideoSafely(firstVideo);
     }
-  }, [shots, visibleShotId]);
+  }, [shots, visibleShotId, playVideoSafely]);
 
   const handleIncentiveClick = React.useCallback(
     async (shot: ShotWithUser, type: PostIncentiveType) => {

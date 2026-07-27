@@ -40,6 +40,13 @@ import { RoutineCompletedToast } from "@/components/shared/routine-completed-toa
 import { PaywallDrawer } from "@/components/shared/paywall-drawer";
 import { usePremium } from "@/lib/premium-context";
 import { getUnreadMessageCountDb, getUnreadNotificationsCountDb, getUserProfileDb, subscribeToUnreadNotificationsDb, recordAccessSessionDb, bufferScreenTime, flushScreenTimeDb, invalidateQueryCache } from "@/lib/ritmofit-db";
+import {
+  fetchNotificationCopyData,
+  notificationBody,
+  notificationDeepLink,
+  notificationTitle,
+  type NotificationRow,
+} from "@/lib/notification-copy";
 import { OUTBOX_SYNCED_EVENT } from "@/lib/offline-outbox";
 import { toast } from "@/components/ui/use-toast";
 import { supabase } from "@/lib/supabase";
@@ -324,10 +331,22 @@ export function AppLayout() {
     };
   }, [loadUnreadCounts]);
 
+  // O efeito das subscriptions roda uma única vez ([]), então guardar `t` numa
+  // ref é o que faz o banner acompanhar a troca de idioma — capturado direto,
+  // ele congelaria no idioma que estava ativo na montagem do layout.
+  const tRef = React.useRef(t);
+  React.useEffect(() => { tRef.current = t; }, [t]);
+
   React.useEffect(() => {
     loadUnreadCounts();
 
-    const unsubscribe = subscribeToUnreadNotificationsDb(setUnreadNotificationsCount);
+    // Com a tela de notificações aberta, a própria tela marca tudo como lido
+    // assim que a linha chega — deixar o realtime acender o badge aqui era o
+    // caminho de o sinalizador sobreviver à saída da tela.
+    const unsubscribe = subscribeToUnreadNotificationsDb((count) => {
+      if (window.location.pathname === "/notificacoes") return;
+      setUnreadNotificationsCount(count);
+    });
 
     // Native local notification when a new social notification arrives
     const notifChannel = user ? supabase
@@ -335,28 +354,26 @@ export function AppLayout() {
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${user.id}` },
-        (payload) => {
+        async (payload) => {
           // Vibrate for every incoming notification, regardless of which screen the user is on
           hapticSuccess();
           // Don't fire the visual/local notification if user is already on the notifications page
           if (window.location.pathname === "/notificacoes") return;
-          const row = payload.new as { type?: number;[key: string]: unknown } | undefined;
+          const row = payload.new as NotificationRow | undefined;
           if (!row) return;
-          const type = row.type as number ?? 0;
-          const notifTitles: Record<number, string> = {
-            1: t("notif_title_1"), 2: t("notif_title_2"), 3: t("notif_title_3"),
-            4: t("notif_title_4"), 5: t("notif_title_5"), 6: t("notif_title_6"), 7: t("notif_title_7"),
-          };
-          const notifBodies: Record<number, string> = {
-            1: t("notif_body_1"), 2: t("notif_body_2"), 3: t("notif_body_3"),
-            4: t("notif_body_4"), 5: t("notif_body_5"), 6: t("notif_body_6"), 7: t("notif_body_7"),
-          };
+          const type = Number(row.type ?? 0);
+          // Texto explícito ("Fulano curtiu sua promoção"), não "você tem uma nova
+          // notificação": o banner tinha mapa só dos tipos 1–7 e corpo sem o nome
+          // de quem originou, então o usuário precisava abrir o app para descobrir
+          // o que tinha acontecido. Ver client/lib/notification-copy.ts.
+          const translate = tRef.current;
+          const data = await fetchNotificationCopyData(row, translate("notif_sender_fallback"));
           LocalNotifications.schedule({
             notifications: [{
               id: Date.now() % 2_000_000,
-              title: notifTitles[type] ?? t("notif_title_default"),
-              body: notifBodies[type] ?? t("notif_body_default"),
-              extra: { url: "/notificacoes" },
+              title: notificationTitle(translate, type),
+              body: notificationBody(translate, row, data),
+              extra: { url: notificationDeepLink(row) },
             }],
           }).catch(() => {/* permission not granted — silent */ });
         },
@@ -444,8 +461,10 @@ export function AppLayout() {
     ? (document.body.dataset.fullscreenStep === undefined ? true : bodyFullscreen)
     : bodyFullscreen;
 
-  // Scroll hide header — mobile only, only on feed, shots, vitrine, comunidade, metas and perfil pages
-  const isScrollHidePage = location.pathname === "/" || location.pathname === "/shots" || location.pathname === "/vitrine" || location.pathname === "/comunidade" || location.pathname === "/metas" || location.pathname === "/perfil" || location.pathname.startsWith("/usuario/");
+  // Scroll hide header — mobile only, only on feed, shots, vitrine, metas and perfil pages.
+  // Comunidade ficou de fora de propósito: esconder header/abas atrapalhava a
+  // usabilidade da tela (containers com scroll interno, uma aba por vez).
+  const isScrollHidePage = location.pathname === "/" || location.pathname === "/shots" || location.pathname === "/vitrine" || location.pathname === "/metas" || location.pathname === "/perfil" || location.pathname.startsWith("/usuario/");
 
   React.useEffect(() => {
     if (!isScrollHidePage) {
@@ -453,13 +472,7 @@ export function AppLayout() {
       return;
     }
 
-    // Comunidade tem seu próprio container com scroll interno (o layout ocupa a
-    // altura fixa da tela, ao contrário de feed/vitrine que rolam a window). Um
-    // listener em fase de captura no document pega o evento de scroll do container
-    // mesmo que ele seja desmontado/remontado ao trocar de aba ou abrir uma conversa.
-    const isCommunityPage = location.pathname === "/comunidade";
-
-    let lastY = 0;
+    let lastY = window.scrollY;
     let ticking = false;
 
     const evaluate = (y: number) => {
@@ -469,23 +482,6 @@ export function AppLayout() {
       lastY = y;
     };
 
-    if (isCommunityPage) {
-      const onContainerScroll = (e: Event) => {
-        const el = e.target as HTMLElement | null;
-        if (!el || typeof el.hasAttribute !== "function" || !el.hasAttribute("data-community-scroll-container")) return;
-        if (ticking) return;
-        ticking = true;
-        window.requestAnimationFrame(() => {
-          evaluate(el.scrollTop);
-          ticking = false;
-        });
-      };
-
-      document.addEventListener("scroll", onContainerScroll, { passive: true, capture: true });
-      return () => document.removeEventListener("scroll", onContainerScroll, true);
-    }
-
-    lastY = window.scrollY;
     const onScroll = () => {
       if (ticking) return;
       ticking = true;

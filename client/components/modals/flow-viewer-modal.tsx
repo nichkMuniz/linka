@@ -223,16 +223,30 @@ export function FlowViewerModal({
   const isPausedRef = React.useRef(false);
   const onNextStoryRef = React.useRef(onNextStory);
 
+  // Toca o vídeo do flow COM áudio. O iOS só autoriza autoplay com som quando há
+  // um gesto do usuário recente (abrir o flow é um toque, então normalmente rola);
+  // se o WebView bloquear, caímos para mudo — melhor um vídeo tocando sem som do
+  // que um frame preto congelado.
+  const playWithSound = React.useCallback(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    v.muted = false;
+    v.play().catch(() => {
+      v.muted = true;
+      v.play().catch(() => {});
+    });
+  }, []);
+
   React.useEffect(() => {
     isTypingRef.current = isTyping;
     if (isVideo && videoRef.current) {
       if (isTyping) {
         videoRef.current.pause();
       } else if (!isPausedRef.current) {
-        videoRef.current.play().catch(() => {});
+        playWithSound();
       }
     }
-  }, [isTyping, isVideo]);
+  }, [isTyping, isVideo, playWithSound]);
 
   React.useEffect(() => {
     isPausedRef.current = isPaused;
@@ -240,10 +254,10 @@ export function FlowViewerModal({
       if (isPaused) {
         videoRef.current.pause();
       } else {
-        videoRef.current.play().catch(() => {});
+        playWithSound();
       }
     }
-  }, [isPaused]);
+  }, [isPaused, playWithSound]);
 
   // Keep handleNext wrap for direction tracking
   const handleNext = React.useCallback(() => {
@@ -714,7 +728,7 @@ export function FlowViewerModal({
                             )}
                           </div>
                         ) : isVideo ? (
-                          <video ref={videoRef} src={story.media_url} className="w-full h-full object-cover" autoPlay muted playsInline preload="auto" onTimeUpdate={handleVideoTimeUpdate} onEnded={handleVideoEnded} />
+                          <video ref={videoRef} src={story.media_url} className="w-full h-full object-cover" autoPlay playsInline preload="auto" onLoadedData={() => { if (!isPausedRef.current && !isTypingRef.current) playWithSound(); }} onTimeUpdate={handleVideoTimeUpdate} onEnded={handleVideoEnded} />
                         ) : (
                           <img src={cdnImg(story.media_url, { width: 1080, quality: 75 }) ?? story.media_url} alt="Flow" className="w-full h-full object-cover" />
                         )}
@@ -738,11 +752,12 @@ export function FlowViewerModal({
                                   }}
                                 >
                                   <p
-                                    className="text-3xl leading-tight break-words whitespace-pre-wrap"
+                                    className="leading-tight break-words whitespace-pre-wrap"
                                     style={{
                                       textShadow: "0 1px 6px rgba(0,0,0,0.5)",
                                       fontFamily: el.style?.fontFamily ?? "system-ui, sans-serif",
                                       fontWeight: el.style?.fontWeight ?? 800,
+                                      fontSize: el.style?.fontSize ?? 30,
                                       textAlign: el.style?.align ?? "center",
                                       color: el.style?.color ?? "#ffffff",
                                     }}

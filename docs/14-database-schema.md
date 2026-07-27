@@ -664,7 +664,7 @@ Notificações geradas para os usuários (follows, likes, comentários, duelos).
 | `read` | boolean | — | `false` | Notificação lida ou não |
 | `shots_id` | uuid | — | — | Shot relacionado (se aplicável) |
 | `flow_id` | bigint | — | — | Flow relacionado (se aplicável). FK lógica → `flow.id` (bigint, **não** uuid) |
-| `duel_check_in_id` | uuid | — | — | Check-in relacionado (se aplicável) — reação em check-in (type=7) e check-in de membro do duelo (type=11) |
+| `duel_check_in_id` | uuid | — | — | Check-in relacionado (se aplicável) — comentário (type=3), reação em comentário (type=6), reação em check-in (type=7), check-in de membro do duelo (type=11) e avaliação classificado/desclassificado (type=14/15) |
 | `incentive_type` | smallint | — | — | Tipo de incentivo (1–6) quando type=2; evita lookup nas tabelas de likes |
 
 **Tipos de notificação:**
@@ -673,13 +673,17 @@ Notificações geradas para os usuários (follows, likes, comentários, duelos).
 |---|---|---|
 | 1 | Novo seguidor | `follower_id` |
 | 2 | Incentivo em post/shot/flow | `follower_id`, `post_id` ou `shots_id` ou `flow_id` |
-| 3 | Comentário em post/shot/flow | `follower_id`, `post_id` ou `shots_id` ou `flow_id` |
+| 3 | Comentário em post/shot/flow **ou em check-in de duelo** | `follower_id`, `post_id` ou `shots_id` ou `flow_id` ou `duel_check_in_id` |
 | 4 | Convite para duelo | `follower_id`, `post_id` (= duel_group_id) |
 | 5 | Solicitação de entrada em duelo | `follower_id`, `post_id` (= duel_group_id) |
-| 6 | Reação em comentário | `follower_id`, `post_id` ou `shots_id` ou `flow_id` |
+| 6 | Reação em comentário | `follower_id`, `post_id` ou `shots_id` ou `flow_id` ou `duel_check_in_id` |
 | 7 | Reação em check-in de duelo | `follower_id`, `duel_check_in_id` |
 | 8 | Comentário em promoção | `follower_id`, `post_id` (= promotion_id) |
 | 9 | Marcado em um post | `follower_id` (autor do post), `post_id` |
+| 14 | Check-in **classificado** (aprovado) por um participante | `follower_id` (quem votou), `duel_check_in_id` |
+| 15 | Check-in **desclassificado** (reprovado) por um participante | `follower_id` (quem votou), `duel_check_in_id` |
+
+> **`duel_check_in_id` sozinho não identifica o evento** — os tipos 3, 6, 7, 11, 14 e 15 usam a mesma coluna. É o `type` que separa "comentou no check-in" (3) de "reagiu ao seu comentário" (6), "reagiu ao seu check-in" (7), "postou um check-in no duelo" (11) e a avaliação do check-in (14/15). Até 2026-07-21 `addCheckInCommentDb` gravava o comentário como tipo 6, colidindo com a reação; ver `docs/10-notificacoes.md`.
 
 **Como as notificações são criadas:** por **triggers AFTER INSERT** nas tabelas de origem (não pelo código do cliente). Funções `SECURITY DEFINER` que buscam o dono do conteúdo e inserem em `notifications`:
 
@@ -693,9 +697,15 @@ Notificações geradas para os usuários (follows, likes, comentários, duelos).
 | `shots_comments` | `notify_shots_comment` | `notify_shots_comment()` | type 3 (shot) |
 | `flow_comments` | `trg_notify_flow_comment` | `notify_flow_comment()` | type 3 (flow) |
 | `post_tags` | `trg_notify_post_tag` | `notify_post_tag()` | type 9 (marcado em post) |
+| `duel_check_in_votes` | `trg_notify_check_in_vote` | `notify_check_in_vote()` | type 14 / 15 (check-in classificado / desclassificado) |
+| `duel_check_in_votes` | `trg_notify_check_in_vote_removed` | `notify_check_in_vote_removed()` | apaga a 14/15 quando o voto é desfeito |
 
 > A trigger `notify-push-on-notification` (AFTER INSERT em `notifications`) chama a edge function `send-push-notification` para qualquer linha inserida — ou seja, o push é automático.
 > As triggers de flow foram adicionadas em `docs/migrations/20260521-flow-notifications.sql`.
+>
+> **Por que a avaliação de check-in (14/15) é trigger e não insert do cliente** (`docs/migrations/20260721-checkin-vote-notifications.sql`): a RLS de `notifications` dá SELECT/DELETE **só ao destinatário**. O votante não lê nem apaga as notificações de quem recebeu o voto, então nenhuma checagem de duplicata feita no cliente funciona — o SELECT volta vazio e o insert se repete a cada troca de voto. Rodando como `SECURITY DEFINER`, a função apaga a avaliação anterior daquele votante antes de gravar a nova (trocar de voto **reescreve**, e desfazer o voto **remove**).
+>
+> ⚠️ Pelo mesmo motivo, os dedups client-side que ainda existem em `sendCheckInReactionNotificationDb` (type 7) e `sendMessageNotificationDb` (type 10) são **no-ops silenciosos** — o `SELECT` que eles fazem em `notifications` sempre volta vazio sob RLS. Ver `docs/10-notificacoes.md`.
 
 **Índices** (`docs/migrations/20260702-performance-indexes.sql`): `notifications_user_id_created_at_idx (user_id, created_at DESC)` (listagem em `getNotificationsDb`), `notifications_user_id_read_idx (user_id, read)` (contagem de não lidas em `getUnreadNotificationsCountDb`).
 

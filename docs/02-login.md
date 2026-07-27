@@ -131,6 +131,18 @@ Fluxo multi-etapas com 5 passos:
 
 **Handle único (trava anti-duplicidade):** enquanto o usuário digita o `@`, é feita uma verificação com debounce (500ms) via RPC `check_handle_exists` (`checkHandleExistsDb`). Feedback inline: "Verificando disponibilidade…" / "❌ Esse @ já está em uso" / "✓ @ disponível". O botão **Próximo** (e o atalho "Personalizar depois") ficam desabilitados até o `@` ter ≥3 caracteres e estar disponível. A unicidade é garantida no banco por um índice único case-insensitive (`profiles_handle_unique_idx`); numa corrida rara, o `INSERT`/`UPDATE` retorna `23505` e o usuário é avisado. O mesmo `check_handle_exists` cobre a edição de handle nas Configurações.
 
+**Foto de perfil no cadastro — cadeia de falhas silenciosas (correção 2026-07-21):** a foto subia no Step 2 mas o usuário caía no feed com o avatar padrão. Eram vários pontos que falhavam **sem emitir erro**, todos corrigidos:
+
+| Ponto | Falha silenciosa | Correção |
+|---|---|---|
+| `getUser()` logo após o `signUp` | Se a sessão ainda não estava pronta, vinha `null` e **todo** o bloco de gravação (foto + dados) era pulado sem aviso | Retenta 1x após 800ms; se ainda faltar, avisa por toast |
+| Upload no bucket `posts` | `if (!uploadError)` **engolia** o erro → `photoUrl` ficava `undefined` | `withNetworkRetry` (2 tentativas, `upsert: true`) + `console.error` + toast |
+| Extensão do arquivo | Usava a extensão do original (no iOS costuma ser `.heic`) para um conteúdo que o cropper sempre exporta em **JPEG** | Key fixa `.jpg` + `contentType: "image/jpeg"` |
+| `UPDATE` em `profiles` | Um UPDATE barrado por RLS — ou numa linha inexistente — afeta **0 linhas sem retornar erro** (mesmo no-op do DELETE) | `.select("photo, handle")` para detectar 0 linhas; nesse caso faz `upsert` criando o perfil |
+| `user_metadata.avatar_url` | Nunca era preenchido; se a linha de `profiles` não existisse, quem a criava era o `ensureProfile()` do feed, que tira a foto justamente desse campo → perfil nascia **sem foto** | Após o upload, espelha a URL em `auth.updateUser({ data: { avatar_url } })` |
+
+> Regra: nenhuma etapa da gravação do cadastro pode engolir erro. Todo `error` de storage/PostgREST é logado e, quando afeta o usuário, vira toast.
+
 **Persistência de foto + handle no cadastro (correção 2026-07-20):** a gravação do perfil no fim do cadastro (`handleSignupStep3`) usa `UPDATE` na linha já criada pelo trigger `handle_new_user` (policy `profiles_update_own`). Antes usava `upsert`, cujo braço de `INSERT` era barrado pelo RLS (não havia policy de INSERT) e falhava **em silêncio** — por isso a foto não virava avatar e o handle escolhido não sobrescrevia o valor do trigger (que era gravado com `@`, causando exibição com a 1ª letra "comida"). A migração `20260720` adiciona a policy `profiles_insert_own`, normaliza handles legados (remove `@`) e passa o trigger a gravar o handle sem `@`. Após o `UPDATE`, o cache do perfil é invalidado (`invalidateProfileCache`) para o feed ler os dados novos.
 
 **Se perfil comercial ativado → abre wizard comercial (Step 2.5) com 4 sub-etapas:**

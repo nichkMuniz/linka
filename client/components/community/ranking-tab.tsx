@@ -8,7 +8,6 @@ interface RankingTabProps {
   /** usado para filtrar o ranking a quem o usuário segue (+ ele mesmo) */
   followers: SearchUser[];
   currentUserId?: string;
-  onScroll: (e: React.UIEvent<HTMLDivElement>) => void;
 }
 
 /**
@@ -16,7 +15,7 @@ interface RankingTabProps {
  * quem ele segue. Puramente apresentacional (extraído de `Community.tsx`); não
  * tem estado próprio, recebe os dados por props.
  */
-export function RankingTab({ ranking, followers, currentUserId, onScroll }: RankingTabProps) {
+export function RankingTab({ ranking, followers, currentUserId }: RankingTabProps) {
   const { t } = useLanguage();
 
   const visible = ranking.filter((rankUser) => {
@@ -27,7 +26,7 @@ export function RankingTab({ ranking, followers, currentUserId, onScroll }: Rank
   return (
     <>
       {/* Single scrollable container */}
-      <div data-community-scroll-container onScroll={onScroll} className="flex-1 overflow-y-auto px-4 pb-4 space-y-3 pt-4">
+      <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-3 pt-4">
         <h1 className="text-2xl font-bold tracking-tight pb-1">{t("community_ranking")}</h1>
         {ranking.length > 0 ? (
           <div className="space-y-2">

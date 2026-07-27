@@ -2,6 +2,7 @@ import UIKit
 import Capacitor
 import AppTrackingTransparency
 import UserNotifications
+import AVFoundation
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -11,7 +12,24 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         // Register as UNUserNotificationCenter delegate for local + remote notifications
         UNUserNotificationCenter.current().delegate = self
+        // Faz o áudio de mídia (vídeos de flow/shots no WKWebView) tocar mesmo com o
+        // botão físico de silencioso ligado, como Instagram/TikTok.
+        configureAudioSessionForPlayback()
         return true
+    }
+
+    /// Configura a AVAudioSession compartilhada na categoria `.playback`, que ignora
+    /// o switch de silencioso do iPhone para reprodução de mídia. O WKWebView ativa
+    /// a sessão quando um `<video>` com áudio toca; sem esta categoria ele respeitaria
+    /// o silencioso e o vídeo sairia mudo. Reaplicamos em `applicationDidBecomeActive`
+    /// porque interrupções (ligação, outro app de mídia) ou o próprio WebKit podem
+    /// rebaixar a categoria enquanto o app roda.
+    private func configureAudioSessionForPlayback() {
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback, options: [])
+        } catch {
+            print("AudioSession: falha ao configurar categoria .playback: \(error)")
+        }
     }
 
     // Called by iOS after APNs registration succeeds — forwards the token to Capacitor
@@ -46,6 +64,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func applicationDidBecomeActive(_ application: UIApplication) {
         // Restart any tasks that were paused (or not yet started) while the application was inactive. If the application was previously in the background, optionally refresh the user interface.
+        // Reafirma a categoria de áudio: uma interrupção (ligação/outro app) pode ter
+        // rebaixado a sessão enquanto estávamos inativos.
+        configureAudioSessionForPlayback()
         requestTrackingAuthorization()
         // Clear the app icon badge whenever the user opens the app
         UIApplication.shared.applicationIconBadgeNumber = 0

@@ -137,6 +137,7 @@ import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
 import {
   specialMessageLabel,
   conversationPreviewText,
+  buildReplyPrefix,
   formatTimeAgo,
   sameMessageList,
   DEFAULT_CHECKIN_PHOTO,
@@ -169,29 +170,6 @@ export default function Community() {
 
   const [activeTab, setActiveTab] = React.useState("messages");
 
-  // Hides the segmented tabs bar (mensagens/duelos/ranking) on scroll-down and
-  // brings it back on scroll-up — same thresholds/feel as the app header's
-  // scroll-hide behavior in app-layout.tsx, but driven locally since Community
-  // owns its own internal scroll containers (one per tab, mounted one at a time).
-  const [isTabsBarHidden, setIsTabsBarHidden] = React.useState(false);
-  const tabsScrollLastYRef = React.useRef(0);
-  const tabsScrollTickingRef = React.useRef(false);
-  const handleTabsScrollContainerScroll = React.useCallback((e: React.UIEvent<HTMLDivElement>) => {
-    const scrollTop = e.currentTarget.scrollTop;
-    if (tabsScrollTickingRef.current) return;
-    tabsScrollTickingRef.current = true;
-    window.requestAnimationFrame(() => {
-      const delta = scrollTop - tabsScrollLastYRef.current;
-      if (scrollTop > 96 && delta > 30) setIsTabsBarHidden(true);
-      if (delta < -30) setIsTabsBarHidden(false);
-      tabsScrollLastYRef.current = scrollTop;
-      tabsScrollTickingRef.current = false;
-    });
-  }, []);
-  React.useEffect(() => {
-    setIsTabsBarHidden(false);
-    tabsScrollLastYRef.current = 0;
-  }, [activeTab]);
   const [viewMode, setViewMode] = React.useState<ViewMode>("conversations");
   const [conversations, setConversations] = React.useState<Conversation[]>([]);
   const [selectedConversation, setSelectedConversation] =
@@ -219,6 +197,9 @@ export default function Community() {
   const audioChunksRef = React.useRef<Blob[]>([]);
   const audioMimeTypeRef = React.useRef<string>("audio/webm");
   const recordingTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
+  // Canal realtime da conversa aberta — guardado em ref para poder derrubá-lo
+  // antes de criar o próximo (ver comentário no efeito de realtime).
+  const conversationChannelRef = React.useRef<ReturnType<NonNullable<typeof supabase>["channel"]> | null>(null);
   const [isNewConversationDrawerOpen, setIsNewConversationDrawerOpen] = React.useState(false);
 
   // Group creation state
@@ -734,33 +715,45 @@ export default function Community() {
     loadData();
   }, []);
 
-  // Open a specific check-in when navigating from a notification (state.openCheckIn = checkInId)
+  // Abre um check-in específico (vindo de uma notificação) com comentários e reações.
+  const openCheckInById = React.useCallback(async (checkInId: string) => {
+    try {
+      const [detail, comments, reactions] = await Promise.all([
+        getGroupCheckInDetailDb(checkInId),
+        getCheckInCommentsDb(checkInId),
+        getCheckInReactionsDb([checkInId]),
+      ]);
+      if (detail) {
+        setSelectedCheckInForDetail(detail);
+        setCheckInComments(comments);
+        setCheckInReactions((prev) => ({ ...prev, ...reactions }));
+        setIsCheckInDetailOpen(true);
+        // Switch to the duels tab so the check-in is visible
+        setActiveTab("duels");
+      }
+    } catch (err) {
+      console.error("Error opening check-in from notification:", err);
+    }
+  }, []);
+
+  // Navegação interna (card da tela de Notificações) → state.openCheckIn
   React.useEffect(() => {
     const state = location.state as { openCheckIn?: string } | null;
     if (!state?.openCheckIn) return;
     // Clear nav state so back-navigation doesn't re-trigger
     navigate(location.pathname, { replace: true, state: {} });
-    const checkInId = state.openCheckIn;
-    (async () => {
-      try {
-        const [detail, comments, reactions] = await Promise.all([
-          getGroupCheckInDetailDb(checkInId),
-          getCheckInCommentsDb(checkInId),
-          getCheckInReactionsDb([checkInId]),
-        ]);
-        if (detail) {
-          setSelectedCheckInForDetail(detail);
-          setCheckInComments(comments);
-          setCheckInReactions((prev) => ({ ...prev, ...reactions }));
-          setIsCheckInDetailOpen(true);
-          // Switch to the duels tab so the check-in is visible
-          setActiveTab("duels");
-        }
-      } catch (err) {
-        console.error("Error opening check-in from notification:", err);
-      }
-    })();
-  }, [location.state, navigate]);
+    openCheckInById(state.openCheckIn);
+  }, [location.state, navigate, openCheckInById]);
+
+  // Toque no push (?checkin=<id>) — um deep link é só uma URL, não carrega o
+  // `state` do router, então o mesmo destino precisa existir como query param.
+  const checkInRestoredRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    const checkInParam = searchParams.get("checkin");
+    if (!checkInParam || checkInRestoredRef.current === checkInParam) return;
+    checkInRestoredRef.current = checkInParam;
+    openCheckInById(checkInParam);
+  }, [searchParams, openCheckInById]);
 
   // Load user nickname and groups when user changes
   React.useEffect(() => {
@@ -996,8 +989,7 @@ export default function Community() {
   const handleSendMessage = React.useCallback(async () => {
     if (!messageText.trim() || !selectedConversation) return;
 
-    const replyText = replyingTo ? `↩ ${replyingTo.text}\n\n` : "";
-    const fullText = replyText + messageText;
+    const fullText = buildReplyPrefix(replyingTo) + messageText;
 
     setIsSending(true);
     try {
@@ -1053,15 +1045,17 @@ export default function Community() {
       setIsSending(false);
       messageInputRef.current?.focus();
     }
-  }, [messageText, selectedConversation]);
+  }, [messageText, selectedConversation, replyingTo]);
 
   const handlePhotoSend = React.useCallback(async (file: File) => {
     if (!selectedConversation) return;
     setIsSendingPhoto(true);
     try {
       const mediaRef = await uploadMessageImageDb(file, selectedConversation.userId);
-      const imageText = `[image]:${mediaRef}`;
+      // Respeita a mensagem marcada como resposta: a foto vai citando-a.
+      const imageText = buildReplyPrefix(replyingTo) + `[image]:${mediaRef}`;
       const newMessage = await sendMessageDb(selectedConversation.userId, imageText);
+      setReplyingTo(null);
       if (newMessage) {
         const optimisticMsg: MessageWithUser = {
           id: newMessage.id,
@@ -1086,7 +1080,7 @@ export default function Community() {
     } finally {
       setIsSendingPhoto(false);
     }
-  }, [selectedConversation]);
+  }, [selectedConversation, replyingTo]);
 
   const startRecording = React.useCallback(async () => {
     if (!selectedConversation || isRecording) return;
@@ -1136,8 +1130,10 @@ export default function Community() {
     setIsSendingPhoto(true); // reutiliza loader visual
     try {
       const mediaRef = await uploadMessageAudioDb(blob, selectedConversation.userId);
-      const audioText = `[audio]:${mediaRef}`;
+      // Respeita a mensagem marcada como resposta: o áudio vai citando-a.
+      const audioText = buildReplyPrefix(replyingTo) + `[audio]:${mediaRef}`;
       const newMessage = await sendMessageDb(selectedConversation.userId, audioText);
+      setReplyingTo(null);
       if (newMessage) {
         const optimisticMsg: MessageWithUser = {
           id: newMessage.id,
@@ -1162,7 +1158,7 @@ export default function Community() {
     } finally {
       setIsSendingPhoto(false);
     }
-  }, [selectedConversation]);
+  }, [selectedConversation, replyingTo]);
 
   const cancelRecording = React.useCallback(() => {
     const recorder = mediaRecorderRef.current;
@@ -1176,11 +1172,48 @@ export default function Community() {
     setRecordingSeconds(0);
   }, []);
 
+  // Recuperação ("catch-up"): relê a conversa e MESCLA sem sacudir a tela — se
+  // nada mudou, mantém o array anterior (sem re-render da lista). Usada quando o
+  // canal (re)assina e quando o app volta do background: nesses intervalos o
+  // websocket pode ter caído e mensagens chegado sem evento, que era exatamente
+  // o que obrigava o usuário a sair da conversa e entrar de novo.
+  const catchUpMessages = React.useCallback(async (targetUserId: string) => {
+    try {
+      const data = await getConversationMessagesDb(targetUserId);
+      setSelectedConversation((current) => {
+        if (current?.userId !== targetUserId) return current;
+        setMessages((prev) => (sameMessageList(prev, data) ? prev : data));
+        return current;
+      });
+      await markMessagesAsReadDb(targetUserId);
+      setConversations((prev) =>
+        prev.map((conv) => (conv.userId === targetUserId ? { ...conv, unreadCount: 0 } : conv)),
+      );
+    } catch (err) {
+      console.error("Error catching up messages:", err);
+    }
+  }, []);
+
   // Realtime: append new message instead of full reload
   React.useEffect(() => {
     if (!selectedConversation || !user || !supabase) return;
+
+    const targetUserId = selectedConversation.userId;
+
+    // Sempre derruba o canal anterior ANTES de criar outro. Sem isto, quando o
+    // efeito re-roda antes do removeChannel assíncrono terminar (ciclo de vida do
+    // Capacitor no iOS), o supabase-js estoura "cannot add callbacks after
+    // subscribe()" e a conversa fica sem realtime. Mesmo padrão de Notifications.tsx.
+    if (conversationChannelRef.current) {
+      supabase.removeChannel(conversationChannelRef.current);
+      conversationChannelRef.current = null;
+    }
+
+    // Math.random() em vez de Date.now(): no iOS o efeito pode rodar duas vezes
+    // dentro do mesmo milissegundo (retorno do background) e o nome colidiria.
+    const channelName = `messages:${targetUserId.slice(0, 8)}:${Math.random().toString(36).slice(2, 9)}`;
     const channel = supabase
-      .channel(`messages:${selectedConversation.userId}:${Date.now()}`)
+      .channel(channelName)
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "messages" },
@@ -1225,9 +1258,29 @@ export default function Community() {
           }
         },
       )
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [selectedConversation?.userId, user?.id]);
+      .subscribe((status) => {
+        // Dispara na primeira assinatura E a cada reassinatura após reconexão do
+        // websocket — o momento exato em que pode haver mensagem perdida.
+        if (status === "SUBSCRIBED") void catchUpMessages(targetUserId);
+      });
+
+    conversationChannelRef.current = channel;
+
+    // O app pode ficar minutos em background com o socket morto; ao voltar,
+    // buscamos o que chegou nesse meio-tempo sem o usuário precisar sair e entrar.
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void catchUpMessages(targetUserId);
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      if (conversationChannelRef.current) {
+        supabase.removeChannel(conversationChannelRef.current);
+        conversationChannelRef.current = null;
+      }
+    };
+  }, [selectedConversation?.userId, user?.id, catchUpMessages]);
 
   // Reload reactions whenever the group view is open and check-ins are loaded
   React.useEffect(() => {
@@ -1764,29 +1817,16 @@ export default function Community() {
     <div
       className="w-full flex flex-col overflow-hidden"
       style={{
-        // When the chrome (app header + tabs bar) hides on scroll, the shared
-        // <main> still reserves ~64px of padding for the floating header pill.
-        // On this fixed-height, internally-scrolled screen that reserved strip
-        // would otherwise show as an empty black band at the top. Pull the whole
-        // container up by that 64px (and grow its height to keep the bottom edge
-        // fixed) so the list fills the reclaimed space — same feel as the feed.
-        height: isTabsBarHidden
-          ? "calc(100dvh - env(safe-area-inset-top) - 1.5rem - 4.75rem - env(safe-area-inset-bottom))"
-          : "calc(100dvh - 64px - env(safe-area-inset-top) - 1.5rem - 4.75rem - env(safe-area-inset-bottom))",
-        marginTop: isTabsBarHidden ? "-64px" : "0px",
-        transition: "margin-top 200ms ease-in-out, height 200ms ease-in-out",
+        // Altura fixa: o <main> compartilhado reserva ~64px de padding para a
+        // pílula flutuante do header, que nesta tela fica sempre visível.
+        height:
+          "calc(100dvh - 64px - env(safe-area-inset-top) - 1.5rem - 4.75rem - env(safe-area-inset-bottom))",
       }}
     >
-      {/* Tabs — segmented control style (igual à tela de Loja), oculta ao scrollar como o header */}
+      {/* Tabs — segmented control style (igual à tela de Loja), sempre visível */}
       <div
-        className="flex-shrink-0 px-4 overflow-hidden transition-all duration-200 ease-in-out"
-        style={{
-          borderBottom: isTabsBarHidden ? "1px solid transparent" : "1px solid rgba(255,255,255,.08)",
-          maxHeight: isTabsBarHidden ? 0 : 80,
-          opacity: isTabsBarHidden ? 0 : 1,
-          paddingTop: isTabsBarHidden ? 0 : "0.75rem",
-          paddingBottom: isTabsBarHidden ? 0 : "0.75rem",
-        }}
+        className="flex-shrink-0 px-4 py-3"
+        style={{ borderBottom: "1px solid rgba(255,255,255,.08)" }}
       >
         <div className="flex items-center gap-3">
           {/* Segmented tabs */}
@@ -1866,7 +1906,7 @@ export default function Community() {
           </div>
 
           {/* Conversations List — LinKa Glass cards */}
-          <div data-community-scroll-container onScroll={handleTabsScrollContainerScroll} className="flex-1 overflow-y-auto px-3 pt-1 pb-4">
+          <div className="flex-1 overflow-y-auto px-3 pt-1 pb-4">
             {filteredConversations.length > 0 ? (
               <div className="flex flex-col gap-1">
                 {filteredConversations.map((conversation) => (
@@ -2692,7 +2732,7 @@ export default function Community() {
       {/* Duels Tab */}
       {activeTab === "duels" && !selectedGroupForView && (
         <>
-          <div data-community-scroll-container onScroll={handleTabsScrollContainerScroll} className="flex-1 overflow-y-auto px-4 pb-6 pt-4 space-y-5 min-h-0">
+          <div className="flex-1 overflow-y-auto px-4 pb-6 pt-4 space-y-5 min-h-0">
 
             {/* CTA: Criar um duelo */}
             <button
@@ -2982,7 +3022,6 @@ export default function Community() {
           ranking={ranking}
           followers={followers}
           currentUserId={user?.id}
-          onScroll={handleTabsScrollContainerScroll}
         />
       )}
 
@@ -2992,7 +3031,7 @@ export default function Community() {
           <div className="flex-shrink-0 px-4 pt-4 pb-0">
             <h1 className="text-2xl font-bold tracking-tight">Solicitações</h1>
           </div>
-          <div data-community-scroll-container onScroll={handleTabsScrollContainerScroll} className="flex-1 overflow-y-auto px-4 pb-4 pt-4 space-y-3">
+          <div className="flex-1 overflow-y-auto px-4 pb-4 pt-4 space-y-3">
 
             {/* Convites recebidos pelo usuário */}
             {pendingInvites.length > 0 && (

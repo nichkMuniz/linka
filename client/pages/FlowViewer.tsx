@@ -323,16 +323,31 @@ export default function FlowViewer() {
     };
   }, [comments]);
 
+  // Toca o vídeo do flow COM áudio. O iOS só autoriza autoplay com som quando há
+  // um gesto do usuário recente (abrir o flow é um toque, então normalmente rola);
+  // se o WebView bloquear, caímos para mudo — melhor um vídeo tocando sem som do
+  // que um frame preto congelado. Reusar aqui garante que retomar (toque na zona
+  // central) também tenta recuperar o áudio dentro do gesto.
+  const playWithSound = React.useCallback(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    v.muted = false;
+    v.play().catch(() => {
+      v.muted = true;
+      v.play().catch(() => {});
+    });
+  }, []);
+
   React.useEffect(() => {
     isTypingRef.current = isTyping;
     if (isVideo && videoRef.current) {
       if (isTyping) {
         videoRef.current.pause();
       } else if (!isPausedRef.current) {
-        videoRef.current.play().catch(() => {});
+        playWithSound();
       }
     }
-  }, [isTyping, isVideo]);
+  }, [isTyping, isVideo, playWithSound]);
 
   React.useEffect(() => {
     isPausedRef.current = isPaused;
@@ -340,10 +355,10 @@ export default function FlowViewer() {
       if (isPaused) {
         videoRef.current.pause();
       } else {
-        videoRef.current.play().catch(() => {});
+        playWithSound();
       }
     }
-  }, [isPaused]);
+  }, [isPaused, playWithSound]);
 
   // Carrega dados (likes/comentários) e registra view apenas ao trocar de story
   React.useEffect(() => {
@@ -448,10 +463,10 @@ export default function FlowViewer() {
   const handleRestart = React.useCallback(() => {
     if (videoRef.current) {
       videoRef.current.currentTime = 0;
-      videoRef.current.play().catch(() => {});
+      playWithSound();
     }
     setRestartKey((k) => k + 1);
-  }, []);
+  }, [playWithSound]);
 
   const handleOpenViewers = React.useCallback(async () => {
     if (!story) return;
@@ -868,11 +883,12 @@ export default function FlowViewer() {
                             }}
                           >
                             <p
-                              className="text-3xl leading-tight break-words whitespace-pre-wrap"
+                              className="leading-tight break-words whitespace-pre-wrap"
                               style={{
                                 textShadow: "0 1px 6px rgba(0,0,0,0.5)",
                                 fontFamily: el.style?.fontFamily ?? "system-ui, sans-serif",
                                 fontWeight: el.style?.fontWeight ?? 800,
+                                fontSize: el.style?.fontSize ?? 30,
                                 textAlign: el.style?.align ?? "center",
                                 color: el.style?.color ?? "#ffffff",
                               }}
@@ -913,9 +929,11 @@ export default function FlowViewer() {
                           : undefined
                       }
                       autoPlay
-                      muted
                       playsInline
                       preload="auto"
+                      onLoadedData={() => {
+                        if (!isPausedRef.current && !isTypingRef.current) playWithSound();
+                      }}
                       onEnded={handleVideoEnded}
                     />
                   ) : (
@@ -954,11 +972,12 @@ export default function FlowViewer() {
                             }}
                           >
                             <p
-                              className="text-3xl leading-tight break-words whitespace-pre-wrap"
+                              className="leading-tight break-words whitespace-pre-wrap"
                               style={{
                                 textShadow: "0 1px 6px rgba(0,0,0,0.5)",
                                 fontFamily: el.style?.fontFamily ?? "system-ui, sans-serif",
                                 fontWeight: el.style?.fontWeight ?? 800,
+                                fontSize: el.style?.fontSize ?? 30,
                                 textAlign: el.style?.align ?? "center",
                                 color: el.style?.color ?? "#ffffff",
                               }}

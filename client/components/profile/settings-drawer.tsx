@@ -26,6 +26,10 @@ import {
   createShotDb,
   createStoryDb,
   updateUserPersonalDataDb,
+  getWeightLogsDb,
+  addWeightLogDb,
+  deleteWeightLogDb,
+  type WeightLog,
   deletePushTokenDb,
   recordAccessSessionDb,
   bufferScreenTime,
@@ -43,6 +47,7 @@ import { PushNotifications } from "@capacitor/push-notifications";
 import { LocalNotifications } from "@capacitor/local-notifications";
 import { useLanguage } from "@/lib/language-context";
 import { videoPosterSrc } from "@/lib/video-thumb";
+import { WeightHistoryDrawer } from "@/components/shared/weight-history-drawer";
 import { usePremium } from "@/lib/premium-context";
 import { SubscriptionDrawer } from "@/components/profile/subscription-drawer";
 import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
@@ -69,6 +74,7 @@ import {
   ScanFace,
   Repeat,
   Crown,
+  LineChart,
 } from "lucide-react";
 import {
   isBiometricSupported,
@@ -606,6 +612,43 @@ export function SettingsDrawer({
   });
   const [isSavingPersonalData, setIsSavingPersonalData] = React.useState(false);
 
+  // --- Histórico de peso (mesmo drawer do lembrete semanal em Metas) ---
+  const [isWeightHistoryOpen, setIsWeightHistoryOpen] = React.useState(false);
+  const [weightLogs, setWeightLogs] = React.useState<WeightLog[]>([]);
+
+  // Carrega só ao abrir — a maioria das visitas às configurações não abre o
+  // histórico, e getWeightLogsDb já é cacheado por usuário.
+  React.useEffect(() => {
+    if (!isWeightHistoryOpen) return;
+    let cancelled = false;
+    getWeightLogsDb(90)
+      .then((logs) => { if (!cancelled) setWeightLogs(logs); })
+      .catch(() => { if (!cancelled) setWeightLogs([]); });
+    return () => { cancelled = true; };
+  }, [isWeightHistoryOpen]);
+
+  const handleAddWeight = React.useCallback(async (weight: number) => {
+    try {
+      await addWeightLogDb(weight);
+      setWeightLogs(await getWeightLogsDb(90));
+      // addWeightLogDb também grava profiles.weight — reflete no campo do form
+      // para o valor exibido não ficar defasado até reabrir o drawer.
+      setPersonalDataForm((prev) => ({ ...prev, weight: String(weight) }));
+      toast({ title: t("goals_weight_confirm_title") });
+    } catch {
+      toast({ title: t("goals_weight_error"), variant: "destructive" });
+    }
+  }, [t]);
+
+  const handleDeleteWeight = React.useCallback(async (id: string) => {
+    try {
+      await deleteWeightLogDb(id);
+      setWeightLogs((prev) => prev.filter((l) => l.id !== id));
+    } catch {
+      toast({ title: t("goals_weight_error"), variant: "destructive" });
+    }
+  }, [t]);
+
   const handleSavePersonalData = async () => {
     setIsSavingPersonalData(true);
     try {
@@ -824,8 +867,28 @@ export function SettingsDrawer({
                         <Input type="number" min={100} max={250} step={1} value={personalDataForm.height} onChange={(e) => setPersonalDataForm((prev) => ({ ...prev, height: String(Math.trunc(Number(e.target.value))) }))} placeholder="Ex: 175" style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }} />
                       </div>
                       <div className="space-y-2">
-                        <label className="text-sm font-medium" style={{ color: "#fff" }}>{t("settings_weight_label")}</label>
+                        <div className="flex items-center justify-between gap-2">
+                          <label className="text-sm font-medium" style={{ color: "#fff" }}>{t("settings_weight_label")}</label>
+                          {/* Abre o mesmo histórico (gráfico + registros) do lembrete semanal de Metas */}
+                          <button
+                            type="button"
+                            onClick={() => setIsWeightHistoryOpen(true)}
+                            aria-label={t("settings_weight_history")}
+                            className="flex items-center gap-1.5 rounded-full px-2.5 py-1 transition-colors active:scale-95"
+                            style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "rgba(255,255,255,.7)" }}
+                          >
+                            <LineChart className="h-3.5 w-3.5" />
+                            <span className="text-xs font-medium">{t("settings_weight_history")}</span>
+                          </button>
+                        </div>
                         <Input type="number" min={30} max={300} step="0.1" value={personalDataForm.weight} onChange={(e) => setPersonalDataForm((prev) => ({ ...prev, weight: e.target.value }))} placeholder="Ex: 70.5" style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }} />
+                        <WeightHistoryDrawer
+                          open={isWeightHistoryOpen}
+                          onOpenChange={setIsWeightHistoryOpen}
+                          logs={weightLogs}
+                          onAddWeight={handleAddWeight}
+                          onDeleteWeight={handleDeleteWeight}
+                        />
                       </div>
                       <div className="space-y-2">
                         <label className="text-sm font-medium" style={{ color: "#fff" }}>{t("settings_age_label")}</label>

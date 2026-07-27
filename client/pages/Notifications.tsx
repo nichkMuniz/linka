@@ -1,9 +1,10 @@
 import * as React from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
-import { MessageCircle, UserPlus, Zap, Swords, SmilePlus, ChevronLeft, AtSign, Send, Dumbbell, Heart, Clock } from "lucide-react";
+import { MessageCircle, UserPlus, Zap, Swords, SmilePlus, ChevronLeft, AtSign, Send, Dumbbell, Heart, Clock, CheckCircle2, XCircle } from "lucide-react";
 import { INCENTIVE_CONFIG } from "@/lib/incentive-config";
 import { getNotificationsDb, markNotificationsAsReadDb, clearNotificationsDb, getFollowingIdsDb, invalidateQueryCache, type NotificationItem } from "@/lib/ritmofit-db";
+import { notificationBody } from "@/lib/notification-copy";
 import { supabase } from "@/lib/supabase";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { FollowButton } from "@/components/shared/follow-button";
@@ -39,10 +40,14 @@ export default function Notifications() {
     try {
       const [data, ids] = await Promise.all([
         getNotificationsDb(),
-        markNotificationsAsReadDb().then(() => getFollowingIdsDb()),
+        getFollowingIdsDb(),
       ]);
       setNotifications(data);
       setFollowingIds(new Set(ids));
+      // Só DEPOIS de a lista chegar: marcar como lida invalida o cache de
+      // notificações, e uma leitura ainda em voo regravaria o payload antigo
+      // (com read=false) por cima da invalidação.
+      await markNotificationsAsReadDb();
     } catch (err: any) {
       console.error("Error loading notifications:", err);
     } finally {
@@ -66,15 +71,17 @@ export default function Notifications() {
 
     (async () => {
       try {
-        const [data, , ids] = await Promise.all([
+        const [data, ids] = await Promise.all([
           getNotificationsDb(),
-          markNotificationsAsReadDb(),
           getFollowingIdsDb(),
         ]);
         if (isMounted) {
           setNotifications(data);
           setFollowingIds(new Set(ids));
         }
+        // Ver o comentário em loadNotifications: marcar como lido só depois de
+        // a lista estar em mãos, senão o fetch em voo repõe o cache velho.
+        await markNotificationsAsReadDb();
       } catch (err: any) {
         console.error("Error loading notifications:", err);
       } finally {
@@ -107,6 +114,10 @@ export default function Notifications() {
             invalidateQueryCache("notifications");
             const data = await getNotificationsDb();
             if (isMounted) setNotifications(data);
+            // A notificação chegou com a tela aberta: o usuário está vendo, então
+            // ela já nasce lida — senão o badge do sino acendia por baixo e
+            // continuava aceso depois que ele saísse da tela.
+            await markNotificationsAsReadDb();
           }, 1000);
         },
       )
@@ -121,6 +132,10 @@ export default function Notifications() {
         supabase?.removeChannel(channelRef.current);
         channelRef.current = null;
       }
+      // Última varredura ao sair da tela: cobre o que chegou nos segundos
+      // finais (ou antes do debounce do realtime disparar). Quem sai daqui
+      // nunca leva o sinalizador de pendência junto.
+      markNotificationsAsReadDb().catch(() => { /* já logado internamente */ });
     };
   }, [user]);
 
@@ -221,6 +236,10 @@ export default function Notifications() {
         return <Heart className="h-5 w-5 text-rose-400" />;
       case 13:
         return <Clock className="h-5 w-5 text-amber-400" />;
+      case 14:
+        return <CheckCircle2 className="h-5 w-5 text-emerald-400" />;
+      case 15:
+        return <XCircle className="h-5 w-5 text-red-400" />;
       default:
         return <Zap className="h-5 w-5 text-gray-500" />;
     }
@@ -272,32 +291,20 @@ export default function Notifications() {
     groupedNicknames?: string[];
     groupedIncentiveTypes?: number[];
     groupedUsers?: Array<{ userId: string; userNickname: string; userPhoto?: string; incentiveTypes: number[] }>;
-    messageCount?: number;
   }> => {
     type GroupedNotif = NotificationItem & {
       groupedCount?: number;
       groupedNicknames?: string[];
       groupedIncentiveTypes?: number[];
       groupedUsers?: Array<{ userId: string; userNickname: string; userPhoto?: string; incentiveTypes: number[] }>;
-      messageCount?: number;
     };
 
     const result: GroupedNotif[] = [];
     // Key: postId/shotId → index in result (one group per post/shot regardless of incentive type)
     const seenPost = new Map<string, number>();
-    // Mensagens privadas: uma entrada por remetente (a mais recente), com o total no texto
-    const seenSender = new Map<string, number>();
 
     for (const n of notifs) {
-      if (n.type === 10) {
-        const idx = seenSender.get(n.userId);
-        if (idx !== undefined) {
-          result[idx].messageCount = (result[idx].messageCount ?? 1) + 1;
-        } else {
-          seenSender.set(n.userId, result.length);
-          result.push({ ...n, messageCount: 1 });
-        }
-      } else if (n.type === 2 && n.incentiveType && (n.postId || n.shotId || n.flowId)) {
+      if (n.type === 2 && n.incentiveType && (n.postId || n.shotId || n.flowId)) {
         const postKey = n.postId ?? n.shotId ?? n.flowId ?? "";
         if (seenPost.has(postKey)) {
           const idx = seenPost.get(postKey)!;
@@ -386,6 +393,15 @@ export default function Notifications() {
       navigate(`/comunidade?user=${notification.userId}`);
       return;
     }
+    // Types 14 / 15 (check-in classificado ou desclassificado) — abre o check-in avaliado
+    if (notification.type === 14 || notification.type === 15) {
+      if (notification.checkInId) {
+        navigate("/comunidade", { state: { openCheckIn: notification.checkInId } });
+      } else {
+        navigate("/comunidade?tab=duels");
+      }
+      return;
+    }
     // Type 11 (check-in de um membro do duelo) — abre o check-in
     if (notification.type === 11) {
       if (notification.checkInId) {
@@ -403,9 +419,13 @@ export default function Notifications() {
     else if (notification.type === 4 || notification.type === 5) {
       navigate("/comunidade?tab=requests");
     }
-    // Type 7 (duel check-in reaction) — navigate to duels tab, no modal
+    // Type 7 (duel check-in reaction) — abre o check-in que recebeu a reação
     else if (notification.type === 7) {
-      navigate("/comunidade?tab=duels");
+      if (notification.checkInId) {
+        navigate("/comunidade", { state: { openCheckIn: notification.checkInId } });
+      } else {
+        navigate("/comunidade?tab=duels");
+      }
     }
     // Type 6 (comment reaction) — navigate to the exact screen/modal where the comment lives
     else if (notification.type === 6) {
@@ -437,7 +457,10 @@ export default function Notifications() {
     }
     // Type 3 (comment) - navigate to post and open comments modal
     else if (notification.type === 3) {
-      if (notification.postId) {
+      // Comentário em check-in de duelo → abre o check-in com os comentários
+      if (notification.checkInId) {
+        navigate("/comunidade", { state: { openCheckIn: notification.checkInId } });
+      } else if (notification.postId) {
         navigate(`/post/${notification.postId}`, { state: { openComments: true } });
       } else if (notification.flowId) {
         navigate("/", { state: { openFlow: notification.flowId, openComments: true } });
@@ -509,6 +532,8 @@ export default function Notifications() {
       case 11: return { iconBg: "rgba(52,211,153,.16)", iconColor: "#34d399" };
       case 12: return { iconBg: "rgba(251,113,133,.16)", iconColor: "#fb7185" };
       case 13: return { iconBg: "rgba(251,191,36,.16)", iconColor: "#fbbf24" };
+      case 14: return { iconBg: "rgba(52,211,153,.16)", iconColor: "#34d399" };
+      case 15: return { iconBg: "rgba(248,113,113,.16)", iconColor: "#f87171" };
       default: return { iconBg: "rgba(255,255,255,.1)", iconColor: "rgba(255,255,255,.7)" };
     }
   };
@@ -532,56 +557,45 @@ export default function Notifications() {
   const buildDescription = (notification: NotificationItem & {
     groupedUsers?: Array<{ userId: string; userNickname: string; userPhoto?: string; incentiveTypes: number[] }>;
     groupedIncentiveTypes?: number[];
-    messageCount?: number;
   }): string => {
     const name = notification.userNickname;
-    const context = notification.shotId
-      ? t("notif_context_shot")
-      : notification.flowId
-        ? t("notif_context_flow")
-        : t("notif_context_post");
-    switch (notification.type) {
-      case 1: return t("notif_desc_follow").replace("{name}", name);
-      case 2: {
-        const groupedUsers = notification.groupedUsers ?? [];
-        const totalReactions = groupedUsers.reduce((sum, u) => sum + u.incentiveTypes.length, 0);
-        const firstUser = groupedUsers[0];
-        const incentiveName = firstUser?.incentiveTypes[0]
-          ? getIncentiveTypeName(firstUser.incentiveTypes[0])
-          : getIncentiveTypeName(notification.incentiveType ?? 1);
-        if (totalReactions > 1) {
-          const others = totalReactions - 1;
-          return t("notif_desc_incentive_multi")
-            .replace("{name}", name)
-            .replace("{incentive}", incentiveName)
-            .replace("{n}", String(others))
-            .replace("{reactions}", others === 1 ? t("notif_reactions_one") : t("notif_reactions_many"))
-            .replace("{context}", context);
-        }
-        return t("notif_desc_incentive_single")
+
+    // Caso agrupado (só existe na lista, não no banner de push): vários
+    // incentivos na mesma publicação.
+    if (notification.type === 2) {
+      const groupedUsers = notification.groupedUsers ?? [];
+      const totalReactions = groupedUsers.reduce((sum, u) => sum + u.incentiveTypes.length, 0);
+      if (totalReactions > 1) {
+        const others = totalReactions - 1;
+        const context = notification.shotId
+          ? t("notif_context_shot")
+          : notification.flowId
+            ? t("notif_context_flow")
+            : t("notif_context_post");
+        const incentiveName = getIncentiveTypeName(
+          groupedUsers[0]?.incentiveTypes[0] ?? notification.incentiveType ?? 1,
+        );
+        return t("notif_desc_incentive_multi")
           .replace("{name}", name)
           .replace("{incentive}", incentiveName)
+          .replace("{n}", String(others))
+          .replace("{reactions}", others === 1 ? t("notif_reactions_one") : t("notif_reactions_many"))
           .replace("{context}", context);
       }
-      case 3: return t("notif_desc_comment").replace("{name}", name).replace("{context}", context);
-      case 4: return t("notif_desc_duel_invite").replace("{name}", name).replace("{group}", notification.groupName ?? "Duelo");
-      case 5: return t("notif_desc_duel_join").replace("{name}", name).replace("{group}", notification.groupName ?? "Duelo");
-      case 6: return t("notif_desc_reaction_comment").replace("{name}", name);
-      case 7: return t("notif_desc_reaction_checkin").replace("{name}", name);
-      case 8: return t("notif_desc_promo_comment").replace("{name}", name);
-      case 9: return t("notif_desc_post_tag").replace("{name}", name);
-      case 10: {
-        const count = notification.messageCount ?? 1;
-        if (count > 1) {
-          return t("notif_desc_message_multi").replace("{name}", name).replace("{n}", String(count));
-        }
-        return t("notif_desc_message").replace("{name}", name);
-      }
-      case 11: return t("notif_desc_duel_checkin").replace("{name}", name).replace("{group}", notification.groupName ?? "Duelo");
-      case 12: return t("notif_desc_promo_like").replace("{name}", name);
-      case 13: return t("notif_desc_promo_expired").replace("{name}", name);
-      default: return t("notif_body_default");
     }
+    // Demais tipos: mesmo texto que o banner de push monta, via módulo comum.
+    return notificationBody(
+      t,
+      {
+        type: notification.type,
+        post_id: notification.postId ?? null,
+        shots_id: notification.shotId ?? null,
+        flow_id: notification.flowId ?? null,
+        duel_check_in_id: notification.checkInId ?? null,
+        incentive_type: notification.incentiveType ?? null,
+      },
+      { name, groupName: notification.groupName ?? null },
+    );
   };
 
   const GROUP_KEYS = [
@@ -604,11 +618,13 @@ export default function Notifications() {
       case 11: return { background: "#34d399" };
       case 12: return { background: "#fb7185" };
       case 13: return { background: "#fbbf24" };
+      case 14: return { background: "#34d399" };
+      case 15: return { background: "#f87171" };
       default: return { background: "rgba(255,255,255,.5)" };
     }
   };
 
-  const isUserBased = (type: number) => [1, 2, 3, 6, 7, 8, 9, 10, 11, 12, 13].includes(type);
+  const isUserBased = (type: number) => [1, 2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15].includes(type);
 
   return (
     <>

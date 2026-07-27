@@ -53,6 +53,7 @@ Cada tab exibe um badge com o total de itens carregados. O botão "+ Publicar" s
 #### Filtros
 - **Categoria:** dropdown com as opções de `PROMOTION_CATEGORIES` + "Todos". Ao trocar, dispara nova query ao banco
 - **Busca:** filtra client-side sobre a categoria ativa — o placeholder indica contexto, e o empty state informa se a busca está restrita à categoria
+- **Expirados:** botão toggle (ícone `History`) ao lado do filtro de categoria. Por padrão o feed mostra só promoções **válidas**; ao ativar, mostra **só** as expiradas. "Expirada" = `expires_at` já passou **ou** maioria dos votos de status (≥3 votos, >50%) marcou "expirou" (helper `isPromoExpired`). Busca e categoria continuam combinando com esse filtro
 
 #### Card de Promoção (`PromotionCard`)
 
@@ -70,9 +71,25 @@ Cada tab exibe um badge com o total de itens carregados. O botão "+ Publicar" s
 | Votação de status | Apenas para não-donos logados: thumbsup (ativo) / thumbsdown (expirado). Bloqueia double-tap via `votingRef` |
 | Autor | Avatar + nickname; navega para `/usuario/:userId` |
 | Link externo | Abre via `Browser.open()` do `@capacitor/browser` (não `target="_blank"`) |
-| Comentários | Ícone `MessageCircle` com contagem. Abre `PromotionCommentsDrawer` para discussão da comunidade |
+| Comentários | Ícone `MessageCircle` com contagem. Abre `PromotionCommentsDrawer` (drawer dedicado, atalho rápido a partir do grid) para discussão da comunidade |
 | Curtir | Toggle coração com contagem. Optimistic update imediato + rollback em erro. Bloqueia race condition via `likingRef` |
 | Menu dono (⋮) | Opções: Editar, Inativar, Remover. Visível apenas para o autor |
+
+O clique no card (fora do menu ⋮ e do botão de comentários) abre o `PromotionDetailDrawer` — ver seção própria abaixo.
+
+#### Drawer de Detalhe (`PromotionDetailDrawer`)
+
+Abre ao tocar no card (fora das ações de rodapé). Mostra:
+
+| Elemento | Descrição |
+|---|---|
+| Menu dono (⋮) | No cabeçalho, ao lado do título. Mesmas opções do card (Editar, Inativar, Remover), visível só para o autor. Cada ação fecha o drawer de detalhe antes de abrir o próximo passo (edição ou confirmação) |
+| Imagem ampliada | `aspect-square`, `object-contain`, com badge de desconto e aviso "Pode ter expirado" quando aplicável |
+| Categoria, preço, descrição, validade, cupom | Mesmos dados do card, em formato expandido |
+| Votação de status | Sim/Expirou — só para não-donos logados |
+| "Ir para a promoção" | Abre `external_link` via `Browser.open()` |
+| Curtir | Toggle coração |
+| **Comentários** | Seção `PromotionCommentsSection` **embutida** no fim do drawer — lista + composer completos (ler, comentar, editar e excluir), sem precisar sair do drawer nem abrir um sheet separado |
 
 #### Curtir
 - Usuário logado pode curtir/descurtir
@@ -81,16 +98,17 @@ Cada tab exibe um badge com o total de itens carregados. O botão "+ Publicar" s
 - Tabela: `promotion_likes (id, promotion_id, user_id)`
 - **Notifica o dono (tipo 12, 2026-07-13):** ao curtir, `togglePromotionLikeDb` insere uma notificação (+ push) para o autor da promoção, deduplicada por (autor, curtidor, promoção) — descurtir e curtir de novo não gera novo aviso. Ver `docs/10-notificacoes.md`
 
-#### Comentários da Comunidade (`PromotionCommentsDrawer`)
+#### Comentários da Comunidade
 
 - Qualquer usuário pode ler os comentários (sem login)
 - Usuários autenticados podem comentar, editar e excluir os próprios comentários
-- Drawer bottom-sheet com altura **fixa** (`min(60dvh, viewportHeight - 8px)`, independente de ter ou não comentários — evita o drawer "pulando" de tamanho quando o primeiro comentário é postado), abre ao tocar no ícone `MessageCircle`
-- Contagem de comentários (`comments_count`) exibida ao lado do ícone
 - Suporta edição inline (textarea substituível) e exclusão com `confirm()`
 - Enter sem Shift envia/salva; Escape cancela edição
 - Empty state com ícone e CTA convidando a primeira opinião
-- Componente: `client/components/modals/promotion-comments-drawer.tsx`
+- Componente: `client/components/modals/promotion-comments-drawer.tsx`. A lógica (fetch, comentar, editar, excluir) vive no hook interno `usePromotionComments`, reaproveitado nas duas superfícies:
+  - **`PromotionCommentsDrawer`** — drawer dedicado (bottom-sheet, altura fixa `min(60dvh, viewportHeight - 8px)`), aberto pelo ícone `MessageCircle` no rodapé do card do grid
+  - **`PromotionCommentsSection`** — versão sem drawer/scroll próprios, **embutida** no fim do `PromotionDetailDrawer` (ver seção acima), para comentar sem sair do drawer de detalhe
+- Contagem de comentários (`comments_count`) exibida ao lado do ícone no card e no cabeçalho da seção embutida
 - Tabela: `promotion_comments (id, promotion_id, user_id, text, created_at, updated_at)`
 - Funções DB: `getPromotionCommentsDb`, `addPromotionCommentDb`, `updatePromotionCommentDb`, `deletePromotionCommentDb`
 
@@ -115,21 +133,22 @@ Fluxo em 2 passos:
 - **Título** (obrigatório, máx. 120 chars)
 - **Descrição** (opcional, máx. 500 chars)
 - **Categoria** (select, obrigatório)
-- **Preço original / Preço promocional** (R$, opcional; validação: não-negativo, promo ≤ original)
+- **Preço original / Preço promocional** (R$, opcional; `type="text"` + `inputMode="decimal"` — só aceita dígitos e vírgula (`sanitizePriceInput`), nunca outros caracteres; validação: não-negativo, promo ≤ original; convertido vírgula→ponto via `parsePriceInput` antes de salvar)
 - **Imagem:** toggle URL / Upload da galeria. Upload passa pelo `ImageCropperDrawer` (aspect 1:1) antes de fazer upload no Storage bucket `promotions`
 - **Cupom** (opcional, máx. 30 chars, uppercase automático)
-- **Válido até** (date picker com `min` = hoje)
+- **Válido até** (date picker com `min` = hoje). Botão próprio **"Limpar"** ao lado do label remove a data de forma confiável — o "x" nativo do `<input type="date">` no WKWebView/iOS às vezes não dispara o evento de mudança, então não dá pra depender dele (o nativo fica oculto via `[&::-webkit-clear-button]:hidden`)
 
 Botão "Publicar" só aparece após o Passo 1.
 
 #### Editar Promoção (`EditPromoDrawer`)
-- Pré-popula todos os campos com os dados existentes da promoção
+- Pré-popula todos os campos com os dados existentes da promoção (preços convertidos ponto→vírgula via `formatPriceInput`)
 - Suporte a upload de imagem da galeria (igual ao `NewPromoDrawer`, com cropper)
-- Mesmas validações de preço e data
+- Mesmas validações de preço e data, mesmo botão "Limpar" na validade
 - Campos: Título, Descrição, Categoria, Preços, Imagem (URL ou upload), Cupom, Válido até
 
 #### Inativar / Remover
-- Apenas o autor vê o menu ⋮
+- Autor vê o menu ⋮ tanto no card do grid quanto no cabeçalho do `PromotionDetailDrawer`
+- **Editar:** abre o `EditPromoDrawer` (fecha o drawer de detalhe antes, se aberto por lá)
 - **Inativar:** AlertDialog de confirmação → `is_active = false` → promoção some da lista. Em caso de erro, dialog permanece aberto
 - **Remover:** AlertDialog de confirmação → `deletePromotionDb` → promoção some da lista. Em caso de erro, dialog permanece aberto
 
@@ -294,4 +313,4 @@ Diretório de profissionais fitness com perfil comercial ativo.
 
 ## Design dos Drawers (Glass)
 
-Os drawers de promoção — **Visualizar** (`PromotionDetailDrawer`), **Nova** (`NewPromoDrawer`) e **Editar** (`EditPromoDrawer`) — seguem o padrão **glass escuro** do novo design, importando os tokens de `client/lib/glass-styles.ts` (`GLASS_SHEET_PROPS`, `GLASS_SHEET_STYLE`, `GLASS_FIELD_*`, `GLASS_PRIMARY_BTN_STYLE`, `GLASS_LABEL_CLASS`). Ver `docs/15-design-system.md` §9.4 para o padrão completo. A área scrollável usa `flex-1 min-h-0` dentro do shell `flex flex-col`.
+Os drawers de promoção — **Visualizar** (`PromotionDetailDrawer`), **Nova** (`NewPromoDrawer`) e **Editar** (`EditPromoDrawer`) — seguem o padrão **glass escuro** do novo design, importando os tokens de `client/lib/glass-styles.ts` (`GLASS_SHEET_PROPS`, `GLASS_SHEET_STYLE`, `GLASS_FIELD_*`, `GLASS_PRIMARY_BTN_STYLE`, `GLASS_LABEL_CLASS`). Ver `docs/15-design-system.md` §9.4 para o padrão completo. A área scrollável usa `flex-1 min-h-0 overflow-y-auto overflow-x-hidden` dentro do shell `flex flex-col` — o `overflow-x-hidden` + `min-w-0`/`w-full` nos inputs da grid de preços evita scroll lateral indesejado nos formulários.

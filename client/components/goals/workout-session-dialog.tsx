@@ -11,6 +11,7 @@ import { RouteMap } from "@/components/shared/route-map";
 import { ExerciseImage } from "@/components/shared/exercise-image";
 import { getNetworkStatus } from "@/lib/network-status";
 import { subscribeKeyboardHeight, getKeyboardHeight } from "@/lib/keyboard";
+import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
 import { isCardioExercise } from "@/lib/cardio-exercises";
 import { toast } from "@/components/ui/use-toast";
 import {
@@ -21,6 +22,8 @@ import {
   createUserWorkoutsDb,
   updateUserWorkoutNotesDb,
   uploadCustomExercisePhotoDb,
+  updateCustomWorkoutDb,
+  deleteCustomWorkoutDb,
   matchesCatalogSearch,
   type UserWorkoutWithDetails,
   type Workout,
@@ -290,6 +293,7 @@ function RunTrackerPanel({
 // pelo picker (catálogo) e pelo botão ⓘ da sessão — fonte única de verdade.
 function ExerciseDetailOverlay({
   photo, name, muscleGroup, description, zIndex, onClose,
+  workoutId, canEdit, onSaved, onDeleted,
 }: {
   photo: string | null;
   name: string;
@@ -297,11 +301,153 @@ function ExerciseDetailOverlay({
   description: string;
   zIndex: number;
   onClose: () => void;
+  /** id do exercício no catálogo — necessário para editar */
+  workoutId?: string;
+  /** true = exercício criado pelo próprio usuário → mostra a ação "Editar" */
+  canEdit?: boolean;
+  onSaved?: (updated: { id: string; name: string; description: string; photo: string | null }) => void;
+  /** Chamado após apagar o exercício custom — remove das listas e fecha. */
+  onDeleted?: (id: string) => void;
 }) {
   const { t } = useLanguage();
+
+  // ── Edição (só para exercícios criados pelo usuário) ────────────────────
+  const [editing, setEditing] = React.useState(false);
+  const [editName, setEditName] = React.useState("");
+  const [editDesc, setEditDesc] = React.useState("");
+  const [photoFile, setPhotoFile] = React.useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = React.useState<string | null>(null);
+  const [photoRemoved, setPhotoRemoved] = React.useState(false);
+  const [saving, setSaving] = React.useState(false);
+  const [confirmDelete, setConfirmDelete] = React.useState(false);
+  const [deleting, setDeleting] = React.useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const scrollRef = React.useRef<HTMLDivElement>(null);
+
+  // Inputs vivem na área rolável do overlay — mantém o campo em foco acima do
+  // teclado do iOS (par obrigatório com o padding-bottom da CSS var, abaixo).
+  useKeyboardInputScroll(scrollRef, editing);
+
+  const editable = !!canEdit && !!workoutId;
+
+  const clearDraftPhoto = () => {
+    setPhotoFile(null);
+    setPhotoPreview((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+    setPhotoRemoved(false);
+  };
+
+  const photoPreviewRef = React.useRef<string | null>(null);
+  photoPreviewRef.current = photoPreview;
+  React.useEffect(
+    () => () => { if (photoPreviewRef.current) URL.revokeObjectURL(photoPreviewRef.current); },
+    [],
+  );
+
+  const startEditing = () => {
+    setEditName(name);
+    setEditDesc(description ?? "");
+    clearDraftPhoto();
+    setConfirmDelete(false);
+    setEditing(true);
+  };
+
+  const handleDelete = async () => {
+    if (!workoutId || deleting) return;
+    setDeleting(true);
+    try {
+      await deleteCustomWorkoutDb(workoutId);
+      toast({ title: t("goals_item_deleted") });
+      onDeleted?.(workoutId);
+      onClose();
+    } catch (err: any) {
+      toast({
+        title: t("goals_item_delete_error"),
+        description: err?.message,
+        variant: "destructive",
+      });
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const handlePhotoPick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast({ title: t("newpost_invalid_type"), variant: "destructive" });
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast({ title: t("newpost_file_too_large"), variant: "destructive" });
+      return;
+    }
+    setPhotoFile(file);
+    setPhotoPreview((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return URL.createObjectURL(file);
+    });
+    setPhotoRemoved(false);
+  };
+
+  const handleSave = async () => {
+    if (!workoutId || saving) return;
+    const newName = editName.trim();
+    if (!newName) return;
+    setSaving(true);
+    try {
+      // `undefined` = não mexe na foto; `null` = remover.
+      let newPhoto: string | null | undefined;
+      if (photoFile) newPhoto = await uploadCustomExercisePhotoDb(photoFile);
+      else if (photoRemoved) newPhoto = null;
+
+      const newDesc = editDesc.trim();
+      await updateCustomWorkoutDb(workoutId, {
+        name: newName,
+        description: newDesc,
+        ...(newPhoto !== undefined ? { photo: newPhoto } : {}),
+      });
+
+      toast({ title: t("goals_item_edit_saved") });
+      onSaved?.({
+        id: workoutId,
+        name: newName,
+        description: newDesc,
+        photo: newPhoto !== undefined ? newPhoto : photo,
+      });
+      clearDraftPhoto();
+      setEditing(false);
+    } catch (err: any) {
+      toast({
+        title: t("goals_item_edit_error"),
+        description: err?.message,
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Foto exibida: preview do rascunho > removida > a atual.
+  const shownPhoto = editing
+    ? (photoPreview ?? (photoRemoved ? null : photo))
+    : photo;
+
+  const fieldStyle: React.CSSProperties = {
+    width: "100%", borderRadius: 12, padding: "10px 12px",
+    background: "rgba(255,255,255,0.08)",
+    border: "1px solid rgba(255,255,255,0.18)",
+    color: "#fff", fontSize: 15, outline: "none",
+    fontFamily: "'Inter', system-ui", boxSizing: "border-box",
+  };
+
   return (
     <div
-      onClick={onClose}
+      // Enquanto edita, tocar no fundo não fecha (não perde o rascunho).
+      onClick={() => { if (!editing) onClose(); }}
       style={{
         position: "absolute", inset: 0, zIndex,
         background: "rgba(0,0,0,0.92)",
@@ -332,13 +478,41 @@ function ExerciseDetailOverlay({
         </svg>
       </button>
 
+      {/* Editar — só para exercícios criados pelo próprio usuário */}
+      {editable && !editing && (
+        <button
+          onClick={(e) => { e.stopPropagation(); startEditing(); }}
+          style={{
+            position: "absolute", top: "max(12px, env(safe-area-inset-top))", left: 16,
+            height: 40, borderRadius: 20, padding: "0 16px",
+            display: "flex", alignItems: "center", gap: 6,
+            background: "rgba(18,17,26,0.78)",
+            border: "1px solid rgba(255,255,255,0.22)",
+            backdropFilter: "blur(6px)", WebkitBackdropFilter: "blur(6px)",
+            boxShadow: "0 2px 12px rgba(0,0,0,0.45)",
+            cursor: "pointer", zIndex: 2,
+            color: "#fff", fontSize: 13, fontWeight: 700,
+            fontFamily: "'Inter', system-ui",
+          }}
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 20h9" />
+            <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+          </svg>
+          {t("goals_item_edit")}
+        </button>
+      )}
+
       {/* Conteúdo rolável: foto + nome + descrição. Só rola se realmente exceder. */}
       <div
+        ref={scrollRef}
         onClick={(e) => e.stopPropagation()}
         style={{
           flex: 1, overflowY: "auto", overflowX: "hidden",
           overscrollBehavior: "contain", WebkitOverflowScrolling: "touch",
           padding: "0 20px",
+          // Espaço para rolar o campo em foco acima do teclado do iOS.
+          paddingBottom: "var(--keyboard-height, 0px)",
           display: "flex", flexDirection: "column", alignItems: "center",
         }}
       >
@@ -349,9 +523,9 @@ function ExerciseDetailOverlay({
           display: "flex", alignItems: "center", justifyContent: "center",
           overflow: "hidden", flexShrink: 0,
         }}>
-          {photo ? (
+          {shownPhoto ? (
             <img
-              src={photo}
+              src={shownPhoto}
               alt={name}
               style={{ width: "100%", maxHeight: "38vh", objectFit: "contain", display: "block" }}
             />
@@ -366,6 +540,178 @@ function ExerciseDetailOverlay({
           )}
         </div>
 
+        {editing ? (
+          /* ── Modo de edição (exercício criado pelo usuário) ── */
+          <div style={{ width: "100%", padding: "16px 0 8px", display: "flex", flexDirection: "column", gap: 14 }}>
+            {/* Foto: adicionar / trocar / remover */}
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                style={{ display: "none" }}
+                onChange={handlePhotoPick}
+              />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                style={{
+                  flex: 1, padding: "10px 12px", borderRadius: 12, cursor: "pointer",
+                  background: "rgba(255,255,255,0.08)",
+                  border: "1px solid rgba(255,255,255,0.18)",
+                  color: "#fff", fontSize: 13, fontWeight: 700,
+                  fontFamily: "'Inter', system-ui",
+                }}
+              >
+                {shownPhoto ? t("goals_item_edit_photo_change") : t("goals_create_exercise_photo_cta")}
+              </button>
+              {shownPhoto && (
+                <button
+                  onClick={() => {
+                    setPhotoFile(null);
+                    setPhotoPreview((prev) => {
+                      if (prev) URL.revokeObjectURL(prev);
+                      return null;
+                    });
+                    setPhotoRemoved(true);
+                  }}
+                  style={{
+                    padding: "10px 14px", borderRadius: 12, cursor: "pointer",
+                    background: "rgba(239,68,68,0.14)",
+                    border: "1px solid rgba(239,68,68,0.4)",
+                    color: "#fca5a5", fontSize: 13, fontWeight: 700,
+                    fontFamily: "'Inter', system-ui",
+                  }}
+                >
+                  {t("goals_create_exercise_photo_remove")}
+                </button>
+              )}
+            </div>
+
+            {/* Nome */}
+            <div>
+              <div style={{
+                fontSize: 11, fontWeight: 700, letterSpacing: 0.7,
+                textTransform: "uppercase", color: "rgba(255,255,255,0.5)", marginBottom: 8,
+              }}>
+                {t("goals_create_exercise_name")}
+              </div>
+              <input
+                type="text"
+                value={editName}
+                maxLength={120}
+                onChange={(e) => setEditName(e.target.value)}
+                style={fieldStyle}
+              />
+            </div>
+
+            {/* Como executar */}
+            <div>
+              <div style={{
+                fontSize: 11, fontWeight: 700, letterSpacing: 0.7,
+                textTransform: "uppercase", color: "rgba(255,255,255,0.5)", marginBottom: 8,
+              }}>
+                {t("goals_exercise_how_to")}
+              </div>
+              <textarea
+                value={editDesc}
+                rows={5}
+                placeholder={t("goals_create_exercise_howto_placeholder")}
+                onChange={(e) => setEditDesc(e.target.value)}
+                style={{ ...fieldStyle, resize: "none", lineHeight: 1.5 }}
+              />
+            </div>
+
+            {/* Ações */}
+            <div style={{ display: "flex", gap: 8, paddingTop: 2 }}>
+              <button
+                onClick={() => { clearDraftPhoto(); setEditing(false); }}
+                disabled={saving}
+                style={{
+                  flex: 1, padding: "12px", borderRadius: 12, cursor: "pointer",
+                  background: "rgba(255,255,255,0.08)",
+                  border: "1px solid rgba(255,255,255,0.18)",
+                  color: "#fff", fontSize: 14, fontWeight: 700,
+                  opacity: saving ? 0.5 : 1, fontFamily: "'Inter', system-ui",
+                }}
+              >
+                {t("goals_cancel")}
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={saving || !editName.trim()}
+                style={{
+                  flex: 1, padding: "12px", borderRadius: 12, border: "none",
+                  cursor: saving || !editName.trim() ? "default" : "pointer",
+                  background: "linear-gradient(135deg,#5b8cff,#9d6bff)",
+                  color: "#fff", fontSize: 14, fontWeight: 800,
+                  opacity: saving || !editName.trim() ? 0.5 : 1,
+                  fontFamily: "'Inter', system-ui",
+                }}
+              >
+                {saving ? t("goals_picker_loading") : t("goals_item_edit_save")}
+              </button>
+            </div>
+
+            {/* Apagar exercício — destrutivo, com confirmação inline */}
+            {confirmDelete ? (
+              <div style={{
+                borderRadius: 12, padding: 12,
+                background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)",
+                display: "flex", flexDirection: "column", gap: 10,
+              }}>
+                <p style={{
+                  margin: 0, fontSize: 12, lineHeight: 1.5, color: "rgba(255,255,255,0.82)",
+                }}>
+                  {t("goals_item_delete_confirm")}
+                </p>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    onClick={() => setConfirmDelete(false)}
+                    disabled={deleting}
+                    style={{
+                      flex: 1, padding: "10px", borderRadius: 10, cursor: "pointer",
+                      background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.18)",
+                      color: "#fff", fontSize: 13, fontWeight: 700,
+                      opacity: deleting ? 0.5 : 1, fontFamily: "'Inter', system-ui",
+                    }}
+                  >
+                    {t("goals_cancel")}
+                  </button>
+                  <button
+                    onClick={handleDelete}
+                    disabled={deleting}
+                    style={{
+                      flex: 1, padding: "10px", borderRadius: 10, border: "none", cursor: "pointer",
+                      background: "#ef4444", color: "#fff", fontSize: 13, fontWeight: 800,
+                      opacity: deleting ? 0.5 : 1, fontFamily: "'Inter', system-ui",
+                    }}
+                  >
+                    {deleting ? t("goals_picker_loading") : t("goals_item_delete_yes")}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                onClick={() => setConfirmDelete(true)}
+                style={{
+                  width: "100%", padding: "11px", borderRadius: 12, cursor: "pointer",
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                  background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)",
+                  color: "#fca5a5", fontSize: 13, fontWeight: 700, fontFamily: "'Inter', system-ui",
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="3 6 5 6 21 6"/>
+                  <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                  <path d="M10 11v6M14 11v6"/>
+                  <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+                </svg>
+                {t("goals_item_delete")}
+              </button>
+            )}
+          </div>
+        ) : (
+        <>
         {/* Nome + grupo muscular */}
         <div style={{ padding: "16px 4px 0", textAlign: "center" }}>
           <div style={{ fontSize: 22, fontWeight: 800, color: "#fff", marginBottom: 10 }}>
@@ -400,6 +746,8 @@ function ExerciseDetailOverlay({
             {description || t("goals_exercise_no_description")}
           </p>
         </div>
+        </>
+        )}
       </div>
     </div>
   );
@@ -493,6 +841,46 @@ export function WorkoutSessionDialog({
     setCreatePhotoPreview(null);
   }, []);
 
+  // Edições de exercícios custom feitas DENTRO da sessão (nome/descrição/foto).
+  // O prop `items` só é recarregado pelo Goals num `loadData()`, então guardamos
+  // o resultado aqui para a tela refletir a edição na hora.
+  const [editedExercises, setEditedExercises] = React.useState<
+    Record<string, { name: string; description: string; photo: string | null }>
+  >({});
+  const applyExerciseEdit = React.useCallback(
+    (u: { id: string; name: string; description: string; photo: string | null }) => {
+      setEditedExercises((prev) => ({
+        ...prev,
+        [u.id]: { name: u.name, description: u.description, photo: u.photo },
+      }));
+    },
+    [],
+  );
+  // Exercício custom apagado durante a sessão → some do card (marca como
+  // removido, já que `items` é prop), do picker e da lista de extras.
+  const applyExerciseDelete = React.useCallback(
+    (workoutId: string) => {
+      setWorkoutRemovedIds((prev) => (prev.includes(workoutId) ? prev : [...prev, workoutId]));
+      setWorkoutExtraItems((prev) => prev.filter((i) => i.workout_id !== workoutId));
+      setCatalog((prev) => prev.filter((w) => w.id !== workoutId));
+      setPickerSelected((prev) => {
+        if (!prev.has(workoutId)) return prev;
+        const next = new Set(prev);
+        next.delete(workoutId);
+        return next;
+      });
+      // Descarta as séries desse exercício — o workout_id foi apagado do banco,
+      // então gravar histórico para ele ao finalizar quebraria a FK.
+      setWorkoutSeries((prev) => {
+        if (!prev[workoutId]) return prev;
+        const next = { ...prev };
+        delete next[workoutId];
+        return next;
+      });
+    },
+    [setWorkoutRemovedIds, setWorkoutExtraItems, setWorkoutSeries],
+  );
+
   // Lista completa de itens da sessão.
   // Dedup por workout_id: um exercício criado/adicionado durante a sessão entra
   // em `workoutExtraItems` E é vinculado à rotina (`createUserWorkoutsDb`); quando
@@ -501,13 +889,25 @@ export function WorkoutSessionDialog({
   // `items` (item real da rotina) vem primeiro, então prevalece sobre o extra.
   const allItems = React.useMemo(() => {
     const seen = new Set<string>();
-    return [...items, ...workoutExtraItems].filter((i) => {
-      if (workoutRemovedIds.includes(i.workout_id)) return false;
-      if (seen.has(i.workout_id)) return false;
-      seen.add(i.workout_id);
-      return true;
-    });
-  }, [items, workoutExtraItems, workoutRemovedIds]);
+    return [...items, ...workoutExtraItems]
+      .filter((i) => {
+        if (workoutRemovedIds.includes(i.workout_id)) return false;
+        if (seen.has(i.workout_id)) return false;
+        seen.add(i.workout_id);
+        return true;
+      })
+      .map((i) => {
+        const edited = editedExercises[i.workout_id];
+        return edited
+          ? {
+              ...i,
+              workoutName: edited.name,
+              workoutDescription: edited.description,
+              workoutPhoto: edited.photo,
+            }
+          : i;
+      });
+  }, [items, workoutExtraItems, workoutRemovedIds, editedExercises]);
 
   // Rotina atual (para vincular exercícios criados/adicionados aos itens persistidos).
   // O id/nome autoritativos vêm do card (props); os itens podem ter routine_id nulo
@@ -904,9 +1304,11 @@ export function WorkoutSessionDialog({
       name: null,
       created_at: new Date().toISOString(),
       workoutName: workout.name,
+      workoutDescription: workout.description || undefined,
       muscle_group: workout.muscle_group ?? null,
       workoutPhoto: workout.photo ?? null,
       routine_id: null,
+      isCustom: workout.isCustom,
     }));
     setWorkoutExtraItems((prev) => [...prev, ...newItems]);
     setWorkoutSeries((prev) => {
@@ -2725,6 +3127,22 @@ export function WorkoutSessionDialog({
           description={pickerInfo.description || ""}
           zIndex={80}
           onClose={() => setPickerInfo(null)}
+          workoutId={pickerInfo.id}
+          canEdit={!!pickerInfo.isCustom}
+          onSaved={(u) => {
+            setCatalog((prev) =>
+              prev.map((w) =>
+                w.id === u.id ? { ...w, name: u.name, description: u.description, photo: u.photo } : w,
+              ),
+            );
+            setPickerInfo((prev) =>
+              prev && prev.id === u.id
+                ? { ...prev, name: u.name, description: u.description, photo: u.photo }
+                : prev,
+            );
+            applyExerciseEdit(u);
+          }}
+          onDeleted={(id) => { applyExerciseDelete(id); setPickerInfo(null); }}
         />
       )}
 
@@ -2740,6 +3158,10 @@ export function WorkoutSessionDialog({
             description={infoItem.workoutDescription || ""}
             zIndex={70}
             onClose={() => setInfoExerciseId(null)}
+            workoutId={infoItem.workout_id}
+            canEdit={!!infoItem.isCustom}
+            onSaved={applyExerciseEdit}
+            onDeleted={(id) => { applyExerciseDelete(id); setInfoExerciseId(null); }}
           />
         );
       })()}

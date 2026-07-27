@@ -1,4 +1,5 @@
 import * as React from "react";
+import { X } from "lucide-react";
 import { useLanguage } from "@/lib/language-context";
 
 const FIELD_WRAP_STYLE: React.CSSProperties = {
@@ -56,9 +57,27 @@ export function HabitTimeRow({
       </span>
       <div className="flex items-center gap-2">
         <div className="flex-1 min-w-0">
-          <span className="block mb-1 text-center text-[10.5px]" style={{ color: "rgba(255,255,255,.45)" }}>
-            {t("goals_habit_start_label")}
-          </span>
+          <div className="mb-1 flex items-center justify-center gap-1.5">
+            <span className="text-center text-[10.5px]" style={{ color: "rgba(255,255,255,.45)" }}>
+              {t("goals_habit_start_label")}
+            </span>
+            {/* Limpar aparece só com valor: o <input type="time"> não deixa
+                apagar depois de tocado sem querer. Limpar o início limpa o fim. */}
+            {start && (
+              <button
+                type="button"
+                onClick={() => {
+                  onStartChange("");
+                  if (end) onEndChange("");
+                }}
+                aria-label={t("goals_clear_time")}
+                className="flex items-center active:scale-90 transition-transform"
+                style={{ color: "rgba(255,255,255,.5)" }}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            )}
+          </div>
           <div className="h-11 rounded-xl overflow-hidden" style={FIELD_WRAP_STYLE}>
             <input
               type="time"
@@ -79,9 +98,22 @@ export function HabitTimeRow({
           –
         </span>
         <div className="flex-1 min-w-0">
-          <span className="block mb-1 text-center text-[10.5px]" style={{ color: "rgba(255,255,255,.45)" }}>
-            {t("goals_habit_end_label")}
-          </span>
+          <div className="mb-1 flex items-center justify-center gap-1.5">
+            <span className="text-center text-[10.5px]" style={{ color: "rgba(255,255,255,.45)" }}>
+              {t("goals_habit_end_label")}
+            </span>
+            {end && (
+              <button
+                type="button"
+                onClick={() => onEndChange("")}
+                aria-label={t("goals_clear_time")}
+                className="flex items-center active:scale-90 transition-transform"
+                style={{ color: "rgba(255,255,255,.5)" }}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            )}
+          </div>
           <div className="h-11 rounded-xl overflow-hidden" style={FIELD_WRAP_STYLE}>
             <input
               type="time"

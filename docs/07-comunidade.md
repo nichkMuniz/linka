@@ -25,6 +25,8 @@ Hub social do aplicativo. Reúne mensagens diretas, duelos em grupo (desafios co
 
 > As tabs usam estilo de sublinhado customizado (não o componente Shadcn padrão).
 
+> **Header e tabs são sempre visíveis (2026-07-21).** Até 21/07 a barra de abas se retraía ao rolar para baixo (e o header do `AppLayout` junto, via `data-community-scroll-container`), com o container da tela subindo `-64px` para ocupar o espaço liberado. Foi **removido por atrapalhar a usabilidade**: as abas são a navegação principal daqui e sumiam justo na hora de trocar de aba, e o vaivém do header disparava em situações que não eram scroll deliberado (troca de aba, abrir/fechar conversa — cada aba tem seu próprio container rolável). O container agora tem altura fixa (`100dvh - 64px - safe areas - bottom nav`) e a barra de abas é estática. Ver `docs/13-layouts-e-componentes.md` → "Header flutuante — auto-ocultar ao rolar".
+
 ---
 
 ## Tab: Mensagens
@@ -180,6 +182,7 @@ Exibe:
   - **(2026-07-17)** Uma mensagem **enviada** com menos de 10 min oferece as **duas** opções ("Apagar para mim" e "Apagar para todos"); com mais de 10 min, oferece só "Apagar para mim". Antes, a mensagem própria só mostrava "Apagar mensagem" (para todos) na janela de 10 min e ficava sem nenhuma opção depois. O limite de 10 min do "para todos" foi mantido. Todas as strings do overlay/diálogo agora usam `t()` (chaves `community_msg_*`).
 - **Responder mensagem:** seleciona a mensagem como contexto de reply; um banner aparece acima do input mostrando o texto original com botão "X" para cancelar
 - A mensagem enviada como reply é prefixada com `↩ <texto original>\n\n<nova mensagem>` no banco
+- **(2026-07-20)** A resposta vale para **todos os tipos de envio**, não só texto: com uma mensagem marcada, enviar **foto** ou **áudio** também cita aquela mensagem. Os três envios (`handleSendMessage`, `handlePhotoSend`, `stopRecordingAndSend`) montam o prefixo pelo helper compartilhado `buildReplyPrefix` (`community-helpers.ts`) e limpam o `replyingTo` após enviar. O texto guardado fica `↩ <original>\n\n[audio]:<ref>` (ou `[image]:<ref>`) — a bolha já extrai o `mainText` depois do prefixo e é ele que decide renderizar o player/imagem, então a citação aparece acima da mídia sem mudança no render. O helper também **normaliza citação aninhada**: ao responder uma mensagem que já é resposta, cita só o conteúdo próprio dela — antes, o `↩` empilhava e o parser (que corta no primeiro `\n\n`) embaralhava citação e corpo.
 - **(2026-07-20 — correção)** O `replyingTo` é limpo (`setReplyingTo(null)`) ao (re)entrar em qualquer conversa, no mesmo efeito de carga keyed em `selectedConversation.userId`. Antes, marcar uma resposta na conversa de X e sair para a de Y sem enviar deixava o banner de reply (e o prefixo `↩` no próximo envio) vazar para a conversa de Y — o estado é global do componente e não pertencia mais à conversa aberta.
 
 > **Arrastar para responder (2026-07-17):** Além do long-press → "Responder", cada bolha pode ser **arrastada para a direita para responder** àquela mensagem específica — padrão WhatsApp. Componente: `SwipeableMessageBubble` (`client/components/community/swipeable-message-bubble.tsx`), que envolve a bolha + o badge de emoji e os translada em bloco. Um ícone de reply (Lucide `Reply`) surge no vão que se abre à esquerda da bolha, com opacidade/escala proporcionais ao arrasto; ao passar do gatilho (`REPLY_TRIGGER = 52px`, limite visual `MAX_DRAG = 76px`) e soltar, dispara `handleReplyToMessage(message)` — ou seja, seleciona **aquela** mensagem como contexto, mesmo que seja a 2ª de uma sequência. Cruzar o gatilho dá um toque de haptics (`hapticLight`). O gesto é só para a direita (à esquerda fica travado em 0) e tem trava de direção: um arrasto vertical deixa a lista rolar normalmente. O **long-press convive** no mesmo componente (timer de 450ms iniciado no touchstart e cancelado a qualquer movimento), então segurar ainda abre o overlay de ações e clicar com o botão direito (`onContextMenu`) também. O container de mensagens ganhou `overflow-x-hidden` para clipar o excedente do arrasto (a bolha própria já fica colada na borda direita) sem afetar a rolagem vertical.
@@ -256,6 +259,7 @@ Aberta via `openGroupView` (botão "Ver Grupo" da lista). Renderizada em portal 
   - **Check-in de outro participante** → rótulo `🎭 avaliar` + botões Classificar (`CheckCircle2`) e Desclassificar (`XCircle`), com o voto do usuário destacado. Tocar de novo no mesmo voto o remove.
   - **Check-in próprio** → rótulo `⏳ pendente` (sem botões), mais a contagem de votos recebidos quando já houver algum. Quando o check-in está anulado, o rótulo `pendente` some, porque o selo **Anulado** à direita já diz o resultado.
   - O selo **Anulado** e a opacidade reduzida do cartão aparecem para todos quando `desclassificar > classificar`.
+  - **O dono do check-in é notificado a cada voto (2026-07-21):** `duel_check_in_votes` tem trigger que insere notificação **tipo 14** (classificado) ou **15** (desclassificado); trocar o voto reescreve a notificação e desfazer o voto a apaga. Antes o autor só descobria o resultado voltando ao grupo e reparando no selo "Anulado". Exige a migração `20260721-checkin-vote-notifications.sql`; ver `docs/10-notificacoes.md`
 - **FAB de check-in** — **pill** flutuante (ícone `Plus` + label "Check-in") com o gradiente da marca (`GLASS_PRIMARY_BTN_STYLE`) e glow; desabilitado (acinzentado) quando o grupo está encerrado. Ancorada a `calc(20px + env(safe-area-inset-bottom))` do rodapé (antes precisava de 88px para não sobrepor o bottom nav, que não existe mais).
 - **Overlay de reação (long-press)** — sheet de vidro escuro (`rounded-[28px]`, blur 40px) com preview do check-in, 6 emojis rápidos e botão Cancelar (mantido do design anterior).
 
@@ -447,11 +451,18 @@ Dados carregados via `getRankingDb()`
 
 ## Realtime (Mensagens)
 
-- Canal Supabase: `messages-{userId}` (por conversa ativa)
-- Evento: `INSERT` na tabela `messages`
-- Ao receber nova mensagem: recarrega a conversa ativa automaticamente
+- Canal Supabase: `messages:{prefixo do userId}:{sufixo aleatório}` (por conversa ativa)
+- Evento: `INSERT` na tabela `messages` — a mensagem nova é **anexada** à lista (sem recarregar a conversa)
 - Marca como lida imediatamente ao receber mensagem com a conversa aberta
-- Badge de não lidas no ícone de navegação atualiza automaticamente
+- Badge de não lidas no ícone de navegação atualiza automaticamente (assinatura própria em `app-layout.tsx`, com filtro `following_id=eq.{userId}` e debounce)
+
+> **Confiabilidade do realtime (2026-07-20):** A conversa deixava de receber mensagens novas e só atualizava ao sair e entrar de novo. Três correções, alinhando ao padrão já maduro de `Notifications.tsx`:
+>
+> 1. **Canal derrubado antes de recriar** (via `conversationChannelRef`). Quando o efeito re-roda antes do `removeChannel` assíncrono terminar — comum no ciclo de vida do Capacitor no iOS — o supabase-js estoura `cannot add callbacks after subscribe()` e a conversa fica **sem** realtime, silenciosamente.
+> 2. **Nome do canal com `Math.random()`** em vez de `Date.now()`: no iOS o efeito pode rodar duas vezes dentro do mesmo milissegundo (retorno do background) e o nome colidia.
+> 3. **Recuperação ("catch-up")** via `catchUpMessages(userId)`: relê a conversa e mescla com `sameMessageList` (se nada mudou, mantém o array anterior — sem re-render). Roda quando o canal atinge `SUBSCRIBED` (inclui **cada reassinatura após reconexão** do websocket) e no `visibilitychange` ao voltar do background. É o que cobre a janela em que o socket esteve morto e mensagens chegaram sem evento.
+>
+> **Pré-requisito no banco:** a tabela precisa estar na publicação `supabase_realtime`, senão nenhum evento chega por melhor que esteja o cliente. Não havia migração versionada disso (só a de `duel_check_in_reactions`), então criamos `docs/migrations/20260720-messages-realtime.sql` — idempotente, só publica se ainda não estiver. A publicação **não** burla RLS: o Realtime avalia a policy de SELECT do assinante (`messages_select_participants`), então cada usuário só recebe eventos das mensagens em que é participante.
 
 ---
 
@@ -463,8 +474,10 @@ Dados carregados via `getRankingDb()`
 - Tab ativa pode ser controlada via `searchParams` (ex: `?tab=duelos`)
 - `useLayoutMode()` detecta mobile/desktop para ajustes de layout
 - Grupos têm notificações enviadas ao criador quando alguém pede para entrar (`sendGroupJoinRequestNotificationDb`)
-- **Mensagem privada gera notificação/push (tipo 10, 2026-07-13):** `sendMessageDb` insere uma notificação para o destinatário (fire-and-forget). Mensagens do mesmo remetente dentro de 60s de uma notificação não lida não geram outra — o card na tela de Notificações é colapsado em um por remetente e leva a `/comunidade?user=<remetente>`
+- **Mensagem privada gera push, e só push (tipo 10, 2026-07-13; push-only desde 2026-07-21):** `sendMessageDb` insere uma linha em `notifications` (fire-and-forget) — ela existe unicamente para disparar o push, e é **filtrada na leitura**, então não vira card na tela de Notificações nem conta no badge do sino. Quem sinaliza mensagem não lida dentro do app é o badge da Comunidade (`getUnreadMessageCountDb`, que lê a tabela `messages`). O toque no push leva a `/comunidade?user=<remetente>`. Ver `docs/10-notificacoes.md`
 - **Check-in em duelo gera notificação/push (tipo 11, 2026-07-13):** `addGroupCheckInDb` avisa todos os participantes **aceitos** do grupo, exceto o autor. O card abre o check-in (`state.openCheckIn`). Ver `docs/10-notificacoes.md`
+- **Comentário em check-in gera notificação tipo 3 (2026-07-21):** `addCheckInCommentDb` avisa o dono do check-in com `type: 3` + `duel_check_in_id` → "{nome} comentou no seu check-in". Antes gravava `type: 6`, que é "reagiu ao seu comentário" — evento errado e colidindo com a reação real. Ver `docs/10-notificacoes.md`
+- **Abrir um check-in específico:** `openCheckInById(checkInId)` carrega detalhe + comentários + reações, abre o drawer e força a aba Duelos. Dois caminhos chegam nela: `state.openCheckIn` (navegação interna, vinda do card de notificação) e **`?checkin=<id>`** (toque no push — um deep link é só uma URL e não carrega o `state` do router). O param é aplicado uma única vez por id, via ref
 
 > **Header auto-ocultável ao rolar (2026-07-02):** Igual ao Feed, o header flutuante (perfil/lupa/comunidade/notificações) some ao rolar para baixo e reaparece ao rolar para cima. As 4 abas (Mensagens, Duelos, Ranking, Solicitações) compartilham o mesmo wrapper externo com altura fixa (`calc(100dvh - ...)`) e `overflow-hidden`; cada aba tem seu próprio container interno `flex-1 overflow-y-auto` marcado com `data-community-scroll-container`, que o `AppLayout` usa para detectar o scroll (ver `docs/13-layouts-e-componentes.md`). Antes, apenas as abas Mensagens e Duelos tinham essa altura fixa — Ranking e Solicitações rolavam com a window; agora as 4 são consistentes.
 

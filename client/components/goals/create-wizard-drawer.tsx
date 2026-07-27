@@ -1805,6 +1805,9 @@ export function CreateWizardDrawer({
                             onClick={() =>
                               setDetailItem({
                                 type: routineType === 1 ? 1 : 2,
+                                id: item.id,
+                                // Só exercício criado pelo próprio usuário é editável
+                                canEdit: routineType === 1 && !!(item as Workout).isCustom,
                                 name: item.name,
                                 photo: item.photo ?? null,
                                 description: item.description,
@@ -1975,7 +1978,22 @@ export function CreateWizardDrawer({
                 </div>
               ) : (
                 <div className="space-y-2">
-                  <Label className="text-sm font-semibold" style={{ color: "#fff" }}>{t("goals_edit_routine_time_label")}</Label>
+                  <div className="flex items-center justify-between">
+                    <Label className="text-sm font-semibold" style={{ color: "#fff" }}>{t("goals_edit_routine_time_label")}</Label>
+                    {/* Só aparece com horário preenchido: o <input type="time">
+                        não oferece como limpar depois de tocado sem querer. */}
+                    {scheduledTime && (
+                      <button
+                        type="button"
+                        onClick={() => setScheduledTime("")}
+                        className="flex items-center gap-1 text-xs font-medium active:scale-95 transition-transform"
+                        style={{ color: "rgba(255,255,255,.55)" }}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                        {t("goals_clear_time")}
+                      </button>
+                    )}
+                  </div>
                   <div
                     className="w-full h-11 rounded-xl overflow-hidden"
                     style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)" }}
@@ -2394,7 +2412,36 @@ export function CreateWizardDrawer({
       </DrawerContent>
     </Drawer>
 
-    <ItemDetailDrawer item={detailItem} onClose={() => setDetailItem(null)} />
+    <ItemDetailDrawer
+      item={detailItem}
+      onClose={() => setDetailItem(null)}
+      onSaved={(updated) => {
+        // Reflete a edição na lista sem refetch (o cache do catálogo já foi
+        // invalidado por updateCustomWorkoutDb para as próximas aberturas).
+        setWorkouts((prev) =>
+          prev.map((w) =>
+            w.id === updated.id
+              ? { ...w, name: updated.name, description: updated.description, photo: updated.photo }
+              : w,
+          ),
+        );
+        setDetailItem((prev) =>
+          prev
+            ? { ...prev, name: updated.name, description: updated.description, photo: updated.photo }
+            : prev,
+        );
+      }}
+      onDeleted={(id) => {
+        // Remove o exercício apagado da lista e de qualquer seleção.
+        setWorkouts((prev) => prev.filter((w) => w.id !== id));
+        setSelectedIds((prev) => {
+          if (!prev.has(id)) return prev;
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+      }}
+    />
 
     <PaywallDrawer
       open={paywallOpen}
