@@ -37,3 +37,13 @@ linka
 # fonte de verdade das policies RLS. Ignore apenas dumps locais do banco.
 *.dump
 *.sqldump
+
+# Imagens de IA dos exercícios: material de trabalho pesado (centenas de MB).
+# As imagens que o app usa vêm do Supabase Storage (bucket "exercises"),
+# NÃO do repositório. Ficam só no disco local.
+ai-exercise-images/
+
+# Documentos/mockups de trabalho — não fazem parte do app em runtime.
+mockup-metas.html
+workouts-duplicados.md
+exercise-image-prompts.md
