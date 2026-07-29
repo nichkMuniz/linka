@@ -131,6 +131,8 @@ Fluxo multi-etapas com 5 passos:
 
 **Handle único (trava anti-duplicidade):** enquanto o usuário digita o `@`, é feita uma verificação com debounce (500ms) via RPC `check_handle_exists` (`checkHandleExistsDb`). Feedback inline: "Verificando disponibilidade…" / "❌ Esse @ já está em uso" / "✓ @ disponível". O botão **Próximo** (e o atalho "Personalizar depois") ficam desabilitados até o `@` ter ≥3 caracteres e estar disponível. A unicidade é garantida no banco por um índice único case-insensitive (`profiles_handle_unique_idx`); numa corrida rara, o `INSERT`/`UPDATE` retorna `23505` e o usuário é avisado. O mesmo `check_handle_exists` cobre a edição de handle nas Configurações.
 
+**⭐ Causa raiz da foto que não gravava (correção 2026-07-21b):** o `profilePayload` incluía `email` (`profilePayload.email = authUser.email`), mas a tabela `profiles` **não tem coluna `email`** (o email vive em `auth.users`; só `commercial_profiles` tem `business_email`). No PostgREST, um UPDATE que cita coluna inexistente **falha a instrução inteira** (`PGRST204`), então **nada** do payload gravava — nem `photo`, nem `handle`, nem `nickname`. O nome e o @ apareciam mesmo assim porque quem os grava é o trigger `handle_new_user` (a partir do metadata); a foto não, porque o trigger nunca a define. **Fix: remover o campo `email` do payload.** As proteções abaixo (retry/erros) continuam válidas, mas não resolviam sozinhas — o payload estava "envenenado".
+
 **Foto de perfil no cadastro — cadeia de falhas silenciosas (correção 2026-07-21):** a foto subia no Step 2 mas o usuário caía no feed com o avatar padrão. Eram vários pontos que falhavam **sem emitir erro**, todos corrigidos:
 
 | Ponto | Falha silenciosa | Correção |

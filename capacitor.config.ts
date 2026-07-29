@@ -24,7 +24,16 @@ const config: CapacitorConfig = {
       resize: 'none',
     },
     PushNotifications: {
-      presentationOptions: ["badge", "sound", "alert"],
+      // Vazio de propósito: o push remoto (APNs) NÃO apresenta banner quando o
+      // app está em PRIMEIRO PLANO. Em foreground quem mostra o banner é o
+      // handler local em `app-layout.tsx` (via @capacitor/local-notifications,
+      // com texto i18n e ciente da tela atual) — ele é a fonte ÚNICA de banner em
+      // foreground. Antes, ["badge","sound","alert"] fazia o push remoto também
+      // aparecer em foreground, duplicando o banner local e, pior, impedindo
+      // suprimir a mensagem cuja conversa já está aberta na tela.
+      // Background/app fechado NÃO é afetado por isto: o iOS apresenta o push
+      // remoto normalmente (presentationOptions só rege o foreground).
+      presentationOptions: [],
     },
   },
 };

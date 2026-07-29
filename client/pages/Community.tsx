@@ -133,6 +133,7 @@ import { SharedContentMessage } from "@/components/community/shared-content-mess
 import { ChatImageMessage, ChatAudioMessage } from "@/components/community/chat-media";
 import { RankingTab } from "@/components/community/ranking-tab";
 import { subscribeKeyboardHeight } from "@/lib/keyboard";
+import { setActiveConversationUserId } from "@/lib/active-conversation";
 import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
 import {
   specialMessageLabel,
@@ -715,6 +716,27 @@ export default function Community() {
     loadData();
   }, []);
 
+  // Ao (re)entrar na Comunidade e ao voltar do background, relê as conversas do
+  // ZERO (cache invalidado). O `loadData` acima usa `getConversationsDb` cacheado
+  // (TTL 60s) para o primeiro paint instantâneo — mas quem chegou aqui vindo de
+  // outra tela após receber uma mensagem via push encontrava a lista velha, sem o
+  // remetente novo. Este refresh roda em paralelo, fora do gate de `loading`:
+  // pinta rápido do cache e, logo em seguida, atualiza com quem acabou de mandar.
+  React.useEffect(() => {
+    const refreshConversations = () => {
+      invalidateQueryCache("conversations");
+      getConversationsDb()
+        .then(setConversations)
+        .catch((err) => console.error("Error refreshing conversations:", err));
+    };
+    refreshConversations();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refreshConversations();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, []);
+
   // Abre um check-in específico (vindo de uma notificação) com comentários e reações.
   const openCheckInById = React.useCallback(async (checkInId: string) => {
     try {
@@ -877,6 +899,15 @@ export default function Community() {
     document.body.dataset.hideNav = isConversation ? "true" : "false";
     return () => { document.body.dataset.hideNav = "false"; };
   }, [viewMode, activeTab]);
+
+  // Marca qual conversa está aberta para o handler de notificações em primeiro
+  // plano (AppLayout) suprimir o banner da mensagem que o usuário já está vendo
+  // chegar — nesse caso o celular só vibra. Fora da conversa, limpa (null).
+  React.useEffect(() => {
+    const inConversation = activeTab === "messages" && viewMode === "conversation" && selectedConversation;
+    setActiveConversationUserId(inConversation ? selectedConversation.userId : null);
+    return () => setActiveConversationUserId(null);
+  }, [viewMode, activeTab, selectedConversation?.userId]);
 
   // Load conversation messages when selected
   React.useEffect(() => {

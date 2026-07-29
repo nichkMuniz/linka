@@ -208,6 +208,10 @@ O corpo do push é montado em runtime por `buildBody()`, com os dados reais da n
 
 Quando a notificação chega com o **app aberto**, quem mostra o banner não é a edge function — é o próprio app, via `LocalNotifications.schedule` no `AppLayout`, disparado pelo Realtime da tabela `notifications`.
 
+> **Fonte única do banner em foreground (2026-07-20):** `capacitor.config.ts` passou a ter `PushNotifications.presentationOptions: []`. Assim o push remoto (APNs) **não** apresenta banner com o app em primeiro plano — só em background/fechado (o `presentationOptions` só rege o foreground). Antes, com `["badge","sound","alert"]`, o push remoto **também** aparecia em foreground, duplicando o banner local do `AppLayout` e, pior, impedindo qualquer supressão por tela. Agora o `AppLayout` é a fonte única de banner em foreground — é ele que decide mostrar ou não. **Exige `npx cap sync ios` + rebuild no Appflow** para o `capacitor.config.json` nativo ser atualizado.
+>
+> **Mensagem da conversa aberta só vibra (2026-07-20):** o handler do `AppLayout` **suprime o banner** de uma mensagem nova (type 10) quando o remetente é o contato cuja conversa está **aberta na tela** — o usuário já vê a mensagem chegar em tempo real, então o celular apenas **vibra** (o `hapticSuccess` roda antes, para toda notificação). Em qualquer outra tela (feed, perfil…) ou com o app em background, o banner aparece normalmente. A tela aberta é publicada por `client/lib/active-conversation.ts` (`setActiveConversationUserId`, gravado/limpo pela `Community`) e lida no handler via `getActiveConversationUserId()`; a comparação é direta porque a linha type 10 traz o remetente em `follower_id`.
+
 **Correção 2026-07-21:** esse banner tinha um mapa próprio, com título e corpo **só dos tipos 1–7**, e o corpo nem citava quem tinha originado ("Alguém reagiu à sua postagem"). Tudo fora dessa faixa — promoção, mensagem, marcação, check-in de duelo — caía em "Nova notificação 🔔 / Você tem uma nova notificação no LinKa", e o usuário precisava abrir o app para descobrir o que era.
 
 Agora título, corpo e deep link vêm de `client/lib/notification-copy.ts`:

@@ -52,6 +52,9 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { ChevronDown } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Capacitor } from "@capacitor/core";
+import { App as CapApp } from "@capacitor/app";
 import { PostSkeleton } from "@/components/shared/animated-loading";
 import type { PostWithStats } from "../services/post.service";
 import { FlowCarousel } from "@/components/feed/flow-carousel";
@@ -127,6 +130,10 @@ export default function Index() {
   const [hasMoreDiscover, setHasMoreDiscover] = React.useState(() => (cacheValid ? feedCache.hasMoreDiscover : true));
   const [loadingMoreDiscover, setLoadingMoreDiscover] = React.useState(false);
   const [feedTab, setFeedTab] = React.useState<"following" | "discover">(() => (cacheValid ? feedCache.feedTab : "following"));
+
+  // Dica de "puxe para atualizar" — aparece quando o app volta ao foreground
+  // depois de ≥5min em background (pode haver novas publicações).
+  const [showRefreshHint, setShowRefreshHint] = React.useState(false);
 
   const togglingIncentivesRef = React.useRef<Set<string>>(new Set());
   const [togglingIncentives, setTogglingIncentives] = React.useState<Set<string>>(new Set());
@@ -314,6 +321,7 @@ export default function Index() {
     const handler = () => {
       window.scrollTo({ top: 0, behavior: "smooth" });
       feedCache.scrollY = 0;
+      setShowRefreshHint(false);
       setDiscoverLoaded(false);
       setHasMoreDiscover(true);
       loadFeed(false, true);
@@ -321,6 +329,51 @@ export default function Index() {
     window.addEventListener("ritmofit-refresh-feed", handler);
     return () => window.removeEventListener("ritmofit-refresh-feed", handler);
   }, [loadFeed]);
+
+  // Dica de atualização ao voltar ao app depois de ≥5min em background: o feed é
+  // um cache estático entre navegações (não recarrega sozinho), então avisamos o
+  // usuário que pode haver novas publicações e que basta puxar para baixo. Usa o
+  // appStateChange do Capacitor (nativo) ou visibilitychange (web) para medir
+  // quanto tempo o app ficou fora do foreground.
+  const backgroundedAtRef = React.useRef<number | null>(null);
+  React.useEffect(() => {
+    const STALE_MS = 5 * 60 * 1000;
+    const onHide = () => {
+      backgroundedAtRef.current = Date.now();
+    };
+    const onShow = () => {
+      const since = backgroundedAtRef.current;
+      backgroundedAtRef.current = null;
+      if (since !== null && Date.now() - since >= STALE_MS) {
+        setShowRefreshHint(true);
+      }
+    };
+
+    if (Capacitor.isNativePlatform()) {
+      let listener: { remove: () => void } | null = null;
+      CapApp.addListener("appStateChange", ({ isActive }) => {
+        if (isActive) onShow();
+        else onHide();
+      }).then((l) => {
+        listener = l;
+      });
+      return () => listener?.remove();
+    }
+
+    const onVisibility = () => {
+      if (document.hidden) onHide();
+      else onShow();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, []);
+
+  // Some sozinha depois de alguns segundos — é só uma dica, não bloqueia nada.
+  React.useEffect(() => {
+    if (!showRefreshHint) return;
+    const id = setTimeout(() => setShowRefreshHint(false), 9000);
+    return () => clearTimeout(id);
+  }, [showRefreshHint]);
 
   // Recarrega o feed ao chegar com refreshFeed (ex.: após compartilhar um treino),
   // ignorando o cache para que a publicação recém-criada apareça no topo na hora.
@@ -908,6 +961,7 @@ export default function Index() {
     isPullingRef.current = false;
     if (pullDistanceRef.current >= PULL_THRESHOLD) {
       hapticLight();
+      setShowRefreshHint(false);
       setDiscoverLoaded(false);
       setHasMoreDiscover(true);
       loadFeed(true, true);
@@ -969,6 +1023,48 @@ export default function Index() {
             "radial-gradient(280px 280px at 26% 74%, rgba(123,63,242,.26), transparent 70%)",
         }}
       />
+
+      {/* Dica "puxe para atualizar" — flutua logo abaixo do header ao voltar de
+          ≥5min em background. Tocar dispara o mesmo refresh do logo/home. */}
+      <div
+        className="fixed inset-x-0 z-40 flex justify-center px-4 pointer-events-none"
+        style={{ top: "calc(max(14px, env(safe-area-inset-top) + 6px) + 52px + 10px)" }}
+      >
+        <AnimatePresence>
+          {showRefreshHint && (
+            <motion.button
+              key="feed-refresh-hint"
+              initial={{ opacity: 0, y: -12, scale: 0.92 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -10, scale: 0.94 }}
+              transition={{ type: "spring", stiffness: 420, damping: 26 }}
+              onClick={() => {
+                hapticLight();
+                window.dispatchEvent(new CustomEvent("ritmofit-refresh-feed"));
+              }}
+              className="pointer-events-auto flex items-center gap-2 rounded-full px-4 py-2.5 max-w-[calc(100vw-2rem)] active:scale-95 transition-transform"
+              style={{
+                background: "linear-gradient(rgba(255,255,255,.16),rgba(255,255,255,.06))",
+                backdropFilter: "blur(24px) saturate(180%)",
+                WebkitBackdropFilter: "blur(24px) saturate(180%)",
+                border: "1px solid rgba(255,255,255,.16)",
+                boxShadow: "inset 0 1px 0 rgba(255,255,255,.28), 0 8px 24px -8px rgba(0,0,0,.5)",
+              }}
+            >
+              <motion.span
+                animate={{ y: [0, 4, 0] }}
+                transition={{ duration: 1.1, repeat: Infinity, ease: "easeInOut" }}
+                className="flex-shrink-0"
+              >
+                <ChevronDown className="h-4 w-4 text-white" />
+              </motion.span>
+              <span className="text-[13px] font-medium text-white leading-tight text-left">
+                {t("feed_refresh_hint")}
+              </span>
+            </motion.button>
+          )}
+        </AnimatePresence>
+      </div>
 
       {/* Pull-to-refresh indicator — altura/rotação escritas direto no DOM pelos handlers */}
       <div

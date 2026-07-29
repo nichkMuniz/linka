@@ -13,6 +13,7 @@ import {
   AlignLeft,
   AlignCenter,
   AlignRight,
+  Loader2,
 } from "lucide-react";
 
 const GRADIENT_PRESETS = [
@@ -249,6 +250,13 @@ export function FlowCreationDialog({
   const [mediaFromGallery, setMediaFromGallery] = React.useState(false);
   const [description, setDescription] = React.useState("");
   const [isSubmitting, setIsSubmitting] = React.useState(false);
+  // Verdadeiro entre selecionar um arquivo na galeria e o preview ficar pronto.
+  // Vídeos grandes demoram para ter a metadata (duração) lida E para decodificar o
+  // primeiro frame — sem isto a tela parece travada na galeria.
+  const [isPreparingMedia, setIsPreparingMedia] = React.useState(false);
+  // Rede de segurança final: garante que o indicador nunca fique preso, mesmo se o
+  // vídeo do preview não disparar loadedData.
+  const prepareSafetyRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const [selectedGradient, setSelectedGradient] = React.useState(GRADIENT_PRESETS[0].value);
   // Flow abre sempre na câmera frontal (selfie) por padrão; o usuário pode
   // alternar para a traseira com o botão de virar câmera.
@@ -301,14 +309,21 @@ export function FlowCreationDialog({
     midX: number;
     midY: number;
   } | null>(null);
-  const dragRef = React.useRef<{
+  // Gesto sobre uma frase já posta: 1 dedo = arrastar, 2 dedos = pinça para
+  // redimensionar (fontSize), toque curto = reeditar. Rastreia múltiplos ponteiros
+  // no mesmo item, estilo sticker do Instagram.
+  const textGestureRef = React.useRef<{
     id: string;
-    pointerId: number;
-    startX: number;
-    startY: number;
+    pointers: Map<number, { x: number; y: number }>;
+    // baseline do "sub-gesto" atual (re-ancorado quando o nº de dedos muda)
+    anchorX: number;
+    anchorY: number;
     origX: number;
     origY: number;
+    startDist: number;
+    origFontSize: number;
     moved: boolean;
+    pinched: boolean;
   } | null>(null);
   // Detecta um "toque" na foto (down+up curto, sem arrastar/pinçar) para abrir
   // um novo texto — mesmo efeito do botão "+ Aa". Invalidado por multitoque ou
@@ -773,6 +788,15 @@ export function FlowCreationDialog({
     }
   };
 
+  // Encerra o estado "preparando" e cancela a rede de segurança.
+  const finishPreparing = React.useCallback(() => {
+    if (prepareSafetyRef.current) {
+      clearTimeout(prepareSafetyRef.current);
+      prepareSafetyRef.current = null;
+    }
+    setIsPreparingMedia(false);
+  }, []);
+
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
@@ -787,6 +811,16 @@ export function FlowCreationDialog({
       return;
     }
 
+    // Indicador de "preparando" — fica visível durante TODA a preparação (ler metadata
+    // + decodificar o 1º frame), some quando o preview de fato aparece, é rejeitado ou
+    // dá erro. Para vídeo, quem o encerra é o `onLoadedData` do <video> do preview.
+    setIsPreparingMedia(true);
+    if (prepareSafetyRef.current) clearTimeout(prepareSafetyRef.current);
+    prepareSafetyRef.current = setTimeout(() => {
+      prepareSafetyRef.current = null;
+      setIsPreparingMedia(false);
+    }, 25000);
+
     if (file.type.startsWith("video/")) {
       // Vídeo → Blob URL (não data URL): data URL de um vídeo grande vira uma string
       // base64 ~33% maior, estoura memória no WebView do iOS e causa tela preta. O
@@ -795,27 +829,39 @@ export function FlowCreationDialog({
       // Sonda a duração antes de aceitar — mantém o flow em até 1 min.
       const probe = document.createElement("video");
       probe.preload = "metadata";
+      let settled = false;
       const accept = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(safety);
+        // NÃO encerra o indicador aqui: mantém até o <video> do preview decodificar o
+        // 1º frame (onLoadedData → finishPreparing), senão pisca um frame preto.
         setMediaIsVideo(true);
         setMediaFromGallery(true);
         setMediaPreview(blobUrl);
         setStep("caption");
       };
+      const reject = (title: string, description: string) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(safety);
+        finishPreparing();
+        URL.revokeObjectURL(blobUrl);
+        toast({ title, description, variant: "destructive" });
+      };
       probe.onloadedmetadata = () => {
         if (Number.isFinite(probe.duration) && probe.duration > MAX_VIDEO_DURATION_S + 1) {
-          URL.revokeObjectURL(blobUrl);
-          toast({
-            title: "Vídeo muito longo",
-            description: "O flow aceita vídeos de até 1 minuto",
-            variant: "destructive",
-          });
+          reject("Vídeo muito longo", "O flow aceita vídeos de até 1 minuto");
           return;
         }
         accept();
       };
       // Se o WebView não conseguir ler a metadata, segue mesmo assim (o limite de
       // tamanho já protege) em vez de travar o usuário.
-      probe.onerror = accept;
+      probe.onerror = () => accept();
+      // Rede de segurança: se a metadata demorar demais (vídeo grande com moov no
+      // fim), aceita mesmo assim para o indicador nunca ficar preso.
+      const safety = setTimeout(() => accept(), 20000);
       probe.src = blobUrl;
       return;
     }
@@ -824,10 +870,20 @@ export function FlowCreationDialog({
     // a partir dessa URL).
     const reader = new FileReader();
     reader.onload = (e) => {
+      // Imagem não tem "1º frame" a esperar → encerra o indicador direto.
+      finishPreparing();
       setMediaIsVideo(false);
       setMediaFromGallery(true);
       setMediaPreview(e.target?.result as string);
       setStep("caption");
+    };
+    reader.onerror = () => {
+      finishPreparing();
+      toast({
+        title: "Erro ao abrir a imagem",
+        description: "Tente novamente",
+        variant: "destructive",
+      });
     };
     reader.readAsDataURL(file);
   };
@@ -1060,6 +1116,11 @@ export function FlowCreationDialog({
     });
     setMediaIsVideo(false);
     setMediaFromGallery(false);
+    if (prepareSafetyRef.current) {
+      clearTimeout(prepareSafetyRef.current);
+      prepareSafetyRef.current = null;
+    }
+    setIsPreparingMedia(false);
     setDescription("");
     setSelectedGradient(GRADIENT_PRESETS[0].value);
     setTexts([]);
@@ -1112,35 +1173,79 @@ export function FlowCreationDialog({
     setEditingValue("");
   };
 
+  // Re-ancora o sub-gesto quando o número de dedos muda (1↔2), usando a posição/
+  // tamanho ATUAIS do item para não dar salto ao acrescentar/tirar um dedo.
+  const rebaseTextGesture = (item: TextItem) => {
+    const g = textGestureRef.current;
+    if (!g) return;
+    const pts = Array.from(g.pointers.values());
+    g.origX = item.x;
+    g.origY = item.y;
+    g.origFontSize = item.style.fontSize;
+    if (pts.length >= 2) {
+      g.startDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1;
+    } else if (pts.length === 1) {
+      g.anchorX = pts[0].x;
+      g.anchorY = pts[0].y;
+    }
+  };
+
   const handleTextPointerDown = (
     e: React.PointerEvent<HTMLDivElement>,
     item: TextItem,
   ) => {
     e.stopPropagation();
-    dragRef.current = {
-      id: item.id,
-      pointerId: e.pointerId,
-      startX: e.clientX,
-      startY: e.clientY,
-      origX: item.x,
-      origY: item.y,
-      moved: false,
-    };
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    let g = textGestureRef.current;
+    if (!g || g.id !== item.id) {
+      g = {
+        id: item.id,
+        pointers: new Map(),
+        anchorX: 0,
+        anchorY: 0,
+        origX: item.x,
+        origY: item.y,
+        startDist: 0,
+        origFontSize: item.style.fontSize,
+        moved: false,
+        pinched: false,
+      };
+      textGestureRef.current = g;
+    }
+    g.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    rebaseTextGesture(item);
   };
 
   const handleTextPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    const d = dragRef.current;
-    if (!d || d.pointerId !== e.pointerId) return;
-    const dx = e.clientX - d.startX;
-    const dy = e.clientY - d.startY;
-    if (!d.moved && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) d.moved = true;
-    if (d.moved) {
-      const newX = d.origX + dx;
-      const newY = d.origY + dy;
-      setTexts((prev) =>
-        prev.map((t) => (t.id === d.id ? { ...t, x: newX, y: newY } : t)),
+    const g = textGestureRef.current;
+    if (!g || !g.pointers.has(e.pointerId)) return;
+    g.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const pts = Array.from(g.pointers.values());
+    if (pts.length >= 2) {
+      // Pinça → escala o fontSize pela razão de distância entre os dois dedos.
+      const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+      const ratio = g.startDist ? dist / g.startDist : 1;
+      const newSize = Math.round(
+        Math.min(MAX_CAPTION_FONT, Math.max(MIN_CAPTION_FONT, g.origFontSize * ratio)),
       );
+      g.pinched = true;
+      setTexts((prev) =>
+        prev.map((t) =>
+          t.id === g.id ? { ...t, style: { ...t.style, fontSize: newSize } } : t,
+        ),
+      );
+    } else {
+      // Um dedo → arrasta a posição.
+      const dx = pts[0].x - g.anchorX;
+      const dy = pts[0].y - g.anchorY;
+      if (!g.moved && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) g.moved = true;
+      if (g.moved) {
+        const newX = g.origX + dx;
+        const newY = g.origY + dy;
+        setTexts((prev) =>
+          prev.map((t) => (t.id === g.id ? { ...t, x: newX, y: newY } : t)),
+        );
+      }
     }
   };
 
@@ -1148,10 +1253,17 @@ export function FlowCreationDialog({
     e: React.PointerEvent<HTMLDivElement>,
     item: TextItem,
   ) => {
-    const d = dragRef.current;
-    if (!d || d.pointerId !== e.pointerId) return;
-    const wasTap = !d.moved;
-    dragRef.current = null;
+    const g = textGestureRef.current;
+    if (!g || !g.pointers.has(e.pointerId)) return;
+    (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+    g.pointers.delete(e.pointerId);
+    if (g.pointers.size > 0) {
+      // Ainda há dedo(s) na tela — re-ancora para o próximo sub-gesto (ex.: 2→1).
+      rebaseTextGesture(item);
+      return;
+    }
+    const wasTap = !g.moved && !g.pinched;
+    textGestureRef.current = null;
     if (wasTap) beginEditText(item);
   };
 
@@ -1224,33 +1336,6 @@ export function FlowCreationDialog({
         })}
       </div>
 
-      {/* Tamanho da legenda — "A" pequeno → grande. Diminuir foca na mídia; aumentar
-          foca no texto. accentColor branco deixa o slider nativo visível no overlay. */}
-      <div className="flex items-center gap-3 px-2 pt-0.5">
-        <span
-          className="shrink-0 font-bold text-white leading-none"
-          style={{ fontSize: 13, textShadow: "0 1px 4px rgba(0,0,0,.5)" }}
-        >
-          A
-        </span>
-        <input
-          type="range"
-          min={MIN_CAPTION_FONT}
-          max={MAX_CAPTION_FONT}
-          step={1}
-          value={editingStyle.fontSize}
-          onChange={(e) => setEditingStyle((s) => ({ ...s, fontSize: Number(e.target.value) }))}
-          className="flex-1 h-6 cursor-pointer bg-transparent"
-          style={{ accentColor: "#ffffff" }}
-          aria-label="Tamanho do texto"
-        />
-        <span
-          className="shrink-0 font-bold text-white leading-none"
-          style={{ fontSize: 26, textShadow: "0 1px 4px rgba(0,0,0,.5)" }}
-        >
-          A
-        </span>
-      </div>
     </>
   );
 
@@ -1302,6 +1387,16 @@ export function FlowCreationDialog({
         aria-modal="true"
         aria-label="Criar novo flow"
       >
+        {/* Indicador enquanto a mídia da galeria é preparada (some ao abrir o preview).
+            Cobre tudo para o usuário saber que o vídeo está carregando, e não parecer
+            que a tela travou na galeria. */}
+        {isPreparingMedia && (
+          <div className="absolute inset-0 z-[120] flex flex-col items-center justify-center gap-4 bg-black/85 backdrop-blur-sm">
+            <Loader2 className="h-10 w-10 text-white animate-spin" />
+            <p className="text-white/90 text-sm font-medium">Preparando mídia…</p>
+          </div>
+        )}
+
         {/* Camera step */}
         {step === "camera" && (
           <>
@@ -1684,8 +1779,21 @@ export function FlowCreationDialog({
                     className="h-full w-full object-cover"
                     autoPlay
                     loop
-                    muted
                     playsInline
+                    // 1º frame decodificado → encerra o indicador "Preparando mídia…" e
+                    // toca COM áudio (mesma dinâmica dos viewers): tenta com som e, se o
+                    // iOS bloquear o autoplay-com-som, cai para mudo. Assim o preview já
+                    // sai com áudio, batendo com o flow postado.
+                    onLoadedData={(e) => {
+                      finishPreparing();
+                      const v = e.currentTarget;
+                      v.muted = false;
+                      v.play().catch(() => {
+                        v.muted = true;
+                        v.play().catch(() => {});
+                      });
+                    }}
+                    onError={finishPreparing}
                   />
                 ) : (
                   <img
@@ -1798,6 +1906,14 @@ export function FlowCreationDialog({
               <div className="relative z-10 flex justify-center pt-2 pointer-events-none">
                 <span className="text-white/80 text-xs bg-black/35 backdrop-blur rounded-full px-3 py-1">
                   Toque na foto para escrever • belisque para ajustar
+                </span>
+              </div>
+            )}
+            {/* Dica de gesto no texto (aparece quando há frase e não se está editando) */}
+            {!isEditingText && texts.length > 0 && (
+              <div className="relative z-10 flex justify-center pt-2 pointer-events-none">
+                <span className="text-white/80 text-xs bg-black/35 backdrop-blur rounded-full px-3 py-1">
+                  Pinça no texto para redimensionar • arraste para mover
                 </span>
               </div>
             )}

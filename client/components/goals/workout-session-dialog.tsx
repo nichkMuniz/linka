@@ -2748,7 +2748,15 @@ export function WorkoutSessionDialog({
               </div>
 
               {/* Exercise list — mesmo padrão visual do drawer "selecionar itens" */}
-              <div style={{ flex: 1, overflowY: "auto", padding: "12px 16px 32px", display: "flex", flexDirection: "column", gap: 8 }}>
+              {/* O padding-bottom cresce com o teclado do iOS (var publicada pelo
+                  keyboard.ts; 0px no web/fechado) para a lista rolar acima dele —
+                  senão os últimos resultados ficam atrás do teclado. */}
+              <div style={{
+                flex: 1, overflowY: "auto",
+                paddingTop: 12, paddingLeft: 16, paddingRight: 16,
+                paddingBottom: "calc(32px + var(--keyboard-height, 0px))",
+                display: "flex", flexDirection: "column", gap: 8,
+              }}>
                 {catalogLoading ? (
                   <div style={{ textAlign: "center", padding: "48px 16px", color: MUTED_FG }}>
                     {t("goals_picker_loading")}

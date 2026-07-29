@@ -9,6 +9,7 @@ Documentação técnica de todas as tabelas do banco de dados público (`public`
 | Tabela | Descrição resumida |
 |---|---|
 | [access_sessions](#access_sessions) | Sessões de acesso dos usuários |
+| [app_admins](#app_admins) | Quem é admin (fonte de verdade do servidor) |
 | [screen_time_logs](#screen_time_logs) | Tempo por tela por usuário |
 | [check_ins](#check_ins) | Check-ins diários de treino |
 | [comments](#comments) | Comentários em posts |
@@ -221,6 +222,22 @@ create policy "Usuário lê apenas seus próprios logs"
 create index screen_time_logs_user_date_idx
   on public.screen_time_logs (user_id, log_date desc);
 ```
+
+### Função `get_admin_today_activity() → jsonb`
+
+`SECURITY DEFINER`, `STABLE`, `search_path = public`, `GRANT EXECUTE` para `authenticated`, **aborta com `NOT_ADMIN` (`42501`) se `is_app_admin(auth.uid())` for falso** — telemetria de terceiros não é (e não deve ser) legível com a anon key. Migration: `docs/migrations/20260729-admin-today-activity.sql`. Consumida por `getAdminTodayActivityDb()` na seção "Atividade de hoje" do Painel Admin (`docs/18-admin.md`).
+
+Devolve um array de objetos, um por usuário que apareceu hoje — **união** de `access_sessions` e `screen_time_logs` do dia (quem navegou mas ainda não mandou o app para segundo plano só tem a segunda):
+
+| Campo | Origem |
+|---|---|
+| `user_id`, `nickname`, `handle`, `photo`, `novo_hoje` | `profiles` (`novo_hoje` = cadastrou-se hoje) |
+| `sessoes`, `total_seconds`, `primeiro_acesso`, `ultimo_acesso` | `access_sessions` do dia |
+| `telas[]` → `{ screen, seconds, registros }` | `screen_time_logs` do dia, agrupado por tela, maior tempo primeiro |
+| `screen_seconds` | soma de `telas[].seconds` — pode divergir de `total_seconds` (fontes distintas) |
+| `acoes[]` → `{ acao, total, ultima }` e `acoes_total` | contagem do dia em `posts`, `shots`, `flow`, `comments`, `shots_comments`, `likes`, `shots_likes`, `check_ins`, `duel_check_ins`, `messages`, `user_food_logs`, `user_workouts_hist` |
+
+> **Ação tem contagem e horário, não duração.** Não existe tabela de eventos com início/fim no app — duração só faz sentido para tela. A migração também cria os índices `screen_time_logs (log_date)` e `access_sessions (session_date)`, já que a função filtra sempre pelo dia.
 
 ---
 
@@ -1093,6 +1110,35 @@ Assinatura **LinKa Premium** — uma linha por usuário. Criada na migração `d
 ### Função `is_premium(uid uuid) → boolean`
 
 `SECURITY DEFINER`, `STABLE`, `search_path = public`. Retorna `true` se existe linha com `status = 'active'` e (`current_period_end` nulo ou futuro). Consumida pelo app via RPC (`getPremiumStatusDb` em `ritmofit-db.ts`, cache `premium:{uid}` TTL 60s) e reutilizável em policies `WITH CHECK` na Fase 2. `GRANT EXECUTE` para `authenticated`.
+
+### Funções de admin sobre `subscriptions`
+
+Migration: `docs/migrations/20260729-admin-premium.sql`. Permitem que o Painel Admin conceda premium sem `INSERT` manual no SQL Editor, **sem** abrir policy de escrita na tabela.
+
+| Função | Assinatura | O que faz |
+|---|---|---|
+| `admin_set_premium` | `(p_user_id uuid, p_active boolean, p_days integer default null) → void` | `p_active = true`: upsert com `status='active'`, `product_id/store = 'manual'` e `current_period_end = now() + p_days` (ou `null` = permanente). `false`: `status='inactive'`, mantendo a linha como histórico |
+| `admin_list_premium` | `() → table(user_id, nickname, handle, photo, status, store, current_period_end, updated_at, is_active)` | Todas as linhas + perfil, ativos primeiro. `is_active` repete a regra de `is_premium()` (status ativo **e** dentro do período) |
+
+Ambas são `SECURITY DEFINER` com `search_path = public`, `GRANT EXECUTE` para `authenticated`, e abortam com `NOT_ADMIN` (errcode `42501`) se `is_app_admin(auth.uid())` for falso.
+
+---
+
+## app_admins
+
+Fonte de verdade **do servidor** sobre quem é admin. Criada em `docs/migrations/20260729-admin-premium.sql`.
+
+| Coluna | Tipo | Obrigatório | Padrão | Descrição |
+|---|---|---|---|---|
+| `user_id` | uuid | PK | — | `auth.users.id` do admin. **Sem FK** de propósito: um id inexistente faria a migração inteira falhar |
+| `note` | text | — | — | Quem é (uso interno) |
+| `created_at` | timestamptz | ✓ | `now()` | Data de criação |
+
+> **RLS ligada e NENHUMA policy:** ninguém lê nem escreve com a anon key. Só o service role e as funções `SECURITY DEFINER` (que rodam com o privilégio do dono) enxergam a tabela.
+
+### Função `is_app_admin(uid uuid) → boolean`
+
+`SECURITY DEFINER`, `STABLE`. Usada pelas RPCs de admin. **A lista `ADMIN_USER_IDS` em `client/App.tsx` não autoriza nada** — é só guarda de rota; ao promover alguém a admin, inserir nos **dois** lugares.
 
 ---
 

@@ -34,6 +34,12 @@ import {
   CalendarRange,
   Target,
   Star,
+  Crown,
+  Plus,
+  ChevronDown,
+  Utensils,
+  Send,
+  ThumbsUp,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -59,6 +65,13 @@ import {
   adminBanUserDb,
   setUserVerifiedDb,
   getVerifiedAccountsDb,
+  getAdminPremiumUsersDb,
+  adminSetPremiumDb,
+  adminSearchUsersDb,
+  getAdminTodayActivityDb,
+  type AdminTodayUser,
+  type AdminPremiumUser,
+  type AdminUserSearchResult,
   type AdminComplaint,
   type AdminStats,
   type AdminAnalytics,
@@ -118,6 +131,161 @@ function screenLabel(screen: string) {
     "/novo-post": "Novo Post",
   };
   return map[screen] ?? screen;
+}
+
+function formatTime(iso: string) {
+  return new Date(iso).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+}
+
+// Rótulo/ícone de cada ação devolvida por get_admin_today_activity.
+const ACTION_META: Record<string, { label: string; icon: React.ElementType; accent: string }> = {
+  post: { label: "Posts", icon: FileText, accent: "text-blue-400" },
+  shot: { label: "Shots", icon: Video, accent: "text-purple-400" },
+  flow: { label: "Flows", icon: Zap, accent: "text-amber-400" },
+  comentario: { label: "Comentários", icon: MessageCircle, accent: "text-sky-400" },
+  comentario_shot: { label: "Comentários em shots", icon: MessageCircle, accent: "text-purple-400" },
+  curtida: { label: "Curtidas", icon: Heart, accent: "text-rose-400" },
+  curtida_shot: { label: "Curtidas em shots", icon: ThumbsUp, accent: "text-rose-400" },
+  check_in: { label: "Check-ins", icon: Dumbbell, accent: "text-emerald-400" },
+  check_in_duelo: { label: "Check-ins de duelo", icon: Target, accent: "text-emerald-400" },
+  mensagem: { label: "Mensagens enviadas", icon: Send, accent: "text-sky-400" },
+  refeicao: { label: "Registros no diário", icon: Utensils, accent: "text-lime-400" },
+  treino: { label: "Treinos concluídos", icon: Dumbbell, accent: "text-emerald-400" },
+};
+
+function actionMeta(acao: string) {
+  return ACTION_META[acao] ?? { label: acao, icon: Activity, accent: "text-muted-foreground" };
+}
+
+// ─── atividade de hoje: um card expansível por usuário ────────────────────────
+
+function TodayActivityCard({ user }: { user: AdminTodayUser }) {
+  const navigate = useNavigate();
+  const [open, setOpen] = React.useState(false);
+  const maxScreen = Math.max(...user.telas.map((t) => t.seconds), 1);
+  // O tempo de sessão é a fonte "oficial" (mesma do DAU); se ela ainda não
+  // chegou (app aberto agora), o tempo por tela é o melhor que temos.
+  const displaySeconds = user.total_seconds || user.screen_seconds;
+
+  return (
+    <div className="rounded-xl border border-border bg-card overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-muted/30 transition-colors"
+      >
+        <div className="w-9 h-9 rounded-full bg-muted overflow-hidden shrink-0">
+          {user.photo ? (
+            <img src={user.photo} alt={user.nickname} className="w-full h-full object-cover" />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center">
+              <UserCircle className="w-5 h-5 text-muted-foreground" />
+            </div>
+          )}
+        </div>
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5">
+            <p className="text-sm font-medium text-foreground truncate">{user.nickname}</p>
+            {user.novo_hoje && (
+              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 shrink-0">
+                novo
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground truncate">
+            {user.handle ? `@${user.handle} · ` : ""}
+            {user.telas.length} {user.telas.length === 1 ? "tela" : "telas"} · {user.acoes_total}{" "}
+            {user.acoes_total === 1 ? "ação" : "ações"}
+            {user.ultimo_acesso ? ` · último acesso ${formatTime(user.ultimo_acesso)}` : ""}
+          </p>
+        </div>
+
+        <span className="text-xs font-semibold text-primary shrink-0">
+          {formatSeconds(displaySeconds)}
+        </span>
+        <ChevronDown
+          className={`w-4 h-4 text-muted-foreground shrink-0 transition-transform ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+
+      {open && (
+        <div className="px-4 pb-4 pt-1 space-y-4 border-t border-border/50">
+          {/* Telas */}
+          <div>
+            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+              Telas
+            </p>
+            {user.telas.length === 0 ? (
+              <p className="text-xs text-muted-foreground italic">
+                Sem tempo por tela registrado (o app envia ao ir para segundo plano).
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {user.telas.map((t) => (
+                  <div key={t.screen}>
+                    <div className="flex items-center justify-between mb-0.5">
+                      <span className="text-xs font-medium text-foreground">{screenLabel(t.screen)}</span>
+                      <span className="text-xs text-muted-foreground">{formatSeconds(t.seconds)}</span>
+                    </div>
+                    <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-primary/70 rounded-full transition-all"
+                        style={{ width: `${(t.seconds / maxScreen) * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Ações */}
+          <div>
+            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+              Ações
+            </p>
+            {user.acoes.length === 0 ? (
+              <p className="text-xs text-muted-foreground italic">Só navegou — nenhuma ação hoje.</p>
+            ) : (
+              <div className="grid grid-cols-1 gap-1.5">
+                {user.acoes.map((a) => {
+                  const meta = actionMeta(a.acao);
+                  const Icon = meta.icon;
+                  return (
+                    <div key={a.acao} className="flex items-center gap-2 text-xs">
+                      <Icon className={`w-3.5 h-3.5 shrink-0 ${meta.accent}`} />
+                      <span className="text-foreground flex-1 truncate">{meta.label}</span>
+                      {a.ultima && (
+                        <span className="text-muted-foreground">últ. {formatTime(a.ultima)}</span>
+                      )}
+                      <span className="font-semibold text-foreground w-6 text-right">{a.total}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Sessões */}
+          <div className="flex items-center gap-3 text-[11px] text-muted-foreground pt-1 border-t border-border/50">
+            <span>
+              {user.sessoes} {user.sessoes === 1 ? "sessão" : "sessões"}
+            </span>
+            {user.primeiro_acesso && <span>1º acesso {formatTime(user.primeiro_acesso)}</span>}
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 px-2 text-[11px] ml-auto"
+              onClick={() => navigate(`/usuario/${user.user_id}`)}
+            >
+              Ver perfil
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function contentRoute(complaint: AdminComplaint): string | null {
@@ -467,6 +635,7 @@ export default function Admin() {
 
   // ── Verified accounts ──────────────────────────────────────────────────────
   const [activeUsers, setActiveUsers] = React.useState<AdminActiveUser[]>([]);
+  const [todayActivity, setTodayActivity] = React.useState<AdminTodayUser[]>([]);
   const [verifiedAccounts, setVerifiedAccounts] = React.useState<{ userId: string; nickname: string; handle: string; photo: string | null }[]>([]);
   const [verifyHandle, setVerifyHandle] = React.useState("");
   const [verifyingHandle, setVerifyingHandle] = React.useState(false);
@@ -509,22 +678,87 @@ export default function Admin() {
     }
   }
 
+  // ── LinKa Premium (ativação manual) ────────────────────────────────────────
+  //
+  // Substitui o INSERT na mão no SQL Editor: escreve em `subscriptions` pela RPC
+  // admin_set_premium (SECURITY DEFINER, checa app_admins no servidor).
+  const PREMIUM_DURATIONS: { label: string; days: number | null }[] = [
+    { label: "Permanente", days: null },
+    { label: "7 dias", days: 7 },
+    { label: "30 dias", days: 30 },
+  ];
+  const [premiumUsers, setPremiumUsers] = React.useState<AdminPremiumUser[]>([]);
+  const [premiumQuery, setPremiumQuery] = React.useState("");
+  const [premiumResults, setPremiumResults] = React.useState<AdminUserSearchResult[]>([]);
+  const [premiumSearching, setPremiumSearching] = React.useState(false);
+  const [premiumDays, setPremiumDays] = React.useState<number | null>(null);
+  const [premiumActingId, setPremiumActingId] = React.useState<string | null>(null);
+
+  // Busca com debounce — cada tecla dispararia um round-trip por letra.
+  React.useEffect(() => {
+    const raw = premiumQuery.trim().replace(/^@/, "");
+    if (raw.length < 2) {
+      setPremiumResults([]);
+      setPremiumSearching(false);
+      return;
+    }
+    setPremiumSearching(true);
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      const res = await adminSearchUsersDb(raw);
+      if (cancelled) return;
+      setPremiumResults(res);
+      setPremiumSearching(false);
+    }, 350);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [premiumQuery]);
+
+  async function handleSetPremium(user: { userId: string; nickname: string }, active: boolean) {
+    if (premiumActingId) return;
+    setPremiumActingId(user.userId);
+    try {
+      await adminSetPremiumDb(user.userId, active, active ? premiumDays : null);
+      const label = PREMIUM_DURATIONS.find((d) => d.days === premiumDays)?.label ?? "";
+      toast({
+        title: active
+          ? `Premium ativado para ${user.nickname || "usuário"}`
+          : `Premium removido de ${user.nickname || "usuário"}`,
+        description: active
+          ? `${label} · o app do usuário reflete em até 1 minuto (cache do status).`
+          : "O acesso cai em até 1 minuto (cache do status).",
+      });
+      setPremiumUsers(await getAdminPremiumUsersDb());
+      if (active) setPremiumQuery("");
+    } catch (err: any) {
+      toast({ title: "Erro ao alterar premium", description: err.message, variant: "destructive" });
+    } finally {
+      setPremiumActingId(null);
+    }
+  }
+
   const load = React.useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     else setRefreshing(true);
     try {
-      const [c, s, a, v, au] = await Promise.all([
+      const [c, s, a, v, au, pu, ta] = await Promise.all([
         getAdminComplaintsDb(),
         getAdminStatsDb(),
         getAdminAnalyticsDb(),
         getVerifiedAccountsDb(),
         getAdminActiveUsersDb(),
+        getAdminPremiumUsersDb(),
+        getAdminTodayActivityDb(),
       ]);
       setComplaints(c);
       setStats(s);
       setAnalytics(a);
       setVerifiedAccounts(v);
       setActiveUsers(au);
+      setPremiumUsers(pu);
+      setTodayActivity(ta);
     } catch (err: any) {
       toast({ title: "Erro ao carregar dados", description: err.message, variant: "destructive" });
     } finally {
@@ -812,6 +1046,34 @@ export default function Admin() {
         <ActiveUsersRanking users={activeUsers} />
       </section>
 
+      {/* ── Atividade de hoje por usuário ──────────────────────────────────── */}
+      <section>
+        <SectionHeader
+          icon={Activity}
+          label="Atividade de hoje (por usuário)"
+          badge={todayActivity.length}
+        />
+        {todayActivity.length === 0 ? (
+          <div className="rounded-xl border border-border bg-card p-6 text-center">
+            <Activity className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+            <p className="text-sm text-muted-foreground">Ninguém entrou no app hoje ainda</p>
+          </div>
+        ) : (
+          <>
+            <div className="space-y-2">
+              {todayActivity.map((u) => (
+                <TodayActivityCard key={u.user_id} user={u} />
+              ))}
+            </div>
+            <p className="text-[11px] text-muted-foreground leading-relaxed mt-2">
+              Toque em alguém para ver as telas (com o tempo em cada uma) e as ações do dia. A
+              telemetria é enviada quando o app vai para segundo plano — quem está com o app aberto
+              agora aparece com o tempo da última vez que saiu.
+            </p>
+          </>
+        )}
+      </section>
+
       {/* ── Telas mais acessadas ───────────────────────────────────────────── */}
       {analytics && (
         <section>
@@ -873,6 +1135,195 @@ export default function Admin() {
             ))}
           </div>
         )}
+      </section>
+
+      {/* ── LinKa Premium ──────────────────────────────────────────────────── */}
+      <section className="space-y-4">
+        <div className="flex items-center gap-2">
+          <Crown className="w-4 h-4 text-amber-500" />
+          <h2 className="text-base font-semibold">LinKa Premium</h2>
+          {premiumUsers.filter((u) => u.isActive).length > 0 && (
+            <Badge variant="secondary" className="text-xs px-1.5 py-0">
+              {premiumUsers.filter((u) => u.isActive).length} ativos
+            </Badge>
+          )}
+        </div>
+
+        {/* Duração da concessão */}
+        <div className="flex items-center gap-1.5">
+          {PREMIUM_DURATIONS.map((d) => (
+            <button
+              key={d.label}
+              type="button"
+              onClick={() => setPremiumDays(d.days)}
+              className={`flex-1 h-8 rounded-lg border text-xs font-medium transition-colors ${
+                premiumDays === d.days
+                  ? "border-amber-500/60 bg-amber-500/15 text-amber-500"
+                  : "border-border bg-card text-muted-foreground hover:bg-muted/40"
+              }`}
+            >
+              {d.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Busca de usuário */}
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+          <Input
+            placeholder="@handle ou nome do usuário"
+            value={premiumQuery}
+            onChange={(e) => setPremiumQuery(e.target.value)}
+            className="pl-9 pr-9 h-9 text-sm"
+          />
+          {premiumQuery && (
+            <button
+              type="button"
+              onClick={() => setPremiumQuery("")}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+
+        {/* Resultados da busca */}
+        {premiumQuery.trim().replace(/^@/, "").length >= 2 && (
+          <div className="space-y-2">
+            {premiumSearching ? (
+              <p className="text-xs text-muted-foreground text-center py-2">Buscando…</p>
+            ) : premiumResults.length === 0 ? (
+              <p className="text-xs text-muted-foreground text-center py-2">Nenhum usuário encontrado.</p>
+            ) : (
+              premiumResults.map((u) => {
+                const alreadyActive = premiumUsers.some((p) => p.userId === u.userId && p.isActive);
+                return (
+                  <div
+                    key={u.userId}
+                    className="flex items-center justify-between gap-3 rounded-lg border border-border/40 bg-muted/20 px-3 py-2"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-8 h-8 rounded-full bg-muted overflow-hidden shrink-0">
+                        {u.photo ? (
+                          <img src={u.photo} alt={u.nickname} className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center">
+                            <UserCircle className="w-5 h-5 text-muted-foreground" />
+                          </div>
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">{u.nickname}</p>
+                        {u.handle && <p className="text-xs text-muted-foreground truncate">@{u.handle}</p>}
+                      </div>
+                    </div>
+                    {alreadyActive ? (
+                      <span className="text-xs text-amber-500 font-medium shrink-0 flex items-center gap-1">
+                        <Crown className="w-3.5 h-3.5" />
+                        Já é premium
+                      </span>
+                    ) : (
+                      <Button
+                        size="sm"
+                        onClick={() => handleSetPremium(u, true)}
+                        disabled={premiumActingId === u.userId}
+                        className="h-8 px-3 text-xs bg-amber-500 hover:bg-amber-400 text-black font-semibold shrink-0 gap-1"
+                      >
+                        {premiumActingId === u.userId ? (
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <>
+                            <Plus className="w-3.5 h-3.5" />
+                            Ativar
+                          </>
+                        )}
+                      </Button>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        )}
+
+        {/* Assinantes */}
+        {premiumUsers.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-4">Nenhum assinante ainda.</p>
+        ) : (
+          <div className="space-y-2">
+            {premiumUsers.map((u) => (
+              <div
+                key={u.userId}
+                className={`flex items-center justify-between gap-3 rounded-lg border px-3 py-2 ${
+                  u.isActive ? "border-amber-500/30 bg-amber-500/5" : "border-border/40 bg-muted/20"
+                }`}
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-8 h-8 rounded-full bg-muted overflow-hidden shrink-0">
+                    {u.photo ? (
+                      <img src={u.photo} alt={u.nickname} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center">
+                        <UserCircle className="w-5 h-5 text-muted-foreground" />
+                      </div>
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1">
+                      <span className="text-sm font-medium truncate">{u.nickname || "—"}</span>
+                      {u.isActive && <Crown className="w-3.5 h-3.5 text-amber-500 shrink-0" />}
+                    </div>
+                    <p className="text-xs text-muted-foreground truncate">
+                      {u.handle ? `@${u.handle} · ` : ""}
+                      {u.isActive
+                        ? u.currentPeriodEnd
+                          ? `até ${formatDate(u.currentPeriodEnd)}`
+                          : "sem expiração"
+                        : u.status === "active"
+                          ? "expirado"
+                          : "inativo"}
+                      {u.store === "app_store" ? " · App Store" : ""}
+                    </p>
+                  </div>
+                </div>
+                {u.isActive ? (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => handleSetPremium(u, false)}
+                    disabled={premiumActingId === u.userId}
+                    className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive shrink-0"
+                  >
+                    {premiumActingId === u.userId ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <X className="w-3.5 h-3.5" />
+                    )}
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleSetPremium(u, true)}
+                    disabled={premiumActingId === u.userId}
+                    className="h-7 px-2.5 text-xs shrink-0 border-amber-500/40 text-amber-500 hover:bg-amber-500/10"
+                  >
+                    {premiumActingId === u.userId ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      "Reativar"
+                    )}
+                  </Button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        <p className="text-[11px] text-muted-foreground leading-relaxed">
+          A concessão vale para testes (sem cobrança). O status é lido com cache de 60s — o app do
+          usuário libera os recursos em até 1 minuto.
+        </p>
       </section>
 
       {/* Contas Verificadas */}

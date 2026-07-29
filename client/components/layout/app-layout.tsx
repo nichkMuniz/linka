@@ -24,6 +24,7 @@ import { PageTransition } from "@/components/layout/page-transition";
 
 import { Button } from "@/components/ui/button";
 import { hapticLight, hapticSuccess } from "@/lib/haptics";
+import { getActiveConversationUserId } from "@/lib/active-conversation";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -362,6 +363,11 @@ export function AppLayout() {
           const row = payload.new as NotificationRow | undefined;
           if (!row) return;
           const type = Number(row.type ?? 0);
+          // Mensagem nova (type 10) do contato cuja conversa está ABERTA na tela:
+          // o usuário já a vê chegar em tempo real, então não sobe banner — só a
+          // vibração acima. Em qualquer outra tela o banner aparece normalmente.
+          // (row.follower_id = remetente; getActiveConversationUserId = contato aberto.)
+          if (type === 10 && row.follower_id && getActiveConversationUserId() === row.follower_id) return;
           // Texto explícito ("Fulano curtiu sua promoção"), não "você tem uma nova
           // notificação": o banner tinha mapa só dos tipos 1–7 e corpo sem o nome
           // de quem originou, então o usuário precisava abrir o app para descobrir

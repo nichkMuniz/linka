@@ -67,8 +67,27 @@ Além dos gates contextuais acima, existe um ponto de entrada permanente para o 
 
 ## Como ativar premium manualmente (Fase 1)
 
+### Pelo app — Painel Admin → seção "LinKa Premium" (recomendado)
+
+Migração: `docs/migrations/20260729-admin-premium.sql`. A tela `/admin` ganhou uma seção que faz o que o SQL abaixo fazia:
+
+1. Escolher a **duração**: `Permanente` (padrão, `current_period_end = null`), `7 dias` ou `30 dias`.
+2. Buscar por **@handle ou nome** (busca com debounce de 350 ms, mín. 2 caracteres) e tocar **Ativar**.
+3. A lista abaixo mostra **todas** as linhas de `subscriptions` (ativos primeiro, com coroa e data de expiração). O `X` revoga (status → `inactive`, a linha fica como histórico) e **Reativar** concede de novo com a duração selecionada.
+
+| Peça | Onde |
+|---|---|
+| Seção da UI | `client/pages/Admin.tsx` (entre "Fila de Moderação" e "Contas Verificadas") |
+| `getAdminPremiumUsersDb()` / `adminSetPremiumDb()` / `adminSearchUsersDb()` | `client/lib/ritmofit-db.ts` |
+| RPCs `admin_list_premium()` / `admin_set_premium(p_user_id, p_active, p_days)` | migração `20260729-admin-premium.sql` |
+
+> **Decisão D5 — autorização no servidor, não na lista do App.tsx.** `subscriptions` continua **sem policy de escrita** (D1): as duas RPCs são `SECURITY DEFINER` e checam `is_app_admin(auth.uid())` contra a tabela **`app_admins`**. `ADMIN_USER_IDS` em `client/App.tsx` só esconde a rota — se a autorização dependesse dela, qualquer um com a anon key se daria premium. **Admin novo = inserir em `app_admins` E em `ADMIN_USER_IDS`.**
+
+O cache do status tem TTL de 60s — o app do usuário libera os recursos em até 1 minuto (a UI avisa isso).
+
+### Pelo SQL Editor (equivalente, para quem não é admin no app)
+
 ```sql
--- SQL Editor do Supabase
 insert into public.subscriptions (user_id, status, product_id, store)
 values ('<uid do auth.users>', 'active', 'manual', 'manual')
 on conflict (user_id) do update
@@ -78,8 +97,6 @@ on conflict (user_id) do update
 update public.subscriptions set status = 'inactive', updated_at = now()
 where user_id = '<uid>';
 ```
-
-O cache do status tem TTL de 60s — aguardar 1 min ou relogar para refletir.
 
 ## Roteiro Fase 2 (RevenueCat / StoreKit)
 

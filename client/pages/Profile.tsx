@@ -180,6 +180,26 @@ export default function Profile() {
   const [isLoadingPostData, setIsLoadingPostData] = React.useState(false);
   const [isLikesModalOpen, setIsLikesModalOpen] = React.useState(false);
   const [selectedShot, setSelectedShot] = React.useState<ShotWithUser | null>(null);
+
+  // Vídeos da grade de shots. Cada tile decodifica um frame (poster via #t=0.1),
+  // e o iOS tem um teto BAIXO de decoders de vídeo simultâneos. Se a grade sai
+  // segurando muitos decoders, o vídeo da tela de Shots (destino) não consegue
+  // um e fica congelado — era por isso que abrir um shot pelo perfil não tocava,
+  // enquanto pela Busca (grade quase toda de imagens) tocava. Ao tocar num shot,
+  // liberamos TODOS os vídeos da grade (pause + src vazio + load) ainda dentro
+  // do gesto, antes de navegar, devolvendo os decoders para a tela de destino.
+  const shotGridVideoRefs = React.useRef<Record<string, HTMLVideoElement>>({});
+  const openShot = React.useCallback((shotId: string) => {
+    Object.values(shotGridVideoRefs.current).forEach((v) => {
+      try {
+        v.pause();
+        v.removeAttribute("src");
+        v.load();
+      } catch { /* ignore */ }
+    });
+    shotGridVideoRefs.current = {};
+    navigate(`/shots`, { state: { shotId } });
+  }, [navigate]);
   const [isShotEditorOpen, setIsShotEditorOpen] = React.useState(false);
   const [stats, setStats] = React.useState<UserStats>({
     postsCount: 0,
@@ -1324,12 +1344,16 @@ export default function Profile() {
                   className="group relative aspect-square overflow-hidden rounded-[14px] bg-black transition-all"
                 >
                   <button
-                    onClick={() => navigate(`/shots`, { state: { shotId: shot.id } })}
+                    onClick={() => openShot(shot.id)}
                     className="w-full h-full cursor-pointer"
                   >
                     <video
                       // videoPosterSrc anexa #t=0.1 para o WebView pintar o frame
                       // como preview (senão fica preto no iOS até dar play).
+                      ref={(el) => {
+                        if (el) shotGridVideoRefs.current[shot.id] = el;
+                        else delete shotGridVideoRefs.current[shot.id];
+                      }}
                       src={videoPosterSrc(shot.video_url)}
                       playsInline
                       muted

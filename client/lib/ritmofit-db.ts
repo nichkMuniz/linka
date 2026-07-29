@@ -12643,6 +12643,80 @@ export async function getAdminActiveUsersDb(): Promise<AdminActiveUser[]> {
     .slice(0, 10);
 }
 
+// ─── Admin: atividade de hoje (telas + ações por usuário) ─────────────────────
+//
+// RPC `get_admin_today_activity` (migração 20260729-admin-today-activity.sql):
+// telemetria de terceiros não é legível com a anon key, então a leitura é
+// SECURITY DEFINER com check de admin no servidor.
+
+export type AdminTodayScreen = {
+  screen: string;
+  seconds: number;
+  /** Quantos lotes de screen_time_logs — proxy de "quantas vezes abriu a tela". */
+  registros: number;
+};
+
+export type AdminTodayAction = {
+  /** post | shot | flow | comentario | comentario_shot | curtida | curtida_shot |
+   *  check_in | check_in_duelo | mensagem | refeicao | treino */
+  acao: string;
+  total: number;
+  /** ISO da última ocorrência hoje. */
+  ultima: string | null;
+};
+
+export type AdminTodayUser = {
+  user_id: string;
+  nickname: string;
+  handle: string;
+  photo: string | null;
+  /** Sessões fechadas hoje (o app grava ao ir para background). */
+  sessoes: number;
+  total_seconds: number;
+  primeiro_acesso: string | null;
+  ultimo_acesso: string | null;
+  /** Soma do tempo por tela — pode divergir de total_seconds (fontes distintas). */
+  screen_seconds: number;
+  telas: AdminTodayScreen[];
+  acoes: AdminTodayAction[];
+  acoes_total: number;
+  novo_hoje: boolean;
+};
+
+export async function getAdminTodayActivityDb(): Promise<AdminTodayUser[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  const { data, error } = await supabase.rpc("get_admin_today_activity");
+  if (error) {
+    console.error("Error fetching today activity:", error);
+    return [];
+  }
+
+  return ((data ?? []) as any[]).map((u) => ({
+    user_id: String(u.user_id),
+    nickname: String(u.nickname ?? "—"),
+    handle: String(u.handle ?? ""),
+    photo: u.photo ? String(u.photo) : null,
+    sessoes: Number(u.sessoes ?? 0),
+    total_seconds: Number(u.total_seconds ?? 0),
+    primeiro_acesso: u.primeiro_acesso ? String(u.primeiro_acesso) : null,
+    ultimo_acesso: u.ultimo_acesso ? String(u.ultimo_acesso) : null,
+    screen_seconds: Number(u.screen_seconds ?? 0),
+    telas: ((u.telas ?? []) as any[]).map((t) => ({
+      screen: String(t.screen ?? ""),
+      seconds: Number(t.seconds ?? 0),
+      registros: Number(t.registros ?? 0),
+    })),
+    acoes: ((u.acoes ?? []) as any[]).map((a) => ({
+      acao: String(a.acao ?? ""),
+      total: Number(a.total ?? 0),
+      ultima: a.ultima ? String(a.ultima) : null,
+    })),
+    acoes_total: Number(u.acoes_total ?? 0),
+    novo_hoje: u.novo_hoje === true,
+  }));
+}
+
 export async function getAdminComplaintsDb(): Promise<AdminComplaint[]> {
   if (!supabase) return [];
   const { data, error } = await supabase
@@ -12767,6 +12841,120 @@ export async function setUserVerifiedDb(userId: string, verified: boolean): Prom
 
   invalidateProfileCache(userId);
   return true;
+}
+
+// ─── Admin: LinKa Premium (ativação manual) ───────────────────────────────────
+//
+// A tabela `subscriptions` não tem policy de escrita (é o que impede o
+// auto-upgrade via anon key), então o painel escreve pelas RPCs
+// SECURITY DEFINER da migração 20260729-admin-premium.sql, que checam
+// `app_admins` no servidor — a lista ADMIN_USER_IDS de App.tsx é só guarda de
+// rota e não autoriza nada.
+
+export type AdminPremiumUser = {
+  userId: string;
+  nickname: string;
+  handle: string;
+  photo: string | null;
+  /** 'active' | 'inactive' | 'expired' | 'cancelled' */
+  status: string;
+  store: string | null;
+  /** null = sem expiração (ativação permanente) */
+  currentPeriodEnd: string | null;
+  updatedAt: string;
+  /** status ativo E dentro do período — mesma regra de is_premium() */
+  isActive: boolean;
+};
+
+export type AdminUserSearchResult = {
+  userId: string;
+  nickname: string;
+  handle: string;
+  photo: string | null;
+};
+
+/** Todas as linhas de `subscriptions` com o perfil (só admin). */
+export async function getAdminPremiumUsersDb(): Promise<AdminPremiumUser[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  const { data, error } = await supabase.rpc("admin_list_premium");
+  if (error) {
+    console.error("Error listing premium users:", error);
+    return [];
+  }
+
+  return (data ?? []).map((r: any) => ({
+    userId: String(r.user_id),
+    nickname: String(r.nickname ?? ""),
+    handle: String(r.handle ?? ""),
+    photo: r.photo ? String(r.photo) : null,
+    status: String(r.status ?? "inactive"),
+    store: r.store ? String(r.store) : null,
+    currentPeriodEnd: r.current_period_end ? String(r.current_period_end) : null,
+    updatedAt: String(r.updated_at ?? ""),
+    isActive: r.is_active === true,
+  }));
+}
+
+/**
+ * Concede (ou revoga) o premium de um usuário. `days` nulo = sem expiração.
+ * Revogar mantém a linha e só zera o status (histórico de acesso).
+ */
+export async function adminSetPremiumDb(
+  userId: string,
+  active: boolean,
+  days: number | null = null,
+): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) throw new Error("Supabase não configurado");
+  assertUUID(userId, "ID do usuário");
+
+  const { error } = await supabase.rpc("admin_set_premium", {
+    p_user_id: userId,
+    p_active: active,
+    p_days: days,
+  });
+
+  if (error) {
+    if (error.message?.includes("NOT_ADMIN")) {
+      throw new Error("Sua conta não tem permissão de admin no servidor.");
+    }
+    throw new Error(error.message);
+  }
+
+  // O alvo costuma ser outro device, onde o cache `premium:{uid}` expira sozinho
+  // em 60s. Se o admin ativou para si mesmo, reflete na hora.
+  invalidateQueryCache(`premium:${userId}`);
+}
+
+/** Busca usuários por @handle ou nome, para o painel admin. */
+export async function adminSearchUsersDb(
+  term: string,
+  limit = 8,
+): Promise<AdminUserSearchResult[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+  const raw = term.trim().replace(/^@/, "");
+  if (raw.length < 2) return [];
+  // Vírgula/parêntese quebram a sintaxe do `or()` do PostgREST; % e _ são
+  // curingas do LIKE. Fora todos.
+  const pattern = `%${raw.replace(/[%_,()]/g, "")}%`;
+
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("user_id, nickname, handle, photo")
+    .or(`handle.ilike.${pattern},nickname.ilike.${pattern}`)
+    .limit(limit);
+
+  if (error) {
+    console.error("Error searching users (admin):", error);
+    return [];
+  }
+
+  return (data ?? []).map((p: any) => ({
+    userId: String(p.user_id),
+    nickname: String(p.nickname ?? ""),
+    handle: String(p.handle ?? ""),
+    photo: p.photo ? String(p.photo) : null,
+  }));
 }
 
 export async function getVerifiedAccountsDb(): Promise<{ userId: string; nickname: string; handle: string; photo: string | null }[]> {

@@ -215,6 +215,12 @@ export default function Shots() {
   // sim é um gesto válido. Sempre melhor que a tela parada.
   const playVideoSafely = React.useCallback(async (video: HTMLVideoElement) => {
     try {
+      // readyState 0 = HAVE_NOTHING: a pipeline nem inicializou (comum ao chegar
+      // do perfil, quando a grade de lá ainda segurava os decoders do iOS).
+      // Um load() explícito força o WebView a (re)inicializar o elemento e pegar
+      // um decoder recém-liberado. Só quando está travado nesse estado — em
+      // vídeos já bufferizados, load() reiniciaria o buffer à toa.
+      if (video.readyState === 0) video.load();
       await video.play();
     } catch (err: any) {
       const name = err?.name;

@@ -464,6 +464,8 @@ Dados carregados via `getRankingDb()`
 >
 > **Pré-requisito no banco:** a tabela precisa estar na publicação `supabase_realtime`, senão nenhum evento chega por melhor que esteja o cliente. Não havia migração versionada disso (só a de `duel_check_in_reactions`), então criamos `docs/migrations/20260720-messages-realtime.sql` — idempotente, só publica se ainda não estiver. A publicação **não** burla RLS: o Realtime avalia a policy de SELECT do assinante (`messages_select_participants`), então cada usuário só recebe eventos das mensagens em que é participante.
 
+> **Lista de conversas fresca ao entrar (2026-07-20):** ao (re)montar a tela de Comunidade e ao voltar do background (`visibilitychange`), um efeito relê as conversas do **zero** (`invalidateQueryCache("conversations")` + `getConversationsDb()`). O `loadData` inicial usa `getConversationsDb` cacheado (TTL 60s) para o primeiro paint instantâneo, mas quem chegava aqui vindo de outra tela após receber uma mensagem (via push) encontrava a lista velha — sem o remetente/preview/badge novos — até sair e voltar. O refresh roda **fora do gate de `loading`** (paralelo ao `loadData`): pinta rápido do cache e, logo em seguida, substitui pela versão fresca; como invalida antes de buscar, a resposta fresca sempre vence a do cache. Independe do realtime da tabela `messages` estar publicado.
+
 ---
 
 ## Observações Técnicas

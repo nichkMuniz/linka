@@ -45,6 +45,7 @@ import {
   Pencil,
   Check,
   ChevronUp,
+  Loader2,
 } from "lucide-react";
 import {
   renderIncentiveIcon,
@@ -152,6 +153,21 @@ export default function FlowViewer() {
 
   const isTypingRef = React.useRef(false);
   const isPausedRef = React.useRef(false);
+  // A mídia (imagem/vídeo) do story atual já está pronta para exibir? Enquanto não,
+  // a barra de progresso NÃO avança e um spinner cobre a área — a barra fica em sincronia
+  // com o que o usuário realmente vê, em vez de rolar sobre uma tela ainda carregando.
+  const [mediaReady, setMediaReady] = React.useState(false);
+  const mediaReadyRef = React.useRef(false);
+  const mediaReadySafetyRef = React.useRef<NodeJS.Timeout | null>(null);
+
+  const markMediaReady = React.useCallback(() => {
+    if (mediaReadySafetyRef.current) {
+      clearTimeout(mediaReadySafetyRef.current);
+      mediaReadySafetyRef.current = null;
+    }
+    mediaReadyRef.current = true;
+    setMediaReady(true);
+  }, []);
 
   React.useEffect(() => {
     getActiveStoriesDb()
@@ -397,6 +413,24 @@ export default function FlowViewer() {
     setIsPaused(false);
     isPausedRef.current = false;
 
+    // Toda troca de story recomeça "não pronto" até a mídia carregar. Flows de texto
+    // puro (background_color, sem media_url) não têm o que carregar → já ficam prontos.
+    if (mediaReadySafetyRef.current) clearTimeout(mediaReadySafetyRef.current);
+    if (story.media_url) {
+      mediaReadyRef.current = false;
+      setMediaReady(false);
+      // Rede de segurança: se a mídia não sinalizar carregamento (erro silencioso/rede
+      // ruim), libera mesmo assim para o flow não ficar preso indefinidamente.
+      mediaReadySafetyRef.current = setTimeout(() => {
+        mediaReadySafetyRef.current = null;
+        mediaReadyRef.current = true;
+        setMediaReady(true);
+      }, 12000);
+    } else {
+      mediaReadyRef.current = true;
+      setMediaReady(true);
+    }
+
     if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
 
     // Vídeos dirigem o próprio progresso e o avanço automático pelos eventos
@@ -409,7 +443,9 @@ export default function FlowViewer() {
     let elapsedTime = 0;
 
     const updateTimer = () => {
-      if (isTypingRef.current || isPausedRef.current) return;
+      // Só avança quando a mídia já apareceu — assim a barra fica em sincronia com o
+      // que está na tela, e não corre por cima de uma imagem ainda carregando.
+      if (isTypingRef.current || isPausedRef.current || !mediaReadyRef.current) return;
       elapsedTime += TIMER_INTERVAL;
       const progress = Math.max(0, 100 - (elapsedTime / STORY_DURATION) * 100);
       setTimerProgress(progress);
@@ -423,6 +459,10 @@ export default function FlowViewer() {
 
     return () => {
       if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+      if (mediaReadySafetyRef.current) {
+        clearTimeout(mediaReadySafetyRef.current);
+        mediaReadySafetyRef.current = null;
+      }
     };
   }, [story?.id, restartKey, isVideo]);
 
@@ -932,12 +972,18 @@ export default function FlowViewer() {
                       playsInline
                       preload="auto"
                       onLoadedData={() => {
+                        markMediaReady();
                         if (!isPausedRef.current && !isTypingRef.current) playWithSound();
                       }}
+                      onError={handleVideoEnded}
                       onEnded={handleVideoEnded}
                     />
                   ) : (
                     <img
+                      // key por story garante remontar a <img> ao trocar de flow, para o
+                      // onLoad disparar de novo (React dispara onLoad mesmo para imagem em
+                      // cache neste fluxo declarativo).
+                      key={story.id}
                       src={cdnImg(story.media_url, { width: 1920, quality: 90 }) ?? story.media_url}
                       alt="Flow"
                       draggable={false}
@@ -950,7 +996,17 @@ export default function FlowViewer() {
                             }
                           : undefined
                       }
+                      onLoad={markMediaReady}
+                      onError={markMediaReady}
                     />
+                  )}
+
+                  {/* Spinner enquanto a mídia (imagem/vídeo) ainda carrega — a barra de
+                      progresso fica parada até aqui sumir. */}
+                  {story.media_url && !mediaReady && (
+                    <div className="absolute inset-0 z-[4] flex items-center justify-center bg-black/30 pointer-events-none">
+                      <Loader2 className="h-8 w-8 text-white/90 animate-spin" />
+                    </div>
                   )}
 
                   {/* Frases posicionadas sobre a mídia (renderizadas ao vivo) */}

@@ -45,6 +45,7 @@ import {
 } from "lucide-react";
 import { useLanguage } from "@/lib/language-context";
 import { PhotoLibrary, type PhotoLibraryAsset, type PhotoLibraryAlbum } from "@capgo/capacitor-photo-library";
+import { getNativeMediaUrl, purgeStaleMediaCache } from "@/lib/native-media";
 import { Geolocation } from "@capacitor/geolocation";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { EmojiPickerDrawer } from "@/components/shared/emoji-picker-drawer";
@@ -255,6 +256,11 @@ export default function NewPost() {
   const loadGalleryPage = React.useCallback(async (page: number, reset = false) => {
     setGalleryLoading(true);
     try {
+      // Antes de qualquer getLibrary: joga fora miniaturas em cache de fotos
+      // que foram editadas depois de terem sido cacheadas (o cache do plugin é
+      // indexado só pelo id do asset, que não muda ao editar).
+      await purgeStaleMediaCache();
+
       if (!selectedAlbumId) {
         const result = await PhotoLibrary.getLibrary({
           offset: page * GALLERY_PAGE_SIZE,
@@ -398,10 +404,10 @@ export default function NewPost() {
 
     (async () => {
       try {
-        const { webPath } = await PhotoLibrary.getPhotoUrl({ id: firstAsset.id });
+        const { webPath, mimeType } = await getNativeMediaUrl(firstAsset.id);
         const response = await fetch(webPath);
         const blob = await response.blob();
-        const file = new File([blob], firstAsset.fileName, { type: firstAsset.mimeType || "image/jpeg" });
+        const file = new File([blob], firstAsset.fileName, { type: mimeType || blob.type || "image/jpeg" });
         const reader = new FileReader();
         reader.onloadend = () => {
           if (tapRequestRef.current !== reqId) return; // superseded by a later tap
@@ -439,10 +445,10 @@ export default function NewPost() {
     autoSelectedActiveRef.current = false;
     if (mediaType === "shot" && asset.type === "video") {
       try {
-        const { webPath } = await PhotoLibrary.getPhotoUrl({ id: asset.id });
+        const { webPath, mimeType } = await getNativeMediaUrl(asset.id);
         const response = await fetch(webPath);
         const blob = await response.blob();
-        const file = new File([blob], asset.fileName, { type: asset.mimeType || "video/mp4" });
+        const file = new File([blob], asset.fileName, { type: mimeType || blob.type || "video/mp4" });
         setSelectedVideoFile(file);
         setVideoPreview(URL.createObjectURL(file));
       } catch {
@@ -477,10 +483,10 @@ export default function NewPost() {
           }
 
           try {
-            const { webPath } = await PhotoLibrary.getPhotoUrl({ id: asset.id });
+            const { webPath, mimeType } = await getNativeMediaUrl(asset.id);
             const response = await fetch(webPath);
             const blob = await response.blob();
-            const file = new File([blob], asset.fileName, { type: asset.mimeType || "image/jpeg" });
+            const file = new File([blob], asset.fileName, { type: mimeType || blob.type || "image/jpeg" });
             const reader = new FileReader();
             reader.onloadend = () => {
               if (tapRequestRef.current !== reqId) return; // superseded by a later tap
@@ -531,10 +537,10 @@ export default function NewPost() {
           // then append the full-res image once it finishes loading.
           setSelectedAssetIds((prev) => [...prev, asset.id]);
           try {
-            const { webPath } = await PhotoLibrary.getPhotoUrl({ id: asset.id });
+            const { webPath, mimeType } = await getNativeMediaUrl(asset.id);
             const response = await fetch(webPath);
             const blob = await response.blob();
-            const file = new File([blob], asset.fileName, { type: asset.mimeType || "image/jpeg" });
+            const file = new File([blob], asset.fileName, { type: mimeType || blob.type || "image/jpeg" });
             addImageFile(file);
           } catch {
             setSelectedAssetIds((prev) => prev.filter((id) => id !== asset.id));
@@ -848,13 +854,19 @@ export default function NewPost() {
     setIsSubmitting(true);
     try {
       const timestamp = Date.now();
-      const extension = (selectedVideoFile.name.split(".").pop() || "mp4").toLowerCase();
-      const filePath = `${user.id}/shots/${timestamp}.${extension}`;
+      const nameExtension = (selectedVideoFile.name.split(".").pop() || "mp4").toLowerCase();
       const contentTypeMap: Record<string, string> = {
         mov: "video/quicktime", mp4: "video/mp4", m4v: "video/x-m4v",
         webm: "video/webm", avi: "video/x-msvideo", mkv: "video/x-matroska", "3gp": "video/3gpp",
       };
-      const contentType = selectedVideoFile.type || contentTypeMap[extension] || "video/mp4";
+      const contentType = selectedVideoFile.type || contentTypeMap[nameExtension] || "video/mp4";
+      // Vídeo aparado no app Fotos é reexportado (pode virar mp4 mesmo vindo de
+      // um .MOV) — a extensão salva segue o tipo real, não o nome do original.
+      const extensionByType: Record<string, string> = {
+        "video/quicktime": "mov", "video/mp4": "mp4", "video/x-m4v": "m4v",
+      };
+      const extension = extensionByType[contentType] || nameExtension;
+      const filePath = `${user.id}/shots/${timestamp}.${extension}`;
       const { error: uploadError } = await withNetworkRetry(() =>
         supabase!.storage
           .from("posts")

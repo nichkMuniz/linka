@@ -34,7 +34,7 @@ import {
   type StoryComment,
   type FlowViewer,
 } from "@/lib/ritmofit-db";
-import { X, ChevronLeft, ChevronRight, Send, Trash2, Eye, Pause, Play, Pencil, Check } from "lucide-react";
+import { X, ChevronLeft, ChevronRight, Send, Trash2, Eye, Pause, Play, Pencil, Check, Loader2 } from "lucide-react";
 import { renderIncentiveIcon } from "@/lib/incentive-config";
 import { CommentReactions } from "@/components/shared/comment-reactions";
 import { useNavigate } from "react-router-dom";
@@ -222,6 +222,20 @@ export function FlowViewerModal({
   const isTypingRef = React.useRef(false);
   const isPausedRef = React.useRef(false);
   const onNextStoryRef = React.useRef(onNextStory);
+  // A mídia do story atual já carregou? Enquanto não, a barra de progresso não avança
+  // e um spinner cobre a área — mantém a barra em sincronia com o que está na tela.
+  const [mediaReady, setMediaReady] = React.useState(false);
+  const mediaReadyRef = React.useRef(false);
+  const mediaReadySafetyRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const markMediaReady = React.useCallback(() => {
+    if (mediaReadySafetyRef.current) {
+      clearTimeout(mediaReadySafetyRef.current);
+      mediaReadySafetyRef.current = null;
+    }
+    mediaReadyRef.current = true;
+    setMediaReady(true);
+  }, []);
 
   // Toca o vídeo do flow COM áudio. O iOS só autoriza autoplay com som quando há
   // um gesto do usuário recente (abrir o flow é um toque, então normalmente rola);
@@ -312,6 +326,21 @@ export function FlowViewerModal({
     setIsPaused(false);
     isPausedRef.current = false;
 
+    // Recomeça "não pronto" até a mídia carregar; texto puro (sem media_url) já fica pronto.
+    if (mediaReadySafetyRef.current) clearTimeout(mediaReadySafetyRef.current);
+    if (story.media_url) {
+      mediaReadyRef.current = false;
+      setMediaReady(false);
+      mediaReadySafetyRef.current = setTimeout(() => {
+        mediaReadySafetyRef.current = null;
+        mediaReadyRef.current = true;
+        setMediaReady(true);
+      }, 12000);
+    } else {
+      mediaReadyRef.current = true;
+      setMediaReady(true);
+    }
+
     if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
 
     // Vídeos dirigem o próprio progresso e o avanço automático pelos eventos
@@ -324,7 +353,8 @@ export function FlowViewerModal({
     let elapsedTime = 0;
 
     const updateTimer = () => {
-      if (isTypingRef.current || isPausedRef.current) return;
+      // Só avança quando a mídia já apareceu — barra em sincronia com a tela.
+      if (isTypingRef.current || isPausedRef.current || !mediaReadyRef.current) return;
 
       elapsedTime += TIMER_INTERVAL;
       const progress = Math.max(0, 100 - (elapsedTime / STORY_DURATION) * 100);
@@ -340,6 +370,10 @@ export function FlowViewerModal({
 
     return () => {
       if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+      if (mediaReadySafetyRef.current) {
+        clearTimeout(mediaReadySafetyRef.current);
+        mediaReadySafetyRef.current = null;
+      }
     };
   }, [open, story?.id, user, isVideo]);
 
@@ -728,9 +762,23 @@ export function FlowViewerModal({
                             )}
                           </div>
                         ) : isVideo ? (
-                          <video ref={videoRef} src={story.media_url} className="w-full h-full object-cover" autoPlay playsInline preload="auto" onLoadedData={() => { if (!isPausedRef.current && !isTypingRef.current) playWithSound(); }} onTimeUpdate={handleVideoTimeUpdate} onEnded={handleVideoEnded} />
+                          <video ref={videoRef} src={story.media_url} className="w-full h-full object-cover" autoPlay playsInline preload="auto" onLoadedData={() => { markMediaReady(); if (!isPausedRef.current && !isTypingRef.current) playWithSound(); }} onError={handleVideoEnded} onTimeUpdate={handleVideoTimeUpdate} onEnded={handleVideoEnded} />
                         ) : (
-                          <img src={cdnImg(story.media_url, { width: 1080, quality: 75 }) ?? story.media_url} alt="Flow" className="w-full h-full object-cover" />
+                          <img
+                            key={story.id}
+                            src={cdnImg(story.media_url, { width: 1080, quality: 75 }) ?? story.media_url}
+                            alt="Flow"
+                            className="w-full h-full object-cover"
+                            onLoad={markMediaReady}
+                            onError={markMediaReady}
+                          />
+                        )}
+
+                        {/* Spinner enquanto a mídia ainda carrega — barra parada até sumir. */}
+                        {story.media_url && !mediaReady && (
+                          <div className="absolute inset-0 z-[4] flex items-center justify-center bg-black/30 pointer-events-none">
+                            <Loader2 className="h-8 w-8 text-white/90 animate-spin" />
+                          </div>
                         )}
 
                         {/* Frases posicionadas sobre a mídia (renderizadas ao vivo) */}

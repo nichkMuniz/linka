@@ -747,9 +747,12 @@ export default function Login() {
           }
         }
 
-        // Build profile update payload
+        // Build profile update payload.
+        // ATENÇÃO: `profiles` NÃO tem coluna `email` (o email vive em auth.users).
+        // Incluir `email` aqui fazia o PostgREST rejeitar o UPDATE INTEIRO
+        // (PGRST204 "column not found") — então foto/handle/nickname não gravavam.
+        // Era a causa real de a foto não subir para profiles.photo.
         const profilePayload: Record<string, any> = {};
-        if (authUser.email) profilePayload.email = authUser.email;
         if (photoUrl) profilePayload.photo = photoUrl;
         if (displayName.trim()) profilePayload.nickname = displayName.trim();
         if (bio.trim()) profilePayload.bio = bio.trim();
