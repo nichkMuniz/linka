@@ -7,6 +7,7 @@ import cors from "cors";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 import { handleLinkPreview } from "./routes/link-preview";
+import { SHARE_ORIGINS } from "../shared/share-config";
 
 export function createServer() {
   const app = express();
@@ -18,8 +19,7 @@ export function createServer() {
     "capacitor://localhost",
     "ionic://localhost",
     "http://localhost",
-    "https://linka.app",
-    "https://www.linka.app",
+    ...SHARE_ORIGINS,
   ]);
 
   const isDev = process.env.NODE_ENV !== "production";

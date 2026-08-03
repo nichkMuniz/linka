@@ -1,5 +1,5 @@
 import * as React from "react";
-import { BarChart3, Bell, Check, ChevronDown, Flame, ListPlus, Pencil, Play, Target, Trash2 } from "lucide-react";
+import { BarChart3, Bell, CalendarDays, Check, ChevronDown, Flame, ListPlus, Pencil, Play, Target, Trash2 } from "lucide-react";
 import {
   Drawer,
   DrawerContent,
@@ -26,7 +26,7 @@ import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
 import { HabitTimeRow } from "@/components/goals/habit-time-row";
 import type { TranslationKey } from "@/lib/i18n";
 import { formatScheduledTime } from "@/hooks/use-routine-notifications";
-import { getSuggestedSetsForCard, isCompletedToday, type RoutineCard, type RoutineItem } from "@/components/goals/goals-helpers";
+import { getSuggestedSetsForCard, isCompletedToday, isSequentialCard, SEQUENTIAL_MARKER, type RoutineCard, type RoutineItem } from "@/components/goals/goals-helpers";
 import { getExerciseProgressionDb, type ExerciseProgressPoint, type UserGoal } from "@/lib/ritmofit-db";
 
 type EditorMode = null | "rename" | "time" | "goal";
@@ -183,6 +183,9 @@ export function RoutineDetailDrawer({
   // também tem janela início→fim (o input único não comporta o fim, e o fim
   // ficaria salvo porém invisível/inatingível aqui).
   const isHabitRoutine = card.type === 3;
+  // Treino sequencial: sem dias fixos. Ao editar o lembrete, preserva o 'seq'
+  // em vez de sobrescrever com dias/null (o que tiraria o modo sequencial).
+  const isSeq = isSequentialCard(card);
 
   const runAction = async (fn: () => Promise<void>) => {
     setIsBusy(true);
@@ -534,7 +537,19 @@ export function RoutineDetailDrawer({
                 </>
               )}
 
-              {/* Seleção de dias da semana */}
+              {/* Sequencial não tem dias fixos — mostra só um aviso. */}
+              {isSeq && (
+                <div
+                  className="rounded-xl px-3 py-2 text-xs flex items-center gap-2"
+                  style={{ background: "rgba(93,140,255,.1)", border: "1px solid rgba(93,140,255,.28)", color: "#a9c0ff" }}
+                >
+                  <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+                  <span>{t("goals_seq_label")} · {t("goals_schedule_seq_hint")}</span>
+                </div>
+              )}
+
+              {/* Seleção de dias da semana — oculta no modo sequencial */}
+              {!isSeq && (
               <div className="space-y-1.5">
                 <p className="text-xs font-semibold" style={{ color: "rgba(255,255,255,.7)" }}>
                   {t("goals_edit_routine_days_label")}
@@ -563,6 +578,7 @@ export function RoutineDetailDrawer({
                   {t("goals_edit_routine_days_hint")}
                 </p>
               </div>
+              )}
 
               <div className="flex gap-2">
                 {card.scheduledTime && (
@@ -579,7 +595,9 @@ export function RoutineDetailDrawer({
                       if (isHabitRoutine) {
                         await Promise.all(card.items.map((item) => onSetItemEndTime(item, null)));
                       }
-                      await onSetDays(card, null);
+                      // Desligar o lembrete de uma rotina sequencial mantém o
+                      // modo (só zera o horário), senão viraria "dias: todo dia".
+                      await onSetDays(card, isSeq ? SEQUENTIAL_MARKER : null);
                     })}
                   >
                     {t("goals_edit_routine_disable_reminder")}
@@ -608,7 +626,7 @@ export function RoutineDetailDrawer({
                       } else {
                         await onSetTime(card, timeValue);
                       }
-                      await onSetDays(card, daysStr || null);
+                      await onSetDays(card, isSeq ? SEQUENTIAL_MARKER : daysStr || null);
                     });
                   }}
                 >

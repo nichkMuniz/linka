@@ -6,7 +6,8 @@
 	<string>production</string>
 	<key>com.apple.developer.associated-domains</key>
 	<array>
-		<string>applinks:linka.app</string>
+		<string>applinks:linkafit.com.br</string>
+		<string>applinks:www.linkafit.com.br</string>
 	</array>
 </dict>
 </plist>

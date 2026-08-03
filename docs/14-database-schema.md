@@ -34,6 +34,7 @@ Documentação técnica de todas as tabelas do banco de dados público (`public`
 | [notifications](#notifications) | Notificações de usuários |
 | [post_complaint](#post_complaint) | Denúncias de posts |
 | [post_tags](#post_tags) | Pessoas marcadas em posts (estilo Instagram) |
+| [flow_tags](#flow_tags) | Pessoas marcadas em Flows (estilo Instagram) |
 | [posts](#posts) | Posts do feed |
 | [promotion_comments](#promotion_comments) | Comentários em promoções da Vitrine |
 | [promotion_likes](#promotion_likes) | Curtidas em promoções |
@@ -477,8 +478,10 @@ Posts de Flow (formato Stories, mídia efêmera).
 | `media_url` | text | ✓ | — | URL da mídia (imagem/vídeo). Vazio quando o Flow é só texto/gradient. |
 | `background_color` | text | — | `null` | Gradient CSS de fundo para Flows somente-texto. |
 | `text_position` | jsonb | — | `null` | **Legado**. Posição única em flows antigos de texto: `{ "x": number, "y": number }` em % (0–100). Substituído por `text_elements`. |
-| `text_elements` | jsonb | — | `null` | Lista de textos em Flows somente-texto: `[{ "text": string, "x": number, "y": number }]` com x/y em % (0–100). Cada elemento pode ser arrastado independentemente pelo autor. |
+| `text_elements` | jsonb | — | `null` | Lista de textos posicionados: `[{ "text": string, "x": number, "y": number, "style"?: StoryTextStyle }]` com x/y em % (0–100). `style` = `{ fontFamily?, fontWeight?, align?, color?, fontSize?, backgroundColor? }` — cor, fonte, alinhamento, tamanho e **realce de fundo** (estilo Instagram; `null`/ausente = sem fundo). Cada elemento pode ser arrastado/redimensionado independentemente pelo autor. |
 | `media_transform` | jsonb | — | `null` | Enquadramento da **mídia em vídeo** ajustado na criação (pinça/arraste): `{ "scale": number, "x": number, "y": number }`, onde `x`/`y` são translação em **% do tamanho do elemento** (resolução-independente). Aplicado via CSS `transform` no viewer. Imagens **não** usam este campo (o ajuste é composto no canvas antes do upload). |
+| `reposted_from` | bigint | — | `null` | FK → `flow.id`. Flow original quando este flow é um **repost** (marcado repostou). Migração `20260729-flow-tags.sql`. |
+| `reposted_from_user` | uuid | — | `null` | FK → `auth.users`. Autor do flow original (atribuição do repost). |
 | `created_at` | timestamptz | ✓ | `now()` | Data de publicação |
 
 > **Migração (rodar no Supabase SQL Editor):**
@@ -697,6 +700,7 @@ Notificações geradas para os usuários (follows, likes, comentários, duelos).
 | 7 | Reação em check-in de duelo | `follower_id`, `duel_check_in_id` |
 | 8 | Comentário em promoção | `follower_id`, `post_id` (= promotion_id) |
 | 9 | Marcado em um post | `follower_id` (autor do post), `post_id` |
+| 16 | Marcado em um flow | `follower_id` (autor do flow), `flow_id` |
 | 14 | Check-in **classificado** (aprovado) por um participante | `follower_id` (quem votou), `duel_check_in_id` |
 | 15 | Check-in **desclassificado** (reprovado) por um participante | `follower_id` (quem votou), `duel_check_in_id` |
 
@@ -714,6 +718,7 @@ Notificações geradas para os usuários (follows, likes, comentários, duelos).
 | `shots_comments` | `notify_shots_comment` | `notify_shots_comment()` | type 3 (shot) |
 | `flow_comments` | `trg_notify_flow_comment` | `notify_flow_comment()` | type 3 (flow) |
 | `post_tags` | `trg_notify_post_tag` | `notify_post_tag()` | type 9 (marcado em post) |
+| `flow_tags` | `trg_notify_flow_tag` | `notify_flow_tag()` | type 16 (marcado em flow) |
 | `duel_check_in_votes` | `trg_notify_check_in_vote` | `notify_check_in_vote()` | type 14 / 15 (check-in classificado / desclassificado) |
 | `duel_check_in_votes` | `trg_notify_check_in_vote_removed` | `notify_check_in_vote_removed()` | apaga a 14/15 quando o voto é desfeito |
 
@@ -763,6 +768,26 @@ Pessoas marcadas em posts do feed (estilo Instagram — "marcar quem está junto
 **Trigger:** `trg_notify_post_tag` (AFTER INSERT) → `notify_post_tag()` (SECURITY DEFINER) insere notificação **type 9** para a pessoa marcada (ignora auto-marcação); o push é automático via `notify-push-on-notification`.
 
 **Funções relacionadas (`ritmofit-db.ts`):** `createPostDb` (5º parâmetro `taggedUserIds`), `getPostTagsBatchDb` (batch por lista de posts — usado pelo feed e por `getPostByIdDb`) e `setPostTagsDb` (edição — aplica o **diff**: insere só os novos marcados, para a trigger notificar apenas eles, e remove quem saiu; invalida o cache `post:{id}`).
+
+---
+
+## flow_tags
+
+Pessoas marcadas em **Flows** (mesma ideia de `post_tags`, mas para a tabela `flow`; `flow.id` é **bigint**). Criada na migração `docs/migrations/20260729-flow-tags.sql`.
+
+| Coluna | Tipo | Obrigatório | Padrão | Descrição |
+|---|---|---|---|---|
+| `id` | uuid | PK | `gen_random_uuid()` | Identificador único |
+| `flow_id` | bigint | FK → `flow.id` ON DELETE CASCADE | — | Flow onde a pessoa foi marcada |
+| `user_id` | uuid | FK → `auth.users` ON DELETE CASCADE | — | Pessoa marcada |
+| `created_at` | timestamptz | ✓ | `now()` | Data da marcação |
+
+**Constraint:** `unique(flow_id, user_id)`. **Índices:** `flow_tags_flow_id_idx`, `flow_tags_user_id_idx`.
+**RLS:** SELECT pública; INSERT só o dono do flow; DELETE o dono ou a própria pessoa marcada.
+**Trigger:** `trg_notify_flow_tag` (AFTER INSERT) → `notify_flow_tag()` (SECURITY DEFINER) insere notificação **type 16** para a pessoa marcada (ignora auto-marcação); push automático.
+**Funções (`ritmofit-db.ts`):** `createStoryDb` (7º parâmetro `taggedUserIds`, 8º `repost`), `getFlowTagsDb(flowId)` e `repostStoryDb(flowId)` (cria um flow do próprio usuário reaproveitando a mídia do original + atribuição em `flow.reposted_from*`).
+
+> A migração também adiciona em `flow` as colunas `reposted_from` (bigint → `flow.id`) e `reposted_from_user` (uuid → `auth.users`) para atribuir o repost. `createStoryDb` degrada graciosamente se as colunas ainda não existirem (detecta `42703` e reenvia sem elas).
 
 ---
 

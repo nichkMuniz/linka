@@ -3,7 +3,12 @@ import { Check, CheckCircle2, Dumbbell, Moon, Play, Salad, Target } from "lucide
 import { ImageWithFallback } from "@/components/shared/image-with-fallback";
 import { useLanguage } from "@/lib/language-context";
 import { formatScheduledTime } from "@/hooks/use-routine-notifications";
-import { isCompletedToday, type RoutineCard } from "@/components/goals/goals-helpers";
+import {
+  computeSequentialWorkoutDue,
+  isCompletedToday,
+  isSequentialCard,
+  type RoutineCard,
+} from "@/components/goals/goals-helpers";
 import { buildRoutineWeekdayMap } from "@/components/goals/suggested-routines-data";
 import {
   useWaterLog,
@@ -114,14 +119,23 @@ export function TodayDashboard({
     [cardWeekdays, todayIdx],
   );
 
-  // Tarefas de hoje, sempre na ordem treino → dieta → hábitos.
+  // Treino SEQUENCIAL não usa dias fixos: o rodízio surface uma rotina por dia,
+  // avançando só por conclusão. Fica fora do filtro por dia da semana.
+  const seqDue = React.useMemo(
+    () => computeSequentialWorkoutDue(workoutCards, routineLastDates, today),
+    [workoutCards, routineLastDates, today],
+  );
+
+  // Tarefas de hoje, sempre na ordem treino → dieta → hábitos. Treinos por dia
+  // da semana (não-sequenciais) + a única sequencial devida (quando há).
   const tasks = React.useMemo(
     () => [
-      ...workoutCards.filter(isScheduledToday),
+      ...workoutCards.filter((c) => !isSequentialCard(c) && isScheduledToday(c)),
+      ...(seqDue ? [seqDue.card] : []),
       ...dietCards.filter(isScheduledToday),
       ...habitCards.filter(isScheduledToday),
     ],
-    [workoutCards, dietCards, habitCards, isScheduledToday],
+    [workoutCards, dietCards, habitCards, isScheduledToday, seqDue],
   );
 
   // ── Água ──

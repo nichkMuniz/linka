@@ -26,6 +26,9 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "client"),
+      // Código sem dependência de plataforma, compartilhado entre client/,
+      // server/ e as funções serverless em api/. Já declarado em tsconfig.json.
+      "@shared": path.resolve(__dirname, "shared"),
     },
   },
   plugins: [

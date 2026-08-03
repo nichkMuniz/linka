@@ -44,6 +44,7 @@ O objetivo central é motivar pessoas a manterem uma rotina saudável através d
 | 16 | [Segurança](./16-seguranca.md) | — | Auditoria 2026-07-13, RLS, rotação de chaves, checklist de deploy |
 | 17 | [Premium](./17-premium.md) | — | Plano LinKa Premium: modelo de dados, mapa de gates, roteiro RevenueCat (Fase 2) |
 | 18 | [Painel Admin](./18-admin.md) | `/admin` | Moderação, métricas, atividade diária por usuário e gestão de premium/verificados |
+| 19 | [Compartilhamento e Deep Links](./19-compartilhamento-e-deep-links.md) | — | Universal Links, custom scheme, prévia Open Graph e landing de instalação |
 
 ---
 

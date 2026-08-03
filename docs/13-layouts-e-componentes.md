@@ -299,6 +299,16 @@ Drawer glass de **marcação de pessoas em um post** (estilo Instagram). Seleç�
 
 ---
 
+### ShareDrawer
+**Arquivo:** `client/components/shared/share-drawer.tsx`
+**Usado em:** Feed (`Index.tsx`), `PostDetail.tsx`, `Profile.tsx`
+
+Drawer glass de compartilhamento externo: share sheet nativa do iOS (`@capacitor/share`) + atalhos de WhatsApp, Instagram, Facebook, Telegram, X, "mais opções" e copiar link. Props: `open`, `onOpenChange`, `text`, `url?`, `title?`, `onSendToFriend?`.
+
+As URLs vêm de `client/lib/share-url.ts`, que reexporta a fonte única `shared/share-config.ts`. **O que acontece do outro lado do link** — Universal Links, custom scheme, prévia Open Graph e landing de instalação — está em `docs/19-compartilhamento-e-deep-links.md`.
+
+---
+
 ### SendToFriendDrawer (2026-07-12)
 **Arquivo:** `client/components/shared/send-to-friend-drawer.tsx`
 **Usado em:** Feed (via `ShareDrawer` → botão "Amigos"), PostDetail (avião de papel na barra de ações) e Shots (avião de papel na coluna de ações)

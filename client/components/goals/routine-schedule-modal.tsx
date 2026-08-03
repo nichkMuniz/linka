@@ -4,7 +4,7 @@ import { useLanguage } from "@/lib/language-context";
 import type { TranslationKey } from "@/lib/i18n";
 import { formatScheduledTime } from "@/hooks/use-routine-notifications";
 import { buildRoutineWeekdayMap } from "@/components/goals/suggested-routines-data";
-import type { RoutineCard } from "@/components/goals/goals-helpers";
+import { isSequentialCard, type RoutineCard } from "@/components/goals/goals-helpers";
 import type { RoutineTypeCode } from "@/lib/ritmofit-db";
 
 // seg→dom (0..6) — a mesma convenção Monday-first usada no resto de Metas.
@@ -74,9 +74,24 @@ export function RoutineScheduleModal({
   // Monta, por dia da semana, a lista de entradas ordenada por horário. Rotinas
   // "todo dia" entram em TODOS os dias (para o conflito de horário aparecer no
   // dia certo). Conflito = mesmo dia + mesmo "HH:MM" com 2+ rotinas.
+  // Rotinas sequenciais (rodízio) não têm dia fixo → listadas à parte, na ordem
+  // do rodízio (criação), fora da grade de dias.
+  const sequentialCards = React.useMemo(
+    () =>
+      cards
+        .filter(isSequentialCard)
+        .sort((a, b) => {
+          const na = a.routineId != null ? Number(a.routineId) : Infinity;
+          const nb = b.routineId != null ? Number(b.routineId) : Infinity;
+          return na - nb;
+        }),
+    [cards],
+  );
+
   const byDay = React.useMemo<Entry[][]>(() => {
     const days: Entry[][] = [[], [], [], [], [], [], []];
     for (const card of cards) {
+      if (isSequentialCard(card)) continue; // fora da grade de dias
       const wd = cardWeekdays(card);
       const everyday = wd === null;
       const targetDays = everyday ? [0, 1, 2, 3, 4, 5, 6] : wd!;
@@ -159,11 +174,53 @@ export function RoutineScheduleModal({
 
         {/* corpo: 7 dias */}
         <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-5 space-y-2">
-          {!hasAny ? (
+          {sequentialCards.length > 0 && (
+            <div
+              className="rounded-2xl p-3"
+              style={{ background: "rgba(93,140,255,.1)", border: "1px solid rgba(93,140,255,.28)" }}
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-xs font-bold uppercase tracking-wide" style={{ color: "#a9c0ff" }}>
+                  {t("goals_seq_label")}
+                </span>
+                <span className="text-[11px]" style={{ color: "rgba(255,255,255,.4)" }}>
+                  {t("goals_schedule_seq_hint")}
+                </span>
+              </div>
+              <div className="space-y-1.5">
+                {sequentialCards.map((card, i) => (
+                  <button
+                    key={card.key}
+                    onClick={() => { onClose(); onOpenCard(card); }}
+                    className="w-full flex items-center gap-2 rounded-xl px-2.5 py-2 text-left active:scale-[.99] transition-transform"
+                    style={{ background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.08)" }}
+                  >
+                    <span className="shrink-0 tabular-nums text-sm font-semibold w-[24px] text-center" style={{ color: "rgba(255,255,255,.55)" }}>
+                      {i + 1}
+                    </span>
+                    <span className="flex-1 min-w-0 truncate text-sm text-white">
+                      {card.name ?? t(TYPE_LABEL_KEY[type])}
+                    </span>
+                    {card.scheduledTime && (
+                      <span className="shrink-0 tabular-nums text-sm font-semibold" style={{ color: "#fff" }}>
+                        {formatScheduledTime(card.scheduledTime)}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {!hasAny && (
             <p className="text-sm text-center py-8" style={{ color: "rgba(255,255,255,.5)" }}>
               {t("goals_schedule_empty")}
             </p>
-          ) : (
+          )}
+
+          {/* Grade de dias — só quando há rotina por dia da semana (senão
+              todos os 7 dias ficariam "sem rotina" numa lista só de sequenciais). */}
+          {cards.some((c) => !isSequentialCard(c)) &&
             WEEKDAY_KEYS.map((key, dayIdx) => {
               const entries = byDay[dayIdx];
               const isToday = dayIdx === todayIdx;
@@ -243,8 +300,7 @@ export function RoutineScheduleModal({
                   )}
                 </div>
               );
-            })
-          )}
+            })}
         </div>
       </div>
     </div>

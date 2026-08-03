@@ -75,6 +75,7 @@ import {
   type WeeklyProgram,
 } from "@/components/goals/suggested-routines-data";
 import { HabitTimeRow } from "@/components/goals/habit-time-row";
+import { SEQUENTIAL_MARKER } from "@/components/goals/goals-helpers";
 import {
   generateProgram,
   MUSCLE_EMPHASES,
@@ -260,6 +261,9 @@ export function CreateWizardDrawer({
   // Hora de FIM por hábito (opcional) — mesma chave (habit_id do catálogo).
   const [habitEndTimes, setHabitEndTimes] = React.useState<Record<string, string>>({});
   const [scheduledDays, setScheduledDays] = React.useState<Set<number>>(new Set());
+  // Modo de agendamento do TREINO: "weekly" (dias fixos, padrão) ou "sequential"
+  // (rodízio sem dias fixos). Ignorado por dieta/hábito.
+  const [scheduleMode, setScheduleMode] = React.useState<"weekly" | "sequential">("weekly");
   const [linkGoalId, setLinkGoalId] = React.useState<string | null>(null);
   const [searchQuery, setSearchQuery] = React.useState("");
   const [muscleFilter, setMuscleFilter] = React.useState<string | null>(null);
@@ -341,6 +345,7 @@ export function CreateWizardDrawer({
       setHabitTimes({});
       setHabitEndTimes({});
       setScheduledDays(new Set());
+      setScheduleMode("weekly");
       setLinkGoalId(null);
       setSearchQuery("");
       setMuscleFilter(null);
@@ -588,9 +593,14 @@ export function CreateWizardDrawer({
         await updateRoutineItemsScheduledTimeDb(userId, routineType, name, scheduledTime).catch(() => {});
       }
 
-      const daysStr = Array.from(scheduledDays).sort((a, b) => a - b).join(",");
-      if (daysStr) {
-        await updateRoutineItemsScheduledDaysDb(userId, routineType, name, daysStr).catch(() => {});
+      // Treino Sequencial: grava a sentinela 'seq' em scheduled_days (rodízio
+      // sem dias fixos). Caso contrário, os índices dos dias escolhidos.
+      const daysValue =
+        routineType === 1 && scheduleMode === "sequential"
+          ? SEQUENTIAL_MARKER
+          : Array.from(scheduledDays).sort((a, b) => a - b).join(",");
+      if (daysValue) {
+        await updateRoutineItemsScheduledDaysDb(userId, routineType, name, daysValue).catch(() => {});
       }
 
       // Agenda as notificações locais da nova rotina (se tiver horário definido).
@@ -2011,37 +2021,68 @@ export function CreateWizardDrawer({
                 </div>
               )}
 
-              <div className="space-y-2">
-                <Label className="text-sm font-semibold" style={{ color: "#fff" }}>{t("goals_wizard_days_label")}</Label>
-                <div className="flex gap-1.5">
-                  {WEEKDAY_KEYS.map((key, idx) => {
-                    const active = scheduledDays.has(idx);
-                    return (
-                      <button
-                        key={idx}
-                        type="button"
-                        onClick={() =>
-                          setScheduledDays((prev) => {
-                            const next = new Set(prev);
-                            if (next.has(idx)) next.delete(idx);
-                            else next.add(idx);
-                            return next;
-                          })
-                        }
-                        className="flex-1 h-10 rounded-xl text-xs font-semibold transition-all active:scale-95"
-                        style={active
-                          ? { background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff", border: "1px solid transparent" }
-                          : { background: "rgba(255,255,255,.05)", color: "rgba(255,255,255,.6)", border: "1px solid rgba(255,255,255,.1)" }}
-                      >
-                        {t(key)}
-                      </button>
-                    );
-                  })}
+              {/* Modo de agendamento (só treino): Dias da Semana × Sequencial */}
+              {routineType === 1 && (
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold" style={{ color: "#fff" }}>{t("goals_wizard_sched_mode_label")}</Label>
+                  <div className="flex gap-1.5 p-1 rounded-xl" style={{ background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.1)" }}>
+                    {([["weekly", "goals_wizard_sched_weekly"], ["sequential", "goals_wizard_sched_sequential"]] as const).map(([mode, key]) => {
+                      const active = scheduleMode === mode;
+                      return (
+                        <button
+                          key={mode}
+                          type="button"
+                          onClick={() => setScheduleMode(mode)}
+                          className="flex-1 h-9 rounded-lg text-xs font-semibold transition-all active:scale-95"
+                          style={active
+                            ? { background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }
+                            : { background: "transparent", color: "rgba(255,255,255,.6)" }}
+                        >
+                          {t(key)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>
+                    {scheduleMode === "sequential" ? t("goals_wizard_sched_sequential_hint") : t("goals_wizard_sched_weekly_hint")}
+                  </p>
                 </div>
-                <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>
-                  {scheduledDays.size === 0 ? t("goals_wizard_days_all") : t("goals_wizard_days_hint")}
-                </p>
-              </div>
+              )}
+
+              {/* Dias da semana — oculto no modo Sequencial */}
+              {!(routineType === 1 && scheduleMode === "sequential") && (
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold" style={{ color: "#fff" }}>{t("goals_wizard_days_label")}</Label>
+                  <div className="flex gap-1.5">
+                    {WEEKDAY_KEYS.map((key, idx) => {
+                      const active = scheduledDays.has(idx);
+                      return (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() =>
+                            setScheduledDays((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(idx)) next.delete(idx);
+                              else next.add(idx);
+                              return next;
+                            })
+                          }
+                          className="flex-1 h-10 rounded-xl text-xs font-semibold transition-all active:scale-95"
+                          style={active
+                            ? { background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff", border: "1px solid transparent" }
+                            : { background: "rgba(255,255,255,.05)", color: "rgba(255,255,255,.6)", border: "1px solid rgba(255,255,255,.1)" }}
+                        >
+                          {t(key)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>
+                    {scheduledDays.size === 0 ? t("goals_wizard_days_all") : t("goals_wizard_days_hint")}
+                  </p>
+                </div>
+              )}
 
               {userGoals.filter((g) => g.perc < 100).length > 0 && (
                 <div className="space-y-2">

@@ -745,18 +745,29 @@ export default function Community() {
         getCheckInCommentsDb(checkInId),
         getCheckInReactionsDb([checkInId]),
       ]);
-      if (detail) {
-        setSelectedCheckInForDetail(detail);
-        setCheckInComments(comments);
-        setCheckInReactions((prev) => ({ ...prev, ...reactions }));
-        setIsCheckInDetailOpen(true);
-        // Switch to the duels tab so the check-in is visible
-        setActiveTab("duels");
+      if (!detail) return;
+      // Carrega o grupo por trás do check-in e monta o MESMO estado da tela do
+      // duelo (`openGroupView` preenche `selectedGroupForView` e, em grupos de
+      // memes, carrega `checkInVotes`). Sem isto, abrir o check-in direto pela
+      // notificação deixava `selectedGroupForView` nulo → a barra de
+      // aprovar/reprovar (que exige `scoringType === "memes"` + votos) sumia, e
+      // ela só voltava ao fechar o drawer e reabrir pela tela do grupo. De
+      // brinde, ao fechar o drawer o usuário cai no grupo já carregado, e não
+      // numa tela de grupo vazia.
+      const group = await getDuelGroupDb(detail.groupId);
+      if (group) {
+        openGroupView({ ...group, icon: "⚔️", description: group.goal, city: group.location, isOfficial: false });
       }
+      setSelectedCheckInForDetail(detail);
+      setCheckInComments(comments);
+      setCheckInReactions((prev) => ({ ...prev, ...reactions }));
+      setIsCheckInDetailOpen(true);
+      // Switch to the duels tab so the check-in is visible
+      setActiveTab("duels");
     } catch (err) {
       console.error("Error opening check-in from notification:", err);
     }
-  }, []);
+  }, [openGroupView]);
 
   // Navegação interna (card da tela de Notificações) → state.openCheckIn
   React.useEffect(() => {

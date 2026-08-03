@@ -240,6 +240,8 @@ export default function Notifications() {
         return <CheckCircle2 className="h-5 w-5 text-emerald-400" />;
       case 15:
         return <XCircle className="h-5 w-5 text-red-400" />;
+      case 16:
+        return <AtSign className="h-5 w-5 text-cyan-400" />;
       default:
         return <Zap className="h-5 w-5 text-gray-500" />;
     }
@@ -393,6 +395,11 @@ export default function Notifications() {
       navigate(`/comunidade?user=${notification.userId}`);
       return;
     }
+    // Type 16 (marcado em um flow) — abre o flow onde a pessoa foi marcada
+    if (notification.type === 16 && notification.flowId) {
+      navigate("/", { state: { openFlow: notification.flowId } });
+      return;
+    }
     // Types 14 / 15 (check-in classificado ou desclassificado) — abre o check-in avaliado
     if (notification.type === 14 || notification.type === 15) {
       if (notification.checkInId) {
@@ -534,6 +541,7 @@ export default function Notifications() {
       case 13: return { iconBg: "rgba(251,191,36,.16)", iconColor: "#fbbf24" };
       case 14: return { iconBg: "rgba(52,211,153,.16)", iconColor: "#34d399" };
       case 15: return { iconBg: "rgba(248,113,113,.16)", iconColor: "#f87171" };
+      case 16: return { iconBg: "rgba(34,211,238,.16)", iconColor: "#22d3ee" };
       default: return { iconBg: "rgba(255,255,255,.1)", iconColor: "rgba(255,255,255,.7)" };
     }
   };
@@ -620,11 +628,12 @@ export default function Notifications() {
       case 13: return { background: "#fbbf24" };
       case 14: return { background: "#34d399" };
       case 15: return { background: "#f87171" };
+      case 16: return { background: "#22d3ee" };
       default: return { background: "rgba(255,255,255,.5)" };
     }
   };
 
-  const isUserBased = (type: number) => [1, 2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15].includes(type);
+  const isUserBased = (type: number) => [1, 2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16].includes(type);
 
   return (
     <>
@@ -749,7 +758,7 @@ export default function Notifications() {
                           const groupedUsers = notification.groupedUsers ?? [];
                           const isGrouped = (notification.groupedCount ?? 1) > 1;
                           const isFollow = notification.type === 1;
-                          const hasThumbnail = (notification.type === 2 || notification.type === 3 || notification.type === 9) && notification.postPhoto;
+                          const hasThumbnail = (notification.type === 2 || notification.type === 3 || notification.type === 9 || notification.type === 16) && notification.postPhoto;
 
                           return (
                             /* div (não button): a notificação de novo seguidor precisa

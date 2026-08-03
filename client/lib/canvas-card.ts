@@ -6,6 +6,8 @@
 // Todo o layout é calculado no espaço lógico CANVAS_W × CANVAS_H; o backing
 // store é desenhado em CANVAS_SCALE× via ctx.scale (ver createCardCanvas).
 
+import { SHARE_DOMAIN } from "@shared/share-config";
+
 export const CANVAS_W = 540;
 export const CANVAS_H = 540;
 // Backing store em 3x a resolução lógica para não pixelar quando o feed pede a
@@ -159,7 +161,9 @@ export function drawCanvasFooter(ctx: CanvasRenderingContext2D, W: number, H: nu
   ctx.fillStyle = "rgba(255,255,255,0.18)";
   ctx.font = `500 11px ${FONT}`;
   ctx.textAlign = "center";
-  ctx.fillText("linka.app", W / 2, H - 18);
+  // O domínio fica DESENHADO na imagem publicada — sai da mesma constante dos
+  // links para não virar um rodapé apontando para um domínio que já trocou.
+  ctx.fillText(SHARE_DOMAIN, W / 2, H - 18);
 }
 
 // Painéis de "vidro" lado a lado com valor grande + rótulo no acento. Usado pelo

@@ -1,5 +1,6 @@
 import { getUserSafe, hasSupabaseConfig, supabase, registerViewerCacheInvalidator, registerAuthUserReadyHandler } from "@/lib/supabase";
 import type { PostWorkoutSummary } from "@/lib/workout-summary-types";
+import { SHARE_BASE_URL } from "@/lib/share-url";
 import {
   getNetworkStatus,
   isTransientNetworkError,
@@ -3440,6 +3441,44 @@ export async function updateUserWorkoutNotesDb(
   }
 }
 
+/**
+ * Persiste o tempo de descanso (segundos) de um exercício da rotina em
+ * `user_workouts.time_to_rest`, para valer nos próximos treinos. Casa por
+ * user_id + workout_id (+ routine_id quando houver). Atualiza também a cópia
+ * local (offline) para a próxima abertura já refletir. Best-effort.
+ */
+export async function updateUserWorkoutRestDb(
+  userId: string,
+  workoutId: string,
+  routineId: string | null,
+  restSecs: number,
+): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+
+  // Espelha na cópia local para a próxima abertura mostrar o novo descanso.
+  offlineCopyPatch<UserWorkoutWithDetails[]>(`userWorkouts:${userId}`, (rows) =>
+    rows.map((r) =>
+      r.workout_id === workoutId && (routineId == null || r.routine_id === String(routineId))
+        ? { ...r, time_to_rest: restSecs }
+        : r,
+    ),
+  );
+
+  let query = supabase
+    .from("user_workouts")
+    .update({ time_to_rest: restSecs })
+    .eq("user_id", userId)
+    .eq("workout_id", workoutId);
+  if (routineId != null) query = query.eq("routine_id", Number(routineId));
+  const { error } = await query;
+  if (error) {
+    // Offline / rede: a cópia local já foi atualizada acima; não derruba o fluxo.
+    if (isOfflineWriteError(error)) return;
+    console.error("Error updating workout rest time:", error);
+    throw error;
+  }
+}
+
 export type UserWorkoutWithDetails = {
   id: string;
   workout_id: string;
@@ -4572,6 +4611,7 @@ export type StoryTextStyle = {
   align?: "left" | "center" | "right";
   color?: string;
   fontSize?: number; // px; ausente em flows antigos → cai para 30 (equivalente ao text-3xl)
+  backgroundColor?: string | null; // realce de fundo estilo Instagram; ausente/null = sem fundo
 };
 export type StoryTextElement = { text: string; x: number; y: number; style?: StoryTextStyle }; // x/y in %
 // Enquadramento da mídia (vídeo): scale unitário, x/y em % do tamanho do elemento
@@ -4586,12 +4626,18 @@ export type Story = {
   text_position?: StoryTextPosition | null;
   text_elements?: StoryTextElement[] | null;
   media_transform?: StoryMediaTransform | null;
+  reposted_from?: string | null;
+  reposted_from_user?: string | null;
   created_at: string;
 };
 
 export type StoryWithUser = Story & {
   userNickname: string;
   userPhoto: string | null;
+  /** Pessoas marcadas neste flow (estilo Instagram). */
+  taggedUsers?: SearchUser[];
+  /** Atribuição de repost: apelido de quem postou o flow original. */
+  repostedFromNickname?: string | null;
 };
 
 const FLOW_COLS_FULL =
@@ -4808,6 +4854,8 @@ export async function createStoryDb(
   textPosition?: StoryTextPosition | null,
   textElements?: StoryTextElement[] | null,
   mediaTransform?: StoryMediaTransform | null,
+  taggedUserIds?: string[],
+  repost?: { fromFlowId: string; fromUser: string } | null,
 ): Promise<Story | null> {
   if (!hasSupabaseConfig || !supabase) return null;
 
@@ -4823,6 +4871,8 @@ export async function createStoryDb(
       text_position: textPosition ?? null,
       text_elements: textElements ?? null,
       media_transform: mediaTransform ?? null,
+      reposted_from: repost ? Number(repost.fromFlowId) || repost.fromFlowId : null,
+      reposted_from_user: repost ? repost.fromUser : null,
     };
 
     let { data, error } = await supabase
@@ -4831,10 +4881,17 @@ export async function createStoryDb(
       .select()
       .maybeSingle();
 
-    // Fallback: if a new column is missing on the DB, retry without it
+    // Fallback: if a new column is missing on the DB, retry without the optional fields
     if (error && isMissingColumnError(error)) {
       console.warn("[flow] insert failed due to missing column — retrying without new fields:", error?.message);
-      const { text_position: _tp, text_elements: _te, media_transform: _mt, ...basePayload } = fullPayload;
+      const {
+        text_position: _tp,
+        text_elements: _te,
+        media_transform: _mt,
+        reposted_from: _rf,
+        reposted_from_user: _rfu,
+        ...basePayload
+      } = fullPayload;
       const retry = await supabase!
         .from("flow")
         .insert(basePayload)
@@ -4851,6 +4908,16 @@ export async function createStoryDb(
       return null;
     }
 
+    // Marcação de pessoas (flow_tags) — falha aqui não derruba o flow já criado; a
+    // trigger notify_flow_tag gera a notificação type 16 para cada pessoa marcada.
+    const tagIds = [...new Set((taggedUserIds ?? []).filter((id) => id && id !== viewer.id))];
+    if (data && tagIds.length > 0) {
+      const { error: tagsError } = await supabase!
+        .from("flow_tags")
+        .insert(tagIds.map((userId) => ({ flow_id: data!.id, user_id: userId })));
+      if (tagsError) console.error("Error tagging users in flow:", tagsError);
+    }
+
     // Bust the cached story/flow lists so the new flow shows up immediately
     // on the next load/refresh instead of waiting for the 60s TTL to expire.
     invalidateQueryCache("activeStories");
@@ -4862,6 +4929,56 @@ export async function createStoryDb(
     console.error("Error creating story:", err);
     return null;
   }
+}
+
+// ── Marcação de pessoas em Flows (flow_tags) ────────────────────────────────
+
+/** Pessoas marcadas num flow (na ordem em que foram marcadas). */
+export async function getFlowTagsDb(flowId: string): Promise<SearchUser[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+  try {
+    const numeric = Number(flowId);
+    const idVal = Number.isFinite(numeric) ? numeric : flowId;
+    const { data, error } = await supabase
+      .from("flow_tags")
+      .select("user_id, created_at")
+      .eq("flow_id", idVal)
+      .order("created_at", { ascending: true });
+    // Tabela pode ainda não existir (migração pendente) — degrada sem marcações
+    if (error || !data || data.length === 0) return [];
+    const ids = [...new Set(data.map((r: any) => String(r.user_id)))];
+    const profilesMap = await getProfilesBatchDb(ids);
+    const out: SearchUser[] = [];
+    for (const row of data) {
+      const p = profilesMap.get(String(row.user_id));
+      if (p) out.push({ id: String(row.user_id), nickname: p.nickname, photo: p.photo });
+    }
+    return out;
+  } catch (err) {
+    console.error("Error fetching flow tags:", err);
+    return [];
+  }
+}
+
+/**
+ * Reposta um flow como flow do próprio usuário (estilo "adicionar ao seu flow" do
+ * Instagram): cria um novo flow reaproveitando a mesma mídia (URL pública), com
+ * atribuição ao autor original em `reposted_from*`. Só faz sentido para quem foi
+ * marcado no flow — a checagem de permissão fica na UI (o botão só aparece p/ marcados).
+ */
+export async function repostStoryDb(flowId: string): Promise<Story | null> {
+  const original = await getFlowByIdDb(flowId);
+  if (!original) return null;
+  return createStoryDb(
+    original.description ?? "",
+    original.media_url,
+    original.background_color ?? null,
+    original.text_position ?? null,
+    original.text_elements ?? null,
+    original.media_transform ?? null,
+    undefined,
+    { fromFlowId: original.id, fromUser: original.user_id },
+  );
 }
 
 export async function deleteOldStoriesDb(): Promise<boolean> {
@@ -6934,7 +7051,7 @@ export async function toggleUserHabitCompletionDb(
 // Notifications functionality
 export type NotificationItem = {
   id: string;
-  type: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15; // 1 = new follower, 2 = incentive, 3 = comment, 4 = duel invite, 5 = join request, 6 = comment reaction, 7 = check-in reaction, 8 = promotion comment, 9 = tagged in post, 10 = private message, 11 = duel check-in, 12 = promotion like, 13 = promotion expired, 14 = check-in classificado, 15 = check-in desclassificado
+  type: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16; // 1 = new follower, 2 = incentive, 3 = comment, 4 = duel invite, 5 = join request, 6 = comment reaction, 7 = check-in reaction, 8 = promotion comment, 9 = tagged in post, 10 = private message, 11 = duel check-in, 12 = promotion like, 13 = promotion expired, 14 = check-in classificado, 15 = check-in desclassificado, 16 = tagged in flow
   userId: string;
   userNickname: string;
   userPhoto: string | null;
@@ -10215,20 +10332,31 @@ export async function deleteAllUserDataDb(userId: string): Promise<void> {
   // ── Batch 6: delete from auth.users via server-side admin API ────────────
   const { data: sessionData } = await (supabase as NonNullable<typeof supabase>).auth.getSession();
   const accessToken = sessionData?.session?.access_token;
-  if (accessToken) {
-    const response = await fetch("/.netlify/functions/delete-auth-user", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify({ userId }),
-    });
-    if (!response.ok) {
-      const body = await response.json().catch(() => ({}));
-      console.error("[deleteAllUserDataDb] delete-account HTTP", response.status, body);
-      throw new Error(body?.error || `Falha ao encerrar conta (HTTP ${response.status})`);
-    }
+  // Sem token não há como autenticar a exclusão. Falhar alto: as linhas do
+  // usuário já foram apagadas acima, e um `return` silencioso deixaria a conta
+  // viva em auth.users sem ninguém saber.
+  if (!accessToken) {
+    throw new Error("Sessão expirada — entre novamente para excluir a conta");
+  }
+
+  // URL ABSOLUTA obrigatoriamente. Dentro do WebView do Capacitor a base é
+  // `capacitor://localhost`, então um caminho relativo nunca sai do aparelho:
+  // ele bate no servidor local de assets, que — por não haver extensão no
+  // caminho — devolve o index.html com HTTP 200. O `response.ok` dava true e a
+  // conta em auth.users sobrevivia em silêncio, mesmo com todas as linhas do
+  // usuário já apagadas. Ver `docs/19-compartilhamento-e-deep-links.md`.
+  const response = await fetch(`${SHARE_BASE_URL}/api/delete-auth-user`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ userId }),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    console.error("[deleteAllUserDataDb] delete-account HTTP", response.status, body);
+    throw new Error(body?.error || `Falha ao encerrar conta (HTTP ${response.status})`);
   }
 }
 

@@ -3,7 +3,7 @@ import { Bell, CalendarDays, ChevronRight, Dumbbell, Play, Shield, Sparkles, Tar
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/lib/language-context";
 import { formatScheduledTime } from "@/hooks/use-routine-notifications";
-import { isRoutineCompleted, type RoutineCard } from "@/components/goals/goals-helpers";
+import { isRoutineCompleted, isSequentialCard, type RoutineCard } from "@/components/goals/goals-helpers";
 import { buildRoutineWeekdayMap } from "@/components/goals/suggested-routines-data";
 import type { RoutineTypeCode, UserGoal } from "@/lib/ritmofit-db";
 
@@ -262,7 +262,7 @@ export function RoutinesTab({
                 <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
                     <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-violet-500/10 text-violet-300 text-[11px] font-medium">
                       <CalendarDays className="h-3 w-3 shrink-0" />
-                      {formatWeekdays(cardWeekdays(card))}
+                      {isSequentialCard(card) ? t("goals_seq_label") : formatWeekdays(cardWeekdays(card))}
                     </span>
                     {card.scheduledTime && (
                       <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 text-[11px] font-medium">

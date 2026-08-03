@@ -14,6 +14,80 @@ export type RoutineItem =
   | (UserDietWithDetails & { kind: "diet" })
   | (UserHabitWithDetails & { kind: "habit" });
 
+/**
+ * Sentinela gravada em `scheduled_days` para marcar uma rotina de treino no
+ * modo **Sequencial** (rodízio sem dias fixos). As demais rotinas usam
+ * `scheduled_days` com índices seg→dom (ou vazio = todo dia), então este valor
+ * não-numérico convive com o parse existente — mas TODO leitor de dias deve
+ * checar `isSequentialCard` ANTES de interpretar como dias da semana, senão a
+ * sentinela cai no fallback "todo dia". Só treino (`type === 1`) usa isto.
+ */
+export const SEQUENTIAL_MARKER = "seq";
+
+/** Rotina de treino em modo sequencial (rodízio, sem dias fixos). */
+export function isSequentialCard(
+  card: Pick<RoutineCard, "type" | "scheduledDays">,
+): boolean {
+  return (
+    card.type === 1 &&
+    (card.scheduledDays ?? "").trim().toLowerCase() === SEQUENTIAL_MARKER
+  );
+}
+
+export type SequentialDue = {
+  card: RoutineCard;
+  /** já executada hoje → mostrar como concluída, sem surgir a próxima */
+  doneToday: boolean;
+} | null;
+
+// Ordem do rodízio = ordem de criação. `routines.id` é bigint identity, logo
+// crescente com a criação; sem routineId (linha da trigger ausente) vai ao fim.
+function seqOrder(card: RoutineCard): number {
+  const n = card.routineId != null ? Number(card.routineId) : NaN;
+  return Number.isFinite(n) ? n : Number.POSITIVE_INFINITY;
+}
+
+/**
+ * Qual rotina sequencial de treino está "devida hoje". O rodízio avança SÓ por
+ * conclusão (não pelo calendário): a próxima após a última concluída. Pular um
+ * dia mantém a mesma na fila. Se a última concluída foi HOJE, o dia está feito
+ * (mostra concluída, não surge a próxima). Nunca executou nenhuma → a primeira.
+ * `today` = data local YYYY-MM-DD. Retorna null se não há rotina sequencial.
+ */
+export function computeSequentialWorkoutDue(
+  cards: RoutineCard[],
+  routineLastDates: Record<string, string>,
+  today: string,
+): SequentialDue {
+  const seq = cards.filter(isSequentialCard).sort((a, b) => seqOrder(a) - seqOrder(b));
+  if (seq.length === 0) return null;
+
+  const lastOf = (c: RoutineCard): string | null => {
+    const dates = c.items
+      .map((i) => routineLastDates[i.id])
+      .filter(Boolean)
+      .map((d) => d.slice(0, 10))
+      .sort();
+    return dates.pop() ?? null;
+  };
+
+  // ponteiro = rotina concluída mais recentemente (empate no mesmo dia → a de
+  // criação mais recente, por causa do `>=`).
+  let pointerIdx = -1;
+  let pointerDate = "";
+  seq.forEach((c, idx) => {
+    const d = lastOf(c);
+    if (d && d >= pointerDate) {
+      pointerDate = d;
+      pointerIdx = idx;
+    }
+  });
+
+  if (pointerIdx === -1) return { card: seq[0], doneToday: false };
+  if (pointerDate === today) return { card: seq[pointerIdx], doneToday: true };
+  return { card: seq[(pointerIdx + 1) % seq.length], doneToday: false };
+}
+
 export type RoutineCard = {
   /** `${type}::${name ?? ""}` — stable identity of the card */
   key: string;

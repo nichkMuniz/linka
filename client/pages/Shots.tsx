@@ -203,43 +203,31 @@ export default function Shots() {
   // Autoplay resiliente à política do iOS.
   //
   // Os shots tocam COM som (isMuted começa false). No WKWebView, play() num
-  // vídeo com áudio exige gesto do usuário — e o autoplay ao abrir a tela roda
-  // num efeito assíncrono (depois do await getShotsDb()), quando o contexto do
-  // toque que originou a navegação já se perdeu. Resultado: play() rejeita com
-  // NotAllowedError e o vídeo fica congelado no primeiro frame (era o bug de
-  // abrir um shot pelo perfil/busca). O bloqueio é por documento e depende de
-  // interação prévia na sessão, por isso parecia funcionar "às vezes".
+  // vídeo com áudio sem "ativação do usuário" recente pode ser barrado — e o
+  // autoplay ao abrir a tela roda num efeito ASSÍNCRONO (depois do await
+  // getShotsDb()), quando o contexto do toque que originou a navegação já se
+  // perdeu. O ponto crítico: nessa situação o iOS **nem sempre lança** erro —
+  // muitas vezes ele só ignora o play() em silêncio e o vídeo fica pausado
+  // mostrando o primeiro frame (era o bug de abrir um shot pelo perfil: parecia
+  // uma imagem estática). Um try/catch não pega esse caso, porque não há
+  // rejeição — daí a checagem explícita de `video.paused` DEPOIS de cada
+  // tentativa, em vez de confiar no throw.
   //
-  // Fallback: se o play com som for barrado, toca MUDO (sempre permitido) e
-  // reflete no botão de som — o usuário reativa o áudio com um toque, que aí
-  // sim é um gesto válido. Sempre melhor que a tela parada.
+  // Fallback: se o play com som não pegar, toca MUDO (o iOS sempre permite
+  // autoplay mudo) e destaca o botão de som — o usuário reativa o áudio com um
+  // toque, que aí sim é um gesto válido. Sempre melhor que a tela parada.
   const playVideoSafely = React.useCallback(async (video: HTMLVideoElement) => {
-    try {
-      // readyState 0 = HAVE_NOTHING: a pipeline nem inicializou (comum ao chegar
-      // do perfil, quando a grade de lá ainda segurava os decoders do iOS).
-      // Um load() explícito força o WebView a (re)inicializar o elemento e pegar
-      // um decoder recém-liberado. Só quando está travado nesse estado — em
-      // vídeos já bufferizados, load() reiniciaria o buffer à toa.
-      if (video.readyState === 0) video.load();
-      await video.play();
-    } catch (err: any) {
-      const name = err?.name;
-      if (name === "AbortError" || name === "NotSupportedError") return;
-      if (name !== "NotAllowedError") {
-        console.error("Erro ao reproduzir vídeo:", err);
-        return;
-      }
-      video.muted = true;
-      setIsMuted(true);
-      try {
-        await video.play();
-        // Destaca o botão de som por alguns segundos: sem isso o usuário só vê
-        // o vídeo mudo sem entender por quê nem que basta um toque para ligar.
-        revealSoundLabel();
-      } catch {
-        /* sem autoplay nem mudo — resta o toque do usuário */
-      }
-    }
+    if (!video.paused) return; // já tocando — idempotente (evita corridas)
+
+    // 1) Tentativa com som.
+    try { await video.play(); } catch { /* pode rejeitar OU no-op silencioso */ }
+    if (!video.paused) return; // pegou
+
+    // 2) Barrado (rejeitou ou ignorou em silêncio) → toca mudo, que é garantido.
+    video.muted = true;
+    setIsMuted(true);
+    try { await video.play(); } catch { /* nem mudo — resta o toque do usuário */ }
+    if (!video.paused) revealSoundLabel();
   }, [revealSoundLabel]);
 
   const handleVideoTap = React.useCallback((shotId: string) => {
@@ -572,14 +560,37 @@ export default function Shots() {
     };
   }, [shots, playVideoSafely]); // re-run when shots load so containerRef is populated
 
-  // Auto-play first video when shots load
+  // Auto-play do primeiro shot ao carregar a lista.
+  //
+  // O shot de destino (vindo do perfil/busca) é sempre movido para o índice 0,
+  // então tocar o primeiro cobre a chegada. Precisa de RETRY: logo após montar,
+  // o <video> costuma estar sem dados suficientes (readyState baixo) e um único
+  // play() falha em silêncio — sem retry, o vídeo fica pausado no frame (o bug
+  // relatado ao abrir pelo perfil). Reagenda enquanto o primeiro shot seguir
+  // pausado, até tocar (o observer assume dali em diante se o usuário rolar).
   React.useEffect(() => {
-    if (shots.length > 0 && !visibleShotId) {
-      const firstShotId = shots[0].id;
-      const firstVideo = videoRefsMap.current[firstShotId];
-      if (firstVideo) void playVideoSafely(firstVideo);
-    }
-  }, [shots, visibleShotId, playVideoSafely]);
+    if (shots.length === 0) return;
+    const firstShotId = shots[0].id;
+    let cancelled = false;
+    let attempts = 0;
+
+    const tryPlay = async () => {
+      if (cancelled) return;
+      const video = videoRefsMap.current[firstShotId];
+      // Só insiste enquanto ESTE ainda é o shot em foco (o usuário pode ter
+      // rolado antes de o vídeo bufferizar — aí o observer cuida do resto).
+      if (video && video.paused && (!visibleShotIdRef.current || visibleShotIdRef.current === firstShotId)) {
+        await playVideoSafely(video);
+      }
+      attempts += 1;
+      if (!cancelled && attempts < 8 && videoRefsMap.current[firstShotId]?.paused !== false) {
+        setTimeout(tryPlay, 200);
+      }
+    };
+    void tryPlay();
+
+    return () => { cancelled = true; };
+  }, [shots, playVideoSafely]);
 
   const handleIncentiveClick = React.useCallback(
     async (shot: ShotWithUser, type: PostIncentiveType) => {

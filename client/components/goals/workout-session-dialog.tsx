@@ -21,6 +21,7 @@ import {
   createCustomWorkoutDb,
   createUserWorkoutsDb,
   updateUserWorkoutNotesDb,
+  updateUserWorkoutRestDb,
   uploadCustomExercisePhotoDb,
   updateCustomWorkoutDb,
   deleteCustomWorkoutDb,
@@ -114,6 +115,36 @@ function fmtRest(secs: number): string {
   const m = Math.floor(secs / 60);
   const s = secs % 60;
   return s > 0 ? `${m}m ${s}s` : `${m}m`;
+}
+
+// Indicador de progressão de carga (kg) por exercício, recalculado a cada série
+// concluída. Reflete a ÚLTIMA série concluída comparada à sua referência:
+//  - se já há uma série concluída antes dela nesta sessão → compara com o kg
+//    dessa série anterior (mesmo que 0 / peso do corpo);
+//  - se é a 1ª série concluída → compara com o histórico (`prevKg` da série);
+//  - sem série anterior e sem histórico → neutro (cinza).
+// `up` = progrediu (verde), `down` = regrediu (vermelho), `neutral` = igual/sem base.
+type WeightTrend = "up" | "down" | "neutral";
+function computeWeightTrend(
+  series: Array<{ kg: number; completed: boolean; prevKg?: number }>,
+): WeightTrend {
+  const completed = series.filter((s) => s.completed);
+  if (completed.length === 0) return "neutral";
+  const latest = completed[completed.length - 1];
+  const latestKg = latest.kg || 0;
+  let baseline: number;
+  if (completed.length >= 2) {
+    // Série concluída anterior nesta sessão (0 é referência válida — peso do corpo).
+    baseline = completed[completed.length - 2].kg || 0;
+  } else {
+    // 1ª série concluída → compara com o histórico da própria série.
+    const prev = latest.prevKg || 0;
+    if (prev <= 0) return "neutral";
+    baseline = prev;
+  }
+  if (latestKg > baseline) return "up";
+  if (latestKg < baseline) return "down";
+  return "neutral";
 }
 
 // ── Corrida ao ar livre (GPS) ───────────────────────────────────────────────
@@ -1128,6 +1159,27 @@ export function WorkoutSessionDialog({
     };
   }, [open]);
 
+  // Semeia o tempo de descanso salvo (user_workouts.time_to_rest) por exercício
+  // ao abrir o treino. Padrão = 60s (1 min). Só preenche o que ainda não tem
+  // valor no estado, para não sobrescrever uma mudança feita na sessão (o estado
+  // é persistido no contexto e sobrevive a minimizar/reload).
+  React.useEffect(() => {
+    if (!open) return;
+    setWorkoutExerciseRestTimes((prev) => {
+      let next = prev;
+      for (const it of items) {
+        if (next[it.workout_id] == null) {
+          // null/undefined = nunca definido → padrão 60s (1 min). Um 0 salvo é
+          // uma escolha válida ("sem descanso") e deve ser preservado.
+          const saved = it.time_to_rest;
+          if (next === prev) next = { ...prev };
+          next[it.workout_id] = typeof saved === "number" ? saved : 60;
+        }
+      }
+      return next;
+    });
+  }, [open, items, setWorkoutExerciseRestTimes]);
+
   // Rest timer
   const startRestTimer = (workoutId: string) => {
     const secs = workoutExerciseRestTimes[workoutId] ?? 60;
@@ -1612,6 +1664,18 @@ export function WorkoutSessionDialog({
           ),
       );
 
+      // Persiste o tempo de descanso por exercício (user_workouts.time_to_rest):
+      // se o usuário aumentou/alterou o descanso via o ícone, a preferência passa
+      // a valer nos próximos treinos. Best-effort — não derruba a finalização.
+      await Promise.all(
+        Object.entries(workoutExerciseRestTimes)
+          .filter(([workoutId]) => sessionWorkoutIds.has(workoutId))
+          .map(([workoutId, secs]) =>
+            updateUserWorkoutRestDb(userId, workoutId, routineId, secs)
+              .catch((e) => console.error("rest save failed", e)),
+          ),
+      );
+
       setConfirmOpen(false);
       // Corrida GPS ainda ativa não pode sobreviver ao fim do treino (o watch
       // de localização vazaria) — encerra sem registrar, no-op quando idle.
@@ -1987,6 +2051,8 @@ export function WorkoutSessionDialog({
           const note = workoutExerciseNotes[item.workout_id] ?? "";
           // Exercício marcado como "máquina zerada" → borda/realce dourado.
           const isMaxed = maxedExerciseIds.includes(item.workout_id);
+          // Indicador de progressão de carga (não se aplica a cardio min/km).
+          const weightTrend: WeightTrend = isCardio ? "neutral" : computeWeightTrend(series);
 
           return (
             <div
@@ -2148,11 +2214,39 @@ export function WorkoutSessionDialog({
                     borderBottom: `1px solid ${BORDER}`,
                     position: "relative",
                   }}>
-                    {/* Tendência (decorativo) */}
-                    <svg width="18" height="14" viewBox="0 0 18 14" fill="none" opacity={0.45}>
-                      <path d="M1 11L5.5 6.5l3.5 2.5L15 2" stroke={MUTED_FG} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                      <path d="M12 2h3v3" stroke={MUTED_FG} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
+                    {/* Indicador de progressão de carga — verde (progrediu) /
+                        vermelho seta p/ baixo (regrediu) / cinza (igual ou sem
+                        base). Atualiza a cada série concluída. */}
+                    {(() => {
+                      const trendColor =
+                        weightTrend === "up" ? "#22c55e"
+                        : weightTrend === "down" ? "#ef4444"
+                        : MUTED_FG;
+                      const trendTitle =
+                        weightTrend === "up" ? t("goals_weight_trend_up")
+                        : weightTrend === "down" ? t("goals_weight_trend_down")
+                        : t("goals_weight_trend_same");
+                      return (
+                        <svg
+                          width="18" height="14" viewBox="0 0 18 14" fill="none"
+                          opacity={weightTrend === "neutral" ? 0.45 : 1}
+                          aria-label={trendTitle}
+                        >
+                          <title>{trendTitle}</title>
+                          {weightTrend === "down" ? (
+                            <>
+                              <path d="M1 3L5.5 7.5l3.5-2.5L15 12" stroke={trendColor} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                              <path d="M12 12h3v-3" stroke={trendColor} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                            </>
+                          ) : (
+                            <>
+                              <path d="M1 11L5.5 6.5l3.5 2.5L15 2" stroke={trendColor} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                              <path d="M12 2h3v3" stroke={trendColor} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                            </>
+                          )}
+                        </svg>
+                      );
+                    })()}
 
                     {/* Lápis — abre/fecha nota */}
                     <button

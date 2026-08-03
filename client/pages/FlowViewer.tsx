@@ -29,10 +29,13 @@ import {
   deleteStoryDb,
   recordFlowViewDb,
   getFlowViewersDb,
+  getFlowTagsDb,
+  repostStoryDb,
   type StoryWithUser,
   type PostIncentiveType,
   type StoryComment,
   type FlowViewer,
+  type SearchUser,
 } from "@/lib/ritmofit-db";
 import {
   X,
@@ -46,6 +49,8 @@ import {
   Check,
   ChevronUp,
   Loader2,
+  AtSign,
+  Repeat2,
 } from "lucide-react";
 import {
   renderIncentiveIcon,
@@ -159,6 +164,9 @@ export default function FlowViewer() {
   const [mediaReady, setMediaReady] = React.useState(false);
   const mediaReadyRef = React.useRef(false);
   const mediaReadySafetyRef = React.useRef<NodeJS.Timeout | null>(null);
+  // Pessoas marcadas no flow atual + estado do repost (para quem foi marcado).
+  const [taggedUsers, setTaggedUsers] = React.useState<SearchUser[]>([]);
+  const [isReposting, setIsReposting] = React.useState(false);
 
   const markMediaReady = React.useCallback(() => {
     if (mediaReadySafetyRef.current) {
@@ -382,15 +390,18 @@ export default function FlowViewer() {
 
     setComments([]);
     setUserLikes([]);
+    setTaggedUsers([]);
 
     const loadStoryData = async () => {
       try {
-        const [userLikesData, commentsData] = await Promise.all([
+        const [userLikesData, commentsData, tagsData] = await Promise.all([
           getUserStoryLikesDb(story.id),
           getStoryCommentsDb(story.id),
+          getFlowTagsDb(story.id),
         ]);
         setUserLikes(userLikesData);
         setComments(commentsData);
+        setTaggedUsers(tagsData);
       } catch (err) {
         console.error("Error loading story data:", err);
       }
@@ -507,6 +518,27 @@ export default function FlowViewer() {
     }
     setRestartKey((k) => k + 1);
   }, [playWithSound]);
+
+  // Repost (estilo Instagram): quem foi marcado adiciona o flow ao próprio perfil.
+  const isTaggedViewer = !!user && !isOwner && taggedUsers.some((u) => u.id === user.id);
+  const handleRepost = React.useCallback(async () => {
+    if (!story || isReposting) return;
+    setIsPaused(true);
+    isPausedRef.current = true;
+    setIsReposting(true);
+    try {
+      const reposted = await repostStoryDb(story.id);
+      if (reposted) {
+        toast({ title: "Flow repostado!", description: "Adicionado ao seu perfil." });
+      } else {
+        toast({ title: "Não foi possível repostar", variant: "destructive" });
+      }
+    } catch {
+      toast({ title: "Não foi possível repostar", variant: "destructive" });
+    } finally {
+      setIsReposting(false);
+    }
+  }, [story, isReposting]);
 
   const handleOpenViewers = React.useCallback(async () => {
     if (!story) return;
@@ -923,9 +955,9 @@ export default function FlowViewer() {
                             }}
                           >
                             <p
-                              className="leading-tight break-words whitespace-pre-wrap"
+                              className="leading-relaxed break-words whitespace-pre-wrap"
                               style={{
-                                textShadow: "0 1px 6px rgba(0,0,0,0.5)",
+                                textShadow: el.style?.backgroundColor ? "none" : "0 1px 6px rgba(0,0,0,0.5)",
                                 fontFamily: el.style?.fontFamily ?? "system-ui, sans-serif",
                                 fontWeight: el.style?.fontWeight ?? 800,
                                 fontSize: el.style?.fontSize ?? 30,
@@ -933,7 +965,21 @@ export default function FlowViewer() {
                                 color: el.style?.color ?? "#ffffff",
                               }}
                             >
-                              {el.text}
+                              {el.style?.backgroundColor ? (
+                                <span
+                                  style={{
+                                    background: el.style.backgroundColor,
+                                    boxDecorationBreak: "clone",
+                                    WebkitBoxDecorationBreak: "clone",
+                                    padding: "0.08em 0.26em",
+                                    borderRadius: "0.28em",
+                                  }}
+                                >
+                                  {el.text}
+                                </span>
+                              ) : (
+                                el.text
+                              )}
                             </p>
                           </div>
                         ))
@@ -1028,9 +1074,9 @@ export default function FlowViewer() {
                             }}
                           >
                             <p
-                              className="leading-tight break-words whitespace-pre-wrap"
+                              className="leading-relaxed break-words whitespace-pre-wrap"
                               style={{
-                                textShadow: "0 1px 6px rgba(0,0,0,0.5)",
+                                textShadow: el.style?.backgroundColor ? "none" : "0 1px 6px rgba(0,0,0,0.5)",
                                 fontFamily: el.style?.fontFamily ?? "system-ui, sans-serif",
                                 fontWeight: el.style?.fontWeight ?? 800,
                                 fontSize: el.style?.fontSize ?? 30,
@@ -1038,7 +1084,21 @@ export default function FlowViewer() {
                                 color: el.style?.color ?? "#ffffff",
                               }}
                             >
-                              {el.text}
+                              {el.style?.backgroundColor ? (
+                                <span
+                                  style={{
+                                    background: el.style.backgroundColor,
+                                    boxDecorationBreak: "clone",
+                                    WebkitBoxDecorationBreak: "clone",
+                                    padding: "0.08em 0.26em",
+                                    borderRadius: "0.28em",
+                                  }}
+                                >
+                                  {el.text}
+                                </span>
+                              ) : (
+                                el.text
+                              )}
                             </p>
                           </div>
                         ))}
@@ -1130,6 +1190,41 @@ export default function FlowViewer() {
                 >
                   {story.description}
                 </p>
+              )}
+
+              {/* Pessoas marcadas no flow — toque abre o perfil */}
+              {taggedUsers.length > 0 && (
+                <div className="flex items-center gap-2 px-1.5 mb-2.5 flex-wrap">
+                  <AtSign className="h-3.5 w-3.5 text-white/70 shrink-0" />
+                  {taggedUsers.slice(0, 3).map((u) => (
+                    <button
+                      key={u.id}
+                      onClick={() => { handleClose(); navigate(`/usuario/${u.id}`); }}
+                      className="pointer-events-auto flex items-center gap-1.5 rounded-full bg-black/40 backdrop-blur border border-white/15 pl-1 pr-2.5 py-0.5 active:opacity-70"
+                    >
+                      <UserAvatar photo={u.photo} nickname={u.nickname} className="h-5 w-5" />
+                      <span className="text-[11px] font-semibold text-white">{u.nickname}</span>
+                    </button>
+                  ))}
+                  {taggedUsers.length > 3 && (
+                    <span className="text-[11px] font-medium text-white/70">
+                      +{taggedUsers.length - 3}
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {/* Repost — só para quem foi marcado (estilo Instagram "adicionar ao seu flow") */}
+              {isTaggedViewer && (
+                <button
+                  onClick={handleRepost}
+                  disabled={isReposting}
+                  className="pointer-events-auto flex items-center justify-center gap-2 w-full mb-2.5 py-2.5 rounded-full font-semibold text-sm text-white active:opacity-80 disabled:opacity-60"
+                  style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)" }}
+                >
+                  <Repeat2 className="h-4 w-4" />
+                  {isReposting ? "Repostando…" : "Repostar no meu flow"}
+                </button>
               )}
 
               {isOwner && (

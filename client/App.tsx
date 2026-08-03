@@ -58,6 +58,7 @@ import { useLanguage } from "@/lib/language-context";
 import { useLayoutMode } from "@/hooks/useLayoutMode";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
 import { initKeyboardTracker } from "@/lib/keyboard";
+import { APP_STORE_URL, parseDeepLinkUrl } from "@/lib/share-url";
 
 // Teclado iOS (Keyboard resize:'none'): publica --keyboard-height/kb-open no
 // <html> a partir dos eventos nativos. Singleton de app — inicia no bootstrap.
@@ -143,7 +144,6 @@ const ADMIN_USER_IDS = [
   "67e0640a-4762-4758-bb0f-449be951cc6a",
   "94548d81-76be-4c8b-9ff7-ccb946cd4e69",
 ];
-const APP_STORE_URL = "https://apps.apple.com/app/id6761916728";
 
 /**
  * Quando o link é aberto no browser (app não instalado), redireciona para a
@@ -186,44 +186,61 @@ function AppStoreRedirect() {
   );
 }
 
+/**
+ * Recebe Universal Links (`https://linkafit.com.br/post/…`) e o custom scheme
+ * (`com.linka.meuapp://post/…`) e leva o usuário ao destino.
+ *
+ * O parsing das duas formas de URL mora em `parseDeepLinkUrl`
+ * (`shared/share-config.ts`), junto das constantes de domínio.
+ */
 function DeepLinkHandler() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
+
+  // Destino pendente. O `appUrlOpen` é emitido pelo plugin com
+  // `retainUntilConsumed: true`: em cold start (app fechado, usuário toca no
+  // link no WhatsApp) o evento é entregue no INSTANTE em que este listener
+  // monta — quando a sessão do Supabase ainda está sendo restaurada e `user`
+  // ainda é null. Decidir o destino nesse momento mandava um usuário LOGADO
+  // para /login (a tela de Login o resgatava depois via `deeplink_redirect`,
+  // mas com um flash visível). Guardamos o alvo e só resolvemos quando
+  // `loading` vira false e `user` já reflete a sessão real.
+  const [pendingPath, setPendingPath] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     const listener = CapApp.addListener("appUrlOpen", ({ url }) => {
-      try {
-        const parsed = new URL(url);
-        const path = parsed.pathname;
-        const hash = parsed.hash;
+      const target = parseDeepLinkUrl(url);
 
-        // Ignora callbacks de auth comuns — tratados na página de Login
-        if (path.includes("login-callback")) return;
+      if (target.kind === "ignore") return;
 
-        // Link de recuperação de senha: Supabase envia hash com type=recovery
-        // Ao abrir o app via deeplink, navegar para /login para que o
-        // onAuthStateChange dispare PASSWORD_RECOVERY e mostre o formulário.
-        if (hash.includes("type=recovery")) {
-          navigate("/login", { replace: true });
-          return;
-        }
-
-        if (user) {
-          navigate(path, { replace: false });
-        } else {
-          // Guarda o destino para redirecionar após login
-          sessionStorage.setItem("deeplink_redirect", path);
-          navigate("/login", { replace: false });
-        }
-      } catch {
-        // URL inválida, ignora
+      // Recuperação de senha: navegar para /login faz o onAuthStateChange
+      // disparar PASSWORD_RECOVERY e a tela mostrar o formulário de nova senha.
+      if (target.kind === "recovery") {
+        navigate("/login", { replace: true });
+        return;
       }
+
+      setPendingPath(target.path);
     });
 
     return () => {
       listener.then((l) => l.remove());
     };
-  }, [navigate, user]);
+  }, [navigate]);
+
+  React.useEffect(() => {
+    if (!pendingPath || loading) return;
+
+    setPendingPath(null);
+
+    if (user) {
+      navigate(pendingPath);
+    } else {
+      // Guarda o destino para redirecionar após login (Login.tsx consome).
+      sessionStorage.setItem("deeplink_redirect", pendingPath);
+      navigate("/login");
+    }
+  }, [pendingPath, loading, user, navigate]);
 
   return null;
 }

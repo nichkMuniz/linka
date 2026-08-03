@@ -559,7 +559,7 @@ function impactTier(volumeKg: number): string {
   return "PESO PESADO";
 }
 
-// Nome da rotina centralizado no rodapé dos cards pôster (acima do linka.app).
+// Nome da rotina centralizado no rodapé dos cards pôster (acima do domínio).
 function drawRoutineNameLine(
   ctx: CanvasRenderingContext2D, W: number, y: number, routineName: string,
 ) {

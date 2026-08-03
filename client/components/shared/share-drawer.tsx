@@ -14,7 +14,7 @@ interface ShareDrawerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   text: string;
-  /** URL a ser compartilhada. Se não fornecida, usa SHARE_BASE_URL (linka.app). */
+  /** URL a ser compartilhada. Se não fornecida, usa SHARE_BASE_URL. */
   url?: string;
   /** Título do drawer */
   title?: string;

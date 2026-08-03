@@ -3,6 +3,9 @@ import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
+import { TagPeopleDrawer } from "@/components/shared/tag-people-drawer";
+import { UserAvatar } from "@/components/shared/user-avatar";
+import type { SearchUser } from "@/lib/ritmofit-db";
 import {
   X,
   Image as ImageIcon,
@@ -14,6 +17,8 @@ import {
   AlignCenter,
   AlignRight,
   Loader2,
+  AtSign,
+  Lock,
 } from "lucide-react";
 
 const GRADIENT_PRESETS = [
@@ -59,6 +64,7 @@ type TextStyle = {
   align: "left" | "center" | "right";
   color: string;
   fontSize: number; // px
+  backgroundColor: string | null; // realce estilo Instagram; null = sem fundo
 };
 
 // Tamanho da legenda (px). O padrão 30 equivale ao text-3xl usado antes; o usuário
@@ -73,10 +79,27 @@ const DEFAULT_TEXT_STYLE: TextStyle = {
   align: "center",
   color: "#ffffff",
   fontSize: DEFAULT_CAPTION_FONT,
+  backgroundColor: null,
 };
+
+// Preto ou branco conforme a luminância do fundo — mantém a legenda legível
+// quando há realce, como o Instagram faz automaticamente.
+function contrastText(hex: string): string {
+  const h = hex.replace("#", "");
+  if (h.length < 6) return "#000000";
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return lum > 0.6 ? "#000000" : "#ffffff";
+}
 
 // Quanto tempo segurando o obturador até começar a gravar vídeo (toque rápido = foto)
 const LONG_PRESS_MS = 400;
+// Quanto arrastar o obturador para cima (px) enquanto grava para TRAVAR a gravação
+// (mãos livres — estilo Instagram/Snapchat): depois disso, soltar não para; para
+// encerrar, toca-se no obturador de novo.
+const LOCK_DRAG_THRESHOLD = 70;
 // Duração máxima de gravação do flow em vídeo (1 min)
 const MAX_RECORD_MS = 60000;
 // Duração máxima aceita para vídeos (gravados ou da galeria) — mantém os flows curtos
@@ -229,6 +252,7 @@ interface FlowCreationDialogProps {
     textPosition?: { x: number; y: number } | null,
     textElements?: { text: string; x: number; y: number }[] | null,
     mediaTransform?: { scale: number; x: number; y: number } | null,
+    taggedUserIds?: string[],
   ) => Promise<void>;
   isLoading?: boolean;
 }
@@ -249,6 +273,9 @@ export function FlowCreationDialog({
   // câmera é full-bleed (object-cover), pois o viewfinder já é WYSIWYG.
   const [mediaFromGallery, setMediaFromGallery] = React.useState(false);
   const [description, setDescription] = React.useState("");
+  // Pessoas marcadas no flow (estilo Instagram) + drawer de seleção.
+  const [taggedUsers, setTaggedUsers] = React.useState<SearchUser[]>([]);
+  const [tagPeopleOpen, setTagPeopleOpen] = React.useState(false);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   // Verdadeiro entre selecionar um arquivo na galeria e o preview ficar pronto.
   // Vídeos grandes demoram para ter a metadata (duração) lida E para decodificar o
@@ -264,6 +291,8 @@ export function FlowCreationDialog({
   const [cameraError, setCameraError] = React.useState<string | null>(null);
   const [cameraReady, setCameraReady] = React.useState(false);
   const [isRecording, setIsRecording] = React.useState(false);
+  // Gravação "travada" (mãos livres, após arrastar o obturador para cima).
+  const [isRecordingLocked, setIsRecordingLocked] = React.useState(false);
   const [recordSeconds, setRecordSeconds] = React.useState(0);
   const [zoom, setZoom] = React.useState(1);
   const [mediaTransform, setMediaTransformState] = React.useState<MediaTransform>(IDENTITY_TRANSFORM);
@@ -288,6 +317,12 @@ export function FlowCreationDialog({
   const maxDurationTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const recordTickRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
   const recordingActiveRef = React.useRef(false);
+  // Y do toque inicial no obturador (para medir o arraste para cima que trava).
+  const shutterStartYRef = React.useRef<number | null>(null);
+  const recordLockedRef = React.useRef(false);
+  // Após tocar o obturador para PARAR uma gravação travada, ignora o pointerup
+  // correspondente para ele não virar um "toque = foto".
+  const ignoreNextShutterUpRef = React.useRef(false);
   // Verdadeiro enquanto o usuário mantém o obturador pressionado com intenção de gravar
   const wantRecordingRef = React.useRef(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
@@ -329,6 +364,22 @@ export function FlowCreationDialog({
   // um novo texto — mesmo efeito do botão "+ Aa". Invalidado por multitoque ou
   // movimento acima do limite, para não disparar durante ajuste da mídia.
   const mediaTapRef = React.useRef<{ x: number; y: number; t: number } | null>(null);
+  // Modo LEGENDA (foto/vídeo): a camada de gestos da mídia é a ÚNICA dona dos gestos.
+  // Regra estilo Instagram: se há legenda, o gesto controla a legenda; senão, a mídia.
+  // Assim a pinça não "escorrega" para a foto ao sair de cima do texto pequeno.
+  const textElsRef = React.useRef<Map<string, HTMLDivElement>>(new Map());
+  const capGestureRef = React.useRef<{
+    target: "media" | "text";
+    textId: string | null;
+    origX: number;
+    origY: number;
+    origFontSize: number;
+    anchorX: number;
+    anchorY: number;
+    startDist: number;
+    moved: boolean;
+    pinched: boolean;
+  } | null>(null);
 
   const stopStream = React.useCallback(() => {
     wantRecordingRef.current = false;
@@ -361,7 +412,10 @@ export function FlowCreationDialog({
     mediaRecorderRef.current = null;
     recordedChunksRef.current = [];
     recordingActiveRef.current = false;
+    recordLockedRef.current = false;
+    shutterStartYRef.current = null;
     setIsRecording(false);
+    setIsRecordingLocked(false);
     if (audioStreamRef.current) {
       audioStreamRef.current.getTracks().forEach((t) => t.stop());
       audioStreamRef.current = null;
@@ -462,7 +516,9 @@ export function FlowCreationDialog({
     const preventTouchMove = (e: TouchEvent) => {
       const target = e.target as HTMLElement | null;
       if (!target) return;
-      if (!target.closest("[data-flow-dialog-root]")) {
+      // Deixa passar o próprio dialog e qualquer drawer (vaul) por cima dele — ex.:
+      // o TagPeopleDrawer de marcação, cuja lista precisa rolar.
+      if (!target.closest("[data-flow-dialog-root]") && !target.closest("[data-vaul-drawer]")) {
         e.preventDefault();
       }
     };
@@ -621,7 +677,10 @@ export function FlowCreationDialog({
       }
     }
     recordingActiveRef.current = false;
+    recordLockedRef.current = false;
+    shutterStartYRef.current = null;
     setIsRecording(false);
+    setIsRecordingLocked(false);
   }, []);
 
   const startRecording = React.useCallback(async () => {
@@ -760,6 +819,13 @@ export function FlowCreationDialog({
     e.preventDefault();
     if (!cameraReady) return;
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+    // Se já está gravando TRAVADO (mãos livres), este toque é para PARAR.
+    if (recordLockedRef.current && recordingActiveRef.current) {
+      stopRecording();
+      ignoreNextShutterUpRef.current = true; // não deixar o up virar "foto"
+      return;
+    }
+    shutterStartYRef.current = e.clientY;
     wantRecordingRef.current = false;
     // Após o limite de tempo segurando, inicia a gravação de vídeo
     if (typeof MediaRecorder !== "undefined" && navigator.mediaDevices?.getUserMedia) {
@@ -770,14 +836,35 @@ export function FlowCreationDialog({
     }
   };
 
+  const handleShutterPointerMove = (e: React.PointerEvent<HTMLButtonElement>) => {
+    // Enquanto grava (e ainda não travou), arrastar para cima além do limite trava
+    // a gravação — o usuário pode soltar o dedo que a gravação continua.
+    if (!recordingActiveRef.current || recordLockedRef.current) return;
+    const startY = shutterStartYRef.current;
+    if (startY == null) return;
+    if (startY - e.clientY > LOCK_DRAG_THRESHOLD) {
+      recordLockedRef.current = true;
+      setIsRecordingLocked(true);
+    }
+  };
+
   const handleShutterPointerUp = (e: React.PointerEvent<HTMLButtonElement>) => {
     if (holdTimerRef.current) {
       clearTimeout(holdTimerRef.current);
       holdTimerRef.current = null;
     }
     (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+    // Up correspondente ao toque que parou uma gravação travada → não faz nada.
+    if (ignoreNextShutterUpRef.current) {
+      ignoreNextShutterUpRef.current = false;
+      return;
+    }
+    // Gravação travada: soltar o dedo NÃO para — continua mãos livres.
+    if (recordLockedRef.current) {
+      return;
+    }
     if (recordingActiveRef.current) {
-      // Estava gravando → finaliza o vídeo
+      // Estava gravando (sem travar) → soltar finaliza o vídeo
       stopRecording();
     } else if (wantRecordingRef.current) {
       // Passou do limite mas o gravador ainda estava iniciando → aborta
@@ -899,6 +986,7 @@ export function FlowCreationDialog({
     setMediaTransformState(IDENTITY_TRANSFORM);
     pointersRef.current.clear();
     gestureStartRef.current = null;
+    capGestureRef.current = null;
   }, [mediaPreview]);
 
   const beginMediaGesture = React.useCallback(() => {
@@ -926,15 +1014,71 @@ export function FlowCreationDialog({
     }
   }, []);
 
+  // Qual frase está sob o ponto (x,y) na tela — topmost primeiro (última renderizada).
+  const hitTestCaptionText = (x: number, y: number): string | null => {
+    for (let i = texts.length - 1; i >= 0; i--) {
+      const el = textElsRef.current.get(texts[i].id);
+      if (!el) continue;
+      const r = el.getBoundingClientRect();
+      // margem de 12px para facilitar acertar textos pequenos
+      if (x >= r.left - 12 && x <= r.right + 12 && y >= r.top - 12 && y <= r.bottom + 12) {
+        return texts[i].id;
+      }
+    }
+    return null;
+  };
+
+  // (Re)ancora a baseline do sub-gesto atual — chamado quando o nº de dedos muda.
+  const rebaseCaptionGesture = () => {
+    const g = capGestureRef.current;
+    if (!g) return;
+    if (g.target === "media") {
+      beginMediaGesture();
+      return;
+    }
+    const item = texts.find((t) => t.id === g.textId);
+    if (!item) return;
+    const pts = Array.from(pointersRef.current.values());
+    g.origX = item.x;
+    g.origY = item.y;
+    g.origFontSize = item.style.fontSize;
+    if (pts.length >= 2) {
+      g.startDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1;
+    } else if (pts.length === 1) {
+      g.anchorX = pts[0].x;
+      g.anchorY = pts[0].y;
+    }
+  };
+
   const handleMediaPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
     pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    // Candidato a toque apenas enquanto for um único dedo; multitoque cancela.
-    mediaTapRef.current =
-      pointersRef.current.size === 1
-        ? { x: e.clientX, y: e.clientY, t: Date.now() }
-        : null;
-    beginMediaGesture();
+    // No 1º dedo, decide o alvo do gesto (regra Instagram): há legenda → controla a
+    // legenda (a que está sob o dedo, senão a última); sem legenda → controla a mídia.
+    if (pointersRef.current.size === 1) {
+      mediaTapRef.current = { x: e.clientX, y: e.clientY, t: Date.now() };
+      if (texts.length > 0) {
+        const overId = hitTestCaptionText(e.clientX, e.clientY);
+        capGestureRef.current = {
+          target: "text",
+          textId: overId ?? texts[texts.length - 1].id,
+          origX: 0, origY: 0, origFontSize: 0,
+          anchorX: 0, anchorY: 0, startDist: 0,
+          moved: false, pinched: false,
+        };
+      } else {
+        capGestureRef.current = {
+          target: "media", textId: null,
+          origX: 0, origY: 0, origFontSize: 0,
+          anchorX: 0, anchorY: 0, startDist: 0,
+          moved: false, pinched: false,
+        };
+      }
+    } else {
+      // multitoque cancela o toque (vira pinça)
+      mediaTapRef.current = null;
+    }
+    rebaseCaptionGesture();
   };
 
   const handleMediaPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -945,9 +1089,38 @@ export function FlowCreationDialog({
     if (tap && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) > 8) {
       mediaTapRef.current = null;
     }
+    const g = capGestureRef.current;
+    if (!g) return;
+    const pts = Array.from(pointersRef.current.values());
+
+    if (g.target === "text") {
+      const id = g.textId;
+      if (pts.length >= 2) {
+        // Pinça → só o fontSize da legenda muda (a foto fica parada).
+        const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+        const ratio = g.startDist ? dist / g.startDist : 1;
+        const newSize = Math.round(
+          Math.min(MAX_CAPTION_FONT, Math.max(MIN_CAPTION_FONT, g.origFontSize * ratio)),
+        );
+        g.pinched = true;
+        setTexts((prev) => prev.map((t) => (t.id === id ? { ...t, style: { ...t.style, fontSize: newSize } } : t)));
+      } else {
+        // Um dedo → move só a legenda.
+        const dx = pts[0].x - g.anchorX;
+        const dy = pts[0].y - g.anchorY;
+        if (!g.moved && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) g.moved = true;
+        if (g.moved) {
+          const nx = g.origX + dx;
+          const ny = g.origY + dy;
+          setTexts((prev) => prev.map((t) => (t.id === id ? { ...t, x: nx, y: ny } : t)));
+        }
+      }
+      return;
+    }
+
+    // target === "media" — reenquadra a foto/vídeo (só quando não há legenda).
     const start = gestureStartRef.current;
     if (!start) return;
-    const pts = Array.from(pointersRef.current.values());
     if (pts.length === 1) {
       setMediaTransform({
         scale: start.scale,
@@ -974,17 +1147,24 @@ export function FlowCreationDialog({
       (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
     }
     if (pointersRef.current.size > 0) {
-      beginMediaGesture();
-    } else {
-      // Toque curto sem arraste/pinça em área vazia da foto → abre novo texto,
-      // igual ao botão "+ Aa". (Textos já postos têm handlers próprios que param
-      // a propagação, então tocar sobre eles não cai aqui.)
-      const tap = mediaTapRef.current;
-      mediaTapRef.current = null;
-      if (tap && !isEditingText && Date.now() - tap.t < 300) {
+      // Ainda há dedo(s) — re-ancora para o próximo sub-gesto (ex.: 2→1).
+      rebaseCaptionGesture();
+      return;
+    }
+    // Gesto encerrado. Toque curto sem arraste/pinça: sobre uma legenda → reedita;
+    // em área vazia → abre um novo texto (igual ao "+ Aa").
+    const tap = mediaTapRef.current;
+    mediaTapRef.current = null;
+    capGestureRef.current = null;
+    gestureStartRef.current = null;
+    if (tap && !isEditingText && Date.now() - tap.t < 300) {
+      const hitId = hitTestCaptionText(tap.x, tap.y);
+      if (hitId) {
+        const item = texts.find((t) => t.id === hitId);
+        if (item) beginEditText(item);
+      } else {
         beginNewText();
       }
-      gestureStartRef.current = null;
     }
   };
 
@@ -996,6 +1176,7 @@ export function FlowCreationDialog({
     setMediaIsVideo(false);
     setMediaFromGallery(false);
     setDescription("");
+    setTaggedUsers([]);
     setTexts([]);
     setEditingId(null);
     setEditingValue("");
@@ -1054,7 +1235,7 @@ export function FlowCreationDialog({
               style: t.style,
             }))
           : null;
-      await onCreateStory(mediaToShare, description, null, null, elementsPercent, mediaTransformPayload);
+      await onCreateStory(mediaToShare, description, null, null, elementsPercent, mediaTransformPayload, taggedUsers.map((u) => u.id));
       resetForm();
       onOpenChange(false);
       toast({
@@ -1090,7 +1271,7 @@ export function FlowCreationDialog({
         style: t.style,
       }));
       const joinedDescription = texts.map((t) => t.text).join("\n");
-      await onCreateStory("", joinedDescription, selectedGradient, null, elementsPercent);
+      await onCreateStory("", joinedDescription, selectedGradient, null, elementsPercent, null, taggedUsers.map((u) => u.id));
       resetForm();
       onOpenChange(false);
       toast({
@@ -1122,12 +1303,17 @@ export function FlowCreationDialog({
     }
     setIsPreparingMedia(false);
     setDescription("");
+    setTaggedUsers([]);
     setSelectedGradient(GRADIENT_PRESETS[0].value);
     setTexts([]);
     setEditingId(null);
     setEditingValue("");
     setEditingStyle(DEFAULT_TEXT_STYLE);
     setIsRecording(false);
+    setIsRecordingLocked(false);
+    recordLockedRef.current = false;
+    shutterStartYRef.current = null;
+    ignoreNextShutterUpRef.current = false;
     setRecordSeconds(0);
     setStep("camera");
   };
@@ -1277,22 +1463,34 @@ export function FlowCreationDialog({
   // entre o modo de texto ("create") e a legenda sobre a foto ("caption")
   const textStyleControls = (
     <>
-      {/* Cores da fonte */}
+      {/* Cores — quando o realce está ligado, escolhem a cor do FUNDO (e o texto
+          vira preto/branco automaticamente); senão, escolhem a cor do texto. */}
       <div className="flex gap-2 overflow-x-auto no-scrollbar px-1 py-1">
-        {TEXT_COLORS.map((color) => (
-          <button
-            key={color}
-            onClick={() => setEditingStyle((s) => ({ ...s, color }))}
-            className="h-7 w-7 rounded-full border-2 shrink-0 transition-transform"
-            style={{
-              background: color,
-              borderColor: editingStyle.color === color ? "white" : "rgba(255,255,255,0.25)",
-              transform: editingStyle.color === color ? "scale(1.25)" : "scale(1)",
-              boxShadow: color === "#ffffff" ? "inset 0 0 0 1px rgba(0,0,0,0.2)" : undefined,
-            }}
-            aria-label={`Cor ${color}`}
-          />
-        ))}
+        {TEXT_COLORS.map((color) => {
+          const bgActive = editingStyle.backgroundColor != null;
+          const activeColor = bgActive ? editingStyle.backgroundColor : editingStyle.color;
+          const isSel = activeColor === color;
+          return (
+            <button
+              key={color}
+              onClick={() =>
+                setEditingStyle((s) =>
+                  s.backgroundColor != null
+                    ? { ...s, backgroundColor: color, color: contrastText(color) }
+                    : { ...s, color },
+                )
+              }
+              className="h-7 w-7 rounded-full border-2 shrink-0 transition-transform"
+              style={{
+                background: color,
+                borderColor: isSel ? "white" : "rgba(255,255,255,0.25)",
+                transform: isSel ? "scale(1.25)" : "scale(1)",
+                boxShadow: color === "#ffffff" ? "inset 0 0 0 1px rgba(0,0,0,0.2)" : undefined,
+              }}
+              aria-label={`Cor ${color}`}
+            />
+          );
+        })}
       </div>
 
       {/* Fontes */}
@@ -1317,8 +1515,8 @@ export function FlowCreationDialog({
         })}
       </div>
 
-      {/* Alinhamento */}
-      <div className="flex gap-2 justify-center">
+      {/* Alinhamento + realce de fundo (estilo Instagram) */}
+      <div className="flex gap-2 justify-center items-center">
         {(["left", "center", "right"] as const).map((align) => {
           const Icon = align === "left" ? AlignLeft : align === "center" ? AlignCenter : AlignRight;
           const isActive = editingStyle.align === align;
@@ -1334,13 +1532,73 @@ export function FlowCreationDialog({
             </button>
           );
         })}
+        {/* Toggle do fundo da legenda — liga/desliga o realce; a cor sai da paleta acima */}
+        <button
+          onClick={() =>
+            setEditingStyle((s) =>
+              s.backgroundColor != null
+                ? { ...s, color: s.backgroundColor, backgroundColor: null }
+                : { ...s, backgroundColor: s.color, color: contrastText(s.color) },
+            )
+          }
+          className="h-8 min-w-8 px-2.5 rounded-full flex items-center justify-center transition-all font-extrabold text-sm"
+          style={{
+            background:
+              editingStyle.backgroundColor != null
+                ? editingStyle.backgroundColor
+                : "rgba(0,0,0,0.45)",
+            color:
+              editingStyle.backgroundColor != null
+                ? contrastText(editingStyle.backgroundColor)
+                : "#fff",
+            border: "1px solid rgba(255,255,255,0.3)",
+          }}
+          aria-label="Fundo da legenda"
+        >
+          A
+        </button>
       </div>
 
     </>
   );
 
-  // Frases já posicionadas (arrastáveis, toque para reeditar) — compartilhadas
-  // entre o modo de texto e a legenda sobre a foto
+  const renderTextInner = (item: TextItem) => {
+    const hasBg = !!item.style.backgroundColor;
+    return (
+      <p
+        className="leading-relaxed break-words whitespace-pre-wrap"
+        style={{
+          textShadow: hasBg ? "none" : "0 1px 6px rgba(0,0,0,0.45)",
+          fontFamily: item.style.fontFamily,
+          fontWeight: item.style.fontWeight,
+          fontSize: item.style.fontSize,
+          textAlign: item.style.align,
+          color: item.style.color,
+        }}
+      >
+        {hasBg ? (
+          <span
+            style={{
+              background: item.style.backgroundColor as string,
+              // box-decoration-break: clone → cada linha ganha sua própria caixa
+              // arredondada, colada no texto (igual ao realce do Instagram).
+              boxDecorationBreak: "clone",
+              WebkitBoxDecorationBreak: "clone",
+              padding: "0.08em 0.26em",
+              borderRadius: "0.28em",
+            }}
+          >
+            {item.text}
+          </span>
+        ) : (
+          item.text
+        )}
+      </p>
+    );
+  };
+
+  // Modo TEXTO (gradient): as frases têm handlers próprios (arrastar/pinçar/tocar),
+  // pois não há camada de mídia embaixo para conflitar.
   const committedTextItems = texts.map((item) => (
     <div
       key={item.id}
@@ -1359,19 +1617,33 @@ export function FlowCreationDialog({
       onPointerUp={(e) => handleTextPointerUp(e, item)}
       onPointerCancel={(e) => handleTextPointerUp(e, item)}
     >
-      <p
-        className="leading-tight break-words whitespace-pre-wrap"
-        style={{
-          textShadow: "0 1px 6px rgba(0,0,0,0.45)",
-          fontFamily: item.style.fontFamily,
-          fontWeight: item.style.fontWeight,
-          fontSize: item.style.fontSize,
-          textAlign: item.style.align,
-          color: item.style.color,
-        }}
-      >
-        {item.text}
-      </p>
+      {renderTextInner(item)}
+    </div>
+  ));
+
+  // Modo LEGENDA sobre a foto: as frases são **pointer-events-none** e todos os
+  // gestos passam para a camada única de gestos da mídia (handleMediaPointer*), que
+  // decide o alvo (legenda vs foto). Registramos o elemento em textElsRef para o
+  // hit-test (tocar/arrastar/pinçar sobre a frase certa).
+  const captionTextItems = texts.map((item) => (
+    <div
+      key={item.id}
+      ref={(el) => {
+        if (el) textElsRef.current.set(item.id, el);
+        else textElsRef.current.delete(item.id);
+      }}
+      data-caption-text-id={item.id}
+      className="absolute z-[6] select-none pointer-events-none"
+      style={{
+        left: item.x,
+        top: item.y,
+        transform: "translate(-50%, -50%)",
+        width: "max-content",
+        maxWidth: "80vw",
+        padding: "0 0.5rem",
+      }}
+    >
+      {renderTextInner(item)}
     </div>
   ));
 
@@ -1494,11 +1766,15 @@ export function FlowCreationDialog({
 
             <div className="flex-1" />
 
-            {/* Hint */}
-            {!isRecording && !cameraError && (
+            {/* Hint — muda conforme o estado da gravação */}
+            {!cameraError && (
               <div className="relative z-10 flex items-center justify-center pb-3 px-6">
                 <p className="text-white/70 text-xs text-center">
-                  Toque para foto • Segure para gravar vídeo
+                  {!isRecording
+                    ? "Toque para foto • Segure para gravar vídeo"
+                    : isRecordingLocked
+                      ? "Gravando sem as mãos • toque no botão para parar"
+                      : "Arraste para cima 🔒 para gravar sem segurar"}
                 </p>
               </div>
             )}
@@ -1521,18 +1797,23 @@ export function FlowCreationDialog({
 
               <button
                 onPointerDown={handleShutterPointerDown}
+                onPointerMove={handleShutterPointerMove}
                 onPointerUp={handleShutterPointerUp}
                 onPointerCancel={handleShutterPointerUp}
                 onContextMenu={(e) => e.preventDefault()}
                 disabled={!cameraReady}
                 className="h-20 w-20 rounded-full bg-white/20 backdrop-blur flex items-center justify-center disabled:opacity-50 select-none touch-none"
                 style={{ touchAction: "none" }}
-                aria-label="Toque para foto, segure para gravar vídeo"
+                aria-label="Toque para foto, segure ou arraste para cima para gravar vídeo"
               >
                 {isRecording ? (
                   <span className="relative flex items-center justify-center h-20 w-20">
                     <span className="absolute inset-0 rounded-full ring-4 ring-red-500 animate-pulse" />
-                    <span className="h-7 w-7 rounded-md bg-red-500" />
+                    {isRecordingLocked ? (
+                      <Lock className="h-7 w-7 text-red-500" strokeWidth={2.5} />
+                    ) : (
+                      <span className="h-7 w-7 rounded-md bg-red-500" />
+                    )}
                   </span>
                 ) : (
                   <div className="h-16 w-16 rounded-full bg-white ring-4 ring-white/40" />
@@ -1611,14 +1892,17 @@ export function FlowCreationDialog({
                   onClick={(e) => e.stopPropagation()}
                   maxLength={200}
                   placeholder="Digite aqui..."
-                  className="w-full bg-transparent leading-tight placeholder:text-white/60 resize-none outline-none border-0 pointer-events-auto"
+                  className="w-full bg-transparent leading-relaxed placeholder:text-white/60 resize-none outline-none border-0 pointer-events-auto"
                   style={{
-                    textShadow: "0 1px 6px rgba(0,0,0,0.45)",
+                    textShadow: editingStyle.backgroundColor ? "none" : "0 1px 6px rgba(0,0,0,0.45)",
                     fontFamily: editingStyle.fontFamily,
                     fontWeight: editingStyle.fontWeight,
                     fontSize: editingStyle.fontSize,
                     textAlign: editingStyle.align,
                     color: editingStyle.color,
+                    background: editingStyle.backgroundColor ?? undefined,
+                    borderRadius: editingStyle.backgroundColor ? "0.4em" : undefined,
+                    padding: editingStyle.backgroundColor ? "0.1em 0.35em" : undefined,
                   }}
                   rows={3}
                   autoFocus
@@ -1819,8 +2103,9 @@ export function FlowCreationDialog({
               />
               <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/40 pointer-events-none z-[5]" />
 
-              {/* Frases posicionadas sobre a foto (arrastáveis, toque para reeditar) */}
-              {!isEditingText && committedTextItems}
+              {/* Frases posicionadas sobre a foto — pointer-events-none: TODOS os gestos
+                  passam para a camada de gestos da mídia, que decide legenda vs foto. */}
+              {!isEditingText && captionTextItems}
             </div>
 
             {/* Camada de edição de texto (sobre a foto) */}
@@ -1862,14 +2147,17 @@ export function FlowCreationDialog({
                     onClick={(e) => e.stopPropagation()}
                     maxLength={200}
                     placeholder="Digite aqui..."
-                    className="w-full bg-transparent leading-tight placeholder:text-white/60 resize-none outline-none border-0 pointer-events-auto"
+                    className="w-full bg-transparent leading-relaxed placeholder:text-white/60 resize-none outline-none border-0 pointer-events-auto"
                     style={{
-                      textShadow: "0 1px 6px rgba(0,0,0,0.45)",
+                      textShadow: editingStyle.backgroundColor ? "none" : "0 1px 6px rgba(0,0,0,0.45)",
                       fontFamily: editingStyle.fontFamily,
                       fontWeight: editingStyle.fontWeight,
                       fontSize: editingStyle.fontSize,
                       textAlign: editingStyle.align,
                       color: editingStyle.color,
+                      background: editingStyle.backgroundColor ?? undefined,
+                      borderRadius: editingStyle.backgroundColor ? "0.4em" : undefined,
+                      padding: editingStyle.backgroundColor ? "0.1em 0.35em" : undefined,
                     }}
                     rows={3}
                     autoFocus
@@ -1890,14 +2178,24 @@ export function FlowCreationDialog({
                 >
                   <X className="h-5 w-5" />
                 </button>
-                <button
-                  onClick={beginNewText}
-                  className="h-10 px-3 rounded-full bg-black/40 backdrop-blur flex items-center text-white text-sm font-semibold gap-1"
-                  aria-label="Adicionar texto"
-                >
-                  <Type className="h-4 w-4" />
-                  + Aa
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setTagPeopleOpen(true)}
+                    className="h-10 px-3 rounded-full bg-black/40 backdrop-blur flex items-center text-white text-sm font-semibold gap-1"
+                    aria-label="Marcar pessoas"
+                  >
+                    <AtSign className="h-4 w-4" />
+                    {taggedUsers.length > 0 ? taggedUsers.length : ""}
+                  </button>
+                  <button
+                    onClick={beginNewText}
+                    className="h-10 px-3 rounded-full bg-black/40 backdrop-blur flex items-center text-white text-sm font-semibold gap-1"
+                    aria-label="Adicionar texto"
+                  >
+                    <Type className="h-4 w-4" />
+                    + Aa
+                  </button>
+                </div>
               </div>
             )}
 
@@ -1931,6 +2229,24 @@ export function FlowCreationDialog({
                   transition: "transform 0.25s ease-out",
                 }}
               >
+                {taggedUsers.length > 0 && (
+                  <button
+                    onClick={() => setTagPeopleOpen(true)}
+                    className="w-full flex items-center gap-2 rounded-2xl bg-black/40 backdrop-blur border border-white/15 px-3 py-2 active:opacity-70"
+                  >
+                    <AtSign className="h-4 w-4 text-white/70 shrink-0" />
+                    <div className="flex -space-x-2 shrink-0">
+                      {taggedUsers.slice(0, 5).map((u) => (
+                        <UserAvatar key={u.id} photo={u.photo} nickname={u.nickname} size="sm" className="h-6 w-6 ring-2 ring-black/40" />
+                      ))}
+                    </div>
+                    <span className="text-white/80 text-xs font-medium truncate">
+                      {taggedUsers.length === 1
+                        ? taggedUsers[0].nickname
+                        : `${taggedUsers.length} pessoas marcadas`}
+                    </span>
+                  </button>
+                )}
                 <Textarea
                   placeholder="Adicione uma descrição..."
                   value={description}
@@ -1950,6 +2266,13 @@ export function FlowCreationDialog({
           </>
         )}
       </div>
+
+      <TagPeopleDrawer
+        open={tagPeopleOpen}
+        onOpenChange={setTagPeopleOpen}
+        selected={taggedUsers}
+        onChange={setTaggedUsers}
+      />
     </>
   );
 

@@ -46,6 +46,7 @@ const TITLE_KEY_BY_TYPE: Record<number, TranslationKey> = {
   13: "notif_title_13",
   14: "notif_title_14",
   15: "notif_title_15",
+  16: "notif_title_16",
 };
 
 const INCENTIVE_KEY_BY_TYPE: Record<number, TranslationKey> = {
@@ -177,6 +178,8 @@ export function notificationBody(
       return t("notif_desc_checkin_classified").replace("{name}", name);
     case 15:
       return t("notif_desc_checkin_disqualified").replace("{name}", name);
+    case 16:
+      return t("notif_desc_flow_tag").replace("{name}", name);
     default:
       return t("notif_body_default");
   }

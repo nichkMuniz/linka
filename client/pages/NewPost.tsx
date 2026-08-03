@@ -404,7 +404,7 @@ export default function NewPost() {
 
     (async () => {
       try {
-        const { webPath, mimeType } = await getNativeMediaUrl(firstAsset.id);
+        const { webPath, mimeType } = await getNativeMediaUrl(firstAsset);
         const response = await fetch(webPath);
         const blob = await response.blob();
         const file = new File([blob], firstAsset.fileName, { type: mimeType || blob.type || "image/jpeg" });
@@ -445,7 +445,7 @@ export default function NewPost() {
     autoSelectedActiveRef.current = false;
     if (mediaType === "shot" && asset.type === "video") {
       try {
-        const { webPath, mimeType } = await getNativeMediaUrl(asset.id);
+        const { webPath, mimeType } = await getNativeMediaUrl(asset);
         const response = await fetch(webPath);
         const blob = await response.blob();
         const file = new File([blob], asset.fileName, { type: mimeType || blob.type || "video/mp4" });
@@ -483,7 +483,7 @@ export default function NewPost() {
           }
 
           try {
-            const { webPath, mimeType } = await getNativeMediaUrl(asset.id);
+            const { webPath, mimeType } = await getNativeMediaUrl(asset);
             const response = await fetch(webPath);
             const blob = await response.blob();
             const file = new File([blob], asset.fileName, { type: mimeType || blob.type || "image/jpeg" });
@@ -537,7 +537,7 @@ export default function NewPost() {
           // then append the full-res image once it finishes loading.
           setSelectedAssetIds((prev) => [...prev, asset.id]);
           try {
-            const { webPath, mimeType } = await getNativeMediaUrl(asset.id);
+            const { webPath, mimeType } = await getNativeMediaUrl(asset);
             const response = await fetch(webPath);
             const blob = await response.blob();
             const file = new File([blob], asset.fileName, { type: mimeType || blob.type || "image/jpeg" });

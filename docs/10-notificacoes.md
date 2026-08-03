@@ -61,6 +61,7 @@ Cada item exibe:
 | 13 `promotion_expired` | `Clock` | Âmbar | Alguém marcou sua promoção como expirada (inserida por `reportPromotionStatusDb`; `follower_id` = quem deu o voto que fechou a maioria) |
 | 14 `checkin_classified` | `CheckCircle2` | Esmeralda | Um participante **classificou** (aprovou) seu check-in num duelo do modo memes (trigger `trg_notify_check_in_vote`) |
 | 15 `checkin_disqualified` | `XCircle` | Vermelho | Um participante **desclassificou** (reprovou) seu check-in num duelo do modo memes (trigger `trg_notify_check_in_vote`) |
+| 16 `flow_tag` | `AtSign` | Ciano | Alguém marcou você em um **flow** (tabela `flow_tags`, trigger `trg_notify_flow_tag`). Ao tocar, abre o flow (`openFlow`); a pessoa marcada pode repostá-lo |
 
 ### Tipos de Incentivo (subtipo)
 Quando o tipo é incentivo, o ícone exibido é o do incentivo específico (não um ícone genérico):
@@ -196,6 +197,7 @@ O corpo do push é montado em runtime por `buildBody()`, com os dados reais da n
 | 13 | "{nome} marcou sua promoção \"{título}\" como expirada." | `profiles`, `promotions` |
 | 14 | "{nome} classificou seu check-in no duelo." | `profiles` |
 | 15 | "{nome} desclassificou seu check-in no duelo." | `profiles` |
+| 16 | "{nome} marcou você em um flow." | `profiles` |
 
 - Cada nome livre (apelido, grupo, título) passa por `short()` para o push não virar um parágrafo; quando o lookup não encontra o registro, o texto cai numa variante sem o nome ("{nome} curtiu sua promoção.") em vez de ficar vazio.
 - Falha em qualquer lookup **não derruba o push**: `buildBody` é chamada com `.catch()` e volta ao texto genérico.

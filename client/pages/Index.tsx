@@ -548,6 +548,7 @@ export default function Index() {
       textPosition?: { x: number; y: number } | null,
       textElements?: { text: string; x: number; y: number }[] | null,
       mediaTransform?: { scale: number; x: number; y: number } | null,
+      taggedUserIds?: string[],
     ) => {
       setIsCreatingStory(true);
       try {
@@ -579,7 +580,7 @@ export default function Index() {
           publicUrl = url;
         }
 
-        const newStory = await createStoryDb(description, publicUrl, backgroundColor, textPosition, textElements, mediaTransform);
+        const newStory = await createStoryDb(description, publicUrl, backgroundColor, textPosition, textElements, mediaTransform, taggedUserIds);
         if (newStory && user) {
           const enrichedStory: StoryWithUser = {
             ...newStory,

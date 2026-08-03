@@ -29,12 +29,15 @@ import {
   deleteStoryDb,
   recordFlowViewDb,
   getFlowViewersDb,
+  getFlowTagsDb,
+  repostStoryDb,
   type StoryWithUser,
   type PostIncentiveType,
   type StoryComment,
   type FlowViewer,
+  type SearchUser,
 } from "@/lib/ritmofit-db";
-import { X, ChevronLeft, ChevronRight, Send, Trash2, Eye, Pause, Play, Pencil, Check, Loader2 } from "lucide-react";
+import { X, ChevronLeft, ChevronRight, Send, Trash2, Eye, Pause, Play, Pencil, Check, Loader2, AtSign, Repeat2 } from "lucide-react";
 import { renderIncentiveIcon } from "@/lib/incentive-config";
 import { CommentReactions } from "@/components/shared/comment-reactions";
 import { useNavigate } from "react-router-dom";
@@ -227,6 +230,8 @@ export function FlowViewerModal({
   const [mediaReady, setMediaReady] = React.useState(false);
   const mediaReadyRef = React.useRef(false);
   const mediaReadySafetyRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [taggedUsers, setTaggedUsers] = React.useState<SearchUser[]>([]);
+  const [isReposting, setIsReposting] = React.useState(false);
 
   const markMediaReady = React.useCallback(() => {
     if (mediaReadySafetyRef.current) {
@@ -301,16 +306,19 @@ export function FlowViewerModal({
     // while the new data loads.
     setComments([]);
     setUserLikes([]);
+    setTaggedUsers([]);
 
     const loadStoryData = async () => {
       try {
-        const [userLikesData, commentsData] = await Promise.all([
+        const [userLikesData, commentsData, tagsData] = await Promise.all([
           getUserStoryLikesDb(story.id),
           getStoryCommentsDb(story.id),
+          getFlowTagsDb(story.id),
         ]);
 
         setUserLikes(userLikesData);
         setComments(commentsData);
+        setTaggedUsers(tagsData);
       } catch (err) {
         console.error("Error loading story data:", err);
       }
@@ -535,6 +543,26 @@ export function FlowViewerModal({
   const storyIndexInUser = story ? userStories.findIndex((s) => s.id === story.id) : -1;
   const prevStory = hasPrevStory ? sortedStories[currentIndex - 1] : null;
   const nextStory = hasNextStory ? sortedStories[currentIndex + 1] : null;
+  const isTaggedViewer = !!user && !isOwner && taggedUsers.some((u) => u.id === user.id);
+
+  const handleRepost = async () => {
+    if (!story || isReposting) return;
+    setIsPaused(true);
+    isPausedRef.current = true;
+    setIsReposting(true);
+    try {
+      const reposted = await repostStoryDb(story.id);
+      toast(
+        reposted
+          ? { title: "Flow repostado!", description: "Adicionado ao seu perfil." }
+          : { title: "Não foi possível repostar", variant: "destructive" },
+      );
+    } catch {
+      toast({ title: "Não foi possível repostar", variant: "destructive" });
+    } finally {
+      setIsReposting(false);
+    }
+  };
 
   if (!story) return null;
 
@@ -800,9 +828,9 @@ export function FlowViewerModal({
                                   }}
                                 >
                                   <p
-                                    className="leading-tight break-words whitespace-pre-wrap"
+                                    className="leading-relaxed break-words whitespace-pre-wrap"
                                     style={{
-                                      textShadow: "0 1px 6px rgba(0,0,0,0.5)",
+                                      textShadow: el.style?.backgroundColor ? "none" : "0 1px 6px rgba(0,0,0,0.5)",
                                       fontFamily: el.style?.fontFamily ?? "system-ui, sans-serif",
                                       fontWeight: el.style?.fontWeight ?? 800,
                                       fontSize: el.style?.fontSize ?? 30,
@@ -810,7 +838,21 @@ export function FlowViewerModal({
                                       color: el.style?.color ?? "#ffffff",
                                     }}
                                   >
-                                    {el.text}
+                                    {el.style?.backgroundColor ? (
+                                      <span
+                                        style={{
+                                          background: el.style.backgroundColor,
+                                          boxDecorationBreak: "clone",
+                                          WebkitBoxDecorationBreak: "clone",
+                                          padding: "0.08em 0.26em",
+                                          borderRadius: "0.28em",
+                                        }}
+                                      >
+                                        {el.text}
+                                      </span>
+                                    ) : (
+                                      el.text
+                                    )}
                                   </p>
                                 </div>
                               ))}
@@ -890,6 +932,39 @@ export function FlowViewerModal({
                       transition: "transform 0.25s ease-out",
                     }}
                   >
+                    {/* Pessoas marcadas no flow */}
+                    {taggedUsers.length > 0 && (
+                      <div className="flex items-center gap-2 mb-2.5 flex-wrap">
+                        <AtSign className="h-3.5 w-3.5 text-white/70 shrink-0" />
+                        {taggedUsers.slice(0, 3).map((u) => (
+                          <button
+                            key={u.id}
+                            onClick={() => { onOpenChange(false); navigate(`/usuario/${u.id}`); }}
+                            className="flex items-center gap-1.5 rounded-full bg-white/10 border border-white/15 pl-1 pr-2.5 py-0.5 active:opacity-70"
+                          >
+                            <UserAvatar photo={u.photo} nickname={u.nickname} className="h-5 w-5" />
+                            <span className="text-[11px] font-semibold text-white">{u.nickname}</span>
+                          </button>
+                        ))}
+                        {taggedUsers.length > 3 && (
+                          <span className="text-[11px] font-medium text-white/70">+{taggedUsers.length - 3}</span>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Repost — só para quem foi marcado (estilo Instagram) */}
+                    {isTaggedViewer && (
+                      <button
+                        onClick={handleRepost}
+                        disabled={isReposting}
+                        className="flex items-center justify-center gap-2 w-full mb-3 py-2.5 rounded-full font-semibold text-sm text-white active:opacity-80 disabled:opacity-60"
+                        style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)" }}
+                      >
+                        <Repeat2 className="h-4 w-4" />
+                        {isReposting ? "Repostando…" : "Repostar no meu flow"}
+                      </button>
+                    )}
+
                     {/* Incentive Buttons - Horizontal Row */}
                     {user && (
                       <motion.div className="flex justify-around items-center mb-3">

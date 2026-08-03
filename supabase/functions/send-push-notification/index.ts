@@ -83,6 +83,7 @@ const TITLE_BY_TYPE: Record<number, string> = {
   13: "Promoção expirada ⏳",
   14: "Check-in classificado ✅",
   15: "Check-in desclassificado ⛔",
+  16: "Você foi marcado 📸",
 };
 
 // Mesmos nomes exibidos no app (INCENTIVE_CONFIG / i18n)
@@ -215,6 +216,8 @@ async function buildBody(
       return `${name} classificou seu check-in no duelo.`;
     case 15:
       return `${name} desclassificou seu check-in no duelo.`;
+    case 16:
+      return `${name} marcou você em um flow.`;
     default:
       return "Você tem uma nova notificação no LinKa.";
   }
