@@ -44,6 +44,17 @@ export const APP_STORE_ID = "6761916728";
 
 export const APP_STORE_URL = `https://apps.apple.com/app/id${APP_STORE_ID}`;
 
+/**
+ * Páginas legais servidas no domínio (`public/termos.html` e
+ * `public/privacidade.html`, com rewrites das URLs limpas em `vercel.json`).
+ *
+ * A App Store Review Guideline 3.1.2 exige que a tela de compra da assinatura
+ * tenha links FUNCIONAIS para os dois documentos dentro do próprio binário —
+ * é uma das causas mais comuns de rejeição em apps com assinatura.
+ */
+export const TERMS_URL = `${SHARE_BASE_URL}/termos`;
+export const PRIVACY_URL = `${SHARE_BASE_URL}/privacidade`;
+
 // ─── Construtores de link ───────────────────────────────────────────────────
 // Mantidos alinhados com as rotas do React Router em `client/App.tsx` e com os
 // `components` do arquivo AASA. Rota nova compartilhável = mexer nos três.

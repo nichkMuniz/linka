@@ -543,9 +543,13 @@ export function AppLayout() {
     >
 
       {/* ── DESKTOP SIDEBAR (md+) — chrome only, no Outlet ── */}
+      {/* Sem transição de largura: o width animando de 68→244px reflui os
+          rótulos enquanto o container ainda está estreito, fazendo as letras
+          "montarem" verticalmente antes de virar horizontal. Snap direto — os
+          nomes já aparecem posicionados assim que expande. */}
       <aside
         className={cn(
-          "hidden md:flex fixed top-0 left-0 z-40 h-full flex-col border-r border-border/40 bg-background py-6 transition-all duration-300",
+          "hidden md:flex fixed top-0 left-0 z-40 h-full flex-col border-r border-border/40 bg-background py-6",
           sidebarExpanded ? "w-[244px] px-3" : "w-[68px] px-2",
         )}
       >
@@ -602,7 +606,7 @@ export function AppLayout() {
                       </span>
                     ) : null}
                   </span>
-                  {sidebarExpanded && <span>{item.label}</span>}
+                  {sidebarExpanded && <span className="whitespace-nowrap">{item.label}</span>}
                 </Link>
               </motion.div>
             );
@@ -798,8 +802,8 @@ export function AppLayout() {
       {/* ── SINGLE OUTLET — rendered once, responsive for mobile and desktop ── */}
       <div
         className={cn(
-          "transition-all duration-300",
-          // Desktop: offset by sidebar, centered content
+          // Sem transição: acompanha o snap da sidebar (ver comentário no <aside>)
+          // — evita o conteúdo deslizar enquanto a barra abre instantaneamente.
           sidebarExpanded ? "md:ml-[244px]" : "md:ml-[68px]",
         )}
       >

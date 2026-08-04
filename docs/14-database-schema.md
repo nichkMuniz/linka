@@ -1116,17 +1116,24 @@ Catálogo de insígnias disponíveis na plataforma.
 
 ## subscriptions
 
-Assinatura **LinKa Premium** — uma linha por usuário. Criada na migração `docs/migrations/20260715-premium-plan.sql`. Na Fase 1 o status é gravado manualmente via SQL (service role); na Fase 2 o webhook do RevenueCat escreverá aqui (campos `rc_app_user_id`, `store`, `environment` já previstos). Ver `docs/17-premium.md`.
+Assinatura **LinKa Premium** — uma linha por usuário. Criada em `docs/migrations/20260715-premium-plan.sql`, estendida para cobrança real em `docs/migrations/20260803-premium-iap.sql`. Ver `docs/17-premium.md`.
+
+> **Dois conjuntos de colunas DISJUNTOS na mesma linha** (Decisão D6). Assinatura paga e cortesia do admin escreveriam nas mesmas colunas e se destruiriam — uma renovação apagaria a cortesia, e liberar cortesia para quem paga apagaria os dados da assinatura. Quem escreve o quê:
+> - **Assinatura paga** (`status`, `product_id`, `store`, `rc_app_user_id`, `environment`, `current_period_end`) → **só** a edge function `revenuecat-webhook`
+> - **Cortesia** (`manual_active`, `manual_until`, `manual_note`) → **só** a RPC `admin_set_premium`
 
 | Coluna | Tipo | Obrigatório | Padrão | Descrição |
 |---|---|---|---|---|
 | `user_id` | uuid | PK, FK → `auth.users.id` ON DELETE CASCADE | — | Usuário assinante |
-| `status` | text | ✓ | `'inactive'` | `active` \| `inactive` \| `expired` \| `cancelled` |
-| `product_id` | text | — | — | `'manual'` (Fase 1) ou product id do RevenueCat (Fase 2) |
-| `store` | text | — | — | `'manual'` \| `'app_store'` |
-| `rc_app_user_id` | text | — | — | `app_user_id` do RevenueCat (Fase 2) |
+| `status` | text | ✓ | `'inactive'` | `active` \| `inactive` \| `expired` \| `cancelled`. Só o webhook escreve |
+| `product_id` | text | — | — | Product id do RevenueCat |
+| `store` | text | — | — | `'app_store'` |
+| `rc_app_user_id` | text | — | — | `app_user_id` do RevenueCat (= `user_id` do Supabase). Indexado |
 | `environment` | text | — | — | `'production'` \| `'sandbox'` |
-| `current_period_end` | timestamptz | — | — | Fim do período pago; `NULL` = sem expiração (ativação manual) |
+| `current_period_end` | timestamptz | — | — | Fim do período pago; `NULL` = nunca houve assinatura paga |
+| `manual_active` | boolean | ✓ | `false` | **(2026-08-03)** Cortesia concedida pelo admin. O webhook **nunca** toca nesta coluna |
+| `manual_until` | timestamptz | — | — | **(2026-08-03)** Fim da cortesia. `NULL` com `manual_active = true` → permanente |
+| `manual_note` | text | — | — | **(2026-08-03)** Motivo da cortesia (só o painel admin lê) |
 | `created_at` | timestamptz | ✓ | `now()` | Data de criação |
 | `updated_at` | timestamptz | ✓ | `now()` | Data de atualização |
 
@@ -1134,16 +1141,33 @@ Assinatura **LinKa Premium** — uma linha por usuário. Criada na migração `d
 
 ### Função `is_premium(uid uuid) → boolean`
 
-`SECURITY DEFINER`, `STABLE`, `search_path = public`. Retorna `true` se existe linha com `status = 'active'` e (`current_period_end` nulo ou futuro). Consumida pelo app via RPC (`getPremiumStatusDb` em `ritmofit-db.ts`, cache `premium:{uid}` TTL 60s) e reutilizável em policies `WITH CHECK` na Fase 2. `GRANT EXECUTE` para `authenticated`.
+`SECURITY DEFINER`, `STABLE`, `search_path = public`. Atualizada em `20260803-premium-iap.sql`. Retorna `true` quando **qualquer** um dos três braços vale:
+
+1. `status = 'active'` e (`current_period_end` nulo ou futuro) — assinatura vigente;
+2. `status = 'cancelled'` e `current_period_end` no futuro — **cancelada mas dentro do período já pago**. A Apple não estorna o período corrente; sem este braço o webhook de `CANCELLATION` cortaria na hora um acesso pago (Decisão D7);
+3. `manual_active` e (`manual_until` nulo ou futuro) — cortesia do admin.
+
+Consumida pelo app via RPC (`getPremiumStatusDb` em `ritmofit-db.ts`, cache `premium:{uid}` TTL 60s) e nas policies `WITH CHECK` de `routines`/`duel_groups`. `GRANT EXECUTE` para `authenticated`.
 
 ### Funções de admin sobre `subscriptions`
 
-Migration: `docs/migrations/20260729-admin-premium.sql`. Permitem que o Painel Admin conceda premium sem `INSERT` manual no SQL Editor, **sem** abrir policy de escrita na tabela.
+Migrations: `20260729-admin-premium.sql` (original) e `20260803-premium-iap.sql` (atual). Permitem que o Painel Admin conceda premium sem `INSERT` manual no SQL Editor, **sem** abrir policy de escrita na tabela.
 
 | Função | Assinatura | O que faz |
 |---|---|---|
-| `admin_set_premium` | `(p_user_id uuid, p_active boolean, p_days integer default null) → void` | `p_active = true`: upsert com `status='active'`, `product_id/store = 'manual'` e `current_period_end = now() + p_days` (ou `null` = permanente). `false`: `status='inactive'`, mantendo a linha como histórico |
-| `admin_list_premium` | `() → table(user_id, nickname, handle, photo, status, store, current_period_end, updated_at, is_active)` | Todas as linhas + perfil, ativos primeiro. `is_active` repete a regra de `is_premium()` (status ativo **e** dentro do período) |
+| `admin_set_premium` | `(p_user_id uuid, p_active boolean, p_days integer default null, p_note text default null) → void` | Mexe **só** nas colunas de cortesia. `true`: upsert com `manual_active = true` e `manual_until = now() + p_days` (ou `null` = permanente). `false`: `manual_active = false`. Nunca toca em `status`/`store`/`current_period_end` — conceder cortesia a um assinante não altera a assinatura dele, e revogá-la não cancela nada na Apple |
+| `admin_list_premium` | `() → table(user_id, nickname, handle, photo, status, store, current_period_end, updated_at, manual_active, manual_until, manual_note, paid_active, is_active)` | Todas as linhas + perfil, ativos primeiro. `paid_active` = assinatura paga vigente; `is_active` repete a regra completa de `is_premium()` |
+
+### Limites do plano grátis na RLS
+
+Migration: `docs/migrations/20260803-premium-limits-rls.sql` (rodar **separadamente**, depois de validar a compra em sandbox). Policies de **INSERT** que aplicam no servidor os limites que antes só existiam no app:
+
+| Tabela | Policy | Regra |
+|---|---|---|
+| `routines` | `routines_insert_within_plan` | `is_premium(auth.uid()) OR count_own_routines(auth.uid()) < 1` |
+| `duel_groups` | `duel_groups_insert_within_plan` | `is_premium(auth.uid()) OR count_own_active_duels(auth.uid()) < 1` |
+
+Os helpers `count_own_routines` / `count_own_active_duels` são `SECURITY DEFINER` para contar sem recursar na própria RLS da tabela. Só INSERT é limitado — UPDATE/DELETE ficam livres para quem já passou do limite continuar editando o que tem.
 
 Ambas são `SECURITY DEFINER` com `search_path = public`, `GRANT EXECUTE` para `authenticated`, e abortam com `NOT_ADMIN` (errcode `42501`) se `is_app_admin(auth.uid())` for falso.
 

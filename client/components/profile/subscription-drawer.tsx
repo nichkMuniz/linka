@@ -83,10 +83,34 @@ export function SubscriptionDrawer({
     return { bg: "rgba(255,255,255,.08)", fg: "rgba(255,255,255,.6)" };
   };
 
-  // Fase 1: acesso liberado via SQL (store/product 'manual'). Não há cobrança,
-  // então não existe assinatura na Apple para gerenciar nem cancelar.
-  const isManual = !subscription?.store || subscription.store === "manual";
+  const inFuture = (iso: string | null) => !!iso && new Date(iso) > new Date();
+
+  // Assinatura paga vigente. Espelha is_premium(): "cancelada" ainda vale até o
+  // fim do período já pago — a Apple não estorna o período corrente.
+  const paidActive =
+    !!subscription &&
+    ((subscription.status === "active" &&
+      (!subscription.current_period_end || inFuture(subscription.current_period_end))) ||
+      (subscription.status === "cancelled" && inFuture(subscription.current_period_end)));
+
+  // Cortesia concedida pelo admin. Vive em colunas próprias e é INDEPENDENTE da
+  // assinatura paga — o usuário pode ter as duas ao mesmo tempo.
+  const courtesyActive =
+    !!subscription &&
+    subscription.manual_active &&
+    (!subscription.manual_until || inFuture(subscription.manual_until));
+
+  // Só quem tem (ou teve) assinatura pela App Store gerencia/cancela na Apple.
+  // Para cortesia não há o que cancelar — mandar o usuário para a lista de
+  // assinaturas do Apple ID o deixaria diante de uma tela vazia.
   const isAppStore = subscription?.store === "app_store";
+  const courtesyOnly = courtesyActive && !isAppStore;
+
+  // Status exibido: cortesia sem assinatura paga tem `status = 'inactive'` na
+  // tabela (só o webhook promove para 'active'), mas o usuário TEM acesso —
+  // mostrar "Inativa" seria mentira na cara do assinante.
+  const displayStatus =
+    !paidActive && courtesyActive ? "active" : (subscription?.status ?? "inactive");
 
   const Row = ({ label, value }: { label: string; value: string }) => (
     <div className="flex items-center justify-between gap-3 py-3">
@@ -166,17 +190,17 @@ export function SubscriptionDrawer({
                     <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>
                       {isAppStore
                         ? t("settings_subscription_store_app_store")
-                        : t("settings_subscription_store_manual")}
+                        : t("settings_subscription_courtesy")}
                     </p>
                   </div>
                   <span
                     className="shrink-0 px-2.5 py-1 rounded-full text-xs font-semibold"
                     style={{
-                      background: statusColor(subscription.status).bg,
-                      color: statusColor(subscription.status).fg,
+                      background: statusColor(displayStatus).bg,
+                      color: statusColor(displayStatus).fg,
                     }}
                   >
-                    {statusLabel(subscription.status)}
+                    {statusLabel(displayStatus)}
                   </span>
                 </div>
 
@@ -189,7 +213,7 @@ export function SubscriptionDrawer({
                 >
                   <Row
                     label={t("settings_subscription_status")}
-                    value={statusLabel(subscription.status)}
+                    value={statusLabel(displayStatus)}
                   />
                   <Row
                     label={t("settings_subscription_started")}
@@ -203,23 +227,35 @@ export function SubscriptionDrawer({
                         : t("settings_subscription_store_manual")
                     }
                   />
-                  {/* Assinatura cancelada ainda vale até o fim do período pago —
-                      a mesma data muda de "próxima cobrança" para "acesso até". */}
-                  <Row
-                    label={
-                      subscription.status === "cancelled" || subscription.status === "expired"
-                        ? t("settings_subscription_access_until")
-                        : t("settings_subscription_next_charge")
-                    }
-                    value={
-                      subscription.current_period_end
-                        ? formatDate(subscription.current_period_end)
-                        : t("settings_subscription_no_expiry")
-                    }
-                  />
+                  {/* Datas da assinatura paga só aparecem se ela existir — numa
+                      cortesia pura essas colunas estão vazias. */}
+                  {isAppStore && (
+                    <Row
+                      label={
+                        subscription.status === "cancelled" || subscription.status === "expired"
+                          ? t("settings_subscription_access_until")
+                          : t("settings_subscription_next_charge")
+                      }
+                      value={
+                        subscription.current_period_end
+                          ? formatDate(subscription.current_period_end)
+                          : t("settings_subscription_no_expiry")
+                      }
+                    />
+                  )}
+                  {courtesyActive && (
+                    <Row
+                      label={t("settings_subscription_courtesy_until")}
+                      value={
+                        subscription.manual_until
+                          ? formatDate(subscription.manual_until)
+                          : t("settings_subscription_no_expiry")
+                      }
+                    />
+                  )}
                 </div>
 
-                {isManual ? (
+                {courtesyOnly ? (
                   <p className="text-xs leading-relaxed" style={{ color: "rgba(255,255,255,.45)" }}>
                     {t("settings_subscription_manual_note")}
                   </p>

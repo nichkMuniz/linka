@@ -12,6 +12,8 @@ export {
   APP_URL_SCHEME,
   APP_STORE_ID,
   APP_STORE_URL,
+  TERMS_URL,
+  PRIVACY_URL,
   postShareUrl,
   profileShareUrl,
   isShareHost,

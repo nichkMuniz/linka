@@ -1632,11 +1632,21 @@ export async function invalidatePremiumStatus(): Promise<void> {
 }
 
 export type Subscription = {
+  // ─── Assinatura paga — escrito SÓ pelo webhook do RevenueCat ─────────────
   status: string;            // 'active' | 'inactive' | 'expired' | 'cancelled'
-  product_id: string | null; // 'manual' (Fase 1) | product id do RevenueCat (Fase 2)
-  store: string | null;      // 'manual' | 'app_store'
-  /** NULL = sem expiração (ativação manual da Fase 1). */
+  product_id: string | null; // product id do RevenueCat
+  store: string | null;      // 'app_store'
+  /** Fim do período pago. NULL quando nunca houve assinatura paga. */
   current_period_end: string | null;
+
+  // ─── Cortesia do admin — escrito SÓ por admin_set_premium() ──────────────
+  // Conjunto de colunas DISJUNTO do de cima, para que uma renovação do
+  // RevenueCat não apague a liberação manual (e vice-versa).
+  /** Acesso concedido manualmente pelo admin. */
+  manual_active: boolean;
+  /** Fim da cortesia. NULL com manual_active = true → permanente. */
+  manual_until: string | null;
+
   created_at: string;
   updated_at: string;
 };
@@ -1658,7 +1668,7 @@ export async function getSubscriptionDb(): Promise<Subscription | null> {
   try {
     const { data, error } = await supabase
       .from("subscriptions")
-      .select("status, product_id, store, current_period_end, created_at, updated_at")
+      .select("status, product_id, store, current_period_end, manual_active, manual_until, created_at, updated_at")
       .eq("user_id", viewer.id)
       .maybeSingle();
     if (error) throw error;
@@ -12987,10 +12997,17 @@ export type AdminPremiumUser = {
   /** 'active' | 'inactive' | 'expired' | 'cancelled' */
   status: string;
   store: string | null;
-  /** null = sem expiração (ativação permanente) */
+  /** Fim do período pago. null = nunca houve assinatura paga. */
   currentPeriodEnd: string | null;
   updatedAt: string;
-  /** status ativo E dentro do período — mesma regra de is_premium() */
+  /** Cortesia concedida pelo admin (independente da assinatura paga). */
+  manualActive: boolean;
+  /** Fim da cortesia. null com manualActive = true → permanente. */
+  manualUntil: string | null;
+  manualNote: string | null;
+  /** Assinatura paga vigente (pagou de verdade, via App Store). */
+  paidActive: boolean;
+  /** Tem premium por qualquer motivo — mesma regra de is_premium(). */
   isActive: boolean;
 };
 
@@ -13020,18 +13037,26 @@ export async function getAdminPremiumUsersDb(): Promise<AdminPremiumUser[]> {
     store: r.store ? String(r.store) : null,
     currentPeriodEnd: r.current_period_end ? String(r.current_period_end) : null,
     updatedAt: String(r.updated_at ?? ""),
+    manualActive: r.manual_active === true,
+    manualUntil: r.manual_until ? String(r.manual_until) : null,
+    manualNote: r.manual_note ? String(r.manual_note) : null,
+    paidActive: r.paid_active === true,
     isActive: r.is_active === true,
   }));
 }
 
 /**
- * Concede (ou revoga) o premium de um usuário. `days` nulo = sem expiração.
- * Revogar mantém a linha e só zera o status (histórico de acesso).
+ * Concede (ou revoga) o premium **de cortesia** de um usuário.
+ * `days` nulo = sem expiração.
+ *
+ * Mexe só nas colunas `manual_*`: conceder cortesia a um assinante pagante não
+ * altera a assinatura dele, e revogar a cortesia não cancela nada na Apple.
  */
 export async function adminSetPremiumDb(
   userId: string,
   active: boolean,
   days: number | null = null,
+  note: string | null = null,
 ): Promise<void> {
   if (!hasSupabaseConfig || !supabase) throw new Error("Supabase não configurado");
   assertUUID(userId, "ID do usuário");
@@ -13040,6 +13065,7 @@ export async function adminSetPremiumDb(
     p_user_id: userId,
     p_active: active,
     p_days: days,
+    p_note: note,
   });
 
   if (error) {

@@ -1273,25 +1273,39 @@ export default function Admin() {
                       <span className="text-sm font-medium truncate">{u.nickname || "—"}</span>
                       {u.isActive && <Crown className="w-3.5 h-3.5 text-amber-500 shrink-0" />}
                     </div>
+                    {/* Assinatura paga e cortesia são independentes: um usuário
+                        pode ter as duas, e o X só revoga a cortesia. Deixar
+                        isso explícito evita o admin achar que "removeu" uma
+                        assinatura da App Store (que só a Apple cancela). */}
                     <p className="text-xs text-muted-foreground truncate">
                       {u.handle ? `@${u.handle} · ` : ""}
-                      {u.isActive
-                        ? u.currentPeriodEnd
-                          ? `até ${formatDate(u.currentPeriodEnd)}`
-                          : "sem expiração"
-                        : u.status === "active"
-                          ? "expirado"
-                          : "inativo"}
-                      {u.store === "app_store" ? " · App Store" : ""}
+                      {u.paidActive
+                        ? `App Store${u.currentPeriodEnd ? ` até ${formatDate(u.currentPeriodEnd)}` : ""}`
+                        : u.manualActive
+                          ? null
+                          : u.status === "expired" || u.status === "active"
+                            ? "assinatura expirada"
+                            : "inativo"}
+                      {u.manualActive && (
+                        <span className="text-amber-500">
+                          {u.paidActive ? " · " : ""}
+                          cortesia
+                          {u.manualUntil ? ` até ${formatDate(u.manualUntil)}` : " permanente"}
+                        </span>
+                      )}
                     </p>
                   </div>
                 </div>
-                {u.isActive ? (
+                {/* O X revoga a CORTESIA — só aparece quando existe uma.
+                    Numa assinatura paga ele não teria efeito nenhum
+                    (admin_set_premium não toca nas colunas de pagamento). */}
+                {u.manualActive ? (
                   <Button
                     size="sm"
                     variant="ghost"
                     onClick={() => handleSetPremium(u, false)}
                     disabled={premiumActingId === u.userId}
+                    title="Revogar cortesia"
                     className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive shrink-0"
                   >
                     {premiumActingId === u.userId ? (
@@ -1311,7 +1325,7 @@ export default function Admin() {
                     {premiumActingId === u.userId ? (
                       <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                     ) : (
-                      "Reativar"
+                      "Dar cortesia"
                     )}
                   </Button>
                 )}
@@ -1321,7 +1335,9 @@ export default function Admin() {
         )}
 
         <p className="text-[11px] text-muted-foreground leading-relaxed">
-          A concessão vale para testes (sem cobrança). O status é lido com cache de 60s — o app do
+          A concessão aqui é <strong>cortesia</strong>: libera os recursos sem cobrança e é
+          independente de assinaturas pagas pela App Store — dar ou revogar cortesia nunca altera
+          (nem cancela) a assinatura de quem paga. O status é lido com cache de 60s, então o app do
           usuário libera os recursos em até 1 minuto.
         </p>
       </section>

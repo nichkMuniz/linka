@@ -53,6 +53,9 @@ importers:
       '@capgo/capacitor-photo-library':
         specifier: ^7.2.11
         version: 7.2.11(@capacitor/core@7.6.2)
+      '@revenuecat/purchases-capacitor':
+        specifier: 11.3.2
+        version: 11.3.2(@capacitor/core@7.6.2)
       '@supabase/supabase-js':
         specifier: ^2.91.0
         version: 2.91.0
@@ -1504,6 +1507,14 @@ packages:
   '@remix-run/router@1.23.2':
     resolution: {integrity: sha512-Ic6m2U/rMjTkhERIa/0ZtXJP17QUi2CbWE7cqx4J58M8aA3QTfW+2UlQ4psvTX9IO1RfNVhK3pcpdjej7L+t2w==}
     engines: {node: '>=14.0.0'}
+
+  '@revenuecat/purchases-capacitor@11.3.2':
+    resolution: {integrity: sha512-3T4/lcAwpbPagrT4DuXvJ+8RewzFmHf3fQJQuhVy+uTQk5HGMHNlXcm2A/UdyHtWqU+/VqWbCClPFYGnpnNXAQ==}
+    peerDependencies:
+      '@capacitor/core': '>=7.0.0'
+
+  '@revenuecat/purchases-typescript-internal-esm@17.25.0':
+    resolution: {integrity: sha512-KC4BjFaQclXqFafG1Enh7t8GSwdg8p905by7UrHq0WSJmLhOR6yXSj6WDv1iwsFSAZxPPwgozNxt+U6IOFTdCA==}
 
   '@rolldown/pluginutils@1.0.0-beta.53':
     resolution: {integrity: sha512-vENRlFU4YbrwVqNDZ7fLvy+JR1CRkyr01jhSiDpE1u6py3OMzQfztQU2jxykW3ALNxO4kSlqIDeYyD0Y9RcQeQ==}
@@ -5022,6 +5033,13 @@ snapshots:
   '@radix-ui/rect@1.1.1': {}
 
   '@remix-run/router@1.23.2': {}
+
+  '@revenuecat/purchases-capacitor@11.3.2(@capacitor/core@7.6.2)':
+    dependencies:
+      '@capacitor/core': 7.6.2
+      '@revenuecat/purchases-typescript-internal-esm': 17.25.0
+
+  '@revenuecat/purchases-typescript-internal-esm@17.25.0': {}
 
   '@rolldown/pluginutils@1.0.0-beta.53': {}
 

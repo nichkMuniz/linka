@@ -54,7 +54,7 @@ client/components/
 - **Toast de sincronização offline (2026-07-11):** escuta o evento global `linka-offline-synced` (`OUTBOX_SYNCED_EVENT` de `client/lib/offline-outbox.ts`) e mostra o toast `goals_sync_done_title/desc` em qualquer tela quando a fila de escritas feitas sem internet (treinos/check-ins da tela de Metas) termina de sincronizar — ver "Modo offline" em `docs/05-metas.md`
 - **Foto de perfil:** Carregada dinamicamente no ícone de Perfil
 - **Bottom Navigation (mobile):** 5 itens fixos na parte inferior
-- **Side Navigation (desktop):** Navegação lateral em telas grandes (244px fixo)
+- **Side Navigation (desktop):** Navegação lateral em telas grandes, com botão para **expandir/colapsar** entre 244px (com rótulos) e 68px (só ícones), persistido em `localStorage` (`ritmofit_sidebar_expanded`). **Expansão instantânea (sem animação de largura):** o `<aside>` e o wrapper de conteúdo **não** têm `transition` de largura/margem. Antes, animar o `width` de 68→244px reflui os rótulos enquanto o container ainda está estreito, fazendo as letras "montarem" verticalmente para depois virar horizontal. Agora a barra dá **snap** direto e os nomes das telas já aparecem posicionados. Rótulos usam `whitespace-nowrap` como reforço contra qualquer reflow
 - **Timer de uso diário:** Monitora tempo de sessão
 - **Limite diário:** Se o usuário configurou um limite, bloqueia o app ao atingir
 - **Floating Action Menu:** Menu flutuante arrastável (mobile)

@@ -23,7 +23,8 @@ let package = Package(
         .package(name: "CapacitorStatusBar", path: "..\..\..\node_modules\.pnpm\@capacitor+status-bar@7.0.6_@capacitor+core@7.6.2\node_modules\@capacitor\status-bar"),
         .package(name: "CapgoBackgroundGeolocation", path: "..\..\..\node_modules\.pnpm\@capgo+background-geolocation@7.2.8_@capacitor+core@7.6.2\node_modules\@capgo\background-geolocation"),
         .package(name: "CapgoCapacitorNativeBiometric", path: "..\..\..\node_modules\.pnpm\@capgo+capacitor-native-bio_58e8312a69844743673a89b9dbf56e22\node_modules\@capgo\capacitor-native-biometric"),
-        .package(name: "CapgoCapacitorPhotoLibrary", path: "..\..\..\node_modules\.pnpm\@capgo+capacitor-photo-library@7.2.11_@capacitor+core@7.6.2\node_modules\@capgo\capacitor-photo-library")
+        .package(name: "CapgoCapacitorPhotoLibrary", path: "..\..\..\node_modules\.pnpm\@capgo+capacitor-photo-library@7.2.11_@capacitor+core@7.6.2\node_modules\@capgo\capacitor-photo-library"),
+        .package(name: "RevenuecatPurchasesCapacitor", path: "..\..\..\node_modules\.pnpm\@revenuecat+purchases-capacitor@11.3.2_@capacitor+core@7.6.2\node_modules\@revenuecat\purchases-capacitor")
     ],
     targets: [
         .target(
@@ -42,7 +43,8 @@ let package = Package(
                 .product(name: "CapacitorStatusBar", package: "CapacitorStatusBar"),
                 .product(name: "CapgoBackgroundGeolocation", package: "CapgoBackgroundGeolocation"),
                 .product(name: "CapgoCapacitorNativeBiometric", package: "CapgoCapacitorNativeBiometric"),
-                .product(name: "CapgoCapacitorPhotoLibrary", package: "CapgoCapacitorPhotoLibrary")
+                .product(name: "CapgoCapacitorPhotoLibrary", package: "CapgoCapacitorPhotoLibrary"),
+                .product(name: "RevenuecatPurchasesCapacitor", package: "RevenuecatPurchasesCapacitor")
             ]
         )
     ]

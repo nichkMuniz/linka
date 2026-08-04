@@ -12,6 +12,8 @@
   "rewrites": [
     { "source": "/post/:id", "destination": "/api/share?type=post&id=:id" },
     { "source": "/usuario/:id", "destination": "/api/share?type=profile&id=:id" },
+    { "source": "/termos", "destination": "/termos.html" },
+    { "source": "/privacidade", "destination": "/privacidade.html" },
     { "source": "/(.*)", "destination": "/" }
   ]
 }

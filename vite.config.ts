@@ -22,6 +22,10 @@ export default defineConfig({
   define: {
     'import.meta.env.VITE_SUPABASE_URL': JSON.stringify(process.env.VITE_SUPABASE_URL),
     'import.meta.env.VITE_SUPABASE_ANON_KEY': JSON.stringify(process.env.VITE_SUPABASE_ANON_KEY),
+    // Chave PÚBLICA do SDK do RevenueCat (iOS) — nasce para ser embutida no
+    // binário. O Vite não lê variáveis do ambiente do processo sozinho, só de
+    // arquivos .env; por isso a injeção explícita, igual às do Supabase.
+    'import.meta.env.VITE_REVENUECAT_IOS_KEY': JSON.stringify(process.env.VITE_REVENUECAT_IOS_KEY),
   },
   resolve: {
     alias: {
