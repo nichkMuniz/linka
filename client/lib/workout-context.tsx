@@ -1,19 +1,27 @@
 import * as React from "react";
 import { LocalNotifications } from "@capacitor/local-notifications";
 import { Capacitor } from "@capacitor/core";
-import { type UserWorkoutWithDetails } from "@/lib/ritmofit-db";
+import { type SetKind, type UserWorkoutWithDetails } from "@/lib/ritmofit-db";
 
 // ID da notificação local de "tempo de descanso terminou". Exportado para que
 // o listener genérico de notificações (use-routine-notifications) saiba
 // ignorá-la — ela tem tratamento próprio de tap para reabrir o treino.
 export const REST_NOTIF_ID = 91823;
 
-type WorkoutSeriesEntry = {
+export type WorkoutSeriesEntry = {
   series: number;
   kg: number;
   reps: number;
   completed: boolean;
-  type?: 'W' | 'N' | 'F';
+  /**
+   * Tipo da série — só o modo **expert** classifica (ver `TrainingMode`).
+   * Ausente = série do modo simplificado, tratada como 'normal' em toda parte.
+   *
+   * Substitui o antigo campo `type?: 'W' | 'N' | 'F'`, que existia no tipo
+   * desde a v1 mas nunca chegou a ser escrito nem lido em lugar nenhum — o
+   * aquecimento entrava no volume e no PR como qualquer outra série.
+   */
+  kind?: SetKind;
   prevKg?: number;
   prevReps?: number;
 };

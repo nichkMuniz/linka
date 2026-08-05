@@ -84,15 +84,24 @@ type PoolExercise = {
   goals?: Partial<Record<TrainingGoal, number>>;
 };
 
+// `home: true` = pode ser feito EM CASA sem peso/máquina de academia (peso do
+// corpo, ou no máximo barra fixa/TRX/elástico — equipamento doméstico). NÃO
+// depende da coluna `workouts.type`, que está poluída com alongamento/mobilidade
+// e não cobre puxada (ver decisão de 20/07/2026). Exercícios com halter, barra
+// carregada, cabo ou máquina têm `home: false`. Cada categoria mantém ao menos
+// uma opção `home` de `minLevel: 1`, para o programa em casa fechar todos os
+// grupos em qualquer nível. Nomes novos preferem o catálogo (foto); quando não
+// há equivalente caseiro no catálogo, o gerador cria custom sem foto.
 const POOLS: Record<SlotCategory, PoolExercise[]> = {
   chest: [
-    { name: "Supino com Halteres", muscleGroup: "Peito", minLevel: 1, gym: true, home: true, compound: true, goals: { hypertrophy: 3, strength: 2, fat_loss: 2, conditioning: 2 } },
+    { name: "Supino com Halteres", muscleGroup: "Peito", minLevel: 1, gym: true, home: false, compound: true, goals: { hypertrophy: 3, strength: 2, fat_loss: 2, conditioning: 2 } },
     { name: "Supino reto", muscleGroup: "Peito", minLevel: 1, gym: true, home: false, compound: true, goals: { strength: 3, hypertrophy: 2 } },
     { name: "Supino inclinado com halteres", muscleGroup: "Peito", minLevel: 2, gym: true, home: false, compound: true, goals: { hypertrophy: 3, strength: 2 } },
-    { name: "Flexão de Braço", muscleGroup: "Peito", minLevel: 1, gym: false, home: true, compound: true, goals: { fat_loss: 3, conditioning: 3 } },
+    { name: "Flexão de Braço", muscleGroup: "Peito", minLevel: 1, gym: false, home: true, compound: true, goals: { fat_loss: 3, conditioning: 3, hypertrophy: 2 } },
     { name: "Supino na Máquina", muscleGroup: "Peito", minLevel: 1, gym: true, home: false, compound: true, machine: true, goals: { hypertrophy: 2, fat_loss: 2, conditioning: 2 } },
     { name: "Crucifixo com halteres", muscleGroup: "Peito", minLevel: 2, gym: true, home: false, goals: { hypertrophy: 2, strength: 0 } },
-    { name: "Flexão Declinada", muscleGroup: "Peito", minLevel: 2, gym: false, home: true, compound: true, goals: { fat_loss: 2, conditioning: 3 } },
+    { name: "Flexão Declinada", muscleGroup: "Peito", minLevel: 2, gym: false, home: true, compound: true, goals: { fat_loss: 2, conditioning: 3, hypertrophy: 2 } },
+    { name: "Flexão Inclinada", muscleGroup: "Peito", minLevel: 1, gym: false, home: true, compound: true, goals: { fat_loss: 2, conditioning: 2, hypertrophy: 1 } },
     { name: "Crucifixo na máquina", muscleGroup: "Peito", minLevel: 2, gym: true, home: false, machine: true, goals: { hypertrophy: 2, fat_loss: 2, strength: 0 } },
     { name: "Crossover no Cabo", muscleGroup: "Peito", minLevel: 3, gym: true, home: false, goals: { hypertrophy: 3, strength: 0 } },
   ],
@@ -100,49 +109,60 @@ const POOLS: Record<SlotCategory, PoolExercise[]> = {
     { name: "Puxada na frente", muscleGroup: "Costas", minLevel: 1, gym: true, home: false, compound: true, machine: true, goals: { hypertrophy: 3, fat_loss: 2, conditioning: 2 } },
     { name: "Remada baixa", muscleGroup: "Costas", minLevel: 1, gym: true, home: false, compound: true, machine: true, goals: { hypertrophy: 2, fat_loss: 2, conditioning: 2 } },
     { name: "Remada curvada", muscleGroup: "Costas", minLevel: 2, gym: true, home: false, compound: true, goals: { strength: 3, hypertrophy: 2 } },
-    { name: "Remada unilateral com halter", muscleGroup: "Costas", minLevel: 1, gym: true, home: true, compound: true, goals: { hypertrophy: 2, fat_loss: 2, conditioning: 2 } },
-    { name: "Remada Curvada com Halteres", muscleGroup: "Costas", minLevel: 1, gym: false, home: true, compound: true, goals: { strength: 2, hypertrophy: 2, fat_loss: 2, conditioning: 2 } },
+    { name: "Remada unilateral com halter", muscleGroup: "Costas", minLevel: 1, gym: true, home: false, compound: true, goals: { hypertrophy: 2, fat_loss: 2, conditioning: 2 } },
+    { name: "Remada Curvada com Halteres", muscleGroup: "Costas", minLevel: 1, gym: false, home: false, compound: true, goals: { strength: 2, hypertrophy: 2, fat_loss: 2, conditioning: 2 } },
     { name: "Puxada no Pulley Pegada Fechada", muscleGroup: "Costas", minLevel: 2, gym: true, home: false, compound: true, machine: true, goals: { hypertrophy: 2 } },
     { name: "Remada na Máquina", muscleGroup: "Costas", minLevel: 1, gym: true, home: false, compound: true, machine: true, goals: { hypertrophy: 2, fat_loss: 2, conditioning: 2 } },
     { name: "Barra Fixa (Chin-up)", muscleGroup: "Costas", minLevel: 3, gym: true, home: true, compound: true, goals: { strength: 3, hypertrophy: 2, conditioning: 2 } },
     { name: "Remada Sentada no Cabo", muscleGroup: "Costas", minLevel: 2, gym: true, home: false, compound: true, machine: true, goals: { hypertrophy: 2 } },
+    // Caseiros (peso do corpo / barra ou TRX de casa):
+    { name: "Remada Invertida", muscleGroup: "Costas", minLevel: 1, gym: false, home: true, compound: true, goals: { strength: 2, hypertrophy: 2, fat_loss: 2, conditioning: 2 } },
+    { name: "Superman", muscleGroup: "Costas", minLevel: 1, gym: false, home: true, goals: { conditioning: 2, fat_loss: 1 } },
   ],
   quads: [
     { name: "Agachamento livre", muscleGroup: "Pernas", minLevel: 1, gym: true, home: true, compound: true, goals: { strength: 3, hypertrophy: 2, fat_loss: 3, conditioning: 3 } },
     { name: "Leg press", muscleGroup: "Pernas", minLevel: 1, gym: true, home: false, compound: true, machine: true, goals: { hypertrophy: 3, fat_loss: 2, conditioning: 2 } },
     { name: "Cadeira extensora", muscleGroup: "Pernas", minLevel: 1, gym: true, home: false, machine: true, goals: { hypertrophy: 2, strength: 0 } },
-    { name: "Agachamento Goblet", muscleGroup: "Pernas", minLevel: 1, gym: true, home: true, compound: true, goals: { hypertrophy: 2, fat_loss: 2, conditioning: 2 } },
-    { name: "Avanço com Halteres", muscleGroup: "Pernas", minLevel: 1, gym: true, home: true, compound: true, goals: { hypertrophy: 2, fat_loss: 2, conditioning: 2 } },
+    { name: "Agachamento Goblet", muscleGroup: "Pernas", minLevel: 1, gym: true, home: false, compound: true, goals: { hypertrophy: 2, fat_loss: 2, conditioning: 2 } },
+    { name: "Avanço com Halteres", muscleGroup: "Pernas", minLevel: 1, gym: true, home: false, compound: true, goals: { hypertrophy: 2, fat_loss: 2, conditioning: 2 } },
     { name: "Agachamento com Barra", muscleGroup: "Pernas", minLevel: 2, gym: true, home: false, compound: true, goals: { strength: 3, hypertrophy: 3 } },
     { name: "Agachamento Búlgaro", muscleGroup: "Pernas", minLevel: 2, gym: true, home: true, compound: true, goals: { hypertrophy: 3, fat_loss: 2, conditioning: 2 } },
     { name: "Agachamento Sumô", muscleGroup: "Pernas", minLevel: 1, gym: false, home: true, compound: true, goals: { fat_loss: 2, conditioning: 2 } },
+    { name: "Avanço", muscleGroup: "Pernas", minLevel: 1, gym: false, home: true, compound: true, goals: { fat_loss: 2, conditioning: 2, hypertrophy: 1 } },
     { name: "Agachamento Split na Máquina Smith", muscleGroup: "Pernas", minLevel: 3, gym: true, home: false, compound: true, machine: true, goals: { hypertrophy: 3 } },
   ],
   posterior: [
     { name: "Mesa flexora", muscleGroup: "Pernas", minLevel: 1, gym: true, home: false, machine: true, goals: { hypertrophy: 2 } },
-    { name: "Elevação de Quadril com Halter", muscleGroup: "Pernas", minLevel: 1, gym: true, home: true, compound: true, goals: { hypertrophy: 2, strength: 2, fat_loss: 2, conditioning: 2 } },
+    { name: "Elevação de Quadril com Halter", muscleGroup: "Pernas", minLevel: 1, gym: true, home: false, compound: true, goals: { hypertrophy: 2, strength: 2, fat_loss: 2, conditioning: 2 } },
     { name: "Levantamento terra romeno", muscleGroup: "Pernas", minLevel: 2, gym: true, home: false, compound: true, goals: { strength: 3, hypertrophy: 2 } },
-    { name: "Levantamento Terra Romeno com Halteres", muscleGroup: "Pernas", minLevel: 1, gym: false, home: true, compound: true, goals: { strength: 2, hypertrophy: 2, fat_loss: 2, conditioning: 2 } },
-    { name: "Ponte Glúteo", muscleGroup: "Pernas", minLevel: 1, gym: false, home: true, compound: true, goals: { fat_loss: 2, conditioning: 2 } },
+    { name: "Levantamento Terra Romeno com Halteres", muscleGroup: "Pernas", minLevel: 1, gym: false, home: false, compound: true, goals: { strength: 2, hypertrophy: 2, fat_loss: 2, conditioning: 2 } },
+    { name: "Ponte de Glúteo", muscleGroup: "Pernas", minLevel: 1, gym: false, home: true, compound: true, goals: { fat_loss: 2, conditioning: 2, hypertrophy: 1 } },
+    { name: "Avanço Reverso", muscleGroup: "Pernas", minLevel: 1, gym: false, home: true, compound: true, goals: { fat_loss: 2, conditioning: 2, hypertrophy: 1 } },
   ],
   shoulders: [
-    { name: "Desenvolvimento com halteres", muscleGroup: "Ombros", minLevel: 1, gym: true, home: true, compound: true, goals: { hypertrophy: 2, strength: 2, fat_loss: 2, conditioning: 2 } },
-    { name: "Elevação lateral", muscleGroup: "Ombros", minLevel: 1, gym: true, home: true, goals: { hypertrophy: 3, strength: 0 } },
+    { name: "Desenvolvimento com halteres", muscleGroup: "Ombros", minLevel: 1, gym: true, home: false, compound: true, goals: { hypertrophy: 2, strength: 2, fat_loss: 2, conditioning: 2 } },
+    { name: "Elevação lateral", muscleGroup: "Ombros", minLevel: 1, gym: true, home: false, goals: { hypertrophy: 3, strength: 0 } },
     { name: "Desenvolvimento militar", muscleGroup: "Ombros", minLevel: 2, gym: true, home: false, compound: true, goals: { strength: 3, hypertrophy: 2 } },
     { name: "Elevação lateral na máquina", muscleGroup: "Ombros", minLevel: 2, gym: true, home: false, machine: true, goals: { hypertrophy: 2, strength: 0 } },
-    { name: "Remada Alta com Halteres", muscleGroup: "Ombros", minLevel: 2, gym: true, home: true, compound: true, goals: { conditioning: 2, fat_loss: 2 } },
-    { name: "Encolhimento com Halteres", muscleGroup: "Ombros", minLevel: 3, gym: true, home: true, goals: { hypertrophy: 2 } },
+    { name: "Remada Alta com Halteres", muscleGroup: "Ombros", minLevel: 2, gym: true, home: false, compound: true, goals: { conditioning: 2, fat_loss: 2 } },
+    { name: "Encolhimento com Halteres", muscleGroup: "Ombros", minLevel: 3, gym: true, home: false, goals: { hypertrophy: 2 } },
+    // Caseiros (peso do corpo):
+    { name: "Flexão Hindu", muscleGroup: "Ombros", minLevel: 1, gym: false, home: true, compound: true, goals: { conditioning: 2, fat_loss: 2, hypertrophy: 1 } },
+    { name: "Tuck Planche", muscleGroup: "Ombros", minLevel: 3, gym: false, home: true, goals: { conditioning: 2, hypertrophy: 1 } },
   ],
   biceps: [
     { name: "Rosca Direta com Barra Reta", muscleGroup: "Bíceps", minLevel: 1, gym: true, home: false, goals: { strength: 2, hypertrophy: 2 } },
-    { name: "Rosca martelo", muscleGroup: "Bíceps", minLevel: 1, gym: true, home: true, goals: { hypertrophy: 2, fat_loss: 2, conditioning: 2 } },
+    { name: "Rosca martelo", muscleGroup: "Bíceps", minLevel: 1, gym: true, home: false, goals: { hypertrophy: 2, fat_loss: 2, conditioning: 2 } },
     { name: "Rosca Martelo no Cabo", muscleGroup: "Bíceps", minLevel: 2, gym: true, home: false, machine: true, goals: { hypertrophy: 2 } },
+    // Caseiro (TRX/elástico de casa):
+    { name: "Rosca Bíceps no TRX", muscleGroup: "Bíceps", minLevel: 1, gym: false, home: true, goals: { hypertrophy: 2, conditioning: 1 } },
   ],
   triceps: [
     { name: "Tríceps na Polia com Corda", muscleGroup: "Tríceps", minLevel: 1, gym: true, home: false, machine: true, goals: { hypertrophy: 2, fat_loss: 2, conditioning: 2 } },
-    { name: "Tríceps francês", muscleGroup: "Tríceps", minLevel: 1, gym: true, home: true, goals: { hypertrophy: 2 } },
+    { name: "Tríceps francês", muscleGroup: "Tríceps", minLevel: 1, gym: true, home: false, goals: { hypertrophy: 2 } },
     { name: "Tríceps testa", muscleGroup: "Tríceps", minLevel: 2, gym: true, home: false, goals: { hypertrophy: 2 } },
-    { name: "Flexão Diamante", muscleGroup: "Tríceps", minLevel: 1, gym: false, home: true, compound: true, goals: { fat_loss: 2, conditioning: 3 } },
+    { name: "Flexão Diamante", muscleGroup: "Tríceps", minLevel: 1, gym: false, home: true, compound: true, goals: { fat_loss: 2, conditioning: 3, hypertrophy: 2 } },
+    { name: "Tríceps no Banco", muscleGroup: "Tríceps", minLevel: 1, gym: false, home: true, goals: { fat_loss: 2, conditioning: 2, hypertrophy: 1 } },
     { name: "Supino Pegada Fechada", muscleGroup: "Tríceps", minLevel: 3, gym: true, home: false, compound: true, goals: { strength: 3, hypertrophy: 2 } },
   ],
   calves: [
@@ -151,6 +171,8 @@ const POOLS: Record<SlotCategory, PoolExercise[]> = {
   core: [
     { name: "Prancha", muscleGroup: "Abdômen", minLevel: 1, gym: true, home: true, goals: { conditioning: 3, fat_loss: 2 } },
     { name: "Abdominal Tradicional", muscleGroup: "Abdômen", minLevel: 1, gym: true, home: true, goals: { fat_loss: 2, conditioning: 2 } },
+    { name: "Prancha Lateral", muscleGroup: "Abdômen", minLevel: 1, gym: false, home: true, goals: { conditioning: 2 } },
+    { name: "Abdominal Bicicleta", muscleGroup: "Abdômen", minLevel: 1, gym: false, home: true, goals: { fat_loss: 2, conditioning: 2 } },
     { name: "Encolhimento Abdominal Sentado", muscleGroup: "Abdômen", minLevel: 2, gym: true, home: false, machine: true, goals: { hypertrophy: 2 } },
   ],
   // Cardio: usado APENAS como finalizador nos objetivos de queima de gordura e
@@ -425,6 +447,158 @@ function repsFor(ex: PoolExercise, cat: SlotCategory, scheme: Scheme, level: Fit
   return ex.compound ? scheme.compoundReps : scheme.isolationReps;
 }
 
+// ── Técnicas de treino sugeridas (bi-set, drop-set) ──────────────────────────
+// O gerador não distribui técnica por enfeite: cada regra abaixo existe por um
+// motivo de treino. Continua 100% determinístico — mesmas respostas, mesmo
+// programa, mesmas técnicas.
+
+/**
+ * Pares ANTAGONISTAS — a única forma de bi-set que o gerador monta sozinho.
+ * Enquanto um grupo trabalha, o oposto descansa, então o bloco poupa tempo sem
+ * roubar performance. É o caso clássico bíceps + tríceps.
+ *
+ * O que NÃO entra aqui, de propósito:
+ *  - agonista + sinergista (peito + tríceps): o tríceps chega ao segundo
+ *    exercício já fatigado pelo primeiro — o bloco só piora as duas séries;
+ *  - dois exercícios do MESMO grupo: isso é pré-exaustão, técnica avançada que
+ *    depende de intenção, não de sugestão automática;
+ *  - ombro/panturrilha/core/cardio: sem antagonista prático na academia.
+ */
+const ANTAGONIST: Partial<Record<SlotCategory, SlotCategory>> = {
+  chest: "back",
+  back: "chest",
+  biceps: "triceps",
+  triceps: "biceps",
+  quads: "posterior",
+  posterior: "quads",
+};
+
+/**
+ * Quantas técnicas cabem numa sessão, por objetivo e nível.
+ *
+ *  - **Iniciante nunca recebe técnica.** Antes de intensificar, é preciso
+ *    aprender o movimento e construir uma base de execução.
+ *  - **Força não recebe técnica.** Treino de força vive de série pesada com
+ *    descanso completo; bi-set e drop-set trabalham contra isso.
+ *  - **Emagrecimento/condicionamento** ganham bi-set (densidade, mais trabalho
+ *    no mesmo tempo) mas **nenhum drop-set**: o objetivo é volume sustentável,
+ *    não falha muscular.
+ *  - **Hipertrofia** ganha os dois.
+ */
+function techniqueBudget(answers: QuizAnswers): { biset: number; drop: number } {
+  if (answers.level === "beginner" || answers.goal === "strength") {
+    return { biset: 0, drop: 0 };
+  }
+  const advanced = answers.level === "advanced";
+  if (answers.goal === "fat_loss" || answers.goal === "conditioning") {
+    return { biset: advanced ? 2 : 1, drop: 0 };
+  }
+  return { biset: advanced ? 2 : 1, drop: 1 };
+}
+
+type PickedExercise = {
+  exercise: SuggestedExercise;
+  category: SlotCategory;
+  pool: PoolExercise;
+};
+
+/**
+ * Distribui as técnicas sobre os exercícios já escolhidos do treino. Muta os
+ * `SuggestedExercise` no lugar (acrescenta `technique`/`techniqueGroup`).
+ */
+function assignTechniques(picked: PickedExercise[], answers: QuizAnswers, workoutKey: string) {
+  const budget = techniqueBudget(answers);
+  if (budget.biset === 0 && budget.drop === 0) return;
+
+  const taken = new Set<number>();
+
+  // ── Bi-sets antagonistas ──────────────────────────────────────────────────
+  let madeBisets = 0;
+  for (let i = 0; i < picked.length && madeBisets < budget.biset; i++) {
+    if (taken.has(i)) continue;
+    const a = picked[i];
+    const wanted = ANTAGONIST[a.category];
+    if (!wanted) continue;
+
+    for (let j = i + 1; j < picked.length; j++) {
+      if (taken.has(j)) continue;
+      const b = picked[j];
+      if (b.category !== wanted) continue;
+      // Na ACADEMIA, dois compostos de peso livre ocupariam duas barras/racks
+      // ao mesmo tempo — inviável numa academia cheia. Um dos dois precisa ser
+      // máquina ou isolador para o bloco ser executável de verdade.
+      //
+      // EM CASA a regra não vale: flexão + remada invertida é peso do corpo,
+      // não disputa equipamento com ninguém. Aplicar o mesmo filtro ali
+      // eliminava todos os bi-sets do treino caseiro (que é justo onde eles
+      // mais rendem, por falta de carga).
+      if (answers.location === "gym") {
+        const bothFreeCompounds =
+          a.pool.compound && !a.pool.machine && b.pool.compound && !b.pool.machine;
+        if (bothFreeCompounds) continue;
+      }
+
+      const group = `${workoutKey}-bs${madeBisets + 1}`;
+      a.exercise.technique = "biset";
+      a.exercise.techniqueGroup = group;
+      b.exercise.technique = "biset";
+      b.exercise.techniqueGroup = group;
+      taken.add(i);
+      taken.add(j);
+      madeBisets++;
+      break;
+    }
+  }
+
+  // ── Bi-set "de densidade" (só emagrecimento/condicionamento) ──────────────
+  // Um split como "Peito e Tríceps" não tem par antagonista por construção — os
+  // dois grupos trabalham juntos. Para HIPERTROFIA isso encerra o assunto: sem
+  // par bom, sem bi-set. Mas quando o objetivo é gasto calórico/densidade, é
+  // prática corrente emendar o exercício principal com um NEUTRO (core,
+  // panturrilha) — eles não dividem musculatura com nada do treino, então o
+  // bloco só adiciona trabalho sem prejudicar as séries.
+  if (
+    madeBisets < budget.biset &&
+    (answers.goal === "fat_loss" || answers.goal === "conditioning")
+  ) {
+    const NEUTRAL: SlotCategory[] = ["core", "calves"];
+    for (let i = 0; i < picked.length && madeBisets < budget.biset; i++) {
+      if (taken.has(i) || picked[i].category === "cardio") continue;
+      if (NEUTRAL.includes(picked[i].category)) continue;
+      const j = picked.findIndex(
+        (p, idx) => !taken.has(idx) && idx !== i && NEUTRAL.includes(p.category),
+      );
+      if (j === -1) break;
+      const group = `${workoutKey}-bs${madeBisets + 1}`;
+      picked[i].exercise.technique = "biset";
+      picked[i].exercise.techniqueGroup = group;
+      picked[j].exercise.technique = "biset";
+      picked[j].exercise.techniqueGroup = group;
+      taken.add(i);
+      taken.add(j);
+      madeBisets++;
+    }
+  }
+
+  // ── Drop-set ──────────────────────────────────────────────────────────────
+  // Um só, e no ÚLTIMO exercício elegível: drop-set é finalizador. Colocá-lo no
+  // começo comprometeria todo o resto da sessão.
+  if (budget.drop > 0) {
+    for (let i = picked.length - 1; i >= 0; i--) {
+      if (taken.has(i)) continue;
+      const p = picked[i];
+      if (p.category === "cardio" || p.category === "core") continue;
+      // Só onde baixar a carga é rápido e seguro: máquina, cabo ou isolador.
+      // Num agachamento com barra, trocar anilhas no meio da série não é
+      // drop-set — é pausa.
+      if (!p.pool.machine && p.pool.compound) continue;
+      p.exercise.technique = "drop";
+      taken.add(i);
+      break;
+    }
+  }
+}
+
 function buildExercises(
   tpl: DayTemplate,
   answers: QuizAnswers,
@@ -436,6 +610,10 @@ function buildExercises(
   const slots = applyEmphasis(tpl.slots, answers.emphasis);
   const usedInWorkout = new Set<string>();
   const out: SuggestedExercise[] = [];
+  // Categoria e entrada do pool de cada escolha — o `SuggestedExercise` não as
+  // carrega, e são elas que dizem se um bi-set é antagonista e se um drop-set é
+  // executável (máquina × barra livre).
+  const picked: PickedExercise[] = [];
 
   const poolFor = (cat: SlotCategory) =>
     POOLS[cat].filter(
@@ -451,13 +629,20 @@ function buildExercises(
     const pick = pickBest(poolFor(cat), answers, usedInWorkout, programUse);
     if (!pick) continue;
     usedInWorkout.add(pick.name);
-    out.push({
+    const exercise: SuggestedExercise = {
       name: pick.name,
       muscleGroup: pick.muscleGroup,
       series: scheme.series[levelNum],
       reps: repsFor(pick, cat, scheme, answers.level),
-    });
+    };
+    out.push(exercise);
+    picked.push({ exercise, category: cat, pool: pick });
   }
+
+  // Técnicas entram DEPOIS da escolha: elas dependem de quais exercícios o
+  // treino acabou tendo (não dá para saber o antagonista antes de escolher).
+  // O finalizador de cardio abaixo fica de fora de propósito.
+  assignTechniques(picked, answers, tpl.key);
 
   if (scheme.cardioFinisher) {
     const pick = pickBest(poolFor("cardio"), answers, usedInWorkout, programUse);

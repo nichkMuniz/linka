@@ -6,6 +6,14 @@ export type SuggestedExercise = {
   muscleGroup: string;
   series: number;
   reps: string;
+  /**
+   * Técnica sugerida pelo gerador (bi-set, drop-set…). Ausente = série direta.
+   * Só é gravada quando a rotina nasce no modo **expert** — o simplificado não
+   * renderiza técnica nenhuma. Ver `assignTechniques` em `program-generator.ts`.
+   */
+  technique?: "biset" | "triset" | "drop" | "rest_pause";
+  /** chave do bloco: exercícios com a mesma chave formam um bi-set/tri-set */
+  techniqueGroup?: string;
 };
 
 /** Um treino distinto dentro de um programa semanal (vira uma rotina). */

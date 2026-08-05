@@ -60,12 +60,25 @@ export type WorkoutSummaryData = {
     photo?: string | null;
     // Carga (kg) e repetições de cada série concluída, em ordem. Opcional: resumos
     // persistidos antes desta feature (routines.last_summary) não têm este campo.
+    // Para cardio (isCardio), kg = MINUTOS e reps = KM.
     sets?: Array<{ kg: number; reps: number }>;
+    // Cardio (corrida/bike) → detalhe deve mostrar min×km. Ausente = não-cardio.
+    isCardio?: boolean;
   }>;
   prExercises: Array<{
     name: string;
     previousBestKg: number;
     newBestKg: number;
+    /**
+     * Tipo do recorde — ver `PrKind` em `workout-session-dialog.tsx`. **Ausente
+     * = recorde de carga**: é o que representam os resumos já persistidos em
+     * `posts`/`routines.last_summary` e tudo que o modo simplificado produz.
+     */
+    kind?: "weight" | "reps" | "e1rm";
+    previousReps?: number;
+    newReps?: number;
+    previousE1rm?: number;
+    newE1rm?: number;
   }>;
   machinedExercises: Array<{ name: string; kg: number }>;
   userGroups: Array<{ id: string; name: string }>;
@@ -111,6 +124,43 @@ function getPrimaryMuscleGroup(exercises: Array<{ muscleGroup: string | null }>)
   return Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
 }
 
+/**
+ * Texto de um recorde para os cards/descrições compartilháveis.
+ *
+ * Existe porque esses caminhos foram escritos quando TODO PR era de carga e
+ * liam `newBestKg` direto. Com os recordes de repetição e de 1RM estimado
+ * (modo expert), `newBestKg` passa a ser só o peso da série envolvida — sem
+ * este formatador, um recorde de reps seria publicado como se a pessoa tivesse
+ * batido carga máxima.
+ *
+ * `withPrevious` acrescenta a marca anterior quando existe.
+ */
+function formatPrValue(
+  pr: WorkoutSummaryData["prExercises"][number],
+  withPrevious: boolean,
+): string {
+  if (pr.kind === "reps") {
+    const now = `${pr.newBestKg}kg × ${pr.newReps} reps`;
+    return withPrevious && (pr.previousReps ?? 0) > 0
+      ? `${pr.newBestKg}kg × ${pr.previousReps} → ${pr.newReps} reps`
+      : now;
+  }
+  if (pr.kind === "e1rm") {
+    const now = `${pr.newE1rm}kg (1RM est.)`;
+    return withPrevious && (pr.previousE1rm ?? 0) > 0
+      ? `${pr.previousE1rm}kg → ${pr.newE1rm}kg (1RM est.)`
+      : now;
+  }
+  return withPrevious && pr.previousBestKg > 0
+    ? `${pr.previousBestKg}kg → ${pr.newBestKg}kg`
+    : `${pr.newBestKg}kg`;
+}
+
+/** Recorde de CARGA — o único que admite "% de superação" no card gerado. */
+function isWeightPr(pr: WorkoutSummaryData["prExercises"][number]): boolean {
+  return !pr.kind || pr.kind === "weight";
+}
+
 function generateDefaultDescription(data: WorkoutSummaryData): string {
   const duration = formatSummaryDuration(data.durationSecs);
   const volumeStr = data.totalVolume > 0 ? ` • ${data.totalVolume}kg` : "";
@@ -127,9 +177,7 @@ function generateDefaultDescription(data: WorkoutSummaryData): string {
 
   if (data.prExercises.length > 0) {
     const prLines = data.prExercises
-      .map((p) =>
-        `🏆 ${p.name}: ${p.newBestKg}kg${p.previousBestKg > 0 ? ` (antes: ${p.previousBestKg}kg)` : ""}`,
-      )
+      .map((p) => `🏆 ${p.name}: ${formatPrValue(p, true)}`)
       .join("\n");
     return `${prLines}\n\nTreino de ${data.routineName} concluído em ${baseStats}\n\n#pr #recordepessoal #fitness #linka`;
   }
@@ -166,6 +214,7 @@ function buildPostWorkoutSummary(
       bestKg: ex.bestKg,
       photo: ex.photo ?? null,
       sets: (ex.sets ?? []).map((s) => ({ kg: s.kg || 0, reps: s.reps || 0 })),
+      isCardio: ex.isCardio ?? false,
     })),
     prExercises: data.prExercises.length > 0 ? data.prExercises : undefined,
     machinedExercises: data.machinedExercises.length > 0 ? data.machinedExercises : undefined,
@@ -359,7 +408,7 @@ function drawPRCanvas(
   roundRectPath(ctx, 20, y, W - 40, bH, 12);
   ctx.clip();
   const pBannerTxt = data.prExercises.length === 1
-    ? `NOVO RECORDE: ${data.prExercises[0].name} — ${data.prExercises[0].newBestKg}kg`
+    ? `NOVO RECORDE: ${data.prExercises[0].name} — ${formatPrValue(data.prExercises[0], false)}`
     : `${data.prExercises.length} NOVOS RECORDES PESSOAIS`;
   ctx.fillText(pBannerTxt, W / 2, y + 25);
   ctx.restore();
@@ -404,9 +453,7 @@ function drawPRCanvas(
     ctx.fillStyle = "#ffffff";
     ctx.font = `700 13px ${FONT}`;
     ctx.textAlign = "center";
-    let txt = pr.previousBestKg > 0
-      ? `${pr.name}  ${pr.previousBestKg}kg → ${pr.newBestKg}kg`
-      : `${pr.name}  ${pr.newBestKg}kg`;
+    let txt = `${pr.name}  ${formatPrValue(pr, true)}`;
     while (ctx.measureText(txt).width > W - 48 && txt.length > 3) txt = txt.slice(0, -2) + "…";
     ctx.fillText(txt, W / 2, y);
     y += 22;
@@ -729,8 +776,10 @@ function drawEvolutionCanvas(
 
   // Três modos: PR com base anterior (% de ganho) → PR novo (primeira marca)
   // → sem PR (maior carga do dia), para o card nunca sair vazio.
+  // "% de superação" só existe para recorde de CARGA: comparar o peso de hoje
+  // com o peso anterior num recorde de repetições daria um ganho de 0%.
   const prsWithPct = data.prExercises
-    .filter((p) => p.previousBestKg > 0)
+    .filter((p) => isWeightPr(p) && p.previousBestKg > 0)
     .map((p) => ({ ...p, pct: ((p.newBestKg - p.previousBestKg) / p.previousBestKg) * 100 }))
     .sort((a, b) => b.pct - a.pct);
 
@@ -742,16 +791,16 @@ function drawEvolutionCanvas(
     big = `+${top.pct >= 10 ? String(Math.round(top.pct)) : top.pct.toFixed(1).replace(".", ",")}%`;
     sub = `mais forte em ${top.name}`;
     rows = data.prExercises.slice(0, 3).map((p) =>
-      p.previousBestKg > 0
-        ? `${p.name}  ·  ${p.previousBestKg}kg → ${p.newBestKg}kg`
-        : `${p.name}  ·  ${p.newBestKg}kg (primeira marca)`,
+      isWeightPr(p) && p.previousBestKg <= 0
+        ? `${p.name}  ·  ${formatPrValue(p, false)} (primeira marca)`
+        : `${p.name}  ·  ${formatPrValue(p, true)}`,
     );
   } else if (data.prExercises.length > 0) {
     const top = data.prExercises[0];
     label = "NOVO RECORDE";
-    big = `${top.newBestKg}kg`;
+    big = formatPrValue(top, false);
     sub = `em ${top.name}`;
-    rows = data.prExercises.slice(0, 3).map((p) => `${p.name}  ·  ${p.newBestKg}kg`);
+    rows = data.prExercises.slice(0, 3).map((p) => `${p.name}  ·  ${formatPrValue(p, false)}`);
   } else {
     const best = data.completedExercises
       .filter((e) => e.bestKg > 0)
@@ -1631,24 +1680,49 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
                   {pr.name}
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-                  {pr.previousBestKg > 0 && (
-                    <span style={{ fontSize: 12, color: MUTED, textDecoration: "line-through", whiteSpace: "nowrap" }}>
-                      {pr.previousBestKg}kg
-                    </span>
+                  {/* Valor antigo riscado — cada tipo de recorde compara uma
+                      grandeza diferente. Sem `kind` (resumos antigos e modo
+                      simplificado) cai no ramo de carga, como sempre foi. */}
+                  {pr.kind === "reps" ? (
+                    (pr.previousReps ?? 0) > 0 && (
+                      <span style={{ fontSize: 12, color: MUTED, textDecoration: "line-through", whiteSpace: "nowrap" }}>
+                        {pr.previousReps} reps
+                      </span>
+                    )
+                  ) : pr.kind === "e1rm" ? (
+                    (pr.previousE1rm ?? 0) > 0 && (
+                      <span style={{ fontSize: 12, color: MUTED, textDecoration: "line-through", whiteSpace: "nowrap" }}>
+                        {pr.previousE1rm}kg
+                      </span>
+                    )
+                  ) : (
+                    pr.previousBestKg > 0 && (
+                      <span style={{ fontSize: 12, color: MUTED, textDecoration: "line-through", whiteSpace: "nowrap" }}>
+                        {pr.previousBestKg}kg
+                      </span>
+                    )
                   )}
                   <span style={{
                     background: ORANGE, color: "#fff",
                     borderRadius: 20, padding: "2px 10px",
                     fontSize: 13, fontWeight: 800, whiteSpace: "nowrap",
                   }}>
-                    {pr.newBestKg}kg
+                    {pr.kind === "reps"
+                      ? `${pr.newBestKg}kg × ${pr.newReps}`
+                      : pr.kind === "e1rm"
+                        ? `${pr.newE1rm}kg`
+                        : `${pr.newBestKg}kg`}
                   </span>
                   <span style={{
                     background: `${ORANGE}33`, color: ORANGE,
                     borderRadius: 20, padding: "2px 8px", fontSize: 11, fontWeight: 700,
                     whiteSpace: "nowrap",
                   }}>
-                    {t("goals_summary_pr_badge")}
+                    {pr.kind === "reps"
+                      ? t("goals_summary_pr_badge_reps")
+                      : pr.kind === "e1rm"
+                        ? t("goals_summary_pr_badge_e1rm")
+                        : t("goals_summary_pr_badge")}
                   </span>
                 </div>
               </div>

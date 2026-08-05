@@ -3,10 +3,12 @@ import type {
   RoutineLastSummary,
   RoutineProgramMeta,
   RoutineTypeCode,
+  TrainingMode,
   UserDietWithDetails,
   UserHabitWithDetails,
   UserWorkoutWithDetails,
 } from "@/lib/ritmofit-db";
+import { toTrainingMode } from "@/lib/ritmofit-db";
 import { getSuggestedSetsForRoutine } from "@/components/goals/suggested-routines-data";
 
 export type RoutineItem =
@@ -106,6 +108,13 @@ export type RoutineCard = {
   lastSummary: RoutineLastSummary | null;
   /** program metadata when the routine was created by the personalization quiz; null otherwise */
   programMeta: RoutineProgramMeta | null;
+  /**
+   * Modo da experiência de treino escolhido na criação (`routines.training_mode`).
+   * Só faz efeito em rotinas de treino (`type === 1`); dieta/hábito carregam o
+   * default. Card sem linha resolvida em `routines` (`routineId === null`) cai
+   * em `simple` — o comportamento clássico.
+   */
+  trainingMode: TrainingMode;
 };
 
 /**
@@ -197,6 +206,7 @@ export function buildRoutineCards(
             ?.scheduled_days ?? null,
         lastSummary: routine?.last_summary ?? null,
         programMeta: routine?.program_meta ?? null,
+        trainingMode: toTrainingMode(routine?.training_mode),
       });
     }
   };

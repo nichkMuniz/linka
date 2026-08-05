@@ -69,11 +69,12 @@ A tela de **Novo Post** (`docs/04-novo-post.md`) linka para cá quando o usuári
 
 ## Fluxo de criação (wizard)
 
-`create-wizard-drawer.tsx` — bottom sheet em etapas com navegação de volta. A criação de rotina agora é **somente treino** (o seletor de tipo Treino/Dieta/Hábito foi removido). O passo genérico **"O que criar?" (`what`) não é mais usado como entrada** na tela de Metas: a criação de rotina entra direto em `routine-origin`/`build-name` (tocando num card de tipo) e a de meta entra direto em `goal-origin` (CTA "+ Criar nova meta"). O passo `what` permanece no componente, mas só seria atingido por um `initialStep="what"` explícito.
+`create-wizard-drawer.tsx` — bottom sheet em etapas com navegação de volta. A criação de rotina agora é **somente treino** (o seletor de tipo Treino/Dieta/Hábito foi removido). O passo genérico **"O que criar?" (`what`) não é mais usado como entrada** na tela de Metas: a criação de rotina entra direto em `routine-mode` (tocando num card de tipo) e a de meta entra direto em `goal-origin` (CTA "+ Criar nova meta"). O passo `what` permanece no componente, mas só seria atingido por um `initialStep="what"` explícito.
 
 ```
 ("O que criar?" — não mais usado como entrada na tela de Metas)
-(card tipo) ──► Rotina (treino) ──► Origem: ✨Sugerido | ✏️Do zero
+(card tipo) ──► Rotina (treino) ──► MODO: 🏋️Simplificado | ✨Expert
+       │                       └──► Origem: ✨Sugerido | ✏️Do zero
        │                  ✨Sugerido ──► QUIZ de personalização (6 perguntas):
        │                                  1. Objetivo (massa/gordura/força/condicionamento)
        │                                  2. Nível (Iniciante/Inter/Avançado)
@@ -128,7 +129,7 @@ A tela de **Novo Post** (`docs/04-novo-post.md`) linka para cá quando o usuári
   - **Hub do Hoje** (`today-dashboard.tsx`): sequenciais saem do filtro por dia da semana (`!isSequentialCard(c)`) e entram como **um único card devido** vindo do `seqDue`. Sem dia de descanso por agenda (sempre há uma próxima).
   - **Exibição**: o chip de dias vira **"Sequencial"** (`routines-tab`); na **Agenda semanal** (`routine-schedule-modal`) ganham uma **seção própria** no topo (numerada pela ordem do rodízio, com horário), fora da grade de dias (a grade só aparece se houver rotina por dia da semana). No **detalhe** da rotina, o editor de Lembrete esconde os chips de dias e mostra um aviso "Sequencial"; salvar/desativar **preserva o `'seq'`** (senão viraria "todo dia").
   - **Notificação**: `scheduled_days='seq'` cai em `parseWeekdays → []` → **lembrete diário** no horário definido (nudge para o próximo treino). Sem crash.
-  - **Escopo**: só **treino**, só o fluxo **"Do zero"** (`build-schedule`). Dieta/hábito e o programa gerado pelo quiz seguem por dia da semana.
+  - **Escopo**: só **treino**, nos **dois** fluxos de criação — **"Do zero"** (passo `build-schedule`) e **"Sugerido pelo app"** (o mesmo toggle no topo do preview `suggested-program`, 20/07/2026). No sugerido, o quiz continua definindo a **estrutura** do programa (nº de dias → nº de treinos distintos); ao escolher Sequencial, a tira seg→dom vira um aviso, cada treino mostra a **posição no rodízio** (`#N`, `goals_program_seq_position`) em vez das letras de dia, e o `handleAddWeeklyProgram` grava `'seq'` em vez dos dias. A **ordem do rodízio** = ordem de `program.workouts` (primeira aparição na sequência gerada) = ordem de criação. Dieta/hábito seguem por dia da semana. O estado `scheduleMode` é compartilhado pelos dois fluxos (reset para "weekly" ao fechar o wizard).
 
 - **Meta personalizada** (passo `goal-custom`): descrição + categoria (fitness/saúde/hábitos) + **duração** (presets 30/60/90 ou personalizada, em dias) + **frequência** (campo numérico = `quantity`, dias por semana que o usuário pretende executar, 1–7 — hoje é só informativo/exibido, não entra no cálculo de progresso). O **denominador do progresso é a duração** (`perc = days_completed / duration`, ver `docs/14-database-schema.md` e `incrementGoalProgressDb`): cada rotina vinculada concluída num dia soma **+1 `days_completed`** (máx. 1x/dia, mesmo com várias rotinas concluídas), então uma meta de 30 dias avança **~3,33% por dia** de execução. Cria via `createCustomGoalAndSelectDb(userId, desc, type, duration, frequency)`.
 
@@ -143,13 +144,225 @@ A tela de **Novo Post** (`docs/04-novo-post.md`) linka para cá quando o usuári
   - **Objetivo → esquema de séries/reps/descanso** (`SCHEMES`): hipertrofia 3–4×10–12 (60–90s); força 3–5×5–8 (2–3min); queima de gordura 3–4×15 (30–60s); condicionamento 3–4×12–15 (45–60s). Séries escalam com o nível; Prancha usa alvo por tempo ("30s"/"45s").
   - **Finalizador de cardio** (`cardioFinisher`): nos objetivos **queima de gordura** e **condicionamento**, a última vaga de TODO treino é reservada para um exercício de **cardio** (pool próprio: Esteira, Bicicleta Ergométrica, Elíptico, Remo Ergométrico, Corda, Polichinelo, Corrida com Joelhos Altos, Burpee — grupo `Cardio`, que faz a sessão registrar MIN×KM), com série única e alvo por tempo ("15min"/"12min"). Hipertrofia e força não recebem cardio.
   - **Tempo → nº de exercícios por treino**: 30min≈4, 45≈5, 60≈6, 75+≈7.
-  - **Local → pool de exercícios**: pools curados por grupo (`POOLS`, nomes brutos PT confirmados no catálogo `workouts`, com foto), cada exercício marcado com `gym`/`home` e `minLevel`. "Em casa" usa halteres + peso do corpo (Flexão de Braço, Remada Curvada com Halteres, etc.).
+  - **Local → pool de exercícios**: pools curados por grupo (`POOLS`, nomes brutos PT confirmados no catálogo `workouts`, com foto), cada exercício marcado com `gym`/`home` e `minLevel`. **"Em casa" = peso do corpo estrito (20/07/2026)**: só exercícios sem peso/máquina de academia (no máximo barra fixa/TRX/elástico, que são equipamento doméstico). **Não usa a coluna `workouts.type`** — ela está poluída com alongamento/mobilidade/rolo-de-espuma e tem **0 opções de puxada** (Costas/Bíceps/Posterior/Ombro), então "só `type=2`" produziria treinos com alongamento como exercício e dias vazios. A curadoria fica **nas flags `home:true` do `POOLS`**: exercícios com halter/barra carregada/cabo/máquina são `home:false`; cada grupo tem ≥1 opção `home` de `minLevel:1` para o programa fechar todos os grupos em qualquer nível. Bodyweight adicionados (com foto do catálogo, exceto "Superman"): Flexão Inclinada, Remada Invertida, Avanço, Avanço Reverso, Flexão Hindu, Tuck Planche, Rosca Bíceps no TRX, Tríceps no Banco, Prancha Lateral, Abdominal Bicicleta. A **academia é inalterada** (segue com halteres/máquinas/barra). O filtro em si já existia (`generateProgram` filtra o pool por `e.home` quando `location === "home"`) — a mudança é só de dados nas flags.
   - **Ênfase muscular reorganiza a DIVISÃO da semana** (não só os slots): com foco escolhido e 2+ dias, a maioria dos dias vira dedicada à região em foco — 2 dias = Foco + Corpo Inteiro; 3 = Foco A/Outro A/Foco B; 4 = 3 focos + 1 outro; 5 = 3 focos + 2 outros; 6 = 4 focos + 2 outros (padrões em `buildDaySequence`; o nome do programa vira "Foco Inferior/Superior {n}x"). Além disso, dentro de cada dia que trabalha a região, ela é movida para o início e ganha **uma vaga extra de exercício** (`applyEmphasis`). Invariante testado: os exercícios da região em foco são sempre **maioria na semana**, em todas as combinações (inclusive em casa — pools de inferiores para casa incluem Agachamento Goblet/Sumô/Búlgaro, Avanço com Halteres e Ponte Glúteo).
   - **Seleção por pontuação** (`scoreExercise`/`pickBest`): cada exercício do pool tem uma **afinidade 0–3 por objetivo** (`goals`) e flags `compound`/`machine`. A nota = afinidade×3 + bônus de composto (maior para força e circuitos de emagrecimento/condicionamento) + ajuste por nível (máquinas ganham bônus para iniciante e desconto para avançado, que prefere pesos livres) − **penalidade de repetição** (−3 por uso em outro treino do mesmo programa). Resultado: **objetivos diferentes escolhem exercícios diferentes** (força prioriza barra — supino reto, remada curvada, terra romeno; hipertrofia mistura halteres/máquinas/cabos; emagrecimento/condicionamento priorizam movimentos circuitáveis e de peso do corpo), níveis diferentes também, e os dias A/B variam os exercícios — exceto os levantamentos-base de força (afinidade 3), que repetem entre A/B como nos programas clássicos de progressão linear. Desempate estável pela ordem de curadoria do pool (determinístico).
   - O quiz é **pré-preenchido** com o perfil fitness salvo (`getFitnessProfileDb`); ao adicionar o programa, as respostas são persistidas via `upsertFitnessProfileDb` (tabela `user_fitness_profile`). Máx. 6 dias selecionáveis (toast pede 1 dia de descanso).
+- **Não polui o catálogo `workouts` (20/07/2026)**: `handleAddWeeklyProgram` **deixou de criar exercícios** no catálogo central (`createCustomWorkoutDb`) quando um exercício do programa não é encontrado. Isso poluía a tabela com duplicatas/dados não confiáveis a cada usuário que criava uma rotina sugerida. Agora o app **só casa com o catálogo existente**; exercícios sem correspondência são **pulados** da rotina e **reportados** ao usuário via toast (`goals_program_missing_*`), para ele inserir manualmente. O catálogo só recebe inserção por **criação manual** de exercício (o "Criar exercício personalizado" do build e o "criar exercício" da sessão de treino — `created_by_user`), nunca pelo gerador. O `program_meta` passa a refletir só os exercícios que entraram. Auditoria de 20/07/2026: 14 dos 69 nomes do `POOLS` faltavam no catálogo (ex.: Superman, Agachamento Sumô, Corda, Esteira, Bicicleta Ergométrica) — eram os que vinham sendo auto-criados; até serem inseridos, saem pulados/reportados.
 - **Criação do programa** (`handleAddWeeklyProgram`): o `WeeklyProgram` gerado tem o mesmo formato do catálogo estático, então o preview/edição continuam iguais. Ao adicionar, **cria uma rotina por treino distinto** de uma só vez; além disso agora grava em cada rotina criada: **`scheduled_days`** com os dias escolhidos no quiz/preview (via `updateRoutineItemsScheduledDaysDb` — o Hub do Hoje passa a usar os dias explícitos, sem depender do mapa por nome) e **`routines.program_meta`** (`updateRoutineProgramMetaDb`) com as séries×reps sugeridas por exercício, que alimentam o pré-preenchimento da primeira execução. Exercícios são casados com o catálogo `workouts` pelo **nome bruto do banco em PT e EN** via `getWorkoutNameIdIndexDb` (independe do idioma da UI); quando ausentes, são criados via `createCustomWorkoutDb` (reaproveitados entre os dias do mesmo programa).
 - **Catálogo estático legado**: `suggested-routines-data.ts` mantém os 3 `WEEKLY_PROGRAMS` por nível (não são mais oferecidos na criação) porque `buildRoutineWeekdayMap` e `getSuggestedSetsForRoutine` continuam servindo as **rotinas criadas antes do quiz** (casadas pelo nome; `EXERCISE_ALIASES` cobre nomes antigos pré-unificação de 2026-07-07). Rotinas novas usam `scheduled_days` + `program_meta` e não dependem desse mapa. A tela continua surfando "o treino de hoje" pela heurística do mais devido, que naturalmente rotaciona pelos treinos do programa.
 - Rotina criada = inserts em `user_workouts` (ou `user_diets`/`user_habits`) com `name`; trigger do banco cria a linha em `routines`; `backfillRoutineIdOnItemsDb` preenche `routine_id`; vínculo de meta via `updateRoutineGoalDb`.
+
+## Modo de treino: Simplificado × Expert (05/08/2026)
+
+A experiência de treino tem **duas visões**, escolhidas pelo usuário no passo `routine-mode` do wizard (primeira decisão da rotina de treino, antes da origem — vale tanto para "Sugerido pelo app" quanto para "Do zero"). A escolha vive em **`routines.training_mode`** (`'simple'` | `'expert'`) e é **por rotina**, não por conta: dá para ter "Peito/Tríceps" no expert e "Corrida de domingo" no simplificado.
+
+| | Simplificado (default) | Expert |
+|---|---|---|
+| Tabela de séries | `# · ANTERIOR · KG · REPS · ✓` (inalterada) | mesma grid, com a coluna `#` tocável |
+| Tipo de série | não existe | **Aquecimento (A) · Válida (nº) · Falha (F)** |
+| Volume / contagem de séries | toda série concluída conta | **aquecimento não conta** |
+| PR e "máquina zerada" | qualquer série dispara | só séries de trabalho disparam |
+| Tipos de recorde | só carga máxima | **carga · repetições · 1RM estimado** |
+| Descanso | preset do exercício | aquecimento usa **30s** (nunca acima do preset) |
+| Numeração | `1,2,3,4,5` | `A A 1 2 3` — o denominador de "0/3" também ignora aquecimento |
+
+**Como o modo chega na tela:** `routines.training_mode` → `getUserRoutinesDb` → `buildRoutineCards` (`RoutineCard.trainingMode`, via `toTrainingMode`) → prop `trainingMode` do `WorkoutSessionDialog` → const `isExpert`. Card sem linha resolvida em `routines` (`routineId === null`) cai em `simple`.
+
+**Gravação nos dois caminhos de criação** (são diferentes de propósito):
+- **Do zero** (`handleSaveRoutine`): a linha em `routines` nasce de **trigger** no banco, o cliente nunca vê o id → `updateRoutineTrainingModeByNameDb(userId, type, name, mode)` casa por `(user_id, type, name)`, mesma estratégia dos setters de horário/dias.
+- **Sugerido pelo app** (`handleAddWeeklyProgram`): o fluxo já relê `getUserRoutinesDb` para casar cada treino do programa → `updateRoutineTrainingModeDb(routineId, mode)` grava direto por id.
+
+Ambos são best-effort (`.catch`) e **só disparam quando o modo ≠ `simple`**: falhar deixa a rotina no default da coluna, que é o comportamento clássico.
+
+**Tipo de série no histórico** — `user_workouts_hist.set_kind`. O aquecimento **é gravado** (o registro tem que ser fiel ao treino feito); o que ele não faz é contar. Toda leitura de carga filtra por `WORKING_SETS_FILTER` (`set_kind.is.null,set_kind.neq.warmup`): `getPreviousBestKgDb`, `getExerciseProgressionDb` e `getLastWorkoutSessionSeriesDb`. O braço `is.null` é obrigatório — no Postgres `NULL <> 'warmup'` é NULL, não TRUE, então um `.neq` puro apagaria todo o histórico anterior a 05/08/2026.
+
+**Onde o usuário vê o modo:** selo "Expert" no header da sessão de treino (abaixo do nome da rotina) e pill indigo com ✨ na fileira de chips do `RoutineDetailDrawer`. O modo simplificado não tem selo — é o padrão.
+
+**Trocar o modo depois de criada:** faixa "Modo de treino" no `RoutineDetailDrawer`, logo abaixo da grade de ações (só `type === 1`). É uma faixa própria com rótulo por extenso, e não um 5º ícone na grade, porque a escolha muda a tela de registro inteira. `Goals.handleSetTrainingMode` prefere `updateRoutineTrainingModeDb` (por id) e cai em `updateRoutineTrainingModeByNameDb` quando o card não resolveu a linha em `routines`. **A troca vale da próxima sessão em diante** — o histórico já gravado mantém o `set_kind` com que foi salvo (passar para simplificado não "descategoriza" aquecimentos antigos, e eles seguem fora das leituras de carga).
+
+### Três tipos de recorde (modo expert)
+
+O PR do app era `max(kilos)` puro — matematicamente errado: uma série de 100kg × 1 "vencia" 95kg × 10. O modo expert reconhece três recordes, convenção Hevy/Strong (`PrKind` em `workout-session-dialog.tsx`):
+
+| `kind` | O que é | Como aparece |
+|---|---|---|
+| `weight` | maior carga já levantada | `80kg → 85kg` · badge **PR** |
+| `reps` | **mesma carga, mais repetições** | `60kg × 8 → 12 reps` · badge **PR REPS** |
+| `e1rm` | maior 1RM estimado (Epley, `kg × (1 + reps/30)`) | `118,3kg → 126,7kg` · badge **PR 1RM** |
+
+- **Um recorde por exercício**, na prioridade `weight` → `e1rm` → `reps`: bater carga quase sempre bate o e1RM junto, e emitir os três encheria o banner com a mesma conquista repetida.
+- **Recorde de reps exige marca anterior naquela carga.** Primeira vez num peso novo é estreia, não "mais repetições" — e o recorde de carga/e1RM já cobre esse caso.
+- `beatsE1rm` exige margem de **0,5kg**: sem ela, 0,03kg de arredondamento da fórmula anunciaria recorde toda sessão.
+- Baseline lido por `getExercisePersonalRecordsDb` — **uma** consulta por exercício devolvendo `{ bestKg, bestE1rm, repsByKg }` (três idas ao banco por exercício estourariam o "Finalizar" de um treino com 8 exercícios). O modo simplificado continua no `getPreviousBestKgDb`, que lê 1 linha.
+- **Compatibilidade:** `kind` ausente = recorde de carga. É o que representam todos os snapshots já gravados em `posts` e `routines.last_summary`, e tudo que o modo simplificado produz. Os caminhos de card/descrição compartilhável passam por `formatPrValue`; o "% de superação" do card gerado filtra por `isWeightPr` (comparar peso num recorde de reps daria 0%).
+- **Limite conhecido:** o aviso de PR **em tempo real** (ao marcar a série) continua só de carga — ele compara com a coluna ANTERIOR, que já está em memória. Os três tipos são detectados na finalização, contra o histórico completo.
+
+Cálculo do e1RM isolado em `client/lib/one-rep-max.ts` (`estimateOneRepMax`, `roundE1rm`, `beatsE1rm`), com teto de 30 reps para séries longas não virarem "força máxima".
+
+> **Campo morto ressuscitado:** `WorkoutSeriesEntry` tinha `type?: 'W' | 'N' | 'F'` desde a v1, **nunca escrito nem lido**. Virou `kind?: SetKind` e passou a valer. Antes disso o aquecimento entrava no volume e no PR como qualquer outra série — era um bug de dado, não só uma feature faltando.
+
+## Anatomia: porções e cabeças musculares (05/08/2026)
+
+Fase 2 do plano de treino profissional. `workouts.muscle_group` é um texto grosso com ~10 valores e **continua existindo** (card, filtro, fallback de imagem). A anatomia é uma camada **acima** dela: `muscles` (catálogo de porções) + `workout_muscles` (recrutamento com papel e ênfase 0–100) — ver `docs/14-database-schema.md`.
+
+Exemplo do que isso destrava: "Peito" vira `Peitoral superior (clavicular) 85 · Deltoide anterior 45 · Tríceps lateral 25` no supino inclinado, e `Peitoral inferior (abdominal) 80` no crossover.
+
+### Onde aparece
+
+| Lugar | Como chegar | O quê |
+|---|---|---|
+| **Sessão de treino** | ícone **"i"** no card do exercício | `ExerciseAnatomy` dentro do `ExerciseDetailOverlay` — é onde o usuário mais olha o exercício |
+| **Detalhe da rotina** | tocar no exercício para expandir | `ExerciseAnatomy` abaixo do gráfico de progressão |
+| **Wizard**, passo de montagem | tocar na **foto** do exercício na lista | `ExerciseAnatomy` no `ItemDetailDrawer` |
+| **Wizard**, passo de montagem | 3ª aba **"Porção"** | `Peito → Superior/Meio/Inferior → exercícios ordenados por ênfase` |
+
+`ExerciseAnatomy` = mapa corporal + lista das porções com barra de ênfase e rótulo Principal/Auxiliar/Estabiliza.
+
+> **Armadilha de cache (corrigida em 05/08/2026):** `getMusclesDb` e as demais leituras de anatomia usam `CACHE_TTL_STATIC` (12h) **persistido em localStorage**. Quem abriu o app **antes** de rodar a migração gravou `[]` e o app serviu "catálogo vazio" por 12h — a aba "Porção" não aparecia, a ficha não renderizava e o card de cobertura sumia, tudo sem erro visível. Duas defesas: `cached(..., { skipEmpty: true })` nunca mais grava lista vazia, e as chaves ganharam `:v2` para descartar o que já estava preso nos aparelhos.
+
+### Componentes
+
+| Componente | Arquivo | Nota |
+|---|---|---|
+| `MuscleMap` | `client/components/shared/muscle-map.tsx` | Silhueta frente/costas em **SVG inline**, sem dependência (uma lib obrigaria regenerar os dois lockfiles — mesma decisão do `trend-chart.tsx`). Desenho esquemático de propósito: responde "onde pega?" em meio segundo num quadro de ~92px |
+| `ExerciseAnatomy` | `client/components/shared/exercise-anatomy.tsx` | Carrega sob demanda e **não renderiza nada** quando o exercício não tem anatomia — sem título, sem estado vazio (alongamento é pulado pelo seed de propósito) |
+
+### Decisões
+
+- **Pintura por região, não por músculo.** Várias porções caem na mesma região do desenho (as 3 do peito → `chest`); a região acende com a **maior** ênfase entre elas. O detalhe fino é a lista ao lado — o mapa é a visão geral.
+- **Vista padrão é automática:** abre na vista (frente/costas) que concentra mais estímulo. "Puxada na frente" abrindo de frente, onde quase nada acende, pareceria quebrado.
+- **`emphasis` não é porcentagem.** As linhas de um exercício **não somam 100** — é intensidade relativa por músculo. Somar daria a impressão de repartir um bolo fixo, que não é como recrutamento funciona.
+- **`getWorkoutsByMuscleDb` corta em `emphasis >= 40`** por padrão: sem o corte, todo exercício de peito apareceria na lista da porção inferior por causa das linhas secundárias fracas.
+- **A lista do picker vem ordenada do banco** (por ênfase) e o cliente **não reordena** — reordenar por nome jogaria fora exatamente o que se foi buscar.
+- **O 3º modo só aparece quando `muscles` já foi semeado** (`anatomyGroups.length > 0`), então o app funciona normalmente antes de a migração rodar.
+
+## Cobertura muscular da semana (05/08/2026)
+
+Fase 4 — o card `MuscleCoverageCard` no Hub do Hoje. **Não exigiu migração**: só agrega o que as fases anteriores passaram a gravar (`set_kind` tira o aquecimento, `workout_muscles` diz onde cada série pegou).
+
+A pergunta que responde não é "quanto você treinou" — o app já mostrava. É **onde você NÃO treinou**: a lacuna aparece no card, não escondida no detalhe.
+
+### Séries efetivas — a métrica
+
+Não é contagem crua de séries. Uma série de supino reto não é "1 série de tríceps": ela vale `emphasis / 100` para cada músculo recrutado, então 4 séries de supino (tríceps 30) = **1,2 série efetiva de tríceps**. É a métrica que a literatura de hipertrofia usa (alvo comum: 10–20 por músculo por semana, `WEEKLY_SETS_TARGET = 10`).
+
+### `getMuscleCoverageDb(windowDays = 7, lookbackDays = 90)`
+
+Duas consultas (histórico + ligações de anatomia dos exercícios envolvidos), agregação no cliente. Decisões:
+
+- **Duas janelas.** `windowDays` mede séries/volume da semana; `lookbackDays` (90) responde "há quanto tempo não treino isso". Sem a segunda, um músculo parado há 3 semanas seria indistinguível de um nunca treinado.
+- **Devolve TODOS os músculos do catálogo**, inclusive zerados — a lacuna só existe nas linhas com `effectiveSets === 0`.
+- **Estabilizador não conta volume** (ver `workout_muscles.role`): a prancha estabiliza o deltoide anterior, mas ninguém diria que ela é treino de ombro.
+- **"Treinou" = ênfase ≥ 50** para efeito de `lastTrainedAt`. Uma linha secundária fraca não deveria zerar o alerta de "faz tempo que você não treina isso".
+- Cache `CACHE_TTL_OWN` (15min) invalidado por `saveWorkoutHistoryDb`; o card ainda recebe um `refreshToken` de `Goals.handleWorkoutFinished`, porque o card já está montado quando o treino termina.
+
+### Lacunas
+
+Músculos com 0 séries na semana **e** ≥ 10 dias sem estímulo relevante. Ordenadas por "há mais tempo" primeiro, com os **nunca treinados no fim**: quem nunca treinou panturrilha provavelmente não quer, enquanto quem parou há 3 semanas esqueceu.
+
+### Gate premium
+
+`PremiumGate feature="charts"` sobre o card inteiro — vende profundidade sobre o dado que o usuário gera de graça (princípio do `docs/17-premium.md`). Registrar treino, ver volume, séries e PRs continua livre.
+
+**O card some sozinho** quando não há anatomia semeada (migração não rodou) ou nenhum treino no período — nada de card vazio no Hub.
+
+### Correção 05/08/2026 — números sobreviviam à exclusão da rotina
+
+Sintoma: apagar a rotina (o que apaga o histórico dela junto) e o card continuar mostrando volume. Duas causas, as duas corrigidas:
+
+1. **O caminho de DELETE nunca invalidava cache.** `saveWorkoutHistoryDb` sempre derrubou `workoutHistory`/`exerciseProgress`/`muscleCoverage`, mas `deleteRoutineCardDb` e `deleteRoutineItemDb` apagavam as linhas de `user_workouts_hist` e não avisavam ninguém. Com TTL de 15min **persistido em localStorage**, o app seguia servindo os números do treino apagado. Agora as duas chamam `invalidateHistDerivedCaches()`, e `Goals` bumpa o `refreshToken` do card (invalidar o cache não redispara a busca de um componente já montado).
+2. **Sem histórico nenhum, o card renderizava "0 séries + tudo é lacuna".** `getMuscleCoverageDb` devolvia todos os músculos zerados; agora devolve **`[]`** quando não há série no período, e também quando há histórico mas nenhuma série caiu em músculo algum (exercícios sem anatomia mapeada). O card já trata lista vazia como "não renderizar".
+
+## Técnicas de treino: bi-set, drop-set, rest-pause (05/08/2026)
+
+Fase 3. A técnica é escolhida **ao criar ou editar a rotina**, por exercício, e **só no modo expert** — bi-set/drop-set são o miolo do modo detalhado, e a sessão simplificada não os renderiza. Migração: `docs/migrations/20260805-workout-techniques.sql`.
+
+### Modelo
+
+Colunas em **`user_workouts`** (não em `workouts`): "supino reto" não é bi-set — é bi-set *na SUA rotina de peito*, pareado com um exercício específico seu. O mesmo exercício pode ser direto em outra rotina.
+
+| Técnica | Família | Precisa de `technique_group`? |
+|---|---|---|
+| `straight` | — | não (é o padrão) |
+| `drop`, `rest_pause` | individual — acontece dentro do próprio exercício | não |
+| `biset`, `triset` | **em bloco** — a técnica É a ligação entre 2–3 exercícios | **sim** |
+
+`order_index` existe porque um bloco só funciona com os membros adjacentes e na ordem certa (A1 → A2). Até então a ordem dos exercícios era a de `created_at`, que o usuário nunca controlou. `NULL` = ordem legada, então rotinas antigas não se reorganizam sozinhas.
+
+### `TechniquePlanner` — um componente, dois fluxos
+
+`client/components/goals/technique-planner.tsx` serve **criar** (wizard) e **editar** (detalhe da rotina), conforme a regra de reúso do projeto. É controlado: recebe lista + plano, devolve plano; quem persiste é o chamador.
+
+Montar um bloco tem **dois toques de propósito** — escolher a técnica, depois escolher com quem. Pedir as duas coisas de uma vez (matriz de pareamento) seria denso demais num bottom sheet.
+
+- **Wizard:** passo `build-technique`, que roda **depois** de salvar. A técnica mora em `user_workouts`, cujas linhas só nascem no save — antes disso não há id em que pendurar a escolha. Por isso a saída é "**Pular**", não "Cancelar": a rotina já existe.
+- **Detalhe da rotina:** botão "Técnicas" dentro da faixa de modo de treino (só aparece no expert).
+
+`planToAssignments` calcula o `orderIndex` **puxando os membros de cada bloco para junto do primeiro** — é isso que garante A1/A2 lado a lado na sessão.
+
+`updateRoutineTechniquesDb` **normaliza antes de gravar**: técnica de bloco sem grupo, ou grupo com um membro só, volta para `straight`. Um bi-set órfão renderizaria um "bloco" de um exercício — que não é bi-set nenhum, e é o estado em que a rotina fica se o usuário apagar o par depois.
+
+### Na sessão de treino
+
+- **Bloco:** selo `A1`/`A2` no header + **trilho roxo** na borda esquerda + margem menor entre os membros, para os cards lerem como uma unidade. Não reestruturei a lista de exercícios — a adjacência vem do `order_index`.
+- **Descanso segura no meio do bloco** (`isMidBlock`): concluir uma série de A1 não abre o timer, porque o próximo passo é A2. É a definição de bi-set.
+- **Drop-set:** botão "**+ drop**" no seletor de tipo de série insere uma linha `kind: 'drop'` logo abaixo, com **−20% de carga arredondado a 2,5kg** (o menor par de anilhas). Palpite editável — o ponto é não obrigar a digitar no meio da série, que é justamente quando não dá.
+- Concluir uma série cuja **próxima linha é drop** também não abre descanso: é emenda.
+
+### O gerador de programas sugere técnicas (05/08/2026)
+
+O quiz "Sugerido pelo app" passou a distribuir técnicas nos programas que gera (`assignTechniques` em `program-generator.ts`). Continua **100% determinístico**: mesmas respostas → mesmo programa → mesmas técnicas.
+
+**Só grava no modo expert.** O simplificado não renderiza técnica, então o preview nem exibe o selo ali — anunciar algo que não vai acontecer seria mentira.
+
+**Quando NÃO sugere nada:**
+
+| Situação | Por quê |
+|---|---|
+| Nível **iniciante** | antes de intensificar, é preciso aprender o movimento e construir base |
+| Objetivo **força** | treino de força vive de série pesada com descanso completo; bi-set e drop-set trabalham contra isso |
+| Emagrecimento/condicionamento → **sem drop-set** | o objetivo é volume sustentável, não falha muscular |
+
+**Bi-set: só pares antagonistas.** `chest↔back`, `biceps↔triceps`, `quads↔posterior` — enquanto um grupo trabalha, o oposto descansa. Ficam **deliberadamente de fora**:
+
+- **agonista + sinergista** (peito + tríceps): o tríceps chega ao segundo exercício já fatigado pelo primeiro, e o bloco piora as duas séries;
+- **mesmo grupo duas vezes**: isso é pré-exaustão, técnica avançada que depende de intenção, não de sugestão automática.
+
+Consequência aceita: um split "Peito e Tríceps" **não recebe bi-set**, porque não existe par bom ali. O gerador declina em vez de forçar — é a diferença entre sugerir e enfeitar. (Esses dias ainda recebem drop-set, quando o objetivo permite.)
+
+Filtro extra **só na academia**: dois compostos de peso livre não viram bloco (ocupariam duas barras/racks ao mesmo tempo). **Em casa a regra não vale** — flexão + remada invertida é peso do corpo e não disputa equipamento; aplicar o mesmo filtro ali zerava os bi-sets do treino caseiro, que é justo onde eles mais rendem por falta de carga.
+
+**Bi-set de densidade** (só emagrecimento/condicionamento): quando não há antagonista, permite emendar o exercício principal com um **neutro** (core, panturrilha) — eles não dividem musculatura com nada do treino, então o bloco só adiciona trabalho.
+
+**Drop-set: um por sessão, no último exercício elegível** — drop-set é finalizador; no começo comprometeria o resto da sessão. Elegível = máquina, cabo ou isolador. Num agachamento com barra, trocar anilhas no meio da série não é drop-set, é pausa.
+
+### Aquecimento automático por rampa
+
+Botão "⚡ Aquecer: 40×8 · 60×5 · 70×3" acima de "Adicionar série", **só no modo expert**, fora de cardio/corrida. Insere as séries de aquecimento **antes** das de trabalho (não substitui nada — as válidas só descem).
+
+- Rampa `WARMUP_RAMP`: **50%×8 · 70%×5 · 85%×3** da carga de trabalho. Sobe carga, desce repetição — chega na série válida com o movimento pronto e sem fadiga.
+- Carga de referência (`workingTargetKg`): maior peso entre as séries de trabalho já preenchidas; sem nenhuma, cai no histórico (coluna ANTERIOR). Zero → o botão não aparece.
+- Arredonda a **2,5kg** (`PLATE_STEP`, um par de anilhas de 1,25). Degraus que colidem depois do arredondamento são descartados — em carga leve, 50% e 70% caem no mesmo peso, e duas séries idênticas não aquecem nada. Degrau ≥ carga de trabalho também sai.
+- O botão some assim que existe qualquer aquecimento no exercício.
+
+Não é prescrição: toda linha continua editável ou apagável. O valor está em não fazer a conta de cabeça na academia.
+
+### Verbete da técnica (toque no selo)
+
+Os selos de técnica no card do exercício (`A1`/`A2`, `Drop-set`, `Rest-pause`) são **botões** — trazem um `?` e abrem o `TechniqueInfoOverlay` com **o que é · como fazer · quando usar**. Sugerir um bi-set sem explicá-lo só transfere a dúvida: quem não sabe o que é rest-pause vê um selo roxo e ignora.
+
+No bi-set/tri-set o verbete lista **os exercícios daquele bloco**, então a explicação genérica vira concreta.
+
+> **Não é um `Drawer` do projeto, de propósito.** A sessão de treino é um portal `position: fixed` com `z-index: 9999`; um drawer da lib (z-50) renderizaria atrás dela. O overlay é `position: absolute` dentro da árvore da sessão, com `zIndex` por prop (75, acima do detalhe do exercício) — mesmo padrão do `ExerciseDetailOverlay`.
+
+Conteúdo em `client/lib/i18n.ts` (`goals_tech_*`), PT e EN. Os passos vão numa chave só separados por `\n` e o componente divide na renderização — evita quatro chaves por técnica.
+
+### `drop` conta como trabalho, não como série
+
+`isWorkingSet('drop')` = **true** (volume e PR incluem: é peso levantado de verdade), mas `countsAsSeries('drop')` = **false**. Quem faz 3×10 com drop na última diz "fiz 3 séries", não 4. Os dois predicados coexistem no `workout-session-dialog.tsx` justamente por isso, e o rótulo da linha vira "D" em vez de um número novo.
+
+`user_workouts_hist.set_kind` passou a aceitar `'drop'` (a migração recria o CHECK).
 
 ## Modo treino
 
@@ -412,6 +625,7 @@ A tela de Metas concentra 4 dos gates do plano **LinKa Premium** (ver `docs/17-p
 | Gate | Comportamento no plano grátis |
 |---|---|
 | Gráfico de progressão de carga (detalhe da rotina, exercício expandido) | `PremiumGate` — borrado com cadeado + CTA que abre o `PaywallDrawer` |
+| Cobertura muscular da semana (`MuscleCoverageCard`, Hub do Hoje) | `PremiumGate feature="charts"` sobre o card inteiro. Registrar treino, volume, séries e PRs continuam livres |
 | Gráfico do histórico de peso (drawer "Histórico" do `WeightTrackerCard`) | Borrado; **registrar/listar/apagar peso continua livre** |
 | Criação de rotina (`CreateWizardDrawer`, prop `activeRoutineCount` vinda de `Goals.tsx`) | Grátis mantém **1 rotina ativa** — tentar criar a 2ª abre o paywall (intercepta o step "what", aberturas diretas e os handlers de salvar). Adicionar itens (`editRoutine`) e criar **metas** nunca bloqueiam |
 | Macros do diário alimentar (`FoodDiaryDrawer`) | Grade P/C/G borrada; kcal, barra, água e gráfico de 7 dias livres. Na meta diária, só kcal e água editáveis — metas de macro existentes são preservadas no save |
@@ -434,6 +648,12 @@ A tela de Metas concentra 4 dos gates do plano **LinKa Premium** (ver `docs/17-p
 | Lista de rotinas por tipo (+ criar) | `client/components/goals/routine-list-drawer.tsx` |
 | Detalhe de rotina | `client/components/goals/routine-detail-drawer.tsx` |
 | Modo treino | `client/components/goals/workout-session-dialog.tsx` |
+| 1RM estimado (Epley) + limiar de PR | `client/lib/one-rep-max.ts` |
+| Mapa corporal (SVG inline) | `client/components/shared/muscle-map.tsx` |
+| Ficha de anatomia do exercício | `client/components/shared/exercise-anatomy.tsx` |
+| Cobertura muscular da semana | `client/components/goals/muscle-coverage-card.tsx` |
+| Planejador de técnicas (bi-set/drop-set) | `client/components/goals/technique-planner.tsx` |
+| Verbete da técnica (o que é / como fazer) | `client/components/goals/technique-info-overlay.tsx` |
 | Helpers (cards, streak, concluído hoje, séries sugeridas) | `client/components/goals/goals-helpers.ts` |
 | Catálogo de sugestões por nível (legado — rotinas antigas) | `client/components/goals/suggested-routines-data.ts` |
 | Gerador de programas do quiz de personalização | `client/components/goals/program-generator.ts` |

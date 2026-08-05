@@ -22,6 +22,15 @@ export type WorkoutSummaryExercise = {
   photo?: string | null;
   /** One entry per completed series, in order — powers the "kg × reps" chips. */
   sets: WorkoutSummarySet[];
+  /**
+   * Exercício de cardio (corrida, bike etc.), decidido na origem via
+   * `isCardioExercise(muscleGroup, workoutId)` — inclui a exceção de cardio
+   * estacionário, que NÃO é cardio. Quando `true`, cada série codifica
+   * **kg = MINUTOS** e **reps = KM** (ver workout-session-dialog), então o chip
+   * deve ser "{min}min × {km}km", não "{kg}kg × {reps}". Ausente em snapshots
+   * anteriores a 05/08/2026 → tratado como não-cardio (mantém kg×reps).
+   */
+  isCardio?: boolean;
 };
 
 export type PostWorkoutSummary = {
@@ -32,7 +41,18 @@ export type PostWorkoutSummary = {
   /** URL of the generated summary card (canvas) — also present in the post photos. */
   imageUrl?: string | null;
   exercises: WorkoutSummaryExercise[];
-  prExercises?: Array<{ name: string; previousBestKg: number; newBestKg: number }>;
+  // `kind` ausente = recorde de carga (snapshots anteriores a 05/08/2026 e
+  // todo o modo simplificado). Ver `PrKind` em workout-session-dialog.tsx.
+  prExercises?: Array<{
+    name: string;
+    previousBestKg: number;
+    newBestKg: number;
+    kind?: "weight" | "reps" | "e1rm";
+    previousReps?: number;
+    newReps?: number;
+    previousE1rm?: number;
+    newE1rm?: number;
+  }>;
   machinedExercises?: Array<{ name: string; kg: number }>;
   badges?: string[];
 };

@@ -9,8 +9,18 @@ import { GLASS_TOP } from "@/lib/post-visuals";
 import { GLASS_SHEET_STYLE, GLASS_SHEET_PROPS } from "@/lib/glass-styles";
 import type { PostWorkoutSummary } from "@/lib/workout-summary-types";
 
-// Uma série vira um chip: "40kg × 12" (força) ou "12×" (sem carga / cardio).
-function formatSet(set: { kg: number; reps: number }): string {
+// Uma série vira um chip. Força: "40kg × 12" ou "12×" (sem carga). Cardio
+// (corrida/bike): a série codifica kg = MINUTOS e reps = KM, então o chip vira
+// "15min × 3km" — nunca "kg × reps" (ver isCardio em WorkoutSummaryExercise).
+function formatSet(set: { kg: number; reps: number }, isCardio: boolean): string {
+  if (isCardio) {
+    const min = set.kg; // cardio: kg encoda MIN
+    const km = set.reps; // cardio: reps encoda KM
+    if (min > 0 && km > 0) return `${min}min × ${km}km`;
+    if (min > 0) return `${min}min`;
+    if (km > 0) return `${km}km`;
+    return "—";
+  }
   if (set.kg > 0 && set.reps > 0) return `${set.kg}kg × ${set.reps}`;
   if (set.kg > 0) return `${set.kg}kg`;
   if (set.reps > 0) return `${set.reps}×`;
@@ -109,7 +119,7 @@ export function WorkoutDetailButton({ summary, className }: WorkoutDetailButtonP
             <div className="space-y-2">
               {summary.exercises.map((ex, idx) => {
                 const chips = (ex.sets && ex.sets.length > 0)
-                  ? ex.sets.map(formatSet)
+                  ? ex.sets.map((s) => formatSet(s, !!ex.isCardio))
                   : ex.bestKg > 0 ? [`${ex.bestKg}kg`] : [];
                 return (
                   <div

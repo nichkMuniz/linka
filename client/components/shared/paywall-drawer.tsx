@@ -21,7 +21,7 @@ import { usePremium } from "@/lib/premium-context";
 import { PRIVACY_URL, TERMS_URL } from "@/lib/share-url";
 import {
   getPremiumPackages,
-  isPurchasesAvailable,
+  purchasesAvailability,
   purchasePremium,
   restorePremiumPurchases,
   type PurchasesPackage,
@@ -104,7 +104,8 @@ export function PaywallDrawer({ open, onOpenChange, feature }: PaywallDrawerProp
   const [purchasing, setPurchasing] = React.useState(false);
   const [restoring, setRestoring] = React.useState(false);
 
-  const available = isPurchasesAvailable();
+  const availability = purchasesAvailability();
+  const available = availability === "ok";
 
   // Carrega a oferta a cada abertura: preço e disponibilidade são definidos na
   // App Store e podem mudar sem o app saber.
@@ -292,11 +293,17 @@ export function PaywallDrawer({ open, onOpenChange, feature }: PaywallDrawerProp
             paddingBottom: "max(1.25rem, env(safe-area-inset-bottom))",
           }}
         >
-          {/* Sem SDK (navegador em dev) ou sem oferta configurada: nada de CTA
-              de compra, que levaria a um erro sem explicação. */}
+          {/* Sem SDK ou sem oferta: nada de CTA de compra, que levaria a um
+              erro sem explicação. A mensagem varia POR CAUSA — é o único sinal
+              de diagnóstico disponível, já que ler o console do WebView exige
+              um Mac. Ver `purchasesAvailability()`. */}
           {!available || (!loadingPlans && packages.length === 0) ? (
             <p className="text-center text-xs py-2" style={{ color: "rgba(255,255,255,.5)" }}>
-              {t("premium_unavailable")}
+              {availability === "not_native"
+                ? t("premium_unavailable_web")
+                : availability === "missing_key"
+                  ? t("premium_unavailable_config")
+                  : t("premium_unavailable")}
             </p>
           ) : (
             <>

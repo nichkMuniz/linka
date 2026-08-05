@@ -37,9 +37,32 @@ const API_KEY = import.meta.env.VITE_REVENUECAT_IOS_KEY as string | undefined;
 
 const isNative = () => Capacitor.isNativePlatform();
 
+/**
+ * Por que o SDK não está disponível — o paywall usa isto para dar uma mensagem
+ * diferente por causa.
+ *
+ * Existe porque as três situações são indistinguíveis para quem olha só a tela,
+ * e **não há como ler o console do WebView sem um Mac** (Safari Web Inspector).
+ * Sem esta distinção, "chave esquecida no build do Appflow" e "oferta não
+ * configurada no RevenueCat" produzem exatamente o mesmo texto.
+ */
+export type PurchasesAvailability =
+  /** Tudo certo para tentar comprar. */
+  | "ok"
+  /** Navegador (`pnpm dev`): não existe StoreKit fora do app nativo. */
+  | "not_native"
+  /** App nativo, mas sem `VITE_REVENUECAT_IOS_KEY` no build. */
+  | "missing_key";
+
+export function purchasesAvailability(): PurchasesAvailability {
+  if (!isNative()) return "not_native";
+  if (!API_KEY) return "missing_key";
+  return "ok";
+}
+
 /** SDK disponível de verdade (nativo + chave configurada no build)? */
 export function isPurchasesAvailable(): boolean {
-  return isNative() && !!API_KEY;
+  return purchasesAvailability() === "ok";
 }
 
 let configuredForUser: string | null = null;

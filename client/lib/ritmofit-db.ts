@@ -1,6 +1,7 @@
 import { getUserSafe, hasSupabaseConfig, supabase, registerViewerCacheInvalidator, registerAuthUserReadyHandler } from "@/lib/supabase";
 import type { PostWorkoutSummary } from "@/lib/workout-summary-types";
 import { SHARE_BASE_URL } from "@/lib/share-url";
+import { estimateOneRepMax } from "@/lib/one-rep-max";
 import {
   getNetworkStatus,
   isTransientNetworkError,
@@ -330,7 +331,21 @@ function isOfflineWriteError(err: unknown): boolean {
   return true;
 }
 
-async function cached<T>(key: string, ttl: number, fn: () => Promise<T>): Promise<T> {
+async function cached<T>(
+  key: string,
+  ttl: number,
+  fn: () => Promise<T>,
+  opts?: {
+    /**
+     * Não guardar resultado VAZIO (array sem itens). Existe para catálogos que
+     * dependem de uma migração já ter rodado: sem isto, abrir o app antes da
+     * migração grava `[]` no localStorage e o app serve "catálogo vazio" pelo
+     * TTL inteiro — 12h no caso dos catálogos estáticos. Foi exatamente o que
+     * aconteceu com a anatomia (`muscles`) em 05/08/2026.
+     */
+    skipEmpty?: boolean;
+  },
+): Promise<T> {
   // L1 — fresh memory hit.
   const hit = _queryCache.get(key);
   if (hit && Date.now() < hit.expiry) return hit.data as T;
@@ -342,6 +357,7 @@ async function cached<T>(key: string, ttl: number, fn: () => Promise<T>): Promis
     if (inflight) return inflight;
     const p = fn()
       .then((data) => {
+        if (opts?.skipEmpty && Array.isArray(data) && data.length === 0) return data;
         _queryCache.set(key, { data, expiry: Date.now() + ttl });
         persistWrite(key, data);
         return data;
@@ -2394,6 +2410,70 @@ export function getRoutineTypeName(code: number): string {
   return ROUTINE_TYPES[code as RoutineTypeCode] || "Desconhecido";
 }
 
+/**
+ * Modo da experiência de treino, escolhido na criação da rotina
+ * (`routines.training_mode`, migração `20260805-training-mode.sql`).
+ *
+ * - `simple`: a tela clássica do app — tabela KG × REPS, sem tipo de série.
+ * - `expert`: série tipada (aquecimento/válida/falha), com aquecimento fora do
+ *   volume, da contagem de séries e do PR.
+ *
+ * É por ROTINA, não por conta: dá para ter "Peito/Tríceps" no expert e
+ * "Corrida de domingo" no simplificado. Default `simple` — rotinas criadas
+ * antes desta migração não mudam de comportamento.
+ */
+export type TrainingMode = "simple" | "expert";
+
+/** Normaliza qualquer valor vindo do banco/cache para um {@link TrainingMode} válido. */
+export function toTrainingMode(value: unknown): TrainingMode {
+  return value === "expert" ? "expert" : "simple";
+}
+
+/**
+ * Tipo de uma série executada (`user_workouts_hist.set_kind`). Só o modo
+ * `expert` classifica séries; no simplificado a coluna vai NULL.
+ *
+ * - `warmup`: aquecimento. **Não** entra em volume, contagem de séries, PR,
+ *   progressão nem no prompt de "máquina zerada" — é o ponto todo de existir.
+ * - `normal`: série válida (o padrão).
+ * - `failure`: série levada à falha; conta como válida em tudo, mas fica
+ *   marcada para a leitura de sobrecarga progressiva das fases seguintes.
+ */
+export type SetKind = "warmup" | "normal" | "failure" | "drop";
+
+/** Séries que contam como trabalho real (tudo que não é aquecimento). */
+export function isWorkingSet(kind: SetKind | null | undefined): boolean {
+  return kind !== "warmup";
+}
+
+/**
+ * Técnica de um exercício DENTRO de uma rotina (`user_workouts.technique`).
+ * Migração: `docs/migrations/20260805-workout-techniques.sql`.
+ *
+ * - `straight`:   série direta — faz, descansa, repete. O padrão.
+ * - `drop`:       drop-set — ao concluir a série, emenda outra com menos carga.
+ * - `rest_pause`: rest-pause — micro-pausas de ~15s dentro da mesma série.
+ * - `biset` / `triset`: bloco de 2/3 exercícios executados **sem descanso entre
+ *   eles**; exigem `technique_group` para saber quem faz par com quem.
+ */
+export type WorkoutTechnique = "straight" | "drop" | "rest_pause" | "biset" | "triset";
+
+/** Técnicas que ligam VÁRIOS exercícios (precisam de `technique_group`). */
+export function isBlockTechnique(t: WorkoutTechnique | null | undefined): boolean {
+  return t === "biset" || t === "triset";
+}
+
+export function toWorkoutTechnique(value: unknown): WorkoutTechnique {
+  return value === "drop" || value === "rest_pause" || value === "biset" || value === "triset"
+    ? value
+    : "straight";
+}
+
+/** Quantos exercícios um bloco comporta. */
+export function blockSize(t: WorkoutTechnique): number {
+  return t === "triset" ? 3 : t === "biset" ? 2 : 1;
+}
+
 export type Routine = {
   id: string;
   user_id: string;
@@ -2402,6 +2482,7 @@ export type Routine = {
   name?: string;
   last_summary: RoutineLastSummary | null;
   program_meta?: RoutineProgramMeta | null;
+  training_mode?: TrainingMode;
 };
 
 /**
@@ -2442,7 +2523,19 @@ export type RoutineLastSummary = {
     // não têm). Espelha o campo `sets` de WorkoutSessionSummary/WorkoutSummaryData.
     sets?: Array<{ kg: number; reps: number }>;
   }>;
-  prExercises: Array<{ name: string; previousBestKg: number; newBestKg: number }>;
+  // `kind` e os pares de reps/e1rm são opcionais: snapshots gravados antes de
+  // 05/08/2026 (e todo o modo simplificado) só têm recorde de carga. Ver
+  // `PrKind` em workout-session-dialog.tsx.
+  prExercises: Array<{
+    name: string;
+    previousBestKg: number;
+    newBestKg: number;
+    kind?: "weight" | "reps" | "e1rm";
+    previousReps?: number;
+    newReps?: number;
+    previousE1rm?: number;
+    newE1rm?: number;
+  }>;
   machinedExercises: Array<{ name: string; kg: number }>;
   completedAt: string;
 };
@@ -2703,7 +2796,7 @@ export async function getUserRoutinesDb(userId: string): Promise<Routine[]> {
   if (!hasSupabaseConfig || !supabase) return [];
   const { data, error } = await supabase
     .from("routines")
-    .select("id, user_id, type, goal_id, name, last_summary, program_meta")
+    .select("id, user_id, type, goal_id, name, last_summary, program_meta, training_mode")
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
@@ -2727,9 +2820,70 @@ export async function getUserRoutinesDb(userId: string): Promise<Routine[]> {
     name: row.name ? String(row.name) : undefined,
     last_summary: row.last_summary ?? null,
     program_meta: row.program_meta ?? null,
+    // Cópias offline gravadas antes de 05/08/2026 não têm a chave — o
+    // normalizador devolve 'simple', que é o comportamento clássico.
+    training_mode: toTrainingMode(row.training_mode),
   }));
   offlineCopyWrite(`userRoutines:${userId}`, rows);
   return rows;
+}
+
+/**
+ * Grava o modo de treino de UMA rotina já resolvida por id. Caminho do
+ * "Sugerido pelo app": o quiz cria N rotinas e relê `getUserRoutinesDb` para
+ * casar cada uma, então o id está em mãos (mesmo padrão de
+ * {@link updateRoutineProgramMetaDb}).
+ */
+export async function updateRoutineTrainingModeDb(
+  routineId: string,
+  mode: TrainingMode,
+): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+
+  const { error } = await supabase
+    .from("routines")
+    .update({ training_mode: mode })
+    .eq("id", routineId);
+
+  if (error) {
+    console.error("Error saving routine training mode:", error?.message || error);
+  }
+}
+
+/**
+ * Grava o modo de treino casando por (user_id, type, name) — caminho da rotina
+ * criada **do zero**.
+ *
+ * Por que não dá para usar o id aqui: nesse fluxo o app insere só os itens
+ * (`user_workouts`) e a linha em `routines` nasce de um **trigger** no banco,
+ * então o cliente nunca vê o id de volta. É a mesma estratégia de
+ * {@link updateRoutineNameDb} e dos setters de horário/dias.
+ *
+ * Best-effort: falhar aqui não invalida a rotina criada — ela só fica no modo
+ * `simple` (o default da coluna), que é o comportamento clássico.
+ */
+export async function updateRoutineTrainingModeByNameDb(
+  userId: string,
+  typeCode: number,
+  name: string | null,
+  mode: TrainingMode,
+): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+
+  let query = supabase
+    .from("routines")
+    .update({ training_mode: mode })
+    .eq("user_id", userId)
+    .eq("type", typeCode);
+
+  // Rotina sem nome é um grupo legítimo (name NULL) — `.eq("name", null)` não
+  // casa nada no Postgres, tem que ser `.is`.
+  query = name ? query.eq("name", name) : query.is("name", null);
+
+  const { error } = await query;
+  if (error) {
+    console.error("Error saving routine training mode by name:", error?.message || error);
+  }
 }
 
 /**
@@ -3156,6 +3310,30 @@ export async function deleteRoutineCardDb(
     ? await routinesQuery.eq("name", name)
     : await routinesQuery.is("name", null);
   if (routinesError) throw routinesError;
+
+  invalidateHistDerivedCaches();
+}
+
+/**
+ * Derruba tudo que é DERIVADO de `user_workouts_hist`. Chamar depois de apagar
+ * rotina ou item — o histórico some do banco, mas as leituras agregadas têm
+ * cache longo E persistido em localStorage, então sem isto o app continua
+ * mostrando números de um treino que não existe mais:
+ *
+ *   - `muscleCoverage` (15min) — foi o sintoma relatado: apagar a rotina não
+ *     zerava o card de cobertura muscular;
+ *   - `exerciseProgress` (15min) — gráfico de progressão de carga;
+ *   - `workoutHistory` / `completedRoutines` / `routineLastDates`.
+ *
+ * A escrita (`saveWorkoutHistoryDb`) já invalidava essas chaves; o caminho de
+ * DELETE nunca invalidou nenhuma.
+ */
+function invalidateHistDerivedCaches() {
+  invalidateQueryCache("muscleCoverage");
+  invalidateQueryCache("exerciseProgress");
+  invalidateQueryCache("workoutHistory");
+  invalidateQueryCache("completedRoutines");
+  invalidateQueryCache("lastSeries");
 }
 
 /** Deletes a single routine item (user_workouts/user_diets/user_habits row) and its history records. */
@@ -3176,6 +3354,8 @@ export async function deleteRoutineItemDb(
 
   const { error } = await supabase.from(table).delete().eq("id", itemId);
   if (error) throw error;
+
+  invalidateHistDerivedCaches();
 }
 
 // Get items for a specific routine (by routineId when available, falling back to userId + routineName + type)
@@ -3504,6 +3684,12 @@ export type UserWorkoutWithDetails = {
   notes?: string | null;
   routine_id?: string | null;
   time_to_rest?: number | null;
+  /** técnica deste exercício NESTA rotina — ver {@link WorkoutTechnique} */
+  technique?: WorkoutTechnique;
+  /** chave do bloco de bi-set/tri-set (mesmo valor = mesmo bloco); null fora de bloco */
+  technique_group?: string | null;
+  /** ordem na rotina (0-based); null = ordem legada por created_at */
+  order_index?: number | null;
   /**
    * true = o exercício do catálogo foi criado manualmente por ESTE usuário
    * (`workouts.created_by_user` + `created_by` = dono). Habilita a edição de
@@ -3512,6 +3698,85 @@ export type UserWorkoutWithDetails = {
   isCustom?: boolean;
 };
 
+/** Uma linha do plano de técnicas de uma rotina. */
+export type TechniqueAssignment = {
+  /** `user_workouts.id` */
+  userWorkoutId: string;
+  technique: WorkoutTechnique;
+  /** obrigatório para biset/triset, ignorado no resto */
+  techniqueGroup?: string | null;
+  orderIndex: number;
+};
+
+/**
+ * Grava o plano de técnicas de uma rotina inteira, de uma vez.
+ *
+ * É um update por linha (o Supabase não faz UPDATE em lote com valores
+ * diferentes por linha sem um upsert que exigiria todas as colunas NOT NULL),
+ * mas rodam em paralelo e uma rotina tem poucos exercícios.
+ *
+ * **Normaliza antes de gravar**: técnica de bloco sem grupo, ou grupo com um
+ * membro só, volta para `straight`. Um bi-set órfão renderizaria um bloco de um
+ * exercício só — que não é bi-set nenhum, e é o estado em que a rotina fica se
+ * o usuário apagar o par depois.
+ */
+export async function updateRoutineTechniquesDb(
+  userId: string,
+  assignments: TechniqueAssignment[],
+): Promise<void> {
+  if (!hasSupabaseConfig || !supabase || assignments.length === 0) return;
+
+  const membersPerGroup = new Map<string, number>();
+  for (const a of assignments) {
+    if (isBlockTechnique(a.technique) && a.techniqueGroup) {
+      membersPerGroup.set(a.techniqueGroup, (membersPerGroup.get(a.techniqueGroup) ?? 0) + 1);
+    }
+  }
+
+  const normalized = assignments.map((a) => {
+    const isBlock =
+      isBlockTechnique(a.technique) &&
+      !!a.techniqueGroup &&
+      (membersPerGroup.get(a.techniqueGroup) ?? 0) >= 2;
+    return {
+      id: a.userWorkoutId,
+      technique: isBlock ? a.technique : isBlockTechnique(a.technique) ? "straight" : a.technique,
+      technique_group: isBlock ? a.techniqueGroup! : null,
+      order_index: a.orderIndex,
+    };
+  });
+
+  const results = await Promise.all(
+    normalized.map(({ id, ...patch }) =>
+      supabase!
+        .from("user_workouts")
+        .update(patch)
+        .eq("id", id)
+        .eq("user_id", userId),
+    ),
+  );
+  const failed = results.find((r) => r.error);
+  if (failed?.error) {
+    console.error("Error saving routine techniques:", failed.error.message || failed.error);
+    throw failed.error;
+  }
+
+  // Espelha na cópia offline — a próxima abertura do treino já monta os blocos
+  // mesmo sem rede.
+  const byId = new Map(normalized.map((n) => [n.id, n]));
+  offlineCopyPatch<UserWorkoutWithDetails[]>(`userWorkouts:${userId}`, (rows) =>
+    rows.map((r) => {
+      const patch = byId.get(r.id);
+      if (!patch) return r;
+      return {
+        ...r,
+        technique: toWorkoutTechnique(patch.technique),
+        technique_group: patch.technique_group,
+        order_index: patch.order_index,
+      };
+    }), []);
+}
+
 export async function getUserWorkoutsDb(
   userId: string,
 ): Promise<UserWorkoutWithDetails[]> {
@@ -3519,7 +3784,7 @@ export async function getUserWorkoutsDb(
   const { data, error } = await supabase
     .from("user_workouts")
     .select(
-      "id, workout_id, user_id, name, created_at, scheduled_time, scheduled_days, notes, routine_id, time_to_rest, workouts(name, name_eng, photo, description, description_eng, muscle_group, wger_id, created_by_user, created_by)",
+      "id, workout_id, user_id, name, created_at, scheduled_time, scheduled_days, notes, routine_id, time_to_rest, technique, technique_group, order_index, workouts(name, name_eng, photo, description, description_eng, muscle_group, wger_id, created_by_user, created_by)",
     )
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
@@ -3620,6 +3885,9 @@ export async function getUserWorkoutsDb(
     notes: row.notes ? String(row.notes) : null,
     routine_id: row.routine_id != null ? String(row.routine_id) : null,
     time_to_rest: row.time_to_rest != null ? Number(row.time_to_rest) : null,
+    technique: toWorkoutTechnique(row.technique),
+    technique_group: row.technique_group ? String(row.technique_group) : null,
+    order_index: row.order_index != null ? Number(row.order_index) : null,
     // Editável só quando o exercício do catálogo é custom E pertence a quem pediu.
     isCustom:
       !!(row.workouts as any)?.created_by_user &&
@@ -8523,6 +8791,7 @@ async function insertWorkoutHistRowDb(p: {
   volume: string | null;
   routineId: string | null;
   dateCompleted: string;
+  setKind?: SetKind | null;
 }): Promise<void> {
   const { error } = await supabase!
     .from("user_workouts_hist")
@@ -8535,6 +8804,9 @@ async function insertWorkoutHistRowDb(p: {
         volume: p.volume,
         routine_id: p.routineId != null ? Number(p.routineId) : null,
         date_completed: p.dateCompleted,
+        // NULL no modo simplificado (que não tipa séries) — a leitura trata
+        // NULL como 'normal', então nada muda para quem já usava o app.
+        set_kind: p.setKind ?? null,
       },
     ]);
   if (error) throw error;
@@ -8552,11 +8824,14 @@ export async function saveWorkoutHistoryDb(
   // sessão (getLastWorkoutSessionSeriesDb) agrupe exatamente uma execução —
   // nunca misturando registros de finalizações diferentes.
   dateCompleted: string | null = null,
+  // Tipo da série (modo expert). NULL/omitido = modo simplificado → lido como
+  // 'normal'. Ver {@link SetKind}.
+  setKind: SetKind | null = null,
 ): Promise<void> {
   if (!hasSupabaseConfig || !supabase) return;
 
   const stamp = dateCompleted ?? new Date().toISOString();
-  const payload = { userId, userWorkoutId, workoutId, kilos, volume, routineId, dateCompleted: stamp };
+  const payload = { userId, userWorkoutId, workoutId, kilos, volume, routineId, dateCompleted: stamp, setKind };
 
   // Offline: a série vai para a fila (com a data original) e a rotina passa a
   // constar como executada agora na cópia local — Hub do Hoje, anel semanal e
@@ -8589,10 +8864,19 @@ export async function saveWorkoutHistoryDb(
   }
 
   invalidateQueryCache("workoutHistory");
-  // Mesma origem (user_workouts_hist): o gráfico de progressão precisa cair
-  // junto com o histórico, senão fica velho durante todo o TTL.
+  // Mesma origem (user_workouts_hist): o gráfico de progressão e a cobertura
+  // muscular precisam cair junto com o histórico, senão ficam velhos durante
+  // todo o TTL (15min no caso da cobertura).
   invalidateQueryCache("exerciseProgress");
+  invalidateQueryCache("muscleCoverage");
 }
+
+// Filtro "só séries de trabalho": descarta o aquecimento e MANTÉM as linhas com
+// `set_kind` NULL (modo simplificado e todo o histórico anterior a 05/08/2026,
+// que é lido como 'normal'). Um `.neq("set_kind", "warmup")` sozinho não serve:
+// no Postgres, NULL <> 'warmup' é NULL, não TRUE — o filtro apagaria justamente
+// o histórico antigo.
+const WORKING_SETS_FILTER = "set_kind.is.null,set_kind.neq.warmup";
 
 export async function getPreviousBestKgDb(userId: string, workoutId: string): Promise<number> {
   if (!hasSupabaseConfig || !supabase) return 0;
@@ -8603,12 +8887,351 @@ export async function getPreviousBestKgDb(userId: string, workoutId: string): Pr
       .eq("user_id", userId)
       .eq("workout_id", workoutId)
       .not("kilos", "is", null)
+      .or(WORKING_SETS_FILTER)
       .order("kilos", { ascending: false })
       .limit(1);
     return Number(data?.[0]?.kilos ?? 0);
   } catch {
     return 0;
   }
+}
+
+/**
+ * Recordes anteriores de UM exercício, para os três tipos de PR do modo expert.
+ * Todos calculados só sobre séries de trabalho (aquecimento fora).
+ */
+export type ExercisePersonalRecords = {
+  /** maior carga já levantada, em qualquer nº de repetições */
+  bestKg: number;
+  /** maior 1RM estimado já atingido (ver client/lib/one-rep-max.ts) */
+  bestE1rm: number;
+  /**
+   * Maior nº de repetições já feito em CADA carga (chave = kg como string).
+   * É o que permite reconhecer "mesmo peso, mais repetições" como recorde —
+   * o tipo de progresso mais comum e o único que o app ignorava por completo.
+   */
+  repsByKg: Record<string, number>;
+};
+
+/**
+ * Lê o histórico de séries de trabalho de um exercício e resume os três
+ * recordes. Uma consulta só: as três leituras vinham da mesma tabela e fazer
+ * três idas ao banco por exercício estouraria o tempo de finalização de um
+ * treino com 8 exercícios.
+ *
+ * `limit` cobre as últimas ~400 séries — o suficiente para o recorde histórico
+ * de qualquer exercício que a pessoa treina de verdade, sem baixar anos de
+ * histórico no meio do "Finalizar".
+ */
+export async function getExercisePersonalRecordsDb(
+  userId: string,
+  workoutId: string,
+  limit = 400,
+): Promise<ExercisePersonalRecords> {
+  const empty: ExercisePersonalRecords = { bestKg: 0, bestE1rm: 0, repsByKg: {} };
+  if (!hasSupabaseConfig || !supabase) return empty;
+  try {
+    const { data, error } = await supabase
+      .from("user_workouts_hist")
+      .select("kilos, volume")
+      .eq("user_id", userId)
+      .eq("workout_id", workoutId)
+      .not("kilos", "is", null)
+      .or(WORKING_SETS_FILTER)
+      .order("date_completed", { ascending: false })
+      .limit(limit);
+    if (error || !data) return empty;
+
+    const records: ExercisePersonalRecords = { bestKg: 0, bestE1rm: 0, repsByKg: {} };
+    for (const row of data as any[]) {
+      const kg = Number(row.kilos ?? 0);
+      if (!(kg > 0)) continue;
+      // `volume` guarda as repetições como texto ("10 reps") — mesmo parse de
+      // getLastWorkoutSessionSeriesDb.
+      const reps = Number(String(row.volume ?? "").replace(/[^0-9.]/g, "")) || 0;
+
+      if (kg > records.bestKg) records.bestKg = kg;
+      const e1rm = estimateOneRepMax(kg, reps);
+      if (e1rm > records.bestE1rm) records.bestE1rm = e1rm;
+      if (reps > 0) {
+        const key = String(kg);
+        if (reps > (records.repsByKg[key] ?? 0)) records.repsByKg[key] = reps;
+      }
+    }
+    return records;
+  } catch {
+    return empty;
+  }
+}
+
+// ── Anatomia: músculos e recrutamento por exercício ─────────────────────────
+// Camada ACIMA de `workouts.muscle_group` (que continua existindo e servindo o
+// card/filtro/imagem). Migração: `docs/migrations/20260805-muscle-anatomy.sql`.
+
+/** Papel de um músculo em um exercício. `stabilizer` aparece na ficha mas não conta volume. */
+export type MuscleRole = "primary" | "secondary" | "stabilizer";
+
+export type Muscle = {
+  /** slug estável: 'peitoral_clavicular' */
+  id: string;
+  /** casa com os valores de `workouts.muscle_group` ('Peito', 'Costas'…) */
+  groupName: string;
+  /** já localizado (pt/en) via pickLocalized */
+  name: string;
+  /** 'superior' | 'medio' | 'inferior' | 'lateral' | 'anterior' | 'posterior' | null */
+  region: string | null;
+  /** região do mapa corporal que este músculo acende */
+  bodyPart: string;
+  view: "front" | "back";
+  sortOrder: number;
+};
+
+/** Um músculo recrutado por um exercício, já com o rótulo localizado. */
+export type WorkoutMuscle = Muscle & {
+  role: MuscleRole;
+  /** intensidade 0–100 — NÃO é repartição percentual (as linhas não somam 100) */
+  emphasis: number;
+};
+
+function mapMuscleRow(row: any): Muscle {
+  return {
+    id: String(row.id ?? ""),
+    groupName: String(row.group_name ?? ""),
+    name: pickLocalized(row.name, row.name_eng),
+    region: row.region ? String(row.region) : null,
+    bodyPart: String(row.body_part ?? ""),
+    view: row.view === "back" ? "back" : "front",
+    sortOrder: Number(row.sort_order ?? 0),
+  };
+}
+
+/**
+ * Catálogo completo de músculos, ordenado por grupo e posição. Praticamente
+ * imutável (só muda por migração), então TTL de catálogo.
+ *
+ * Cache por idioma: `pickLocalized` resolve no momento do map, então uma
+ * entrada única serviria rótulos em português para quem trocou para inglês.
+ */
+export async function getMusclesDb(): Promise<Muscle[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+  // `:v2` invalida as entradas gravadas antes de 05/08/2026 — quem abriu o app
+  // ANTES de rodar a migração da anatomia ficou com `[]` preso no localStorage
+  // por 12h, e a tela inteira sumia sem explicação. O `skipEmpty` impede que
+  // isso volte a acontecer; a versão na chave conserta quem já pegou o vazio.
+  return cached(`muscles:v2:${getUiLanguage()}`, CACHE_TTL_STATIC, async () => {
+    const { data, error } = await supabase!
+      .from("muscles")
+      .select("id, group_name, name, name_eng, region, body_part, view, sort_order")
+      .order("group_name")
+      .order("sort_order");
+    if (error || !data) return [];
+    return (data as any[]).map(mapMuscleRow);
+  }, { skipEmpty: true });
+}
+
+/**
+ * Músculos recrutados por UM exercício, do mais enfatizado para o menos.
+ * Alimenta a ficha de anatomia do detalhe do exercício.
+ */
+export async function getWorkoutMusclesDb(workoutId: string): Promise<WorkoutMuscle[]> {
+  if (!hasSupabaseConfig || !supabase || !workoutId) return [];
+  return cached(`workoutMuscles:v2:${workoutId}:${getUiLanguage()}`, CACHE_TTL_STATIC, async () => {
+    const { data, error } = await supabase!
+      .from("workout_muscles")
+      .select("role, emphasis, muscles(id, group_name, name, name_eng, region, body_part, view, sort_order)")
+      .eq("workout_id", workoutId)
+      .order("emphasis", { ascending: false });
+    if (error || !data) return [];
+    return (data as any[])
+      .filter((row) => row.muscles)
+      .map((row) => ({
+        ...mapMuscleRow(row.muscles),
+        role: (row.role === "primary" || row.role === "stabilizer" ? row.role : "secondary") as MuscleRole,
+        emphasis: Number(row.emphasis ?? 0),
+      }));
+  }, { skipEmpty: true });
+}
+
+/**
+ * Exercícios que recrutam um músculo, do que mais enfatiza para o que menos —
+ * a consulta INVERSA que motivou a tabela de ligação ("quais pegam a porção
+ * superior do peito?"). É o que alimenta a navegação por músculo específico.
+ *
+ * `minEmphasis` corta o ruído: sem ele, todo exercício de peito apareceria na
+ * lista da porção inferior por causa das linhas secundárias de ênfase baixa.
+ */
+export async function getWorkoutsByMuscleDb(
+  muscleId: string,
+  minEmphasis = 40,
+): Promise<Workout[]> {
+  if (!hasSupabaseConfig || !supabase || !muscleId) return [];
+  const viewer = await getViewer();
+  return cached(
+    `workoutsByMuscle:v2:${muscleId}:${minEmphasis}:${viewer?.id ?? "anon"}:${getUiLanguage()}`,
+    CACHE_TTL_STATIC,
+    async () => {
+      const { data, error } = await supabase!
+        .from("workout_muscles")
+        .select(
+          "emphasis, workouts(id, name, description, name_eng, description_eng, photo, muscle_group, type, wger_id, created_by_user, created_by)",
+        )
+        .eq("muscle_id", muscleId)
+        .gte("emphasis", minEmphasis)
+        .order("emphasis", { ascending: false });
+      if (error || !data) return [];
+      return (data as any[])
+        .map((row) => row.workouts)
+        .filter(Boolean)
+        // Exercício custom de OUTRO usuário não pode vazar aqui (a RLS de
+        // `workouts` é leitura pública) — mesma regra de getWorkoutsDb.
+        .filter((w: any) => !w.created_by_user || (viewer && w.created_by === viewer.id))
+        .map((w: any) => ({
+          id: String(w.id ?? ""),
+          name: pickLocalized(w.name, w.name_eng),
+          altName: altLocalized(w.name, w.name_eng),
+          description: pickLocalized(w.description, w.description_eng),
+          photo: resolveWorkoutPhotoUrl(w.photo, w.wger_id),
+          muscle_group: w.muscle_group ? String(w.muscle_group) : null,
+          type: w.type != null ? Number(w.type) : null,
+          isCustom: !!w.created_by_user && !!viewer && w.created_by === viewer.id,
+        }));
+    },
+    { skipEmpty: true },
+  );
+}
+
+/**
+ * Cobertura de UM músculo no período — o que a Fase 4 agrega em cima do que as
+ * Fases 1 e 2 passaram a gravar. Sem migração nova.
+ */
+export type MuscleCoverage = {
+  muscle: Muscle;
+  /**
+   * **Séries efetivas** — a métrica que a literatura de hipertrofia usa
+   * (10–20 por músculo por semana), não a contagem crua. Uma série de supino
+   * reto não é "1 série de tríceps": ela vale `emphasis/100` para cada músculo
+   * que recruta, então 4 séries de supino (tríceps 30) = 1,2 série de tríceps.
+   */
+  effectiveSets: number;
+  /** volume (kg × reps) ponderado pela mesma ênfase */
+  volume: number;
+  /**
+   * Última vez que este músculo levou estímulo RELEVANTE (ênfase ≥ 50), em
+   * toda a janela de lookback. `null` = não apareceu no período — é o que
+   * alimenta a detecção de lacuna.
+   */
+  lastTrainedAt: string | null;
+};
+
+/**
+ * Volume e cobertura por músculo. Uma consulta ao histórico + uma às ligações
+ * de anatomia dos exercícios envolvidos; a agregação é no cliente.
+ *
+ * `windowDays` é a janela das MÉTRICAS (padrão 7 = a semana de treino).
+ * `lookbackDays` é a janela do "há quanto tempo não treino isso" — precisa ser
+ * maior, senão um músculo parado há 3 semanas seria indistinguível de um nunca
+ * treinado.
+ *
+ * Devolve **todos** os músculos do catálogo, inclusive os zerados: a lacuna
+ * ("posterior de ombro sem estímulo") é a informação mais valiosa aqui e ela só
+ * existe nas linhas com `effectiveSets === 0`.
+ *
+ * Estabilizadores não contam volume (ver comentário de `workout_muscles.role`):
+ * a prancha estabiliza o deltoide anterior, mas ninguém diria que ela é treino
+ * de ombro.
+ */
+export async function getMuscleCoverageDb(
+  windowDays = 7,
+  lookbackDays = 90,
+): Promise<MuscleCoverage[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+  const viewer = await getViewer();
+  if (!viewer) return [];
+
+  return cached(
+    `muscleCoverage:v2:${viewer.id}:${windowDays}:${lookbackDays}:${getUiLanguage()}`,
+    CACHE_TTL_OWN,
+    async () => {
+      const allMuscles = await getMusclesDb();
+      if (allMuscles.length === 0) return [];
+
+      const lookbackStart = new Date(Date.now() - lookbackDays * 86400_000).toISOString();
+      const windowStartMs = Date.now() - windowDays * 86400_000;
+
+      const { data: hist, error } = await supabase!
+        .from("user_workouts_hist")
+        .select("workout_id, kilos, volume, date_completed")
+        .eq("user_id", viewer.id)
+        .gte("date_completed", lookbackStart)
+        // Aquecimento não é estímulo — mesma regra do volume e do PR.
+        .or(WORKING_SETS_FILTER);
+      if (error || !hist) return [];
+
+      const workoutIds = [...new Set((hist as any[]).map((r) => String(r.workout_id)).filter(Boolean))];
+      // Sem NENHUMA série no período (usuário novo, ou apagou as rotinas e com
+      // elas o histórico): devolve vazio para o card sumir. Devolver todos os
+      // músculos zerados fazia o card renderizar "0 séries + tudo é lacuna",
+      // que parece dado velho de um treino que não existe mais.
+      if (workoutIds.length === 0) return [];
+
+      const { data: links } = await supabase!
+        .from("workout_muscles")
+        .select("workout_id, muscle_id, role, emphasis")
+        .in("workout_id", workoutIds);
+
+      // workout_id → linhas de anatomia (estabilizador fora)
+      const byWorkout = new Map<string, Array<{ muscleId: string; emphasis: number }>>();
+      for (const row of (links ?? []) as any[]) {
+        if (row.role === "stabilizer") continue;
+        const wid = String(row.workout_id);
+        const list = byWorkout.get(wid) ?? [];
+        list.push({ muscleId: String(row.muscle_id), emphasis: Number(row.emphasis ?? 0) });
+        byWorkout.set(wid, list);
+      }
+
+      const sets = new Map<string, number>();
+      const volume = new Map<string, number>();
+      const lastAt = new Map<string, string>();
+
+      for (const row of hist as any[]) {
+        const links = byWorkout.get(String(row.workout_id));
+        if (!links?.length) continue;
+
+        const date = String(row.date_completed ?? "");
+        const inWindow = new Date(date).getTime() >= windowStartMs;
+        const kg = Number(row.kilos ?? 0);
+        const reps = Number(String(row.volume ?? "").replace(/[^0-9.]/g, "")) || 0;
+        const setVolume = kg * reps;
+
+        for (const { muscleId, emphasis } of links) {
+          const weight = emphasis / 100;
+          if (inWindow) {
+            sets.set(muscleId, (sets.get(muscleId) ?? 0) + weight);
+            volume.set(muscleId, (volume.get(muscleId) ?? 0) + setVolume * weight);
+          }
+          // "Treinou" = estímulo relevante. Uma linha secundária fraca não
+          // deveria zerar o alerta de "faz tempo que você não treina isso".
+          if (emphasis >= 50 && date > (lastAt.get(muscleId) ?? "")) {
+            lastAt.set(muscleId, date);
+          }
+        }
+      }
+
+      // Havia histórico, mas nenhuma série caiu em músculo nenhum — acontece
+      // quando os exercícios treinados ainda não têm anatomia mapeada (seed não
+      // rodou, ou só exercícios custom). Mesmo tratamento: card fora, em vez de
+      // uma lista de lacunas que não reflete o que a pessoa fez.
+      if (sets.size === 0 && lastAt.size === 0) return [];
+
+      return allMuscles.map((muscle) => ({
+        muscle,
+        effectiveSets: Math.round((sets.get(muscle.id) ?? 0) * 10) / 10,
+        volume: Math.round(volume.get(muscle.id) ?? 0),
+        lastTrainedAt: lastAt.get(muscle.id) ?? null,
+      }));
+    },
+    { skipEmpty: true },
+  );
 }
 
 export type ExerciseProgressPoint = { date: string; maxKg: number; volume: number };
@@ -8629,6 +9252,9 @@ export async function getExerciseProgressionDb(
       .select("kilos, volume, date_completed")
       .eq("user_id", viewer.id)
       .eq("workout_id", workoutId)
+      // Aquecimento fora do gráfico: uma rampa de 40kg antes de 4×80kg puxaria
+      // a curva de progressão para baixo sem o usuário ter regredido em nada.
+      .or(WORKING_SETS_FILTER)
       .order("date_completed", { ascending: false })
       .limit(limit);
     if (error || !data) return [];
@@ -8726,6 +9352,10 @@ export async function getLastWorkoutSessionSeriesDb(
       .select("id, workout_id, kilos, volume, date_completed")
       .eq("user_id", userId)
       .in("workout_id", workoutIds)
+      // A coluna ANTERIOR é a referência de carga da última vez — aquecimento
+      // ali faria a sessão anterior parecer mais leve do que foi, e o
+      // pré-preenchimento nasceria com o peso da rampa.
+      .or(WORKING_SETS_FILTER)
       .order("date_completed", { ascending: false })
       .order("id", { ascending: false })
       .limit(workoutIds.length * 20);
@@ -8905,9 +9535,11 @@ export async function saveDietHistoryDb(
   }
 
   invalidateQueryCache("workoutHistory");
-  // Mesma origem (user_workouts_hist): o gráfico de progressão precisa cair
-  // junto com o histórico, senão fica velho durante todo o TTL.
+  // Mesma origem (user_workouts_hist): o gráfico de progressão e a cobertura
+  // muscular precisam cair junto com o histórico, senão ficam velhos durante
+  // todo o TTL (15min no caso da cobertura).
   invalidateQueryCache("exerciseProgress");
+  invalidateQueryCache("muscleCoverage");
 }
 
 async function insertHabitHistRowDb(p: {
@@ -8962,9 +9594,11 @@ export async function saveHabitHistoryDb(
   }
 
   invalidateQueryCache("workoutHistory");
-  // Mesma origem (user_workouts_hist): o gráfico de progressão precisa cair
-  // junto com o histórico, senão fica velho durante todo o TTL.
+  // Mesma origem (user_workouts_hist): o gráfico de progressão e a cobertura
+  // muscular precisam cair junto com o histórico, senão ficam velhos durante
+  // todo o TTL (15min no caso da cobertura).
   invalidateQueryCache("exerciseProgress");
+  invalidateQueryCache("muscleCoverage");
 }
 
 // Group and Check-in Types
@@ -13150,11 +13784,19 @@ registerOutboxExecutor("workout_hist", async (p: any) => {
     volume: p.volume != null ? String(p.volume) : null,
     routineId: p.routineId != null ? String(p.routineId) : null,
     dateCompleted: String(p.dateCompleted),
+    // Payloads enfileirados antes de 05/08/2026 não têm a chave — `undefined`
+    // vira NULL no insert (= série do modo simplificado), então um treino que
+    // ficou na fila durante o deploy continua sincronizando normalmente.
+    setKind: p.setKind === "warmup" || p.setKind === "normal" || p.setKind === "failure"
+      ? p.setKind
+      : null,
   });
   invalidateQueryCache("workoutHistory");
-  // Mesma origem (user_workouts_hist): o gráfico de progressão precisa cair
-  // junto com o histórico, senão fica velho durante todo o TTL.
+  // Mesma origem (user_workouts_hist): o gráfico de progressão e a cobertura
+  // muscular precisam cair junto com o histórico, senão ficam velhos durante
+  // todo o TTL (15min no caso da cobertura).
   invalidateQueryCache("exerciseProgress");
+  invalidateQueryCache("muscleCoverage");
 });
 
 registerOutboxExecutor("check_in", async (p: any) => {

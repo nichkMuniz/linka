@@ -2,6 +2,7 @@ import * as React from "react";
 import { createPortal } from "react-dom";
 import { useWorkout } from "@/lib/workout-context";
 import { useLanguage } from "@/lib/language-context";
+import type { TranslationKey } from "@/lib/i18n";
 import {
   subscribeRun, getRunState, startRun, pauseRun, resumeRun, stopRun,
   openLocationSettings, formatRunTime, formatRunPace,
@@ -9,10 +10,13 @@ import {
 } from "@/lib/run-tracker";
 import { RouteMap } from "@/components/shared/route-map";
 import { ExerciseImage } from "@/components/shared/exercise-image";
+import { ExerciseAnatomy } from "@/components/shared/exercise-anatomy";
+import { TechniqueInfoOverlay } from "@/components/goals/technique-info-overlay";
 import { getNetworkStatus } from "@/lib/network-status";
 import { subscribeKeyboardHeight, getKeyboardHeight } from "@/lib/keyboard";
 import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
 import { isCardioExercise } from "@/lib/cardio-exercises";
+import { beatsE1rm, estimateOneRepMax, roundE1rm } from "@/lib/one-rep-max";
 import { toast } from "@/components/ui/use-toast";
 import {
   saveWorkoutHistoryDb,
@@ -26,9 +30,29 @@ import {
   updateCustomWorkoutDb,
   deleteCustomWorkoutDb,
   matchesCatalogSearch,
+  isWorkingSet,
+  isBlockTechnique,
+  getExercisePersonalRecordsDb,
+  type ExercisePersonalRecords,
+  type SetKind,
+  type TrainingMode,
+  type WorkoutTechnique,
   type UserWorkoutWithDetails,
   type Workout,
 } from "@/lib/ritmofit-db";
+
+/**
+ * Tipos de recorde reconhecidos no modo **expert** (convenção Hevy/Strong):
+ *
+ * - `weight`: carga máxima — o único que existia antes de 05/08/2026.
+ * - `reps`:   mesma carga, mais repetições. O progresso mais comum de todos e o
+ *             que o app ignorava por completo (quem faz 60kg × 12 depois de
+ *             60kg × 8 evoluiu e não recebia nada).
+ * - `e1rm`:   1RM estimado — compara séries de faixas diferentes de repetição.
+ *
+ * O modo simplificado só emite `weight`, mantendo a tela exatamente como era.
+ */
+export type PrKind = "weight" | "reps" | "e1rm";
 
 export type WorkoutSessionSummary = {
   totalSeries: number;
@@ -43,12 +67,28 @@ export type WorkoutSessionSummary = {
     photo: string | null;
     // Uma entrada por série concluída, em ordem — carga (kg) e repetições de cada
     // série. Alimenta o detalhe "kg × reps" do resumo compartilhado no feed.
+    // Para cardio (isCardio), kg = MINUTOS e reps = KM.
     sets: Array<{ kg: number; reps: number }>;
+    // Cardio (corrida/bike) → o detalhe deve mostrar min×km, não kg×reps.
+    isCardio: boolean;
   }>;
   prExercises: Array<{
     name: string;
     previousBestKg: number;
     newBestKg: number;
+    /**
+     * Tipo do recorde (modo expert). **Ausente = `"weight"`** — é o que os
+     * resumos gravados antes de 05/08/2026 (em `posts` e
+     * `routines.last_summary`) representam, e o único tipo que o modo
+     * simplificado produz.
+     */
+    kind?: PrKind;
+    /** `kind = "reps"`: repetições na MESMA carga (`newBestKg`). */
+    previousReps?: number;
+    newReps?: number;
+    /** `kind = "e1rm"`: 1RM estimado, já arredondado para exibição. */
+    previousE1rm?: number;
+    newE1rm?: number;
   }>;
   // PR where bestKg >= 100 — "zerando a máquina"
   machinedExercises: Array<{ name: string; kg: number }>;
@@ -67,6 +107,12 @@ interface WorkoutSessionDialogProps {
   userId: string;
   routineLabel: string;
   items: UserWorkoutWithDetails[];
+  /**
+   * Modo da rotina (`routines.training_mode` via `RoutineCard.trainingMode`).
+   * `simple` = tela clássica; `expert` = série tipada + métricas sem
+   * aquecimento. Ausente = `simple`, para qualquer caller que ainda não passe.
+   */
+  trainingMode?: TrainingMode;
   /** id da rotina (card.routineId) — autoritativo para vincular exercícios criados */
   routineId?: string | null;
   /** nome da rotina (card.name) — usado como `user_workouts.name` para agrupar no card certo */
@@ -117,6 +163,106 @@ function fmtRest(secs: number): string {
   return s > 0 ? `${m}m ${s}s` : `${m}m`;
 }
 
+// ── Tipos de série (modo expert) ────────────────────────────────────────────
+// A série deixa de ser um número anônimo e passa a declarar o que é. Isso é o
+// que permite tirar o aquecimento do volume, da contagem e do PR — no modo
+// simplificado nada disso existe e toda série é tratada como 'normal'.
+
+/** Descanso após uma série de aquecimento: a rampa não pede pausa cheia. */
+const WARMUP_REST_SECS = 30;
+
+/**
+ * Rampa de aquecimento sugerida, em % da carga de trabalho. É a progressão
+ * clássica de preparação para uma série pesada: sobe a carga e desce as
+ * repetições, chegando na série válida com o movimento pronto e sem fadiga.
+ *
+ * Não é prescrição — o usuário edita ou apaga qualquer linha. O valor de ter
+ * isso num botão é não precisar fazer a conta de cabeça na academia.
+ */
+const WARMUP_RAMP: Array<{ pct: number; reps: number }> = [
+  { pct: 0.5, reps: 8 },
+  { pct: 0.7, reps: 5 },
+  { pct: 0.85, reps: 3 },
+];
+
+/** Menor incremento real de uma barra: um par de anilhas de 1,25kg. */
+const PLATE_STEP = 2.5;
+
+/**
+ * Monta as séries de aquecimento para uma carga de trabalho. Descarta degraus
+ * que arredondam para o mesmo peso (carga leve faz 50% e 70% colidirem — duas
+ * séries idênticas de aquecimento não aquecem nada) e os que zeram.
+ */
+function buildWarmupSets(targetKg: number): Array<{ kg: number; reps: number }> {
+  const out: Array<{ kg: number; reps: number }> = [];
+  for (const step of WARMUP_RAMP) {
+    const kg = Math.round((targetKg * step.pct) / PLATE_STEP) * PLATE_STEP;
+    if (kg <= 0) continue;
+    if (kg >= targetKg) continue;             // já é a carga de trabalho
+    if (out.some((s) => s.kg === kg)) continue;
+    out.push({ kg, reps: step.reps });
+  }
+  return out;
+}
+
+// `drop` fica FORA do seletor manual: uma série de drop nasce do botão "+ drop"
+// da série anterior (é a continuação dela), não de alguém marcar uma linha
+// solta como drop.
+const SET_KIND_ORDER: SetKind[] = ["warmup", "normal", "failure"];
+
+const SET_KIND_LABEL_KEYS: Record<SetKind, TranslationKey> = {
+  warmup: "goals_set_kind_warmup",
+  normal: "goals_set_kind_normal",
+  failure: "goals_set_kind_failure",
+  drop: "goals_set_kind_drop",
+};
+
+// Letra exibida na coluna "#" no lugar do número. A série válida mantém o
+// número (é a numeração que o usuário conta como "3×10"), então só aquecimento
+// e falha ganham símbolo próprio.
+const SET_KIND_STYLE: Record<SetKind, { label: string; fg: string; bg: string; border: string }> = {
+  warmup: { label: "A", fg: "#f0b429", bg: "rgba(240,180,41,0.14)", border: "rgba(240,180,41,0.42)" },
+  normal: { label: "", fg: "rgba(255,255,255,.72)", bg: "transparent", border: "transparent" },
+  failure: { label: "F", fg: "#ff6b6b", bg: "rgba(255,107,107,0.14)", border: "rgba(255,107,107,0.42)" },
+  drop: { label: "D", fg: "#c084fc", bg: "rgba(192,132,252,0.14)", border: "rgba(192,132,252,0.42)" },
+};
+
+/** Tipo efetivo de uma série (ausente = 'normal'). */
+function setKindOf(row: { kind?: SetKind } | undefined | null): SetKind {
+  return row?.kind ?? "normal";
+}
+
+/**
+ * Séries que entram na CONTAGEM ("3 séries de supino").
+ *
+ * Difere de `isWorkingSet` (que decide volume/PR) num ponto: o **drop conta
+ * como trabalho mas não como série nova**. Ele é a continuação da série
+ * anterior — quem faz 3×10 com drop na última diz "fiz 3 séries", não 4. O
+ * volume levantado no drop, porém, é real e entra normalmente.
+ */
+function countsAsSeries(kind: SetKind): boolean {
+  return kind !== "warmup" && kind !== "drop";
+}
+
+/**
+ * Numeração VISÍVEL das séries válidas. O aquecimento não recebe número: quem
+ * faz 2 de aquecimento + 3 válidas quer ver "A A 1 2 3", não "1 2 3 4 5" — o
+ * treino é de 3 séries. Devolve o rótulo por índice do array.
+ */
+function workingSetLabels(series: Array<{ kind?: SetKind }>): string[] {
+  let n = 0;
+  return series.map((row) => {
+    const kind = setKindOf(row);
+    if (kind === "warmup") return SET_KIND_STYLE.warmup.label;
+    // Drop não numera: é a continuação da série de cima, não a próxima série.
+    if (kind === "drop") return SET_KIND_STYLE.drop.label;
+    n += 1;
+    // Falha é uma série válida numerada — a letra vai no realce da cor, não no
+    // lugar do número, senão o usuário perde a conta das séries de trabalho.
+    return String(n);
+  });
+}
+
 // Indicador de progressão de carga (kg) por exercício, recalculado a cada série
 // concluída. Reflete a ÚLTIMA série concluída comparada à sua referência:
 //  - se já há uma série concluída antes dela nesta sessão → compara com o kg
@@ -126,9 +272,12 @@ function fmtRest(secs: number): string {
 // `up` = progrediu (verde), `down` = regrediu (vermelho), `neutral` = igual/sem base.
 type WeightTrend = "up" | "down" | "neutral";
 function computeWeightTrend(
-  series: Array<{ kg: number; completed: boolean; prevKg?: number }>,
+  series: Array<{ kg: number; completed: boolean; prevKg?: number; kind?: SetKind }>,
 ): WeightTrend {
-  const completed = series.filter((s) => s.completed);
+  // Aquecimento fora: a rampa é sempre mais leve que a série anterior, então
+  // sem este filtro toda série de trabalho depois de um aquecimento apareceria
+  // como "progrediu" e o primeiro aquecimento como "regrediu".
+  const completed = series.filter((s) => s.completed && isWorkingSet(s.kind));
   if (completed.length === 0) return "neutral";
   const latest = completed[completed.length - 1];
   const latestKg = latest.kg || 0;
@@ -777,6 +926,13 @@ function ExerciseDetailOverlay({
             {description || t("goals_exercise_no_description")}
           </p>
         </div>
+
+        {/* Anatomia — mesma ficha do catálogo. É AQUI que o usuário olha o
+            exercício com mais frequência (o "i" no card, durante o treino),
+            então deixá-la só no wizard escondia a feature. */}
+        <div style={{ width: "100%", paddingBottom: 8 }}>
+          <ExerciseAnatomy workoutId={workoutId} />
+        </div>
         </>
         )}
       </div>
@@ -785,9 +941,14 @@ function ExerciseDetailOverlay({
 }
 
 export function WorkoutSessionDialog({
-  open, userId, routineLabel, items, routineId: routineIdProp, routineName, onMinimize, onFinished,
+  open, userId, routineLabel, items, trainingMode = "simple",
+  routineId: routineIdProp, routineName, onMinimize, onFinished,
 }: WorkoutSessionDialogProps) {
   const { t } = useLanguage();
+  // Chave única de ramificação da tela. Tudo que o modo expert acrescenta é
+  // gateado por ela — no simplificado o componente renderiza exatamente o que
+  // renderizava antes de 05/08/2026.
+  const isExpert = trainingMode === "expert";
   const {
     workoutSeries, setWorkoutSeries,
     workoutDuration,
@@ -812,6 +973,10 @@ export function WorkoutSessionDialog({
   const [searchOpen, setSearchOpen] = React.useState(false);
   const [itemSearch, setItemSearch] = React.useState("");
   const [infoExerciseId, setInfoExerciseId] = React.useState<string | null>(null);
+  // Técnica cujo verbete está aberto (tocou no selo Bi-set / A1 / Drop-set).
+  const [techniqueInfo, setTechniqueInfo] = React.useState<
+    { technique: WorkoutTechnique; members: string[] } | null
+  >(null);
 
   // Corrida GPS (Corrida ao Ar Livre) — o rastreador é um singleton em
   // run-tracker.ts, então a corrida continua com o treino minimizado; aqui
@@ -937,8 +1102,54 @@ export function WorkoutSessionDialog({
               workoutPhoto: edited.photo,
             }
           : i;
+      })
+      // Ordem explícita da rotina (definida ao montar blocos de bi-set) tem
+      // prioridade; sem ela, mantém a ordem de chegada de sempre. Sem isto os
+      // membros de um bloco poderiam aparecer separados na tela.
+      .sort((a, b) => {
+        const ai = a.order_index, bi = b.order_index;
+        if (ai == null && bi == null) return 0;
+        if (ai == null) return 1;
+        if (bi == null) return -1;
+        return ai - bi;
       });
   }, [items, workoutExtraItems, workoutRemovedIds, editedExercises]);
+
+  /**
+   * Blocos de bi-set/tri-set desta sessão: `technique_group` → workout_ids na
+   * ordem de execução (A1 → A2 → A3). Só grupos com 2+ membros presentes viram
+   * bloco — se o usuário removeu o par durante o treino, o que sobrou volta a
+   * ser um exercício comum.
+   */
+  const blocks = React.useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const i of allItems) {
+      const g = i.technique_group;
+      if (!g || !isBlockTechnique(i.technique)) continue;
+      map.set(g, [...(map.get(g) ?? []), i.workout_id]);
+    }
+    for (const [g, ids] of map) if (ids.length < 2) map.delete(g);
+    return map;
+  }, [allItems]);
+
+  /** workout_id → { groupKey, posição (0-based), total } */
+  const blockInfo = React.useMemo(() => {
+    const out = new Map<string, { group: string; index: number; size: number }>();
+    for (const [group, ids] of blocks) {
+      ids.forEach((id, index) => out.set(id, { group, index, size: ids.length }));
+    }
+    return out;
+  }, [blocks]);
+
+  /**
+   * true = exercício está num bloco e NÃO é o último. Concluir uma série aqui
+   * não abre o descanso: o próximo passo é o exercício seguinte do bloco, que é
+   * a definição de bi-set.
+   */
+  const isMidBlock = React.useCallback((workoutId: string) => {
+    const info = blockInfo.get(workoutId);
+    return !!info && info.index < info.size - 1;
+  }, [blockInfo]);
 
   // Rotina atual (para vincular exercícios criados/adicionados aos itens persistidos).
   // O id/nome autoritativos vêm do card (props); os itens podem ter routine_id nulo
@@ -1029,7 +1240,10 @@ export function WorkoutSessionDialog({
       const isCardio = isCardioExercise(item.muscle_group, item.workout_id);
       let any = false;
       series.forEach((s) => {
-        if (s.completed) {
+        // Mesma regra da finalização: o aquecimento não entra no contador de
+        // séries nem no volume ao vivo, senão a barra de estatísticas mostraria
+        // um número diferente do que o resumo grava no fim.
+        if (s.completed && countsAsSeries(setKindOf(s))) {
           totalDone++;
           if (!isCardio) volume += (s.kg || 0) * (s.reps || 0);
           any = true;
@@ -1092,6 +1306,86 @@ export function WorkoutSessionDialog({
   // Séries cujo check foi tentado sem dados — destaca os campos faltantes
   const [invalidSeries, setInvalidSeries] = React.useState<Set<string>>(new Set());
   const seriesKey = (workoutId: string, index: number) => `${workoutId}:${index}`;
+
+  // Modo expert: linha cujo seletor de tipo de série está aberto (a folha de
+  // vidro com Aquecimento / Válida / Falha). `null` = fechado.
+  const [kindPickerKey, setKindPickerKey] = React.useState<string | null>(null);
+
+  /**
+   * Emenda um drop-set logo abaixo da série `index`: mesma repetição-alvo, carga
+   * reduzida em 20% (arredondada a 2,5kg, o menor par de anilhas). É um palpite
+   * editável — o ponto é não obrigar a digitar do zero no meio da série, que é
+   * exatamente quando não dá para digitar nada.
+   */
+  const addDropSet = (workoutId: string, index: number) => {
+    setWorkoutSeries((prev) => {
+      const list = prev[workoutId] ?? [];
+      const parent = list[index];
+      if (!parent) return prev;
+      const dropped = Math.max(0, Math.round(((parent.kg || 0) * 0.8) / 2.5) * 2.5);
+      const next = [...list];
+      next.splice(index + 1, 0, {
+        series: 0, // renumerado abaixo
+        kg: dropped,
+        reps: parent.reps || 0,
+        completed: false,
+        kind: "drop",
+      });
+      return { ...prev, [workoutId]: next.map((s, i) => ({ ...s, series: i + 1 })) };
+    });
+    setKindPickerKey(null);
+  };
+
+  /**
+   * Carga de trabalho de referência de um exercício, para montar a rampa:
+   * o maior peso entre as séries de trabalho já preenchidas; se nenhuma tem
+   * carga ainda, cai no histórico (coluna ANTERIOR). 0 = não dá para sugerir.
+   */
+  const workingTargetKg = React.useCallback((workoutId: string): number => {
+    const list = workoutSeries[workoutId] ?? [];
+    let best = 0;
+    for (const s of list) {
+      if (setKindOf(s) === "warmup") continue;
+      best = Math.max(best, s.kg || 0);
+    }
+    if (best > 0) return best;
+    return list.reduce((m, s) => Math.max(m, (s as any).prevKg || 0), 0);
+  }, [workoutSeries]);
+
+  /**
+   * Insere a rampa de aquecimento ANTES das séries de trabalho. Não substitui
+   * nada: as séries válidas continuam onde estavam, só empurradas para baixo.
+   */
+  const addWarmupRamp = (workoutId: string) => {
+    const target = workingTargetKg(workoutId);
+    const ramp = buildWarmupSets(target);
+    if (ramp.length === 0) return;
+    setWorkoutSeries((prev) => {
+      const list = prev[workoutId] ?? [];
+      const warmups = ramp.map((r) => ({
+        series: 0, // renumerado abaixo
+        kg: r.kg,
+        reps: r.reps,
+        completed: false,
+        kind: "warmup" as SetKind,
+      }));
+      return {
+        ...prev,
+        [workoutId]: [...warmups, ...list].map((s, i) => ({ ...s, series: i + 1 })),
+      };
+    });
+  };
+
+  // Muda o tipo de uma série. Trocar para aquecimento uma série JÁ concluída é
+  // legítimo (o usuário percebe depois que aquilo foi rampa) — o valor sai do
+  // volume/PR na finalização, então não há nada a desfazer aqui.
+  const setSeriesKind = (workoutId: string, index: number, kind: SetKind) => {
+    setWorkoutSeries((prev) => ({
+      ...prev,
+      [workoutId]: (prev[workoutId] ?? []).map((s, i) => (i === index ? { ...s, kind } : s)),
+    }));
+    setKindPickerKey(null);
+  };
 
   // Swipe-to-delete: qual linha está com o botão de apagar revelado
   const [swipedSeriesKey, setSwipedSeriesKey] = React.useState<string | null>(null);
@@ -1181,8 +1475,12 @@ export function WorkoutSessionDialog({
   }, [open, items, setWorkoutExerciseRestTimes]);
 
   // Rest timer
-  const startRestTimer = (workoutId: string) => {
-    const secs = workoutExerciseRestTimes[workoutId] ?? 60;
+  // `overrideSecs` = descanso desta série específica, ignorando a preferência do
+  // exercício (usado pelo aquecimento no modo expert). Respeita "sem descanso":
+  // quem zerou o descanso do exercício não ganha timer nem no aquecimento.
+  const startRestTimer = (workoutId: string, overrideSecs?: number) => {
+    const configured = workoutExerciseRestTimes[workoutId] ?? 60;
+    const secs = overrideSecs != null ? Math.min(overrideSecs, configured) : configured;
     if (secs === 0) return; // sem descanso — não abre modal
     setGlobalRestTimerTotal(secs);
     setGlobalRestTimerRemaining(secs);
@@ -1405,6 +1703,9 @@ export function WorkoutSessionDialog({
       return next;
     });
     setSwipedSeriesKey(null);
+    // Apagar uma linha renumera as seguintes — um seletor aberto passaria a
+    // apontar para outra série. Fecha.
+    setKindPickerKey(null);
   };
 
   // Touch handlers para o swipe-to-delete de cada linha de série
@@ -1486,21 +1787,30 @@ export function WorkoutSessionDialog({
       ),
     }));
     if (!wasCompleted) {
-      startRestTimer(workoutId);
+      const kind = setKindOf(row);
+      // Descanso depende do que vem A SEGUIR, não só do que acabou:
+      //  - próxima linha é um drop  → emenda, sem descanso nenhum;
+      //  - a série atual é aquecimento → descanso curto (a rampa não pede pausa cheia);
+      //  - exercício num bloco de bi-set/tri-set e NÃO é o último → sem descanso,
+      //    o usuário vai direto para o próximo exercício do bloco.
+      const nextIsDrop = setKindOf(workoutSeries[workoutId]?.[index + 1]) === "drop";
+      const holdsRest = nextIsDrop || isMidBlock(workoutId);
+      if (!holdsRest) {
+        startRestTimer(workoutId, kind === "warmup" ? WARMUP_REST_SECS : undefined);
+      }
 
       // PR em tempo real — ao concluir uma série de força com peso acima do
       // melhor peso anterior, avisa que o usuário bateu o recorde.
       const kg = row?.kg || 0;
-      if (!isCardio && kg > 0) {
+      if (!isCardio && kg > 0 && isWorkingSet(kind)) {
         // Baseline: na primeira série concluída do exercício, parte do maior
         // "anterior" (prevKg da última sessão, o mesmo valor exibido na coluna
         // ANTERIOR). Nas próximas, usa o recorde corrente já elevado.
         let best = prevBestRef.current.get(workoutId);
         if (best == null) {
-          best = (workoutSeries[workoutId] ?? []).reduce(
-            (m, s) => Math.max(m, (s as any).prevKg || 0),
-            0,
-          );
+          best = (workoutSeries[workoutId] ?? [])
+            .filter((s) => isWorkingSet(s.kind))
+            .reduce((m, s) => Math.max(m, (s as any).prevKg || 0), 0);
           prevBestRef.current.set(workoutId, best);
         }
         const name = allItems.find((i) => i.workout_id === workoutId)?.workoutName ?? "";
@@ -1529,7 +1839,7 @@ export function WorkoutSessionDialog({
       // zerada (a única forma de remover a marca, já que o selo não é tocável).
       if (maxedExerciseIds.includes(workoutId)) {
         const stillCompleted = (workoutSeries[workoutId] ?? []).some(
-          (s, i) => i !== index && s.completed,
+          (s, i) => i !== index && s.completed && isWorkingSet(s.kind),
         );
         if (!stillCompleted) {
           setMaxedExerciseIds((prev) => prev.filter((x) => x !== workoutId));
@@ -1540,8 +1850,11 @@ export function WorkoutSessionDialog({
 
   // ── Finalizar ───────────────────────────────────────────────
 
+  // Só aquecimento não é treino: sem nenhuma série de trabalho concluída o
+  // resumo nasceria zerado (volume 0, nenhum exercício), então o botão de
+  // finalizar continua desabilitado.
   const hasCompletedSeries = Object.values(workoutSeries).some((list) =>
-    list.some((s) => s.completed),
+    list.some((s) => s.completed && countsAsSeries(setKindOf(s))),
   );
 
   const handleFinishClick = () => {
@@ -1585,12 +1898,23 @@ export function WorkoutSessionDialog({
       const netStatus = getNetworkStatus();
       const canDetectAllTimePR = netStatus.isOnline && netStatus.isSupabaseReachable;
       const prevBests = new Map<string, number>();
+      // Modo expert: além da carga máxima, precisa do 1RM estimado e do melhor
+      // nº de reps por carga, então lê o histórico do exercício (uma consulta).
+      // O simplificado continua com a consulta barata de 1 linha.
+      const prevRecords = new Map<string, ExercisePersonalRecords>();
       if (canDetectAllTimePR) {
         await Promise.all(
           exerciseEntries.map(async ([workoutId]) => {
             const row = allItemsForSave.find((w) => w.workout_id === workoutId);
             const isCardio = isCardioExercise(row?.muscle_group, workoutId);
-            if (!isCardio) {
+            if (isCardio) return;
+            if (isExpert) {
+              const rec = await getExercisePersonalRecordsDb(userId, workoutId).catch(
+                () => ({ bestKg: 0, bestE1rm: 0, repsByKg: {} } as ExercisePersonalRecords),
+              );
+              prevRecords.set(workoutId, rec);
+              prevBests.set(workoutId, rec.bestKg);
+            } else {
               const prev = await getPreviousBestKgDb(userId, workoutId).catch(() => 0);
               prevBests.set(workoutId, prev);
             }
@@ -1607,12 +1931,22 @@ export function WorkoutSessionDialog({
         const rawId = isExtra ? null : (row?.id ?? null);
         const userWorkoutId: number | null = rawId && !isNaN(Number(rawId)) ? Number(rawId) : null;
 
+        // Séries que contam como trabalho. O aquecimento CONTINUA sendo gravado
+        // no histórico (o registro do treino tem que ser fiel) — o que ele não
+        // faz é entrar em volume, contagem, PR e no resumo publicado.
+        const workingSets = completed.filter((s) => isWorkingSet(s.kind));
+
         let bestKg = 0;
         for (const serie of completed) {
-          totalSeries++;
-          if (!isCardio) {
-            totalVolume += (serie.kg || 0) * (serie.reps || 0);
-            bestKg = Math.max(bestKg, serie.kg || 0);
+          const kind = setKindOf(serie);
+          if (isWorkingSet(kind)) {
+            // Volume e carga máxima incluem o drop — é peso levantado de verdade.
+            if (!isCardio) {
+              totalVolume += (serie.kg || 0) * (serie.reps || 0);
+              bestKg = Math.max(bestKg, serie.kg || 0);
+            }
+            // Já a CONTAGEM de séries não: o drop pertence à série de cima.
+            if (countsAsSeries(kind)) totalSeries++;
           }
           await saveWorkoutHistoryDb(
             userId, userWorkoutId, workoutId,
@@ -1622,16 +1956,26 @@ export function WorkoutSessionDialog({
               : (serie.reps ? `${serie.reps} reps` : null),
             row?.routine_id ?? sessionRoutineId,
             new Date(sessionBaseMs + seriesSaveIndex++).toISOString(),
+            // Só o modo expert classifica séries; no simplificado vai NULL e a
+            // leitura trata como 'normal'.
+            isExpert ? kind : null,
           );
         }
 
+        // Exercício que só teve aquecimento não entra no resumo — não houve
+        // trabalho a reportar (e `bestKg` seria 0, virando um card vazio).
+        if (workingSets.length === 0) continue;
+
         completedExercises.push({
           name: row?.workoutName ?? workoutId,
-          totalSets: completed.length,
+          // "4 séries" no resumo = séries contadas, drops fora (o peso deles já
+          // está no volume e nos `sets` abaixo).
+          totalSets: workingSets.filter((s) => countsAsSeries(setKindOf(s))).length,
           bestKg,
           muscleGroup: row?.muscle_group ?? null,
           photo: row?.workoutPhoto ?? null,
-          sets: completed.map((s) => ({ kg: s.kg || 0, reps: s.reps || 0 })),
+          sets: workingSets.map((s) => ({ kg: s.kg || 0, reps: s.reps || 0 })),
+          isCardio,
         });
 
         const exerciseName = row?.workoutName ?? workoutId;
@@ -1639,8 +1983,63 @@ export function WorkoutSessionDialog({
         // PR all-time — exige rede (compara com o histórico do banco).
         if (!isCardio && bestKg > 0 && canDetectAllTimePR) {
           const prev = prevBests.get(workoutId) ?? 0;
-          if (bestKg > prev) {
-            prExercises.push({ name: exerciseName, previousBestKg: prev, newBestKg: bestKg });
+          const beatWeight = bestKg > prev;
+
+          if (!isExpert) {
+            // Simplificado: só carga máxima, exatamente como antes.
+            if (beatWeight) {
+              prExercises.push({ name: exerciseName, previousBestKg: prev, newBestKg: bestKg });
+            }
+          } else {
+            // Expert: UM recorde por exercício, o mais expressivo. Emitir os
+            // três juntos encheria o banner com a mesma conquista repetida —
+            // bater carga quase sempre bate o e1RM também.
+            const rec = prevRecords.get(workoutId) ?? { bestKg: 0, bestE1rm: 0, repsByKg: {} };
+            const bestE1rm = workingSets.reduce(
+              (m, s) => Math.max(m, estimateOneRepMax(s.kg || 0, s.reps || 0)),
+              0,
+            );
+            // Melhor série de hoje EM CADA carga, para o recorde de repetições.
+            const todayRepsByKg = new Map<number, number>();
+            for (const s of workingSets) {
+              const kg = s.kg || 0;
+              const reps = s.reps || 0;
+              if (kg > 0 && reps > 0 && reps > (todayRepsByKg.get(kg) ?? 0)) {
+                todayRepsByKg.set(kg, reps);
+              }
+            }
+            // Só conta como recorde de reps quando JÁ existe marca naquela
+            // carga: a primeira vez em um peso novo não é "mais repetições",
+            // é estreia (e o recorde de carga/e1RM já cobre esse caso).
+            let repsPr: { kg: number; prevReps: number; newReps: number } | null = null;
+            for (const [kg, reps] of todayRepsByKg) {
+              const prevReps = rec.repsByKg[String(kg)] ?? 0;
+              if (prevReps > 0 && reps > prevReps) {
+                if (!repsPr || kg > repsPr.kg) repsPr = { kg, prevReps, newReps: reps };
+              }
+            }
+
+            if (beatWeight) {
+              prExercises.push({
+                name: exerciseName, kind: "weight",
+                previousBestKg: prev, newBestKg: bestKg,
+              });
+            } else if (beatsE1rm(bestE1rm, rec.bestE1rm)) {
+              prExercises.push({
+                name: exerciseName, kind: "e1rm",
+                // previousBestKg = 0 esconde o riscado de carga (que não mudou)
+                // e mantém este PR fora do cálculo de "% de superação" do card
+                // compartilhável, que só faz sentido para carga.
+                previousBestKg: 0, newBestKg: bestKg,
+                previousE1rm: roundE1rm(rec.bestE1rm), newE1rm: roundE1rm(bestE1rm),
+              });
+            } else if (repsPr) {
+              prExercises.push({
+                name: exerciseName, kind: "reps",
+                previousBestKg: 0, newBestKg: repsPr.kg,
+                previousReps: repsPr.prevReps, newReps: repsPr.newReps,
+              });
+            }
           }
         }
 
@@ -1891,11 +2290,30 @@ export function WorkoutSessionDialog({
         </button>
 
         <div style={{
-          flex: 1, textAlign: "center",
-          fontWeight: 700, fontSize: 17, color: FG,
-          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+          flex: 1, minWidth: 0, display: "flex", flexDirection: "column",
+          alignItems: "center", gap: 2,
         }}>
-          {routineLabel}
+          <div style={{
+            maxWidth: "100%",
+            fontWeight: 700, fontSize: 17, color: FG,
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+          }}>
+            {routineLabel}
+          </div>
+          {/* Selo do modo: a rotina expert se comporta de forma diferente
+              (aquecimento fora do volume/PR), então o usuário precisa saber em
+              qual tela está — sem isso a métrica "some" sem explicação. */}
+          {isExpert && (
+            <span style={{
+              fontSize: 9, fontWeight: 800, letterSpacing: 0.8,
+              textTransform: "uppercase",
+              color: "#9dbaff", background: "rgba(91,140,255,0.16)",
+              border: "1px solid rgba(91,140,255,0.4)",
+              borderRadius: 20, padding: "1px 8px", lineHeight: 1.6,
+            }}>
+              {t("goals_mode_expert")}
+            </span>
+          )}
         </div>
 
         <button
@@ -2041,7 +2459,24 @@ export function WorkoutSessionDialog({
         {filteredItems.map((item) => {
           const series = workoutSeries[item.workout_id] ?? [];
           const isExpanded = expandedId === item.workout_id;
-          const doneSeries = series.filter((s) => s.completed).length;
+          // "3 de 4 séries" conta trabalho, não aquecimento (ver stats/finish).
+          // O denominador acompanha: 2 aquecimentos + 3 válidas mostra "0/3",
+          // não "0/5" — é o treino que o usuário conta como 3 séries.
+          const workingSeries = series.filter((s) => countsAsSeries(setKindOf(s)));
+          const doneSeries = workingSeries.filter((s) => s.completed).length;
+          const totalSeriesCount = workingSeries.length;
+          // Rótulo por linha: aquecimento vira "A", válidas seguem 1,2,3…
+          const seriesLabels = isExpert ? workingSetLabels(series) : null;
+          // Bloco de bi-set/tri-set: "A1", "A2"… A letra vem da posição do
+          // bloco na rotina (1º bloco = A, 2º = B), o número da posição dentro.
+          const bInfo = blockInfo.get(item.workout_id);
+          const blockBadge = bInfo
+            ? `${String.fromCharCode(65 + [...blocks.keys()].indexOf(bInfo.group))}${bInfo.index + 1}`
+            : null;
+          // Exercício de técnica individual (drop-set / rest-pause) declarada na
+          // rotina — o selo lembra o que fazer, o "+ drop" faz acontecer.
+          const soloTechnique =
+            item.technique === "drop" || item.technique === "rest_pause" ? item.technique : null;
           const restSecs = workoutExerciseRestTimes[item.workout_id] ?? 60;
           const isCardio = isCardioExercise(item.muscle_group, item.workout_id);
           // Corrida ao Ar Livre: modo GPS estilo Strava — a tabela de séries
@@ -2053,13 +2488,26 @@ export function WorkoutSessionDialog({
           const isMaxed = maxedExerciseIds.includes(item.workout_id);
           // Indicador de progressão de carga (não se aplica a cardio min/km).
           const weightTrend: WeightTrend = isCardio ? "neutral" : computeWeightTrend(series);
+          // Rampa de aquecimento: só quando ainda não há aquecimento no
+          // exercício e existe carga de trabalho de onde derivar a progressão.
+          const hasWarmup = series.some((s) => setKindOf(s) === "warmup");
+          const rampPreview =
+            isExpert && !isCardio && !isRunExercise && !hasWarmup
+              ? buildWarmupSets(workingTargetKg(item.workout_id))
+              : [];
+          const canRampWarmup = rampPreview.length > 0;
 
           return (
             <div
               key={item.id}
               style={{
                 background: CARD, borderRadius: 24, overflow: "hidden",
-                marginBottom: 20, position: "relative",
+                // Membro de bloco não-final cola no próximo: a folga menor faz
+                // os dois cards lerem como uma unidade.
+                marginBottom: bInfo && bInfo.index < bInfo.size - 1 ? 6 : 20,
+                position: "relative",
+                // Trilho roxo à esquerda amarrando o bloco visualmente.
+                borderLeft: bInfo ? "3px solid #c084fc" : undefined,
                 border: isMaxed ? "1.5px solid #eab308" : `1px solid ${BORDER}`,
                 backdropFilter: GLASS_BLUR, WebkitBackdropFilter: GLASS_BLUR,
                 boxShadow: isMaxed
@@ -2078,6 +2526,49 @@ export function WorkoutSessionDialog({
                 }}>
                   {item.workoutName}
                 </span>
+                {/* Selo do bloco (A1/A2/A3). Junto com a borda lateral roxa do
+                    card, é o que faz o bi-set ser lido como UM bloco sem
+                    reestruturar a lista de exercícios. Tocar explica a técnica:
+                    sugerir um bi-set sem dizer o que é só transfere a dúvida. */}
+                {blockBadge && (
+                  <button
+                    onClick={() => setTechniqueInfo({
+                      technique: item.technique === "triset" ? "triset" : "biset",
+                      members: (blocks.get(bInfo!.group) ?? [])
+                        .map((id) => allItems.find((i) => i.workout_id === id)?.workoutName ?? "")
+                        .filter(Boolean),
+                    })}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 4,
+                      fontSize: 11, fontWeight: 800, color: "#c084fc",
+                      background: "rgba(192,132,252,0.14)",
+                      border: "1px solid rgba(192,132,252,0.45)",
+                      borderRadius: 20, padding: "2px 10px", flexShrink: 0,
+                      whiteSpace: "nowrap", cursor: "pointer",
+                      fontFamily: "'Inter', system-ui",
+                    }}
+                  >
+                    {blockBadge}
+                    <span style={{ opacity: 0.75, fontWeight: 700 }}>?</span>
+                  </button>
+                )}
+                {soloTechnique && (
+                  <button
+                    onClick={() => setTechniqueInfo({ technique: soloTechnique, members: [] })}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 4,
+                      fontSize: 11, fontWeight: 800, color: "#c084fc",
+                      background: "rgba(192,132,252,0.14)",
+                      border: "1px solid rgba(192,132,252,0.45)",
+                      borderRadius: 20, padding: "2px 10px", flexShrink: 0,
+                      whiteSpace: "nowrap", cursor: "pointer",
+                      fontFamily: "'Inter', system-ui",
+                    }}
+                  >
+                    {t(soloTechnique === "drop" ? "goals_technique_drop" : "goals_technique_rest_pause")}
+                    <span style={{ opacity: 0.75, fontWeight: 700 }}>?</span>
+                  </button>
+                )}
                 {isMaxed && (
                   <span
                     style={{
@@ -2168,7 +2659,7 @@ export function WorkoutSessionDialog({
                     padding: "3px 9px", backdropFilter: "blur(6px)",
                   }}>
                     <span style={{ fontSize: 12, fontWeight: 600, color: "rgba(255,255,255,0.85)" }}>
-                      {doneSeries}/{series.length}
+                      {doneSeries}/{totalSeriesCount}
                     </span>
                   </div>
                 )}
@@ -2193,7 +2684,7 @@ export function WorkoutSessionDialog({
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   {!isRunExercise && (
                     <span style={{ fontSize: 13, fontWeight: 600, color: MUTED_FG }}>
-                      {doneSeries}/{series.length}
+                      {doneSeries}/{totalSeriesCount}
                     </span>
                   )}
                   <svg width="14" height="14" viewBox="0 0 14 14" fill="none"
@@ -2421,6 +2912,7 @@ export function WorkoutSessionDialog({
 
                       const sKey = seriesKey(item.workout_id, idx);
                       const isSwipeOpen = swipedSeriesKey === sKey;
+                      const isKindPickerOpen = kindPickerKey === sKey;
 
                       return (
                         <div
@@ -2472,17 +2964,45 @@ export function WorkoutSessionDialog({
                             transition: "transform 0.22s cubic-bezier(0.25, 0.46, 0.45, 0.94)",
                           }}
                         >
-                          {/* # badge */}
+                          {/* # badge — no modo expert vira o seletor de tipo de
+                              série (toque abre Aquecimento/Válida/Falha). No
+                              simplificado é o mesmo número inerte de sempre. */}
                           <div style={{ display: "flex", justifyContent: "center" }}>
-                            <div style={{
-                              width: 30, height: 30, borderRadius: "50%",
-                              background: row.completed ? PRIMARY : SURFACE,
-                              display: "flex", alignItems: "center", justifyContent: "center",
-                              fontSize: 12, fontWeight: 800,
-                              color: row.completed ? PRIMARY_FG : MUTED_FG,
-                            }}>
-                              {idx + 1}
-                            </div>
+                            {(() => {
+                              const kind = setKindOf(row);
+                              const style = SET_KIND_STYLE[kind];
+                              const isTyped = isExpert && kind !== "normal";
+                              const label = seriesLabels ? seriesLabels[idx] : String(idx + 1);
+                              const badge = (
+                                <div style={{
+                                  width: 30, height: 30, borderRadius: "50%",
+                                  background: row.completed
+                                    ? (isTyped ? style.bg : PRIMARY)
+                                    : (isTyped ? style.bg : SURFACE),
+                                  border: isTyped ? `1.5px solid ${style.border}` : "1.5px solid transparent",
+                                  display: "flex", alignItems: "center", justifyContent: "center",
+                                  fontSize: 12, fontWeight: 800,
+                                  color: isTyped
+                                    ? style.fg
+                                    : (row.completed ? PRIMARY_FG : MUTED_FG),
+                                }}>
+                                  {label}
+                                </div>
+                              );
+                              if (!isExpert) return badge;
+                              return (
+                                <button
+                                  onClick={() => setKindPickerKey(isKindPickerOpen ? null : sKey)}
+                                  aria-label={t("goals_set_kind_change")}
+                                  style={{
+                                    background: "none", border: "none", padding: 0,
+                                    cursor: "pointer", display: "flex",
+                                  }}
+                                >
+                                  {badge}
+                                </button>
+                              );
+                            })()}
                           </div>
 
                           {/* ANTERIOR */}
@@ -2574,9 +3094,81 @@ export function WorkoutSessionDialog({
                             })()}
                           </div>
                         </div>
+
+                        {/* Seletor de tipo de série (modo expert) — abre logo
+                            abaixo da própria linha, para o usuário ver o que
+                            está classificando. Fora da div que sofre o
+                            translateX do swipe, senão deslizaria junto. */}
+                        {isExpert && isKindPickerOpen && (
+                          <div style={{
+                            display: "flex", gap: 6, padding: "8px 4px 2px",
+                          }}>
+                            {SET_KIND_ORDER.map((k) => {
+                              const active = setKindOf(row) === k;
+                              const style = SET_KIND_STYLE[k];
+                              return (
+                                <button
+                                  key={k}
+                                  onClick={() => setSeriesKind(item.workout_id, idx, k)}
+                                  style={{
+                                    flex: 1, height: 34, borderRadius: 10,
+                                    background: active ? style.bg : "rgba(255,255,255,0.04)",
+                                    border: `1px solid ${active ? style.border : BORDER}`,
+                                    color: active ? style.fg : MUTED_FG,
+                                    fontSize: 12, fontWeight: 700, cursor: "pointer",
+                                    fontFamily: "'Inter', system-ui",
+                                  }}
+                                >
+                                  {t(SET_KIND_LABEL_KEYS[k])}
+                                </button>
+                              );
+                            })}
+                            {/* "+ drop" emenda uma série de carga reduzida logo
+                                abaixo. Só faz sentido a partir de uma série de
+                                trabalho — não se emenda drop em aquecimento. */}
+                            {setKindOf(row) !== "warmup" && (
+                              <button
+                                onClick={() => addDropSet(item.workout_id, idx)}
+                                style={{
+                                  flex: 1, height: 34, borderRadius: 10,
+                                  background: SET_KIND_STYLE.drop.bg,
+                                  border: `1px solid ${SET_KIND_STYLE.drop.border}`,
+                                  color: SET_KIND_STYLE.drop.fg,
+                                  fontSize: 12, fontWeight: 700, cursor: "pointer",
+                                  fontFamily: "'Inter', system-ui",
+                                }}
+                              >
+                                + {t("goals_set_kind_drop")}
+                              </button>
+                            )}
+                          </div>
+                        )}
                         </div>
                       );
                     })}
+
+                    {/* Aquecimento automático — só faz sentido no expert (é ele
+                        que tem série tipada), fora do cardio, quando ainda não
+                        há rampa e há uma carga de trabalho de onde partir. */}
+                    {canRampWarmup && (
+                      <button
+                        onClick={() => addWarmupRamp(item.workout_id)}
+                        style={{
+                          width: "100%", background: SET_KIND_STYLE.warmup.bg,
+                          border: `1px solid ${SET_KIND_STYLE.warmup.border}`,
+                          borderRadius: 12, padding: "9px 0",
+                          cursor: "pointer", fontWeight: 700,
+                          fontSize: 12.5, color: SET_KIND_STYLE.warmup.fg,
+                          display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                          marginTop: 4, fontFamily: "'Inter', system-ui",
+                        }}
+                      >
+                        ⚡ {t("goals_warmup_ramp_cta").replace(
+                          "{list}",
+                          rampPreview.map((r) => `${r.kg}×${r.reps}`).join(" · "),
+                        )}
+                      </button>
+                    )}
 
                     {/* Dashed add series */}
                     <button
@@ -3267,6 +3859,17 @@ export function WorkoutSessionDialog({
           />
         );
       })()}
+
+      {/* Verbete da técnica — z acima do detalhe do exercício (70), porque
+          pode ser aberto por cima dele no futuro e nunca deve ficar atrás. */}
+      {techniqueInfo && (
+        <TechniqueInfoOverlay
+          technique={techniqueInfo.technique}
+          blockMembers={techniqueInfo.members}
+          zIndex={75}
+          onClose={() => setTechniqueInfo(null)}
+        />
+      )}
 
       {/* ── RESUMO DA CORRIDA GPS (stats + mapa do trajeto) ──── */}
       {runSummary && (() => {

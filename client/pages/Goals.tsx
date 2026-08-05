@@ -42,6 +42,9 @@ import {
   updateHabitScheduledEndTimeDb,
   updateRoutineGoalDb,
   updateRoutineLastSummaryDb,
+  updateRoutineTechniquesDb,
+  updateRoutineTrainingModeDb,
+  updateRoutineTrainingModeByNameDb,
   updateUserGoalDb,
   deleteUserGoalDb,
   getEnrichedDuelGroupsDb,
@@ -53,6 +56,8 @@ import {
   type Badge,
   type UserBadge,
   type RoutineTypeCode,
+  type TechniqueAssignment,
+  type TrainingMode,
   type WeightLog,
   type FoodLog,
 } from "@/lib/ritmofit-db";
@@ -75,6 +80,7 @@ import { StreakBadgesCard } from "@/components/goals/streak-badges-card";
 import { TodayDashboard } from "@/components/goals/today-dashboard";
 import { RoutineTypeCards, type RoutineTypeProgress } from "@/components/goals/routine-type-cards";
 import { WeightTrackerCard } from "@/components/goals/weight-tracker-card";
+import { MuscleCoverageCard } from "@/components/goals/muscle-coverage-card";
 import { FoodDiaryDrawer, inferMealType, localDateISO } from "@/components/goals/food-diary-card";
 import { LifeGoalsSection } from "@/components/goals/life-goals-section";
 import { CreateWizardDrawer } from "@/components/goals/create-wizard-drawer";
@@ -209,6 +215,9 @@ export default function Goals() {
   // Bump força o FoodDiaryDrawer a recarregar quando o diário muda fora dele
   // (auto-log ao marcar/desmarcar um item da rotina de dieta).
   const [foodDiaryVersion, setFoodDiaryVersion] = React.useState(0);
+  // Bump ao finalizar um treino: a cobertura muscular tem TTL de 15min, então
+  // sem isto o card ficaria mostrando a semana anterior logo após o treino.
+  const [muscleCoverageVersion, setMuscleCoverageVersion] = React.useState(0);
   // Água é registrada em dois lugares (slide do Hub e diário) — cada bump faz o
   // outro reler, para os dois nunca mostrarem valores diferentes.
   const [waterVersion, setWaterVersion] = React.useState(0);
@@ -556,6 +565,7 @@ export default function Goals() {
     setWorkoutModalOpen(false);
     resetWorkoutState();
     setSessionCardKey(null);
+    setMuscleCoverageVersion((v) => v + 1);
     showRoutineCompleteToast({ type: 1, name: card?.name ?? null });
     // Meta vinculada à rotina → o resumo leva o user_goals.id para que, ao
     // compartilhar no feed, o post apareça com a barra de progresso da meta.
@@ -773,6 +783,9 @@ export default function Goals() {
 
   const handleDeleteItem = async (card: RoutineCard, item: RoutineItem) => {
     await deleteRoutineItemDb(card.type, item.id);
+    // O histórico do item foi apagado junto: a cobertura muscular precisa
+    // reler, senão segue mostrando o volume de um exercício que não existe mais.
+    setMuscleCoverageVersion((v) => v + 1);
     await loadData();
   };
 
@@ -794,6 +807,29 @@ export default function Goals() {
     if (!user) return;
     await updateRoutineItemsScheduledDaysDb(user.id, card.type, card.name, days);
     window.dispatchEvent(new CustomEvent("ritmofit-routines-changed"));
+    await loadData();
+  };
+
+  // Troca o modo de treino de uma rotina já criada. Prefere o id (FK sem
+  // ambiguidade); cai no casamento por nome quando o card não resolveu a linha
+  // em `routines` — mesmo fallback do resto da tela.
+  const handleSetTrainingMode = async (card: RoutineCard, mode: TrainingMode) => {
+    if (!user || card.type !== 1) return;
+    if (card.routineId) {
+      await updateRoutineTrainingModeDb(card.routineId, mode);
+    } else {
+      await updateRoutineTrainingModeByNameDb(user.id, card.type, card.name, mode);
+    }
+    await loadData();
+  };
+
+  // Plano de técnicas (bi-set, drop-set…) de uma rotina já criada.
+  const handleSaveTechniques = async (
+    card: RoutineCard,
+    assignments: TechniqueAssignment[],
+  ) => {
+    if (!user || card.type !== 1) return;
+    await updateRoutineTechniquesDb(user.id, assignments);
     await loadData();
   };
 
@@ -828,6 +864,8 @@ export default function Goals() {
     if (!user) return;
     await deleteRoutineCardDb(user.id, card.type, card.name);
     setSelectedCardKey(null);
+    // Idem: apagar a rotina apaga o histórico dela.
+    setMuscleCoverageVersion((v) => v + 1);
     await loadData();
   };
 
@@ -946,6 +984,10 @@ export default function Goals() {
           onOpen={openTypeRoutine}
         />
 
+        {/* Cobertura muscular da semana — some sozinho quando não há anatomia
+            semeada ou nenhum treino no período (ver o componente). */}
+        <MuscleCoverageCard refreshToken={muscleCoverageVersion} />
+
         <WeightTrackerCard
           logs={weightLogs}
           onAddWeight={handleAddWeight}
@@ -1007,7 +1049,9 @@ export default function Goals() {
             createGoalFlow
               ? "goal-origin"
               : createType === 1
-                ? "routine-origin"
+                // Treino entra pela escolha do modo (Simplificado × Expert) —
+                // é a primeira decisão da rotina, antes até da origem.
+                ? "routine-mode"
                 : createType
                   ? "build-name"
                   : "what"
@@ -1051,6 +1095,8 @@ export default function Goals() {
         onSetItemTime={handleSetItemTime}
         onSetItemEndTime={handleSetItemEndTime}
         onLinkGoal={handleLinkGoal}
+        onSetTrainingMode={handleSetTrainingMode}
+        onSaveTechniques={handleSaveTechniques}
         onDeleteCard={handleDeleteCard}
       />
 
@@ -1087,6 +1133,7 @@ export default function Goals() {
           userId={user.id}
           routineLabel={activeWorkoutCard.name ?? t("goals_rt_exercises")}
           items={activeWorkoutCard.items as UserWorkoutWithDetails[]}
+          trainingMode={activeWorkoutCard.trainingMode}
           routineId={activeWorkoutCard.routineId}
           routineName={activeWorkoutCard.name}
           onMinimize={() => {

@@ -1,5 +1,5 @@
 import * as React from "react";
-import { BarChart3, Bell, CalendarDays, Check, ChevronDown, Flame, ListPlus, Pencil, Play, Target, Trash2 } from "lucide-react";
+import { BarChart3, Bell, CalendarDays, Check, ChevronDown, Flame, Link2, ListPlus, Pencil, Play, Sparkles, Target, Trash2 } from "lucide-react";
 import {
   Drawer,
   DrawerContent,
@@ -19,6 +19,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { ExerciseImage } from "@/components/shared/exercise-image";
+import { ExerciseAnatomy } from "@/components/shared/exercise-anatomy";
 import { PremiumGate } from "@/components/shared/premium-gate";
 import { TrendChart } from "@/components/shared/trend-chart";
 import { useLanguage } from "@/lib/language-context";
@@ -27,9 +28,15 @@ import { HabitTimeRow } from "@/components/goals/habit-time-row";
 import type { TranslationKey } from "@/lib/i18n";
 import { formatScheduledTime } from "@/hooks/use-routine-notifications";
 import { getSuggestedSetsForCard, isCompletedToday, isSequentialCard, SEQUENTIAL_MARKER, type RoutineCard, type RoutineItem } from "@/components/goals/goals-helpers";
-import { getExerciseProgressionDb, type ExerciseProgressPoint, type UserGoal } from "@/lib/ritmofit-db";
+import { getExerciseProgressionDb, toWorkoutTechnique, type ExerciseProgressPoint, type TechniqueAssignment, type TrainingMode, type UserGoal } from "@/lib/ritmofit-db";
+import {
+  TechniquePlanner,
+  planToAssignments,
+  type TechniquePlan,
+  type TechniquePlanItem,
+} from "@/components/goals/technique-planner";
 
-type EditorMode = null | "rename" | "time" | "goal";
+type EditorMode = null | "rename" | "time" | "goal" | "technique";
 
 const WEEKDAY_KEYS: TranslationKey[] = [
   "goals_weekday_mon", "goals_weekday_tue", "goals_weekday_wed",
@@ -52,6 +59,10 @@ interface RoutineDetailDrawerProps {
   /** Hora de fim de um hábito (janela de execução). null limpa. */
   onSetItemEndTime: (item: RoutineItem, endTime: string | null) => Promise<void>;
   onLinkGoal: (card: RoutineCard, goal: UserGoal | null) => Promise<void>;
+  /** Troca o modo de treino da rotina (só `type === 1`). */
+  onSetTrainingMode: (card: RoutineCard, mode: TrainingMode) => Promise<void>;
+  /** Salva o plano de técnicas (bi-set, drop-set…) da rotina. */
+  onSaveTechniques: (card: RoutineCard, assignments: TechniqueAssignment[]) => Promise<void>;
   onDeleteCard: (card: RoutineCard) => Promise<void>;
 }
 
@@ -70,6 +81,8 @@ export function RoutineDetailDrawer({
   onSetItemTime,
   onSetItemEndTime,
   onLinkGoal,
+  onSetTrainingMode,
+  onSaveTechniques,
   onDeleteCard,
 }: RoutineDetailDrawerProps) {
   const { t } = useLanguage();
@@ -169,6 +182,44 @@ export function RoutineDetailDrawer({
     }
   }, [card?.key]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Plano de técnicas, derivado dos itens da rotina ─────────────────────
+  // ATENÇÃO: fica ACIMA do `if (!card) return null` abaixo. Hook depois de um
+  // early return roda condicionalmente e quebra o componente com "Rendered more
+  // hooks than during the previous render" ao abrir uma rotina (o drawer
+  // renderiza uma vez com card=null antes de receber o card).
+  const techniqueItems = React.useMemo<TechniquePlanItem[]>(
+    () =>
+      (card?.items ?? [])
+        .filter((i) => i.kind === "workout")
+        .map((i) => ({
+          id: i.id,
+          name: (i as any).workoutName ?? "",
+          muscleGroup: (i as any).muscle_group ?? null,
+        })),
+    [card?.items],
+  );
+
+  const [techniquePlan, setTechniquePlan] = React.useState<TechniquePlan>({});
+  // Recarrega o plano ao abrir outra rotina (ou quando os itens mudam) para o
+  // editor sempre partir do que está gravado, nunca do plano da rotina anterior.
+  React.useEffect(() => {
+    const initial: TechniquePlan = {};
+    for (const i of card?.items ?? []) {
+      if (i.kind !== "workout") continue;
+      initial[i.id] = {
+        technique: toWorkoutTechnique((i as any).technique),
+        group: (i as any).technique_group ?? null,
+      };
+    }
+    setTechniquePlan(initial);
+  }, [card?.key, card?.items]);
+
+  /** Resumo curto ao lado do botão "Técnicas": quantos exercícios saíram do padrão. */
+  const techniqueSummary = React.useMemo(() => {
+    const n = Object.values(techniquePlan).filter((v) => v.technique !== "straight").length;
+    return n === 0 ? t("goals_technique_none_selected") : `${n}`;
+  }, [techniquePlan, t]);
+
   if (!card) return null;
 
   const label =
@@ -231,6 +282,15 @@ export function RoutineDetailDrawer({
             )}
           </DrawerTitle>
           <div className="flex items-center gap-1.5 flex-wrap mt-1">
+            {/* Modo expert: sem este selo, a única pista de que a rotina se
+                comporta diferente (aquecimento fora do volume/PR) apareceria
+                só dentro da sessão de treino já iniciada. */}
+            {card.type === 1 && card.trainingMode === "expert" && (
+              <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-300 text-[11px] font-semibold">
+                <Sparkles className="h-3 w-3" />
+                {t("goals_mode_expert")}
+              </span>
+            )}
             {card.scheduledTime && (
               <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 text-[11px] font-medium">
                 <Bell className="h-3 w-3" />
@@ -457,6 +517,15 @@ export function RoutineDetailDrawer({
                             />
                           </div>
                         </PremiumGate>
+                      )}
+
+                      {/* Anatomia do exercício expandido — mesma ficha do
+                          catálogo e da sessão. Não renderiza nada quando o
+                          exercício não tem músculos mapeados. */}
+                      {isWorkout && (
+                        <div className="mt-2">
+                          <ExerciseAnatomy workoutId={(item as any).workout_id} />
+                        </div>
                       )}
                     </div>
                   )}
@@ -701,6 +770,84 @@ export function RoutineDetailDrawer({
               {t("goals_detail_edit_items")}
             </button>
           </div>
+
+          {/* Modo de treino — faixa própria, não um 5º ícone na grade: a escolha
+              muda a tela de registro inteira, então precisa do rótulo por
+              extenso. Trocar vale da PRÓXIMA sessão em diante; o histórico já
+              gravado mantém o `set_kind` com que foi salvo. */}
+          {card.type === 1 && (
+            <div className="rounded-2xl p-3 space-y-2" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}>
+              <p className="text-xs font-semibold" style={{ color: "rgba(255,255,255,.7)" }}>
+                {t("goals_detail_training_mode")}
+              </p>
+              <div className="flex gap-1 p-1 rounded-2xl" style={{ background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.08)" }}>
+                {(["simple", "expert"] as const).map((mode) => {
+                  const active = card.trainingMode === mode;
+                  return (
+                    <button
+                      key={mode}
+                      type="button"
+                      disabled={isBusy || active}
+                      onClick={() => runAction(() => onSetTrainingMode(card, mode))}
+                      className="flex-1 h-9 rounded-xl text-[13px] font-semibold transition-all active:scale-95 disabled:active:scale-100"
+                      style={active
+                        ? { background: "linear-gradient(rgba(255,255,255,.95),rgba(255,255,255,.84))", color: "#0a0b12" }
+                        : { color: "rgba(255,255,255,.6)" }}
+                    >
+                      {mode === "simple" ? t("goals_mode_simple") : t("goals_mode_expert")}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-[11px]" style={{ color: "rgba(255,255,255,.35)" }}>
+                {card.trainingMode === "expert"
+                  ? t("goals_detail_training_mode_expert_hint")
+                  : t("goals_detail_training_mode_simple_hint")}
+              </p>
+
+              {/* Técnicas — só no expert: bi-set/drop-set são o miolo do modo
+                  detalhado, e no simplificado a sessão não os renderiza. */}
+              {card.trainingMode === "expert" && card.items.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setEditor(editor === "technique" ? null : "technique")}
+                  className="w-full flex items-center gap-2 rounded-xl px-3 py-2.5 mt-1 transition-all active:scale-[0.99]"
+                  style={editor === "technique"
+                    ? { border: "1px solid #c084fc", background: "rgba(192,132,252,.12)" }
+                    : { border: "1px solid rgba(255,255,255,.1)", background: "rgba(255,255,255,.04)" }}
+                >
+                  <Link2 className="h-4 w-4 shrink-0" style={{ color: "#c084fc" }} />
+                  <span className="flex-1 text-left text-[13px] font-semibold" style={{ color: "#fff" }}>
+                    {t("goals_technique_edit")}
+                  </span>
+                  <span className="text-[11px]" style={{ color: "rgba(255,255,255,.45)" }}>
+                    {techniqueSummary}
+                  </span>
+                </button>
+              )}
+
+              {editor === "technique" && (
+                <div className="space-y-2 pt-1">
+                  <TechniquePlanner
+                    items={techniqueItems}
+                    plan={techniquePlan}
+                    onChange={setTechniquePlan}
+                  />
+                  <Button
+                    size="sm"
+                    className="w-full rounded-full"
+                    style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}
+                    disabled={isBusy}
+                    onClick={() => runAction(async () => {
+                      await onSaveTechniques(card, planToAssignments(techniqueItems, techniquePlan));
+                    })}
+                  >
+                    {isBusy ? t("goals_saving") : t("goals_edit_routine_save")}
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
 
           {card.type === 1 && (
             <Button

@@ -46,6 +46,8 @@ import {
   getDietsDb,
   getFitnessProfileDb,
   getHabitsDb,
+  getMusclesDb,
+  getWorkoutsByMuscleDb,
   getProgrammedGoalsDb,
   getUserRoutinesDb,
   getUserSelectedGoalIdsDb,
@@ -58,12 +60,18 @@ import {
   updateRoutineItemScheduledTimeDb,
   updateHabitScheduledEndTimeDb,
   updateRoutineProgramMetaDb,
+  updateRoutineTechniquesDb,
+  updateRoutineTrainingModeDb,
+  updateRoutineTrainingModeByNameDb,
   upsertFitnessProfileDb,
   type Diet,
   type Habit,
+  type Muscle,
   type ProgrammedGoal,
   type RoutineProgramMeta,
   type RoutineTypeCode,
+  type TrainingMode,
+  type WorkoutTechnique,
   type UserGoal,
   type UserHabit,
   type Workout,
@@ -75,6 +83,13 @@ import {
   type WeeklyProgram,
 } from "@/components/goals/suggested-routines-data";
 import { HabitTimeRow } from "@/components/goals/habit-time-row";
+import {
+  TechniquePlanner,
+  emptyPlan,
+  planToAssignments,
+  type TechniquePlan,
+  type TechniquePlanItem,
+} from "@/components/goals/technique-planner";
 import { SEQUENTIAL_MARKER } from "@/components/goals/goals-helpers";
 import {
   generateProgram,
@@ -90,6 +105,7 @@ import {
 
 type WizardStep =
   | "what"
+  | "routine-mode"
   | "routine-origin"
   | "quiz-goal"
   | "quiz-level"
@@ -102,6 +118,7 @@ type WizardStep =
   | "build-name"
   | "build"
   | "build-schedule"
+  | "build-technique"
   | "edit-item-times"
   | "goal-origin"
   | "goal-catalog"
@@ -246,7 +263,8 @@ export function CreateWizardDrawer({
   // Abertura direta já no fluxo de rotina (ex: botão "+" da lista de rotinas):
   // mostra o paywall por cima; ao dispensá-lo, fecha o wizard junto.
   const paywallClosesWizard =
-    routineGateBlocked && (step === "routine-origin" || step === "build-name" || step === "build");
+    routineGateBlocked &&
+    (step === "routine-mode" || step === "routine-origin" || step === "build-name" || step === "build");
   React.useEffect(() => {
     if (open && paywallClosesWizard) setPaywallOpen(true);
   }, [open, paywallClosesWizard]);
@@ -254,6 +272,9 @@ export function CreateWizardDrawer({
   // routine state
   const [routineType, setRoutineType] = React.useState<RoutineTypeCode>(1);
   const [routineName, setRoutineName] = React.useState("");
+  // Modo da experiência de treino desta rotina (passo "routine-mode").
+  // Só rotinas de treino perguntam; dieta/hábito ficam no default.
+  const [trainingMode, setTrainingMode] = React.useState<TrainingMode>("simple");
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
   const [scheduledTime, setScheduledTime] = React.useState("");
   // Horários individuais por hábito (chave = habit_id do catálogo) quando a rotina tem 2+ hábitos
@@ -268,7 +289,20 @@ export function CreateWizardDrawer({
   const [searchQuery, setSearchQuery] = React.useState("");
   const [muscleFilter, setMuscleFilter] = React.useState<string | null>(null);
   // "list" = todos os itens; "group" = navegar por músculo/categoria
-  const [browseMode, setBrowseMode] = React.useState<"list" | "group">("list");
+  // "list" = todos · "group" = por grupo muscular grosso · "anatomy" = por
+  // PORÇÃO muscular (Peito → Superior/Meio/Inferior), só para treino.
+  const [browseMode, setBrowseMode] = React.useState<"list" | "group" | "anatomy">("list");
+  // Navegação do modo anatomia: grupo escolhido → músculo escolhido.
+  const [anatomyGroup, setAnatomyGroup] = React.useState<string | null>(null);
+  const [anatomyMuscleId, setAnatomyMuscleId] = React.useState<string | null>(null);
+  const [muscles, setMuscles] = React.useState<Muscle[]>([]);
+  const [muscleWorkouts, setMuscleWorkouts] = React.useState<Workout[]>([]);
+  const [muscleWorkoutsLoading, setMuscleWorkoutsLoading] = React.useState(false);
+  // Passo de técnicas (só rotina de treino no modo expert). Só existe DEPOIS de
+  // salvar: a técnica é gravada em `user_workouts`, cujas linhas só nascem no
+  // save — antes disso não há id em que pendurar a escolha.
+  const [techniqueItems, setTechniqueItems] = React.useState<TechniquePlanItem[]>([]);
+  const [techniquePlan, setTechniquePlan] = React.useState<TechniquePlan>({});
   // item aberto no drawer de detalhe (imagem ampliada + descrição)
   const [detailItem, setDetailItem] = React.useState<ItemDetailData | null>(null);
   const [showCustomForm, setShowCustomForm] = React.useState(false);
@@ -340,6 +374,9 @@ export function CreateWizardDrawer({
       setHistory([]);
       setRoutineType(1);
       setRoutineName("");
+      setTrainingMode("simple");
+      setTechniqueItems([]);
+      setTechniquePlan({});
       setSelectedIds(new Set());
       setScheduledTime("");
       setHabitTimes({});
@@ -350,6 +387,8 @@ export function CreateWizardDrawer({
       setSearchQuery("");
       setMuscleFilter(null);
       setBrowseMode("list");
+      setAnatomyGroup(null);
+      setAnatomyMuscleId(null);
       setShowCustomForm(false);
       setCustomName("");
       setCustomExtra("");
@@ -383,6 +422,8 @@ export function CreateWizardDrawer({
       setSearchQuery("");
       setMuscleFilter(null);
       setBrowseMode("list");
+      setAnatomyGroup(null);
+      setAnatomyMuscleId(null);
       setShowCustomForm(false);
       setCustomName("");
       setCustomExtra("");
@@ -501,9 +542,45 @@ export function CreateWizardDrawer({
     return Array.from(set).sort();
   }, [diets]);
 
+  // Catálogo de músculos — carregado uma vez, junto do passo de montagem de
+  // treino. Praticamente imutável (só muda por migração), com cache de 12h.
+  React.useEffect(() => {
+    if (routineType !== 1 || muscles.length > 0) return;
+    getMusclesDb().then(setMuscles).catch(() => {});
+  }, [routineType, muscles.length]);
+
+  // Exercícios da porção muscular escolhida, já ordenados por ênfase
+  // (consulta inversa em workout_muscles).
+  React.useEffect(() => {
+    if (!anatomyMuscleId) { setMuscleWorkouts([]); return; }
+    let alive = true;
+    setMuscleWorkoutsLoading(true);
+    getWorkoutsByMuscleDb(anatomyMuscleId)
+      .then((rows) => { if (alive) setMuscleWorkouts(rows); })
+      .catch(() => { if (alive) setMuscleWorkouts([]); })
+      .finally(() => { if (alive) setMuscleWorkoutsLoading(false); });
+    return () => { alive = false; };
+  }, [anatomyMuscleId]);
+
+  /** Grupos do catálogo de músculos, na ordem em que vêm do banco. */
+  const anatomyGroups = React.useMemo(() => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const m of muscles) {
+      if (m.groupName && !seen.has(m.groupName)) { seen.add(m.groupName); out.push(m.groupName); }
+    }
+    return out;
+  }, [muscles]);
+
   const filteredItems = React.useMemo(() => {
     const q = searchQuery.trim();
     if (routineType === 1) {
+      // Modo anatomia com porção escolhida: a lista JÁ vem do banco ordenada
+      // por ênfase — o mais específico primeiro. Só a busca textual se aplica;
+      // reordenar por nome aqui jogaria fora justamente o que se foi buscar.
+      if (browseMode === "anatomy" && anatomyMuscleId) {
+        return muscleWorkouts.filter((w) => matchesCatalogSearch(w, q));
+      }
       return workouts.filter(
         (w) =>
           matchesCatalogSearch(w, q) &&
@@ -518,7 +595,7 @@ export function CreateWizardDrawer({
       );
     }
     return habits.filter((h) => matchesCatalogSearch(h, q));
-  }, [routineType, workouts, diets, habits, searchQuery, muscleFilter]);
+  }, [routineType, workouts, diets, habits, searchQuery, muscleFilter, browseMode, anatomyMuscleId, muscleWorkouts]);
 
   // TODA rotina de hábito agenda por item — inclusive com um único hábito, que
   // também tem janela início→fim (o input único não comporta o fim).
@@ -559,9 +636,12 @@ export function CreateWizardDrawer({
 
       let insertedIds: string[] = [];
       let insertedHabits: UserHabit[] = [];
+      // Guardado para o passo de técnicas (precisa do par id ↔ workout_id).
+      let inserted1: Array<{ id: string; workout_id: string }> = [];
       if (routineType === 1) {
         const inserted = await createUserWorkoutsDb(userId, ids, { name: name || undefined });
         insertedIds = inserted.map((i) => i.id);
+        inserted1 = inserted.map((i) => ({ id: i.id, workout_id: i.workout_id }));
       } else if (routineType === 2) {
         const inserted = await createUserDietsDb(userId, ids, { name: name || undefined });
         insertedIds = inserted.map((i) => i.id);
@@ -572,6 +652,15 @@ export function CreateWizardDrawer({
       }
 
       await backfillRoutineIdOnItemsDb(userId, routineType, name, insertedIds).catch(() => {});
+
+      // Modo de treino escolhido no passo "routine-mode". A linha em `routines`
+      // nasce de um trigger no banco (o cliente nunca vê o id), então casa por
+      // (user_id, type, name) — mesma estratégia dos setters de horário/dias.
+      // Só treino: dieta e hábito não têm sessão de registro.
+      if (routineType === 1 && trainingMode !== "simple") {
+        await updateRoutineTrainingModeByNameDb(userId, routineType, name, trainingMode)
+          .catch(() => {});
+      }
 
       // Rotina de hábito com 2+ itens: aplica um horário por item (casado por habit_id)
       // em vez do horário único de `scheduledTime`.
@@ -610,6 +699,24 @@ export function CreateWizardDrawer({
 
       if (linkGoalId) {
         await linkNewRoutineToGoal(routineType, name, linkGoalId).catch(() => {});
+      }
+
+      // Modo expert: em vez de fechar, oferece o passo de técnicas com as
+      // linhas recém-criadas (agora existem ids). O usuário pode pular.
+      if (routineType === 1 && trainingMode === "expert" && insertedIds.length > 0) {
+        const nameOf = new Map(workouts.map((w) => [w.id, w.name]));
+        const planItems: TechniquePlanItem[] = inserted1.map((row) => ({
+          id: row.id,
+          name: nameOf.get(row.workout_id) ?? "",
+        }));
+        setTechniqueItems(planItems);
+        setTechniquePlan(emptyPlan(planItems));
+        // A rotina JÁ está criada e a tela de Metas precisa saber, senão o
+        // gate de 1 rotina no plano grátis usaria uma contagem velha.
+        onCreated("routine");
+        toast({ title: t("goals_routine_created_toast"), description: name ?? undefined });
+        goTo("build-technique");
+        return;
       }
 
       toast({ title: t("goals_routine_created_toast"), description: name ?? undefined });
@@ -863,46 +970,87 @@ export function CreateWizardDrawer({
       // senão usuários em inglês criam customs duplicados sem foto
       const nameIndex = await getWorkoutNameIdIndexDb();
 
-      const created: Array<{ name: string; workout: ProgramWorkout; daysStr: string }> = [];
+      // O app NÃO insere no catálogo `workouts` (só criação MANUAL de exercício
+      // pode). Exercícios do programa que não existem no catálogo são **pulados**
+      // e reportados ao usuário — nunca criados aqui, para não poluir a tabela
+      // central com duplicatas/dados não confiáveis.
+      const created: Array<{ name: string; exercises: SuggestedExercise[]; daysStr: string }> = [];
+      const missing = new Set<string>();
       for (const workout of program.workouts) {
         const workoutIds: string[] = [];
+        const foundExercises: SuggestedExercise[] = [];
         for (const ex of workout.exercises) {
-          const key = ex.name.trim().toLowerCase();
-          let workoutId = nameIndex.get(key);
+          const workoutId = nameIndex.get(ex.name.trim().toLowerCase());
           if (!workoutId) {
-            const createdWorkout = await createCustomWorkoutDb(
-              ex.name,
-              `${ex.series}x${ex.reps}`,
-              ex.muscleGroup,
-            );
-            nameIndex.set(key, createdWorkout.id); // reaproveita entre dias do mesmo programa
-            workoutId = createdWorkout.id;
+            missing.add(ex.name);
+            continue; // fora do catálogo → não entra na rotina
           }
           workoutIds.push(workoutId);
+          foundExercises.push(ex);
         }
+        // Treino sem nenhum exercício do catálogo → não cria rotina vazia.
+        if (workoutIds.length === 0) continue;
 
         const name = language === "en" ? workout.name.en : workout.name.pt;
         const inserted = await createUserWorkoutsDb(userId, workoutIds, { name });
         await backfillRoutineIdOnItemsDb(userId, 1, name, inserted.map((i) => i.id)).catch(() => {});
+
+        // Técnicas sugeridas pelo gerador (bi-set antagonista, drop-set). Só no
+        // modo expert — o simplificado não renderiza técnica, gravar ali seria
+        // um dado invisível. Casa a linha criada com o exercício pelo
+        // workout_id (a ordem do insert não é garantida).
+        if (trainingMode === "expert") {
+          const idByWorkout = new Map(inserted.map((i) => [i.workout_id, i.id]));
+          const assignments = foundExercises
+            .map((ex, index) => {
+              const workoutId = nameIndex.get(ex.name.trim().toLowerCase());
+              const userWorkoutId = workoutId ? idByWorkout.get(workoutId) : null;
+              if (!userWorkoutId) return null;
+              return {
+                userWorkoutId,
+                technique: (ex.technique ?? "straight") as WorkoutTechnique,
+                techniqueGroup: ex.techniqueGroup ?? null,
+                orderIndex: index,
+              };
+            })
+            .filter((a): a is NonNullable<typeof a> => a !== null);
+          if (assignments.some((a) => a.technique !== "straight")) {
+            await updateRoutineTechniquesDb(userId, assignments).catch(() => {});
+          }
+        }
         // dias da semana deste treino no programa (escolhidos no quiz/preview)
         const days = program.week
           .map((k, i) => (k === workout.key ? i : -1))
           .filter((i) => i >= 0);
-        created.push({ name, workout, daysStr: days.join(",") });
+        created.push({ name, exercises: foundExercises, daysStr: days.join(",") });
+      }
+
+      // Nada casou com o catálogo → não criou rotina nenhuma. Avisa e sai.
+      if (created.length === 0) {
+        toast({
+          title: t("goals_program_none_in_catalog"),
+          description: Array.from(missing).join(", "),
+          variant: "destructive",
+        });
+        return;
       }
 
       // scheduled_days + metadados do programa + vínculo de meta por rotina criada
       const routines = await getUserRoutinesDb(userId);
       const userGoal = linkGoalId ? (userGoals.find((g) => g.id === linkGoalId) ?? null) : null;
       for (const c of created) {
-        if (c.daysStr) {
-          await updateRoutineItemsScheduledDaysDb(userId, 1, c.name, c.daysStr).catch(() => {});
+        // Sequencial: grava 'seq' em todas as rotinas do programa (rodízio, sem
+        // dias fixos). A ordem de criação (= ordem de program.workouts, que é a
+        // ordem da sequência gerada) vira a ordem do rodízio.
+        const daysValue = scheduleMode === "sequential" ? SEQUENTIAL_MARKER : c.daysStr;
+        if (daysValue) {
+          await updateRoutineItemsScheduledDaysDb(userId, 1, c.name, daysValue).catch(() => {});
         }
         const match = routines.find((r) => r.type === 1 && r.name === c.name);
         if (!match) continue;
         const meta: RoutineProgramMeta = {
           origin: "quiz",
-          exercises: c.workout.exercises.map((ex) => ({
+          exercises: c.exercises.map((ex) => ({
             name: ex.name,
             muscleGroup: ex.muscleGroup,
             series: ex.series,
@@ -910,6 +1058,11 @@ export function CreateWizardDrawer({
           })),
         };
         await updateRoutineProgramMetaDb(match.id, meta).catch(() => {});
+        // Aqui o id já está resolvido (o quiz relê as rotinas para casar cada
+        // treino do programa), então grava direto por id.
+        if (trainingMode !== "simple") {
+          await updateRoutineTrainingModeDb(match.id, trainingMode).catch(() => {});
+        }
         if (userGoal) await updateRoutineGoalDb(match.id, userGoal.goal_id).catch(() => {});
       }
 
@@ -925,13 +1078,22 @@ export function CreateWizardDrawer({
         }).catch(() => {});
       }
 
-      toast({
-        title: t("goals_program_added_toast"),
-        description: t("goals_program_added_desc").replace(
-          "{n}",
-          String(program.workouts.length),
-        ),
-      });
+      // Alguns exercícios ficaram de fora por não existir no catálogo → avisa,
+      // para o usuário adicioná-los (inserção manual no catálogo é dele).
+      if (missing.size > 0) {
+        toast({
+          title: t("goals_program_missing_title"),
+          description: t("goals_program_missing_desc").replace("{list}", Array.from(missing).join(", ")),
+        });
+      } else {
+        toast({
+          title: t("goals_program_added_toast"),
+          description: t("goals_program_added_desc").replace(
+            "{n}",
+            String(created.length),
+          ),
+        });
+      }
       onOpenChange(false);
       onCreated("routine");
     } catch (err: any) {
@@ -1018,6 +1180,7 @@ export function CreateWizardDrawer({
 
   const stepTitle: Record<WizardStep, string> = {
     "what": t("goals_wizard_what_title"),
+    "routine-mode": t("goals_wizard_mode_title"),
     "routine-origin": t("goals_wizard_origin_title"),
     "quiz-goal": t("goals_quiz_goal_title"),
     "quiz-level": t("goals_suggest_level_title"),
@@ -1030,6 +1193,7 @@ export function CreateWizardDrawer({
     "build-name": t("goals_wizard_name_title"),
     "build": t("goals_wizard_items_title"),
     "build-schedule": t("goals_wizard_schedule_title"),
+    "build-technique": t("goals_technique_step_title"),
     "edit-item-times": t("goals_wizard_new_habit_times_title"),
     "goal-origin": t("goals_onboarding_title"),
     "goal-catalog": t("goals_available"),
@@ -1059,6 +1223,72 @@ export function CreateWizardDrawer({
       <ChevronRight className="h-4 w-4 shrink-0" style={{ color: "rgba(255,255,255,.4)" }} />
     </button>
   );
+
+  // Card do passo "modo de treino": diferente do optionCard porque a escolha
+  // não navega — ela SELECIONA (o usuário compara os dois e confirma). Por isso
+  // traz a lista do que cada modo entrega e um estado selecionado persistente.
+  const modeCard = (
+    mode: TrainingMode,
+    icon: React.ReactNode,
+    title: string,
+    desc: string,
+    features: string[],
+  ) => {
+    const selected = trainingMode === mode;
+    return (
+      <button
+        onClick={() => setTrainingMode(mode)}
+        className="w-full flex flex-col gap-2.5 rounded-2xl p-4 text-left active:scale-[0.99] transition-all"
+        style={
+          selected
+            ? { background: "rgba(91,140,255,.12)", border: "1px solid #5b8cff" }
+            : { background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }
+        }
+      >
+        <div className="flex items-center gap-3">
+          <div
+            className="h-11 w-11 rounded-xl flex items-center justify-center shrink-0"
+            style={
+              selected
+                ? { background: "rgba(91,140,255,.22)", color: "#9dbaff" }
+                : { background: "rgba(255,255,255,.08)", color: "rgba(255,255,255,.65)" }
+            }
+          >
+            {icon}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold" style={{ color: "#fff" }}>{title}</p>
+            <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>{desc}</p>
+          </div>
+          {/* Rádio: o passo tem botão de confirmar, então o card precisa
+              mostrar qual está escolhido mesmo sem navegar. */}
+          <div
+            className="h-5 w-5 rounded-full shrink-0 flex items-center justify-center"
+            style={{
+              border: selected ? "1.5px solid #5b8cff" : "1.5px solid rgba(255,255,255,.28)",
+              background: selected ? "#5b8cff" : "transparent",
+            }}
+          >
+            {selected && <Check className="h-3 w-3" style={{ color: "#0a0b12" }} strokeWidth={3} />}
+          </div>
+        </div>
+
+        <ul className="flex flex-col gap-1 pl-[3.5rem]">
+          {features.map((f) => (
+            <li key={f} className="flex items-start gap-1.5">
+              <span
+                className="mt-[6px] h-1 w-1 rounded-full shrink-0"
+                style={{ background: selected ? "#5b8cff" : "rgba(255,255,255,.32)" }}
+              />
+              <span className="text-xs leading-snug" style={{ color: "rgba(255,255,255,.62)" }}>
+                {f}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </button>
+    );
+  };
 
   // card de opção do quiz (emoji + label + descrição, com estado selecionado
   // visível quando o usuário volta a um passo já respondido)
@@ -1167,7 +1397,7 @@ export function CreateWizardDrawer({
                     return;
                   }
                   setRoutineType(1);
-                  goTo("routine-origin");
+                  goTo("routine-mode");
                 },
                 <Dumbbell className="h-5 w-5" />,
                 t("goals_wizard_routine"),
@@ -1179,6 +1409,49 @@ export function CreateWizardDrawer({
                 t("goals_wizard_goal"),
                 t("goals_wizard_goal_desc"),
               )}
+            </>
+          )}
+
+          {/* ── Step: modo de treino (Simplificado × Expert) ────────
+              Primeira decisão da rotina de treino: define como a tela de
+              registrar treino vai se comportar. Fica ANTES da origem
+              (sugerido × do zero) porque vale para os dois caminhos. */}
+          {step === "routine-mode" && (
+            <>
+              <p className="text-sm -mt-1" style={{ color: "rgba(255,255,255,.5)" }}>
+                {t("goals_wizard_mode_subtitle")}
+              </p>
+
+              {modeCard(
+                "simple",
+                <Dumbbell className="h-5 w-5" />,
+                t("goals_mode_simple"),
+                t("goals_mode_simple_desc"),
+                [t("goals_mode_simple_f1"), t("goals_mode_simple_f2")],
+              )}
+
+              {modeCard(
+                "expert",
+                <Sparkles className="h-5 w-5" />,
+                t("goals_mode_expert"),
+                t("goals_mode_expert_desc"),
+                [
+                  t("goals_mode_expert_f1"),
+                  t("goals_mode_expert_f2"),
+                  t("goals_mode_expert_f3"),
+                ],
+              )}
+
+              <p className="text-xs text-center" style={{ color: "rgba(255,255,255,.4)" }}>
+                {t("goals_wizard_mode_hint")}
+              </p>
+
+              <Button
+                onClick={() => goTo("routine-origin")}
+                className="w-full h-12 rounded-2xl font-semibold"
+              >
+                {t("goals_continue")}
+              </Button>
             </>
           )}
 
@@ -1324,8 +1597,35 @@ export function CreateWizardDrawer({
                   language === "en" ? program.description.en : program.description.pt;
                 const trainingDays = program.week.filter(Boolean).length;
                 const isCustomized = JSON.stringify(program) !== JSON.stringify(selectedProgram);
+                const isSeqMode = scheduleMode === "sequential";
                 return (
                   <>
+                    {/* Como agendar: Dias da Semana × Sequencial (rodízio) */}
+                    <div className="space-y-2">
+                      <Label className="text-sm font-semibold" style={{ color: "#fff" }}>{t("goals_wizard_sched_mode_label")}</Label>
+                      <div className="flex gap-1.5 p-1 rounded-xl" style={{ background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.1)" }}>
+                        {([["weekly", "goals_wizard_sched_weekly"], ["sequential", "goals_wizard_sched_sequential"]] as const).map(([mode, key]) => {
+                          const active = scheduleMode === mode;
+                          return (
+                            <button
+                              key={mode}
+                              type="button"
+                              onClick={() => setScheduleMode(mode)}
+                              className="flex-1 h-9 rounded-lg text-xs font-semibold transition-all active:scale-95"
+                              style={active
+                                ? { background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }
+                                : { background: "transparent", color: "rgba(255,255,255,.6)" }}
+                            >
+                              {t(key)}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>
+                        {isSeqMode ? t("goals_wizard_sched_sequential_hint") : t("goals_wizard_sched_weekly_hint")}
+                      </p>
+                    </div>
+
                     <div className="rounded-2xl p-4 space-y-2" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}>
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
@@ -1349,35 +1649,49 @@ export function CreateWizardDrawer({
                           {t("goals_program_workouts").replace("{n}", String(program.workouts.length))}
                         </span>
                         <span className="px-2 py-0.5 rounded-full bg-muted/60">
-                          {t("goals_program_days").replace("{n}", String(trainingDays))}
+                          {isSeqMode
+                            ? t("goals_seq_label")
+                            : t("goals_program_days").replace("{n}", String(trainingDays))}
                         </span>
                       </div>
-                      {/* tira da semana seg→dom */}
-                      <div className="flex justify-between gap-1 pt-2">
-                        {program.week.map((wk, i) => (
-                          <div key={i} className="flex flex-col items-center gap-1 flex-1">
-                            <span className="text-[10px] font-semibold text-muted-foreground">
-                              {weekdayLetters[i]}
-                            </span>
-                            <span
-                              className={`h-2 w-2 rounded-full ${
-                                wk ? "bg-primary" : "bg-muted-foreground/25"
-                              }`}
-                            />
-                          </div>
-                        ))}
-                      </div>
+                      {/* tira da semana seg→dom (só no modo por dias) / aviso no sequencial */}
+                      {isSeqMode ? (
+                        <p className="text-[11px] pt-2" style={{ color: "rgba(255,255,255,.45)" }}>
+                          {t("goals_program_seq_note")}
+                        </p>
+                      ) : (
+                        <div className="flex justify-between gap-1 pt-2">
+                          {program.week.map((wk, i) => (
+                            <div key={i} className="flex flex-col items-center gap-1 flex-1">
+                              <span className="text-[10px] font-semibold text-muted-foreground">
+                                {weekdayLetters[i]}
+                              </span>
+                              <span
+                                className={`h-2 w-2 rounded-full ${
+                                  wk ? "bg-primary" : "bg-muted-foreground/25"
+                                }`}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
 
                     {/* lista dos treinos distintos do programa */}
-                    {program.workouts.map((workout) => {
+                    {program.workouts.map((workout, wIdx) => {
                       const wName = language === "en" ? workout.name.en : workout.name.pt;
                       const expanded = expandedDay === workout.key;
                       const editingThis = editingWorkoutKey === workout.key;
-                      // dias da semana em que este treino aparece
+                      // dias da semana em que este treino aparece (modo por dias);
+                      // no sequencial, a posição no rodízio (ordem de criação).
                       const days = program.week
                         .map((k, i) => (k === workout.key ? weekdayLetters[i] : null))
                         .filter(Boolean) as string[];
+                      const scheduleLabel = isSeqMode
+                        ? t("goals_program_seq_position").replace("{n}", String(wIdx + 1))
+                        : days.length > 0
+                          ? days.join(" · ")
+                          : t("goals_program_rest_day");
                       return (
                         <div
                           key={workout.key}
@@ -1393,7 +1707,7 @@ export function CreateWizardDrawer({
                               <div className="flex-1 min-w-0">
                                 <p className="text-sm font-semibold truncate" style={{ color: "#fff" }}>{wName}</p>
                                 <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>
-                                  {(days.length > 0 ? days.join(" · ") : t("goals_program_rest_day")) + " · " +
+                                  {scheduleLabel + " · " +
                                     t("goals_suggest_n_exercises").replace(
                                       "{n}",
                                       String(workout.exercises.length),
@@ -1466,7 +1780,30 @@ export function CreateWizardDrawer({
                                     key={i}
                                     className="flex items-center justify-between gap-2 text-xs py-1"
                                   >
-                                    <span className="font-medium truncate mr-2" style={{ color: "#fff" }}>{ex.name}</span>
+                                    <span className="font-medium truncate mr-2 flex items-center gap-1.5" style={{ color: "#fff" }}>
+                                      {/* Técnica sugerida pelo gerador. Só no
+                                          expert: no simplificado ela não será
+                                          gravada, então anunciá-la seria mentira. */}
+                                      {trainingMode === "expert" && ex.technique && (
+                                        <span
+                                          className="shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wide"
+                                          style={{
+                                            color: "#c084fc",
+                                            background: "rgba(192,132,252,.14)",
+                                            border: "1px solid rgba(192,132,252,.4)",
+                                          }}
+                                        >
+                                          {ex.technique === "drop"
+                                            ? t("goals_technique_drop")
+                                            : ex.technique === "triset"
+                                              ? t("goals_technique_triset")
+                                              : ex.technique === "rest_pause"
+                                                ? t("goals_technique_rest_pause")
+                                                : t("goals_technique_biset")}
+                                        </span>
+                                      )}
+                                      <span className="truncate">{ex.name}</span>
+                                    </span>
                                     <span className="flex items-center gap-2 shrink-0">
                                       <span style={{ color: "rgba(255,255,255,.5)" }}>
                                         {ex.series}×{ex.reps} · {ex.muscleGroup}
@@ -1703,15 +2040,28 @@ export function CreateWizardDrawer({
                 {editRoutine ? t("goals_wizard_add_items_hint") : t("goals_select_items_hint")}
               </Label>
 
-              {/* alternância: Lista vs Músculo/Categoria */}
+              {/* alternância: Lista · Músculo/Categoria · Porção (só treino, e
+                  só quando o catálogo de anatomia já foi semeado) */}
               {(routineType === 1 ? muscleGroups.length : routineType === 2 ? dietCategories.length : 0) > 0 && (
                 <div className="flex gap-1 p-1 rounded-2xl" style={{ background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.08)" }}>
-                  {([["list", t("goals_browse_list")], ["group", routineType === 1 ? t("goals_browse_muscle") : t("goals_browse_category")]] as const).map(([mode, label]) => (
+                  {([
+                    ["list", t("goals_browse_list")] as const,
+                    ["group", routineType === 1 ? t("goals_browse_muscle") : t("goals_browse_category")] as const,
+                    ...(routineType === 1 && anatomyGroups.length > 0
+                      ? [["anatomy", t("goals_browse_anatomy")] as const]
+                      : []),
+                  ]).map(([mode, label]) => (
                     <button
                       key={mode}
                       type="button"
-                      onClick={() => { setBrowseMode(mode); setMuscleFilter(null); setSearchQuery(""); }}
-                      className="flex-1 h-9 rounded-xl text-[13px] font-semibold transition-all active:scale-95"
+                      onClick={() => {
+                        setBrowseMode(mode);
+                        setMuscleFilter(null);
+                        setAnatomyGroup(null);
+                        setAnatomyMuscleId(null);
+                        setSearchQuery("");
+                      }}
+                      className="flex-1 h-9 rounded-xl text-[12px] font-semibold transition-all active:scale-95"
                       style={browseMode === mode
                         ? { background: "linear-gradient(rgba(255,255,255,.95),rgba(255,255,255,.84))", color: "#0a0b12" }
                         : { color: "rgba(255,255,255,.6)" }}
@@ -1722,7 +2072,73 @@ export function CreateWizardDrawer({
                 </div>
               )}
 
-              {browseMode === "group" && !muscleFilter ? (
+              {/* ── Modo anatomia, nível 1: grupos ──────────────────── */}
+              {browseMode === "anatomy" && !anatomyGroup && (
+                <div className="space-y-2">
+                  <p className="text-xs" style={{ color: "rgba(255,255,255,.45)" }}>
+                    {t("goals_browse_anatomy_hint")}
+                  </p>
+                  {anatomyGroups.map((g) => {
+                    const parts = muscles.filter((m) => m.groupName === g).length;
+                    return (
+                      <button
+                        key={g}
+                        onClick={() => setAnatomyGroup(g)}
+                        className="w-full flex items-center gap-3 rounded-2xl p-3 text-left transition-all active:scale-[0.99]"
+                        style={{ border: "1px solid rgba(255,255,255,.1)", background: "rgba(255,255,255,.04)" }}
+                      >
+                        <div
+                          className="h-12 w-12 rounded-xl flex items-center justify-center shrink-0 text-white"
+                          style={{ background: "linear-gradient(135deg,#f97316,#d8567a)" }}
+                        >
+                          <Dumbbell className="h-5 w-5" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[15px] font-semibold truncate" style={{ color: "#fff" }}>{g}</p>
+                          <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>
+                            {t("goals_browse_anatomy_parts").replace("{n}", String(parts))}
+                          </p>
+                        </div>
+                        <ChevronRight className="h-5 w-5 shrink-0" style={{ color: "rgba(255,255,255,.4)" }} />
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* ── Modo anatomia, nível 2: porções do grupo ────────── */}
+              {browseMode === "anatomy" && anatomyGroup && !anatomyMuscleId && (
+                <div className="space-y-2">
+                  <button
+                    onClick={() => setAnatomyGroup(null)}
+                    className="flex items-center gap-1.5 text-sm font-semibold"
+                    style={{ color: "#9d6bff" }}
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                    <span>{anatomyGroup}</span>
+                  </button>
+                  {muscles
+                    .filter((m) => m.groupName === anatomyGroup)
+                    .map((m) => (
+                      <button
+                        key={m.id}
+                        onClick={() => setAnatomyMuscleId(m.id)}
+                        className="w-full flex items-center gap-3 rounded-2xl p-3 text-left transition-all active:scale-[0.99]"
+                        style={{ border: "1px solid rgba(255,255,255,.1)", background: "rgba(255,255,255,.04)" }}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[15px] font-semibold truncate" style={{ color: "#fff" }}>{m.name}</p>
+                        </div>
+                        <ChevronRight className="h-5 w-5 shrink-0" style={{ color: "rgba(255,255,255,.4)" }} />
+                      </button>
+                    ))}
+                </div>
+              )}
+
+              {/* Os dois primeiros níveis do modo anatomia já renderizaram
+                  acima — aqui só entra a lista de exercícios da porção. */}
+              {browseMode === "anatomy" && !anatomyMuscleId ? null
+                : browseMode === "group" && !muscleFilter ? (
                 catalogLoading ? (
                   <div className="flex justify-center py-8">
                     <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -1771,6 +2187,24 @@ export function CreateWizardDrawer({
                     </button>
                   )}
 
+                  {/* Porção escolhida: volta para a lista de porções do grupo e
+                      avisa que a ordem é por ênfase (não alfabética). */}
+                  {browseMode === "anatomy" && anatomyMuscleId && (
+                    <div className="space-y-1">
+                      <button
+                        onClick={() => setAnatomyMuscleId(null)}
+                        className="flex items-center gap-1.5 text-sm font-semibold"
+                        style={{ color: "#9d6bff" }}
+                      >
+                        <ArrowLeft className="h-4 w-4" />
+                        <span>{muscles.find((m) => m.id === anatomyMuscleId)?.name ?? anatomyGroup}</span>
+                      </button>
+                      <p className="text-xs" style={{ color: "rgba(255,255,255,.4)" }}>
+                        {t("goals_browse_anatomy_sorted")}
+                      </p>
+                    </div>
+                  )}
+
                   <Input
                     placeholder={
                       routineType === 1
@@ -1784,7 +2218,7 @@ export function CreateWizardDrawer({
                     style={{ fontSize: "16px", background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }}
                   />
 
-              {catalogLoading ? (
+              {catalogLoading || muscleWorkoutsLoading ? (
                 <div className="flex justify-center py-8">
                   <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                 </div>
@@ -1957,6 +2391,59 @@ export function CreateWizardDrawer({
                 </>
               )}
 
+            </>
+          )}
+
+          {/* ── Step 4 (só expert): técnicas de treino ─────────────
+              A rotina já foi criada quando este passo aparece — ele só
+              acrescenta as técnicas. Fechar aqui NÃO desfaz nada, por isso a
+              saída é "Pular" e não "Cancelar". */}
+          {step === "build-technique" && (
+            <>
+              <TechniquePlanner
+                items={techniqueItems}
+                plan={techniquePlan}
+                onChange={setTechniquePlan}
+              />
+
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  className="flex-1 rounded-full h-12"
+                  style={{ background: "rgba(255,255,255,.08)", color: "rgba(255,255,255,.7)", border: "1px solid rgba(255,255,255,.12)" }}
+                  disabled={isSaving}
+                  onClick={() => onOpenChange(false)}
+                >
+                  {t("goals_skip")}
+                </Button>
+                <Button
+                  className="flex-1 rounded-full h-12"
+                  style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}
+                  disabled={isSaving}
+                  onClick={async () => {
+                    setIsSaving(true);
+                    try {
+                      await updateRoutineTechniquesDb(
+                        userId,
+                        planToAssignments(techniqueItems, techniquePlan),
+                      );
+                      toast({ title: t("goals_technique_saved") });
+                      onOpenChange(false);
+                      onCreated("routine");
+                    } catch (err: any) {
+                      toast({
+                        title: t("goals_add_routines_error"),
+                        description: err?.message || t("goals_create_error_retry"),
+                        variant: "destructive",
+                      });
+                    } finally {
+                      setIsSaving(false);
+                    }
+                  }}
+                >
+                  {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : t("goals_edit_routine_save")}
+                </Button>
+              </div>
             </>
           )}
 

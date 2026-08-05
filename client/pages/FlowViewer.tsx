@@ -164,6 +164,10 @@ export default function FlowViewer() {
   const [mediaReady, setMediaReady] = React.useState(false);
   const mediaReadyRef = React.useRef(false);
   const mediaReadySafetyRef = React.useRef<NodeJS.Timeout | null>(null);
+  // Vídeos gravados via MediaRecorder chegam com duration = Infinity até um seek
+  // forçar o cálculo real — sem isso a barra de progresso nunca anda. Só liberamos
+  // a barra quando a duração for finita e conhecida.
+  const videoDurationReadyRef = React.useRef(false);
   // Pessoas marcadas no flow atual + estado do repost (para quem foi marcado).
   const [taggedUsers, setTaggedUsers] = React.useState<SearchUser[]>([]);
   const [isReposting, setIsReposting] = React.useState(false);
@@ -423,6 +427,10 @@ export default function FlowViewer() {
     setTimerProgress(100);
     setIsPaused(false);
     isPausedRef.current = false;
+    videoDurationReadyRef.current = false;
+    // Flow sem vídeo → limpa o ponteiro para não ficar apontando um <video> detido
+    // (o ref só é atribuído no mount, então não se auto-limpa mais).
+    if (!isVideo) videoRef.current = null;
 
     // Toda troca de story recomeça "não pronto" até a mídia carregar. Flows de texto
     // puro (background_color, sem media_url) não têm o que carregar → já ficam prontos.
@@ -490,7 +498,9 @@ export default function FlowViewer() {
 
     const tick = () => {
       const video = videoRef.current;
-      if (video && video.duration && isFinite(video.duration)) {
+      // Só reflete o progresso quando a duração já é conhecida (evita a barra saltar
+      // durante o seek-trick de correção do duration = Infinity).
+      if (video && videoDurationReadyRef.current && isFinite(video.duration) && video.duration > 0) {
         const remaining = Math.max(0, 100 - (video.currentTime / video.duration) * 100);
         setTimerProgress(remaining);
       }
@@ -505,6 +515,27 @@ export default function FlowViewer() {
     };
   }, [isVideo, story?.id, restartKey]);
 
+  // Resolve o bug do duration = Infinity (vídeos do MediaRecorder): um seek para um
+  // tempo enorme força o WebKit a calcular a duração real; ao voltar finito, resetamos
+  // para o início e liberamos a barra de progresso.
+  const handleVideoLoadedMetadata = React.useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
+    const v = e.currentTarget;
+    if (Number.isFinite(v.duration) && v.duration > 0) {
+      videoDurationReadyRef.current = true;
+      return;
+    }
+    const onTimeUpdate = () => {
+      if (Number.isFinite(v.duration) && v.duration > 0) {
+        v.removeEventListener("timeupdate", onTimeUpdate);
+        try { v.currentTime = 0; } catch { /* ignore */ }
+        videoDurationReadyRef.current = true;
+        if (!isPausedRef.current && !isTypingRef.current) v.play().catch(() => {});
+      }
+    };
+    v.addEventListener("timeupdate", onTimeUpdate);
+    try { v.currentTime = 1e101; } catch { /* ignore */ }
+  }, []);
+
   // Quando o vídeo termina, avança para o próximo flow.
   const handleVideoEnded = React.useCallback(() => {
     setTimerProgress(0);
@@ -518,6 +549,29 @@ export default function FlowViewer() {
     }
     setRestartKey((k) => k + 1);
   }, [playWithSound]);
+
+  // Pré-carrega a mídia do PRÓXIMO flow — só depois que a atual já apareceu (para não
+  // disputar banda). Imagem: aquece o cache do CDN. Vídeo: só a metadata + 1º frame
+  // (preload="metadata"), o que acelera o início sem baixar o clipe inteiro.
+  React.useEffect(() => {
+    if (!mediaReady) return;
+    const url = nextStory?.media_url;
+    if (!url) return;
+    const isNextVideo =
+      url.includes(".mp4") || url.includes(".webm") || url.includes(".mov");
+    if (isNextVideo) {
+      const v = document.createElement("video");
+      v.preload = "metadata";
+      v.muted = true;
+      v.src = url;
+      return () => {
+        v.removeAttribute("src");
+        v.load();
+      };
+    }
+    const img = new Image();
+    img.src = cdnImg(url, { width: 1080, quality: 80 }) ?? url;
+  }, [mediaReady, nextStory?.media_url]);
 
   // Repost (estilo Instagram): quem foi marcado adiciona o flow ao próprio perfil.
   const isTaggedViewer = !!user && !isOwner && taggedUsers.some((u) => u.id === user.id);
@@ -1003,7 +1057,13 @@ export default function FlowViewer() {
                     </div>
                   ) : isVideo ? (
                     <video
-                      ref={videoRef}
+                      // Só atribui no mount, nunca anula no unmount: durante a transição
+                      // do AnimatePresence o vídeo que SAI compartilha este ref e, ao
+                      // desmontar, zerava `videoRef.current` do vídeo ATUAL — por isso a
+                      // barra só funcionava no 1º flow. Agora o vídeo que sai não mexe no ref.
+                      ref={(el) => {
+                        if (el) videoRef.current = el;
+                      }}
                       src={story.media_url}
                       className="w-full h-full object-cover"
                       style={
@@ -1017,6 +1077,7 @@ export default function FlowViewer() {
                       autoPlay
                       playsInline
                       preload="auto"
+                      onLoadedMetadata={handleVideoLoadedMetadata}
                       onLoadedData={() => {
                         markMediaReady();
                         if (!isPausedRef.current && !isTypingRef.current) playWithSound();

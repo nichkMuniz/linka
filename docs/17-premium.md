@@ -60,6 +60,17 @@ Sem o segundo braço, uma falha de webhook deixaria um assinante **pagante sem a
 
 **Restaurar compras** (`restorePremiumPurchases`) é **obrigatório** pela Guideline 3.1.1 e vive no rodapé do paywall — é onde cai quem reinstalou o app ou trocou de aparelho (esse usuário aparece como não-premium, então vê o paywall).
 
+### Diagnóstico quando o paywall não mostra planos
+
+O paywall é a **única superfície de diagnóstico** do fluxo de compra: sem um Mac não há Safari Web Inspector, então o console do WebView é inacessível. Por isso a mensagem de indisponibilidade varia por causa (`purchasesAvailability()` em `client/lib/purchases.ts`):
+
+| Mensagem na tela | Causa | O que fazer |
+|---|---|---|
+| "As assinaturas estão disponíveis apenas no app do iPhone" | Rodando no navegador (`pnpm dev`) — não existe StoreKit fora do app nativo | Nada. É o comportamento correto |
+| "As assinaturas estão indisponíveis no momento" | App nativo **sem** `VITE_REVENUECAT_IOS_KEY` no build | Configurar a variável no Appflow e **gerar build novo** — a chave é embutida em tempo de build |
+| "Não foi possível carregar os planos" | SDK ok, mas `getOfferings()` voltou vazio | Nesta ordem: Paid Applications Agreement *Active* → offering marcada como **current** → Product IDs idênticos → produtos em *Ready to Submit* |
+| Preços em reais | Tudo funcionando | — |
+
 ### Requisitos legais no paywall (Guideline 3.1.2)
 
 O rodapé do `PaywallDrawer` tem, **obrigatoriamente**: condições de renovação automática + links funcionais para **Termos de Uso** e **Política de Privacidade**, abertos com o `Browser` do Capacitor. Páginas em `public/termos.html` e `public/privacidade.html`, servidas em `/termos` e `/privacidade` (rewrites em `vercel.json`), URLs em `shared/share-config.ts`. **Não remover** — é uma das causas mais comuns de rejeição em apps de assinatura.
@@ -121,6 +132,7 @@ Constante `APPLE_SUBSCRIPTIONS_URL` no próprio componente.
 | Rotinas ativas | **1** (criar a 2ª abre paywall; editar/adicionar itens e metas nunca bloqueiam) | Ilimitadas | `create-wizard-drawer.tsx` (prop `activeRoutineCount` vinda de `Goals.tsx`; intercepta o step "what", abertura direta e backstops em `handleSaveRoutine`/`handleAddWeeklyProgram`) |
 | Macros do diário | Grade P/C/G borrada; kcal, barra, água e gráfico de 7 dias livres. Metas: só kcal e água editáveis (macros existentes são **preservados** no save) | Tudo | `food-diary-card.tsx` |
 | Insígnias premium | Visíveis no catálogo com selo 👑; tocar abre paywall | Selecionáveis | `insignias-drawer.tsx` + backstop em `setSelectedBadgeDb` |
+| Cobertura muscular da semana | Card borrado com cadeado | Séries efetivas por músculo, mapa corporal e detecção de lacuna | `muscle-coverage-card.tsx` (`PremiumGate feature="charts"`) — ver `docs/05-metas.md` |
 | Criar duelos | **1 duelo ativo criado** (participar é sempre livre) | Ilimitados | `Community.tsx` (`activeCreatedDuels` = grupos com `createdBy = user` e `endDate` nula/futura) |
 
 > Nota conhecida (aceita na v1): o quiz "Sugerido pelo app" cria N rotinas de uma vez — um usuário grátis com 0 rotinas pode terminar com 3–4. O gate barra as criações **seguintes**.

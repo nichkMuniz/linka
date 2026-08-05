@@ -230,6 +230,8 @@ export function FlowViewerModal({
   const [mediaReady, setMediaReady] = React.useState(false);
   const mediaReadyRef = React.useRef(false);
   const mediaReadySafetyRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Duração finita já conhecida (corrige o seek-trick do MediaRecorder — ver abaixo).
+  const videoDurationReadyRef = React.useRef(false);
   const [taggedUsers, setTaggedUsers] = React.useState<SearchUser[]>([]);
   const [isReposting, setIsReposting] = React.useState(false);
 
@@ -333,6 +335,8 @@ export function FlowViewerModal({
     setTimerProgress(100);
     setIsPaused(false);
     isPausedRef.current = false;
+    videoDurationReadyRef.current = false;
+    if (!isVideo) videoRef.current = null;
 
     // Recomeça "não pronto" até a mídia carregar; texto puro (sem media_url) já fica pronto.
     if (mediaReadySafetyRef.current) clearTimeout(mediaReadySafetyRef.current);
@@ -392,9 +396,30 @@ export function FlowViewerModal({
   // Mantém a barra de progresso sincronizada com a posição real do vídeo.
   const handleVideoTimeUpdate = React.useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
     const video = e.currentTarget;
-    if (!video.duration || !isFinite(video.duration)) return;
+    // Só reflete quando a duração já é conhecida (evita a barra saltar durante o seek-trick).
+    if (!videoDurationReadyRef.current || !video.duration || !isFinite(video.duration)) return;
     const remaining = Math.max(0, 100 - (video.currentTime / video.duration) * 100);
     setTimerProgress(remaining);
+  }, []);
+
+  // Corrige o duration = Infinity dos vídeos do MediaRecorder (mesmo truque de seek do
+  // FlowViewer): sem isso a barra de progresso do vídeo nunca anda.
+  const handleVideoLoadedMetadata = React.useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
+    const v = e.currentTarget;
+    if (Number.isFinite(v.duration) && v.duration > 0) {
+      videoDurationReadyRef.current = true;
+      return;
+    }
+    const onTimeUpdate = () => {
+      if (Number.isFinite(v.duration) && v.duration > 0) {
+        v.removeEventListener("timeupdate", onTimeUpdate);
+        try { v.currentTime = 0; } catch { /* ignore */ }
+        videoDurationReadyRef.current = true;
+        if (!isPausedRef.current && !isTypingRef.current) v.play().catch(() => {});
+      }
+    };
+    v.addEventListener("timeupdate", onTimeUpdate);
+    try { v.currentTime = 1e101; } catch { /* ignore */ }
   }, []);
 
   // Quando o vídeo termina, avança para o próximo flow.
@@ -790,7 +815,7 @@ export function FlowViewerModal({
                             )}
                           </div>
                         ) : isVideo ? (
-                          <video ref={videoRef} src={story.media_url} className="w-full h-full object-cover" autoPlay playsInline preload="auto" onLoadedData={() => { markMediaReady(); if (!isPausedRef.current && !isTypingRef.current) playWithSound(); }} onError={handleVideoEnded} onTimeUpdate={handleVideoTimeUpdate} onEnded={handleVideoEnded} />
+                          <video ref={(el) => { if (el) videoRef.current = el; }} src={story.media_url} className="w-full h-full object-cover" autoPlay playsInline preload="auto" onLoadedMetadata={handleVideoLoadedMetadata} onLoadedData={() => { markMediaReady(); if (!isPausedRef.current && !isTypingRef.current) playWithSound(); }} onError={handleVideoEnded} onTimeUpdate={handleVideoTimeUpdate} onEnded={handleVideoEnded} />
                         ) : (
                           <img
                             key={story.id}

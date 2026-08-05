@@ -7,6 +7,7 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import { ExerciseImage } from "@/components/shared/exercise-image";
+import { ExerciseAnatomy } from "@/components/shared/exercise-anatomy";
 import { DietImage } from "@/components/shared/diet-image";
 import { useLanguage } from "@/lib/language-context";
 import { GLASS_SHEET_STYLE, GLASS_SHEET_PROPS } from "@/lib/glass-styles";
@@ -398,6 +399,11 @@ export function ItemDetailDrawer({ item, onClose, onSaved, onDeleted }: ItemDeta
                       {item.description?.trim() || t("goals_item_no_desc")}
                     </p>
                   </div>
+
+                  {/* Anatomia — só exercício. Não renderiza nada quando o item
+                      não tem músculos mapeados (alongamento, catálogo ainda não
+                      semeado), então não há estado vazio a tratar aqui. */}
+                  {item.type === 1 && <ExerciseAnatomy workoutId={item.id} />}
                 </>
               )}
             </div>

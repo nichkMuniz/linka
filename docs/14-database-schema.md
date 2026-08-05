@@ -62,6 +62,8 @@ Documentação técnica de todas as tabelas do banco de dados público (`public`
 | [user_workouts](#user_workouts) | Treinos salvos do usuário |
 | [user_workouts_hist](#user_workouts_hist) | Histórico de treinos realizados |
 | [workouts](#workouts) | Catálogo de treinos disponíveis |
+| [muscles](#muscles) | Catálogo de músculos e porções (anatomia) |
+| [workout_muscles](#workout_muscles) | Recrutamento muscular por exercício (papel + ênfase) |
 
 ---
 
@@ -874,6 +876,7 @@ Rotinas de treino dos usuários (estrutura de programação).
 | `goal_id` | bigint | — | — | Meta vinculada à rotina |
 | `name` | text | — | — | Nome da rotina |
 | `last_summary` | jsonb | — | — | Snapshot do resumo do **último treino finalizado** desta rotina (mesmo formato de `WorkoutSummaryData`, sem `userId`/`userGroups` — resolvidos de novo ao reabrir): `routineName`, `totalSeries`, `totalVolume`, `durationSecs`, `badges`, `completedExercises`, `prExercises`, `machinedExercises`, `completedAt`. Sobrescrito a cada "Finalizar" (`updateRoutineLastSummaryDb`) — nunca há mais de um snapshot por rotina, sempre o mais recente. `NULL` = rotina nunca executada. Gateia o ícone de "resumo do treino" no `routine-detail-drawer.tsx` (só aparece quando não-nulo). Migration: `docs/migrations/20260702-routine-last-summary.sql`. |
+| `training_mode` | text | ✓ | `'simple'` | **(2026-08-05)** Modo da experiência de treino desta rotina — a escolha do usuário no passo `routine-mode` do wizard. `'simple'` = tela clássica de registro (tabela KG × REPS); `'expert'` = série tipada (aquecimento/válida/falha) com aquecimento fora do volume, da contagem de séries e do PR. `CHECK (training_mode IN ('simple','expert'))`. É **por rotina**, não por conta: o mesmo usuário pode ter "Peito/Tríceps" no expert e "Corrida de domingo" no simplificado. Só rotinas de treino (`type = 1`) perguntam; dieta/hábito ficam no default. Lido em `getUserRoutinesDb` → `RoutineCard.trainingMode` → prop `trainingMode` do `WorkoutSessionDialog`. Gravado por `updateRoutineTrainingModeDb` (por id, caminho do quiz) e `updateRoutineTrainingModeByNameDb` (por `user_id`+`type`+`name`, caminho "do zero", onde a linha nasce de trigger). Migration: `docs/migrations/20260805-training-mode.sql`. |
 | `program_meta` | jsonb | — | — | **(2026-07-08)** Metadados do programa que criou a rotina via o **quiz de personalização** do "Sugerido pelo app": `{ origin: "quiz", exercises: [{ name, muscleGroup, series, reps }] }` (formato `RoutineProgramMeta` em `ritmofit-db.ts`, nomes brutos PT do catálogo). Programas gerados são únicos por usuário e não existem no catálogo estático (`suggested-routines-data.ts`), então o **pré-preenchimento de séries×reps** na primeira execução (`getSuggestedSetsForCard` em `goals-helpers.ts`) lê daqui — rotinas antigas/sem meta caem no fallback por nome (`getSuggestedSetsForRoutine`). `NULL` = rotina criada do zero. Gravado por `updateRoutineProgramMetaDb`. Migration: `docs/migrations/20260708-fitness-profile-and-program-meta.sql`. |
 
 ---
@@ -1410,6 +1413,9 @@ Treinos salvos / atribuídos a um usuário.
 | `routine_id` | bigint | FK → `routines.id` ON DELETE SET NULL | — | Rotina à qual este exercício pertence |
 | `notes` | text | — | — | Notas livres do usuário para este exercício |
 | `time_to_rest` | integer | — | — | Tempo de descanso entre séries (em segundos) escolhido pelo usuário para este exercício |
+| `technique` | text | ✓ | `'straight'` | **(2026-08-05)** Técnica deste exercício **nesta** rotina: `straight` (série direta), `drop` (drop-set), `rest_pause`, `biset`/`triset` (exigem `technique_group`). `CHECK` nesses 5 valores. Vive aqui e não em `workouts` porque "supino reto" não é bi-set — é bi-set *nesta rotina*, pareado com um exercício específico. Escolhida no passo `build-technique` do wizard ou no botão "Técnicas" do `RoutineDetailDrawer`, **só no modo expert**. Migration: `docs/migrations/20260805-workout-techniques.sql` |
+| `technique_group` | text | — | — | **(2026-08-05)** Chave que liga os exercícios de um mesmo bloco de bi-set/tri-set — mesmo valor = mesmo bloco, executados sem descanso entre eles. `NULL` para técnicas individuais e séries diretas. `updateRoutineTechniquesDb` **normaliza**: grupo com menos de 2 membros volta a `straight` (um bi-set órfão não é bi-set). Índice parcial `user_workouts_technique_group_idx` |
+| `order_index` | int | — | — | **(2026-08-05)** Ordem do exercício dentro da rotina (0-based). Existe porque um bloco só funciona com os membros **adjacentes e na ordem** (A1 → A2); `planToAssignments` puxa os membros de cada bloco para junto do primeiro. `NULL` = ordem legada por `created_at`, então rotinas antigas não se reorganizam sozinhas |
 
 ---
 
@@ -1431,6 +1437,7 @@ Histórico de treinos realizados pelo usuário.
 | `km` | float8 | — | - | quilometros percorridos |
 | `time` | varchar | — | - | tempo decorrido |
 | `routine_id` | bigint | FK → `routines.id` | — | Rotina à qual o treino concluído pertence. Populada ao finalizar o treino a partir de `user_workouts.routine_id`. Usada para gatear a exibição do ícone de resumo da rotina (só aparece se houver ao menos um registro com `routine_id` correspondente). |
+| `set_kind` | text | — | — | **(2026-08-05)** Tipo da série executada, gravado só por rotinas no modo **expert** (`routines.training_mode`): `'warmup'` = aquecimento, `'normal'` = série válida, `'failure'` = série levada à falha, `'drop'` = queda de carga emendada na série anterior (**adicionado em `20260805-workout-techniques.sql`**, que recria o CHECK). `CHECK (set_kind IS NULL OR set_kind IN ('warmup','normal','failure','drop'))`. **`drop` conta como TRABALHO** (volume e PR incluem — é peso levantado de verdade) mas **não conta como SÉRIE** (`countsAsSeries` no `workout-session-dialog.tsx`): quem faz 3×10 com drop na última fez 3 séries, não 4. **`NULL` = série do modo simplificado ou anterior a 05/08/2026 → lida como `'normal'`.** O aquecimento **é gravado** (o registro do treino é fiel ao que foi feito) mas é filtrado fora de toda leitura de carga: `getPreviousBestKgDb`, `getExerciseProgressionDb` e `getLastWorkoutSessionSeriesDb` aplicam `WORKING_SETS_FILTER` (`set_kind.is.null,set_kind.neq.warmup` — um `.neq` puro descartaria as linhas NULL, porque `NULL <> 'warmup'` é NULL e não TRUE no Postgres). Índice parcial `user_workouts_hist_working_sets_idx` cobre exatamente essas consultas. Migration: `docs/migrations/20260805-training-mode.sql`. |
 
 ---
 
@@ -1453,7 +1460,49 @@ Catálogo de treinos disponíveis na plataforma.
 | `created_by_user` | boolean | — | `false` | `true` quando o exercício foi criado manualmente pelo usuário via "Criar novo exercício" (modo treino) ou "Criar Exercício Personalizado". A foto sobe para o bucket `posts` (`uploadCustomExercisePhotoDb`) e fica em `photo` como URL pública; `description` guarda o "como executar". |
 | `created_by` | uuid | — | — | FK → `auth.users` ON DELETE CASCADE. Dono do exercício custom; `NULL` nos itens de catálogo. Migração `20260714-custom-items-owner.sql`. Define a visibilidade em `getWorkoutsDb` (mesma regra de `diets.created_by`): o exercício custom aparece para o criador com ou sem vínculo em `user_workouts` |
 
+**Anatomia:** o recrutamento muscular fino de cada exercício vive em [workout_muscles](#workout_muscles) → [muscles](#muscles). `muscle_group` **não foi substituída** — continua sendo o rótulo grosso do card, do filtro e do fallback de imagem.
+
 **RLS:** leitura pública; escrita só nas linhas do próprio usuário (`created_by_user = true and created_by = auth.uid()`). Os seeds de catálogo (`scripts/seed-exercises.mjs`, `scripts/migrate-exercise-images.mjs`) usam service role e passam por cima da RLS. `bulkUpsertCatalogWorkoutsDb` (em `ritmofit-db.ts`, sem callers) escreveria catálogo pelo cliente e **seria bloqueado** pela RLS se voltasse a ser usado.
+
+---
+
+## muscles
+
+**(2026-08-05)** Catálogo canônico de músculos e suas **porções/cabeças** — a camada anatômica fina que `workouts.muscle_group` (um texto grosso, ~10 valores) nunca conseguiu expressar. Migration: `docs/migrations/20260805-muscle-anatomy.sql` (~40 linhas semeadas na própria migração).
+
+| Coluna | Tipo | Obrigatório | Padrão | Descrição |
+|---|---|---|---|---|
+| `id` | text | PK | — | Slug estável e legível (`peitoral_clavicular`, `triceps_cabeca_longa`). É o que o app e o script de seed referenciam — UUID aqui só criaria indireção |
+| `group_name` | text | ✓ | — | **Casa com os valores de `workouts.muscle_group`** (`Peito`, `Costas`, `Tríceps`…), para a navegação por grupo continuar valendo sem tradução |
+| `name` | text | ✓ | — | Nome da porção em PT (`Peitoral superior (clavicular)`) |
+| `name_eng` | text | — | — | Nome em EN. Localizado no cliente por `pickLocalized`, como os outros catálogos |
+| `region` | text | — | — | Posição dentro do grupo: `superior` \| `medio` \| `inferior` \| `lateral` \| `anterior` \| `posterior`. `NULL` = grupo que não se divide (ex.: sóleo). É o que vira "Peito → Superior/Meio/Inferior" |
+| `body_part` | text | ✓ | — | Região do mapa corporal que este músculo acende (`chest`, `lats`, `triceps`…). Vários músculos compartilham uma região — o `MuscleMap` pinta com a MAIOR ênfase entre eles |
+| `view` | text | ✓ | — | `front` \| `back` — em qual vista do mapa a região aparece |
+| `sort_order` | int | ✓ | `0` | Ordem de exibição dentro do grupo (superior → inferior) |
+
+**RLS:** leitura pública, **sem policy de escrita** — só service role popula (mesma postura de `workouts`).
+
+---
+
+## workout_muscles
+
+**(2026-08-05)** Quais músculos cada exercício recruta, com papel e intensidade. É a tabela que responde a consulta que motivou a fase: *"quais exercícios mais pegam a porção superior do peito?"*.
+
+| Coluna | Tipo | Obrigatório | Padrão | Descrição |
+|---|---|---|---|---|
+| `workout_id` | uuid | PK (composta) | — | FK → `workouts.id` ON DELETE CASCADE |
+| `muscle_id` | text | PK (composta) | — | FK → `muscles.id` ON DELETE CASCADE |
+| `role` | text | ✓ | — | `primary` = alvo do exercício · `secondary` = ajuda de forma relevante · `stabilizer` = trabalha isometricamente (aparece na ficha, não conta volume) |
+| `emphasis` | int | ✓ | `50` | Intensidade 0–100 do estímulo neste músculo. **NÃO é repartição percentual** — as linhas de um exercício não somam 100. Ordena o picker por porção e pinta o mapa corporal |
+
+Índice `workout_muscles_by_muscle_idx (muscle_id, emphasis DESC)` — é ele que torna a consulta inversa barata.
+
+**Por que tabela de ligação e não JSON em `workouts`:** a consulta que importa é a inversa (músculo → exercícios ordenados por ênfase). Com JSON seria preciso baixar o catálogo inteiro e filtrar no cliente.
+
+**RLS:** leitura pública. Escrita liberada **só nas linhas de exercícios que o próprio usuário criou** (`workouts.created_by_user = true AND created_by = auth.uid()`) — assim o formulário de exercício personalizado pode declarar anatomia sem ninguém reescrever o catálogo central pela anon key. O catálogo é populado por `scripts/seed-workout-muscles.mjs` (service role).
+
+**Seed em duas camadas** (`scripts/seed-workout-muscles.mjs`): (1) `CURATED` — mapa escrito à mão casado pelo nome normalizado, cobrindo os exercícios de academia mais usados; (2) `GROUP_FALLBACK` — todo exercício não curado recebe as linhas genéricas do seu `muscle_group`, com ênfases mais baixas de propósito (é palpite pelo grupo, não análise do movimento). Assim nenhum exercício fica sem anatomia. Alongamento/mobilidade são **pulados** — alongar não é recrutar, e marcá-los poluiria o volume por músculo. Reexecutável: apaga as ligações que saíram do mapa e faz upsert do resto, então corrigir a curadoria e rodar de novo é o fluxo normal.
 
 ---
 
