@@ -968,11 +968,48 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const cropContainerWidthRef = React.useRef<number>(0);
-  // A legenda editável fica no fim deste overlay rolável (position:fixed) — o
-  // scroll-assist de página (window.scrollBy) não rola um overlay fixo, então
-  // usamos o hook apontando para o próprio container. Ver use-keyboard-input-scroll.
-  const overlayRef = React.useRef<HTMLDivElement | null>(null);
-  useKeyboardInputScroll(overlayRef);
+  // A legenda editável fica no fim da área rolável deste overlay (position:fixed)
+  // — o scroll-assist de página (window.scrollBy) não rola um overlay fixo, então
+  // usamos o hook apontando para o container que de fato rola (scrollRef, não a
+  // raiz, que é overflow:hidden). Ver use-keyboard-input-scroll.
+  const scrollRef = React.useRef<HTMLDivElement | null>(null);
+  useKeyboardInputScroll(scrollRef);
+
+  // Trava o scroll do documento enquanto o resumo está aberto. Sem isso existem
+  // DOIS scrollers verticais na tela (este overlay + a página de Metas atrás
+  // dele): ao chegar no fim do overlay o gesto encadeia para o documento e o
+  // usuário fica preso, sem conseguir voltar para cima. Mesmo padrão do
+  // flow-viewer-modal; a posição da página é restaurada ao fechar.
+  React.useEffect(() => {
+    const scrollY = window.scrollY;
+    const body = document.body;
+    const prev = {
+      position: body.style.position,
+      top: body.style.top,
+      left: body.style.left,
+      right: body.style.right,
+      width: body.style.width,
+      overflow: body.style.overflow,
+      htmlOverflow: document.documentElement.style.overflow,
+    };
+    body.style.position = "fixed";
+    body.style.top = `-${scrollY}px`;
+    body.style.left = "0";
+    body.style.right = "0";
+    body.style.width = "100%";
+    body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
+    return () => {
+      body.style.position = prev.position;
+      body.style.top = prev.top;
+      body.style.left = prev.left;
+      body.style.right = prev.right;
+      body.style.width = prev.width;
+      body.style.overflow = prev.overflow;
+      document.documentElement.style.overflow = prev.htmlOverflow;
+      window.scrollTo(0, scrollY);
+    };
+  }, []);
 
   const [description, setDescription] = React.useState(() => generateDefaultDescription(data));
   const [userPhotos, setUserPhotos] = React.useState<File[]>([]);
@@ -1343,18 +1380,18 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
 
   return (
     <div
-      ref={overlayRef}
       style={{
         position: "fixed", inset: 0, zIndex: 9500,
         background: GLASS_ROOT_BG,
         display: "flex", flexDirection: "column",
-        overflowY: "auto",
+        // A raiz NÃO rola — quem rola é o container interno abaixo do header.
+        // Dois scrollers empilhados faziam o gesto encadear para a página atrás
+        // do overlay ao chegar no fim do conteúdo.
+        overflow: "hidden",
         // Mantém o resumo interativo mesmo se um modal Radix tiver deixado
         // pointer-events:none no body — este overlay é a camada de topo.
         pointerEvents: "auto",
         paddingTop: "max(0px, env(safe-area-inset-top))",
-        // Espaço extra ao abrir o teclado iOS para rolar a legenda acima dele.
-        paddingBottom: "var(--keyboard-height, 0px)",
         fontFamily: "'Inter', system-ui, sans-serif",
       }}
     >
@@ -1406,6 +1443,19 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
         </button>
       </div>
 
+      {/* ── Conteúdo rolável (único scroller da tela) ── */}
+      <div
+        ref={scrollRef}
+        style={{
+          flex: 1, minHeight: 0,
+          overflowY: "auto", overflowX: "hidden",
+          // Impede que o gesto encadeie para o documento ao chegar no fim.
+          overscrollBehavior: "contain", WebkitOverflowScrolling: "touch",
+          // Espaço extra ao abrir o teclado iOS para rolar a legenda acima dele
+          // (precisa estar no MESMO container que o useKeyboardInputScroll rola).
+          paddingBottom: "var(--keyboard-height, 0px)",
+        }}
+      >
       {/* ── Carousel ── */}
       <div style={{ position: "relative" }}>
         {/* Frame — foto atual permite zoom/pan direto (pinch + drag), sem tela de crop separada */}
@@ -1978,6 +2028,7 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
         >
           {t("goals_summary_close")}
         </button>
+      </div>
       </div>
 
       {/* ── Group picker sheet ── */}

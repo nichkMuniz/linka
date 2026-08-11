@@ -21,6 +21,11 @@ interface EditedMediaPlugin {
     height: number;
   }>;
   purgeStaleCache(options?: { limit?: number }): Promise<{ removed: number }>;
+  // Escrita fatiada na galeria (ver `saveMediaToPhotos` no fim do arquivo)
+  startMediaWrite(options: { ext: string }): Promise<{ token: string }>;
+  appendMediaWrite(options: { token: string; data: string }): Promise<void>;
+  saveMediaWrite(options: { token: string; isVideo: boolean }): Promise<{ saved: boolean }>;
+  cancelMediaWrite(options: { token: string }): Promise<void>;
 }
 
 const EditedMedia = registerPlugin<EditedMediaPlugin>("EditedMedia");
@@ -101,5 +106,117 @@ export async function purgeStaleMediaCache(): Promise<void> {
     await EditedMedia.purgeStaleCache();
   } catch {
     // plugin ausente (build antigo) — segue sem purge
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Salvar mídia na galeria do celular                                        */
+/* -------------------------------------------------------------------------- */
+
+export type SaveMediaFailure =
+  /** usuário negou o acesso às Fotos */
+  | "permission"
+  /** build instalado é anterior ao plugin (ou plataforma sem suporte) */
+  | "unsupported"
+  | "unknown";
+
+export class SaveMediaError extends Error {
+  constructor(
+    public readonly reason: SaveMediaFailure,
+    message: string,
+  ) {
+    super(message);
+    this.name = "SaveMediaError";
+  }
+}
+
+/**
+ * Tamanho de cada pedaço enviado pela ponte. **Múltiplo de 3** de propósito:
+ * cada pedaço é decodificado de base64 isoladamente no lado nativo, então um
+ * corte fora do alinhamento de 3 bytes geraria padding no meio do arquivo.
+ */
+const SAVE_CHUNK_BYTES = 3 * 1024 * 1024;
+
+const EXT_BY_MIME: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "video/mp4": "mp4",
+  "video/quicktime": "mov",
+  "video/webm": "webm",
+};
+
+function extensionFor(blob: Blob, kind: "image" | "video"): string {
+  const base = (blob.type || "").split(";")[0].trim().toLowerCase();
+  return EXT_BY_MIME[base] ?? (kind === "video" ? "mp4" : "jpg");
+}
+
+function chunkToBase64(chunk: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result ?? "");
+      const comma = result.indexOf(",");
+      resolve(comma >= 0 ? result.slice(comma + 1) : result);
+    };
+    reader.onerror = () => reject(reader.error ?? new Error("Falha ao ler a mídia"));
+    reader.readAsDataURL(chunk);
+  });
+}
+
+/**
+ * Salva uma mídia no rolo da câmera (iOS) ou dispara o download (navegador).
+ *
+ * O arquivo é transferido em pedaços de 3MB porque um vídeo de flow pode ter
+ * até 100MB — enviar tudo de uma vez viraria uma string base64 de ~133MB e
+ * estouraria a memória do WKWebView.
+ *
+ * Lança `SaveMediaError` com o motivo, para a tela escolher a mensagem certa.
+ */
+export async function saveMediaToPhotos(
+  blob: Blob,
+  kind: "image" | "video",
+  fileName = `linka-${Date.now()}`,
+): Promise<void> {
+  const ext = extensionFor(blob, kind);
+
+  if (!isIOS()) {
+    // Navegador (dev): baixa o arquivo em vez de escrever na galeria.
+    if (typeof document === "undefined") {
+      throw new SaveMediaError("unsupported", "Salvar mídia não é suportado aqui");
+    }
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${fileName}.${ext}`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    return;
+  }
+
+  let token: string;
+  try {
+    ({ token } = await EditedMedia.startMediaWrite({ ext }));
+  } catch (err: any) {
+    // Plugin ausente: o build instalado é anterior a esta funcionalidade.
+    throw new SaveMediaError(
+      err?.code === "UNIMPLEMENTED" ? "unsupported" : "unknown",
+      err?.message || "Não foi possível salvar",
+    );
+  }
+
+  try {
+    for (let offset = 0; offset < blob.size; offset += SAVE_CHUNK_BYTES) {
+      const data = await chunkToBase64(blob.slice(offset, offset + SAVE_CHUNK_BYTES));
+      await EditedMedia.appendMediaWrite({ token, data });
+    }
+    await EditedMedia.saveMediaWrite({ token, isVideo: kind === "video" });
+  } catch (err: any) {
+    await EditedMedia.cancelMediaWrite({ token }).catch(() => {});
+    throw new SaveMediaError(
+      err?.code === "PERMISSION_DENIED" ? "permission" : "unknown",
+      err?.message || "Não foi possível salvar",
+    );
   }
 }

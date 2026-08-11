@@ -249,9 +249,8 @@ export function RoutineDetailDrawer({
   };
 
   return (
-    <Drawer open onOpenChange={(o) => !o && onClose()} fixed handleOnly>
+    <Drawer open onOpenChange={(o) => !o && onClose()} fixed>
       <DrawerContent
-        handleOnly
         handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
         className="flex flex-col !rounded-t-[32px] !border-0"
         style={{

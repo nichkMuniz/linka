@@ -265,7 +265,12 @@ O status de seguimento do visitante é carregado com `isFollowingDb(profileUserI
 | Configuração | Tipo | Descrição |
 |---|---|---|
 | Arquivo de Flows | Botão → Drawer aninhado | Histórico de flows expirados (> 24h) |
+| Relatar um problema | Botão → `ReportProblemDrawer` | Relato manual de bug, enviado ao Sentry. **Só aparece quando `isMonitoringEnabled()`** (ver abaixo) |
 | Desconectar | Botão destrutivo | Logout |
+
+**Relatar um problema (2026-08-05):** abre o `ReportProblemDrawer` (`client/components/shared/report-problem-drawer.tsx`), renderizado **fora** do `<Drawer>` de configurações — mesmo motivo dos overlays do Arquivo de Flows (o `vaul` aplica `transform` no `DrawerContent` e viraria containing block). Recebe `defaultEmail={userEmail}` para pré-preencher o contato.
+
+O botão é condicionado a `isMonitoringEnabled()` (`client/lib/monitoring.ts`): sem `VITE_SENTRY_DSN` configurada o formulário não teria destino, então some da lista em vez de virar UI morta. Ver `docs/13-layouts-e-componentes.md → monitoring.ts` para o restante da captura de erros.
 
 **Arquivo de Flows — compartilhar:** cada flow expirado tem uma ação de compartilhar (`Share2`, tanto no grid quanto no viewer expandido) que abre uma action sheet (`flowToShare`, bottom sheet customizado, `z-[10000]`) com duas opções:
 - **Recompartilhar no flow** (`handleRepostToNewFlow`) — cria um novo flow ativo (24h) via `createStoryDb`, reaproveitando `description`, `background_color`, `text_position`, `text_elements` e `media_transform` do flow original.

@@ -1350,9 +1350,8 @@ export function CreateWizardDrawer({
 
   return (
     <>
-    <Drawer open={open} onOpenChange={onOpenChange} fixed handleOnly>
+    <Drawer open={open} onOpenChange={onOpenChange} fixed>
       <DrawerContent
-        handleOnly
         handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
         className="flex flex-col !rounded-t-[32px] !border-0"
         style={{

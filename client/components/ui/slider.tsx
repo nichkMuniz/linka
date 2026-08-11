@@ -9,6 +9,8 @@ const Slider = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <SliderPrimitive.Root
     ref={ref}
+    // Arrastar o slider dentro de um drawer não pode arrastar o sheet junto.
+    data-vaul-no-drag
     className={cn(
       "relative flex w-full touch-none select-none items-center",
       className,

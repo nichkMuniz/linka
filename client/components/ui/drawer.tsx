@@ -26,11 +26,38 @@ import { cn } from "@/lib/utils";
 // WKWebView (stale height locks, double-movement), which is exactly what used
 // to break every drawer with a text input on iPhone.
 
-// `handleOnly` (repassado ao vaul): quando true, arrastar para baixo só fecha o
-// drawer a partir da ALÇA — um swipe no corpo (rolar a lista, tocar numa opção)
-// nunca dispara o dismiss. Evita o miss-click de fechar sem querer enquanto o
-// usuário está interagindo/digitando. Exige `handleOnly` também no DrawerContent
-// (para renderizar a alça como <Drawer.Handle>, que é quem o vaul reconhece).
+// Swipe para fechar vale no sheet INTEIRO — arrastar para baixo a partir de
+// qualquer ponto do corpo fecha o drawer, que é o que o gesto do iOS ensina.
+// O vaul já protege sozinho o que precisa ser protegido: um container rolável
+// que não está no topo (`scrollTop !== 0`) e qualquer arraste para CIMA cancelam
+// o dismiss, então rolar lista continua funcionando. A única exceção somos nós
+// que marcamos: campos de formulário (ver `markFormFieldNoDrag` abaixo).
+//
+// `handleOnly` (repassado ao vaul): escape hatch — quando true, só a ALÇA
+// arrasta e o corpo inteiro fica inerte. Está DESLIGADO em todos os drawers do
+// app de propósito (matava o gesto no corpo todo para resolver um miss-click que
+// hoje o `data-vaul-no-drag` resolve de forma cirúrgica). Se algum dia for
+// preciso ligar, passe em ambos (`<Drawer>` e `<DrawerContent>`) — o
+// DrawerContent precisa renderizar a alça como <Drawer.Handle>, que é a única
+// que o vaul reconhece nesse modo.
+
+// Campos de formulário não arrastam o sheet: puxar para baixo a partir de um
+// input/textarea (tipicamente com o teclado aberto) fecharia o drawer e jogaria
+// fora o que a pessoa estava digitando. `data-vaul-no-drag` é o atributo que o
+// `shouldDrag` do vaul respeita; marcamos o campo no CAPTURE do pointerdown, que
+// roda antes do handler do próprio vaul no mesmo elemento — assim vale para
+// qualquer drawer do app, inclusive campos renderizados dinamicamente, sem
+// precisar anotar um por um. (Não removemos o atributo: ele é permanente e
+// correto para aquele campo.)
+const FORM_FIELD_SELECTOR = "input, textarea, [contenteditable='true']";
+
+const markFormFieldNoDrag = (event: React.PointerEvent) => {
+  const target = event.target as HTMLElement | null;
+  const field = target?.closest?.(FORM_FIELD_SELECTOR);
+  if (field && !field.hasAttribute("data-vaul-no-drag")) {
+    field.setAttribute("data-vaul-no-drag", "");
+  }
+};
 const Drawer = ({
   shouldScaleBackground = true,
   ...props
@@ -77,7 +104,7 @@ const DrawerContent = React.forwardRef<
      *  (a única que o vaul arrasta nesse modo) em vez de um div decorativo. */
     handleOnly?: boolean;
   }
->(({ className, children, overlayClassName, handleClassName, handleOnly, style, ...props }, ref) => {
+>(({ className, children, overlayClassName, handleClassName, handleOnly, style, onPointerDownCapture, ...props }, ref) => {
   return (
     <DrawerPortal>
       {/* Lift wrapper: transformed ancestor = containing block for the fixed
@@ -112,6 +139,10 @@ const DrawerContent = React.forwardRef<
             paddingLeft: "env(safe-area-inset-left)",
             paddingRight: "env(safe-area-inset-right)",
             ...style,
+          }}
+          onPointerDownCapture={(event) => {
+            markFormFieldNoDrag(event);
+            onPointerDownCapture?.(event);
           }}
           {...props}
         >

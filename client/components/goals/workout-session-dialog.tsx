@@ -1647,20 +1647,35 @@ export function WorkoutSessionDialog({
   const handleConfirmPicker = () => {
     const chosen = catalog.filter((w) => pickerSelected.has(w.id));
     if (chosen.length === 0) return;
-    const newItems: UserWorkoutWithDetails[] = chosen.map((workout) => ({
-      id: `session_${workout.id}`,
-      workout_id: workout.id,
-      user_id: userId,
-      name: null,
-      created_at: new Date().toISOString(),
-      workoutName: workout.name,
-      workoutDescription: workout.description || undefined,
-      muscle_group: workout.muscle_group ?? null,
-      workoutPhoto: workout.photo ?? null,
-      routine_id: null,
-      isCustom: workout.isCustom,
-    }));
-    setWorkoutExtraItems((prev) => [...prev, ...newItems]);
+    // Reinsere quem tinha sido removido da sessão: `allItems` filtra por
+    // `workoutRemovedIds`, então sem limpar essa marca o exercício adicionado de
+    // novo continuaria escondido — o picker fecha como se tivesse dado certo e
+    // nada aparece na lista.
+    const chosenIds = new Set(chosen.map((w) => w.id));
+    setWorkoutRemovedIds((prev) => {
+      const next = prev.filter((id) => !chosenIds.has(id));
+      return next.length === prev.length ? prev : next;
+    });
+    // Só vira item extra quem ainda não existe na sessão. Quem já vem de `items`
+    // (ou de um extra anterior) volta apenas com a limpeza acima — criar outra
+    // entrada aqui empilharia extras órfãos no estado persistido.
+    const existingIds = new Set([...items, ...workoutExtraItems].map((i) => i.workout_id));
+    const newItems: UserWorkoutWithDetails[] = chosen
+      .filter((workout) => !existingIds.has(workout.id))
+      .map((workout) => ({
+        id: `session_${workout.id}`,
+        workout_id: workout.id,
+        user_id: userId,
+        name: null,
+        created_at: new Date().toISOString(),
+        workoutName: workout.name,
+        workoutDescription: workout.description || undefined,
+        muscle_group: workout.muscle_group ?? null,
+        workoutPhoto: workout.photo ?? null,
+        routine_id: null,
+        isCustom: workout.isCustom,
+      }));
+    if (newItems.length > 0) setWorkoutExtraItems((prev) => [...prev, ...newItems]);
     setWorkoutSeries((prev) => {
       const next = { ...prev };
       for (const workout of chosen) {

@@ -5,6 +5,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
 import { TagPeopleDrawer } from "@/components/shared/tag-people-drawer";
 import { UserAvatar } from "@/components/shared/user-avatar";
+import { useLanguage } from "@/lib/language-context";
+import { saveMediaToPhotos, SaveMediaError } from "@/lib/native-media";
 import type { SearchUser } from "@/lib/ritmofit-db";
 import {
   X,
@@ -19,6 +21,7 @@ import {
   Loader2,
   AtSign,
   Lock,
+  Download,
 } from "lucide-react";
 
 const GRADIENT_PRESETS = [
@@ -177,13 +180,13 @@ function containRect(iw: number, ih: number, fw: number, fh: number) {
 
 // Compõe a imagem transformada num canvas (com fundo desfocado) para que o
 // resultado compartilhado seja exatamente o que o usuário enxerga.
-async function bakeTransformedImage(
+async function bakeTransformedCanvas(
   src: string,
   frameW: number,
   frameH: number,
   t: MediaTransform,
   fit: "cover" | "contain" = "cover",
-): Promise<string | null> {
+): Promise<HTMLCanvasElement | null> {
   try {
     if (frameW <= 0 || frameH <= 0) return null;
     const img = await loadImageEl(src);
@@ -236,10 +239,206 @@ async function bakeTransformedImage(
     ctx.drawImage(img, fc.dx, fc.dy, fc.dw, fc.dh);
     ctx.restore();
 
-    return canvas.toDataURL("image/jpeg", 0.92);
+    return canvas;
   } catch {
     return null;
   }
+}
+
+async function bakeTransformedImage(
+  src: string,
+  frameW: number,
+  frameH: number,
+  t: MediaTransform,
+  fit: "cover" | "contain" = "cover",
+): Promise<string | null> {
+  const canvas = await bakeTransformedCanvas(src, frameW, frameH, t, fit);
+  return canvas ? canvas.toDataURL("image/jpeg", 0.92) : null;
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Composição do rascunho (o que vai para a galeria do celular)              */
+/* -------------------------------------------------------------------------- */
+
+// Frase posicionada, no formato mínimo que o desenho no canvas precisa.
+type DrawableText = { text: string; x: number; y: number; style: TextStyle };
+
+// Pinta um dos GRADIENT_PRESETS num canvas. Os presets são todos
+// `linear-gradient(<n>deg, <cor> <pos>%, ...)`, então um parser pequeno resolve.
+function paintCssGradient(
+  ctx: CanvasRenderingContext2D,
+  css: string,
+  w: number,
+  h: number,
+): void {
+  const match = /linear-gradient\(\s*([-\d.]+)deg\s*,\s*(.+)\)\s*$/i.exec(css.trim());
+  if (!match) {
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, w, h);
+    return;
+  }
+  const stops = match[2]
+    .split(",")
+    .map((raw) => {
+      const parsed = /^\s*(#[0-9a-f]{3,8})\s*(?:([\d.]+)%)?\s*$/i.exec(raw);
+      return parsed
+        ? { color: parsed[1], pos: parsed[2] != null ? parseFloat(parsed[2]) / 100 : null }
+        : null;
+    })
+    .filter((s): s is { color: string; pos: number | null } => s !== null);
+
+  if (stops.length < 2) {
+    ctx.fillStyle = stops[0]?.color ?? "#000";
+    ctx.fillRect(0, 0, w, h);
+    return;
+  }
+
+  // Linha do gradiente no sistema do CSS: 0deg aponta para cima, sentido horário.
+  const rad = (parseFloat(match[1]) * Math.PI) / 180;
+  const dx = Math.sin(rad);
+  const dy = -Math.cos(rad);
+  const length = Math.abs(w * dx) + Math.abs(h * dy);
+  const cx = w / 2;
+  const cy = h / 2;
+  const gradient = ctx.createLinearGradient(
+    cx - (dx * length) / 2,
+    cy - (dy * length) / 2,
+    cx + (dx * length) / 2,
+    cy + (dy * length) / 2,
+  );
+  stops.forEach((stop, i) => {
+    gradient.addColorStop(stop.pos ?? i / (stops.length - 1), stop.color);
+  });
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, w, h);
+}
+
+// `ctx.roundRect` só existe no Safari 16+; o app suporta iOS 15.
+function roundRectPath(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number,
+): void {
+  const radius = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.arcTo(x + w, y, x + w, y + h, radius);
+  ctx.arcTo(x + w, y + h, x, y + h, radius);
+  ctx.arcTo(x, y + h, x, y, radius);
+  ctx.arcTo(x, y, x + w, y, radius);
+  ctx.closePath();
+}
+
+// Quebra igual ao `whitespace-pre-wrap` + `break-words` do preview: respeita as
+// quebras digitadas, quebra por palavra e, se a palavra não couber, por letra.
+function wrapCanvasLines(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
+): string[] {
+  const lines: string[] = [];
+  for (const paragraph of text.split("\n")) {
+    let current = "";
+    for (const word of paragraph.split(" ")) {
+      const candidate = current ? `${current} ${word}` : word;
+      if (current && ctx.measureText(candidate).width > maxWidth) {
+        lines.push(current);
+        current = word;
+      } else {
+        current = candidate;
+      }
+      // Palavra sozinha maior que a linha → quebra por letra.
+      while (ctx.measureText(current).width > maxWidth && current.length > 1) {
+        let cut = current.length - 1;
+        while (cut > 1 && ctx.measureText(current.slice(0, cut)).width > maxWidth) cut--;
+        lines.push(current.slice(0, cut));
+        current = current.slice(cut);
+      }
+    }
+    lines.push(current);
+  }
+  return lines;
+}
+
+/**
+ * Desenha as frases no canvas na mesma posição/estilo do preview.
+ *
+ * `x`/`y` das frases são px de tela; `scale` converte para px do canvas. O bloco
+ * é centrado em (x, y) — igual ao `translate(-50%, -50%)` do preview — e a
+ * largura acompanha o `width: max-content; max-width: 80vw; padding: 0 0.5rem`.
+ */
+function drawTextsOnCanvas(
+  ctx: CanvasRenderingContext2D,
+  items: DrawableText[],
+  frameW: number,
+  scale: number,
+): void {
+  const LINE_HEIGHT_RATIO = 1.625; // leading-relaxed
+  const maxWidth = Math.max(1, (frameW * 0.8 - 16) * scale); // 80vw menos o padding
+
+  for (const item of items) {
+    if (!item.text) continue;
+    const fontSize = item.style.fontSize * scale;
+    const lineHeight = fontSize * LINE_HEIGHT_RATIO;
+    ctx.font = `${item.style.fontWeight} ${fontSize}px ${item.style.fontFamily}`;
+    ctx.textBaseline = "middle";
+
+    const lines = wrapCanvasLines(ctx, item.text, maxWidth);
+    const widths = lines.map((line) => ctx.measureText(line).width);
+    const blockWidth = Math.min(maxWidth, Math.max(...widths));
+    const cx = item.x * scale;
+    const cy = item.y * scale;
+    const top = cy - (lines.length * lineHeight) / 2;
+    const contentLeft = cx - blockWidth / 2;
+    const hasBg = !!item.style.backgroundColor;
+
+    lines.forEach((line, i) => {
+      const width = widths[i];
+      const midY = top + (i + 0.5) * lineHeight;
+      const left =
+        item.style.align === "left"
+          ? contentLeft
+          : item.style.align === "right"
+            ? contentLeft + blockWidth - width
+            : cx - width / 2;
+
+      if (hasBg) {
+        // Realce por linha (box-decoration-break: clone no preview)
+        const padX = fontSize * 0.26;
+        const padY = fontSize * 0.08;
+        const boxH = fontSize * 1.2 + padY * 2;
+        ctx.save();
+        ctx.fillStyle = item.style.backgroundColor as string;
+        roundRectPath(ctx, left - padX, midY - boxH / 2, width + padX * 2, boxH, fontSize * 0.28);
+        ctx.fill();
+        ctx.restore();
+      }
+
+      ctx.save();
+      if (!hasBg) {
+        // text-shadow: 0 1px 6px rgba(0,0,0,0.45)
+        ctx.shadowColor = "rgba(0,0,0,0.45)";
+        ctx.shadowBlur = 6 * scale;
+        ctx.shadowOffsetY = 1 * scale;
+      }
+      ctx.fillStyle = item.style.color;
+      ctx.fillText(line, left, midY);
+      ctx.restore();
+    });
+  }
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => (blob ? resolve(blob) : reject(new Error("Falha ao gerar a imagem"))),
+      "image/jpeg",
+      0.92,
+    );
+  });
 }
 
 interface FlowCreationDialogProps {
@@ -265,6 +464,7 @@ export function FlowCreationDialog({
   onCreateStory,
   isLoading = false,
 }: FlowCreationDialogProps) {
+  const { t } = useLanguage();
   const [step, setStep] = React.useState<Step>("camera");
   const [mediaPreview, setMediaPreview] = React.useState<string | null>(null);
   const [mediaIsVideo, setMediaIsVideo] = React.useState(false);
@@ -277,6 +477,8 @@ export function FlowCreationDialog({
   const [taggedUsers, setTaggedUsers] = React.useState<SearchUser[]>([]);
   const [tagPeopleOpen, setTagPeopleOpen] = React.useState(false);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
+  // "Salvar rascunho": grava o flow como ele está na galeria do celular.
+  const [isSavingDraft, setIsSavingDraft] = React.useState(false);
   // Verdadeiro entre selecionar um arquivo na galeria e o preview ficar pronto.
   // Vídeos grandes demoram para ter a metadata (duração) lida E para decodificar o
   // primeiro frame — sem isto a tela parece travada na galeria.
@@ -1183,6 +1385,112 @@ export function FlowCreationDialog({
     setStep("camera");
   };
 
+  /**
+   * Compõe o rascunho exatamente como aparece na tela: a mídia já enquadrada
+   * (ou o gradiente do modo texto) com as frases desenhadas por cima.
+   * Devolve `null` quando a composição falha — o chamador avisa o usuário.
+   */
+  const buildDraftCanvas = async (): Promise<HTMLCanvasElement | null> => {
+    const drawables: DrawableText[] = texts.map((item) => ({
+      text: item.text,
+      x: item.x,
+      y: item.y,
+      style: item.style,
+    }));
+
+    if (step === "create") {
+      // Modo texto: o gradiente ocupa a tela toda, então o frame é a viewport.
+      const fw = window.innerWidth;
+      const fh = window.innerHeight;
+      const maxDim = 1280;
+      const canvas = document.createElement("canvas");
+      canvas.width = fw >= fh ? maxDim : Math.round(maxDim * (fw / fh));
+      canvas.height = fw >= fh ? Math.round(maxDim * (fh / fw)) : maxDim;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return null;
+      paintCssGradient(ctx, selectedGradient, canvas.width, canvas.height);
+      drawTextsOnCanvas(ctx, drawables, fw, canvas.width / fw);
+      return canvas;
+    }
+
+    if (!mediaPreview || mediaIsVideo) return null;
+
+    const frame = captionFrameRef.current;
+    const fw = frame?.clientWidth || window.innerWidth;
+    const fh = frame?.clientHeight || window.innerHeight;
+    // Sempre recompõe (mesmo sem pinça/arraste): o rascunho precisa sair no
+    // frame 9:16 com o fundo desfocado, como o usuário está vendo.
+    const canvas = await bakeTransformedCanvas(
+      mediaPreview,
+      fw,
+      fh,
+      transformRef.current,
+      mediaFromGallery ? "contain" : "cover",
+    );
+    if (!canvas) return null;
+    const ctx = canvas.getContext("2d");
+    if (ctx) drawTextsOnCanvas(ctx, drawables, fw, canvas.width / fw);
+    return canvas;
+  };
+
+  const handleSaveDraft = async () => {
+    if (isSavingDraft) return;
+    setIsSavingDraft(true);
+    try {
+      if (step === "caption" && mediaIsVideo && mediaPreview) {
+        // Vídeo não pode ser recomposto no cliente: salva o arquivo como está
+        // (sem as frases sobrepostas — o toast avisa).
+        const blob = await fetch(mediaPreview).then((r) => r.blob());
+        await saveMediaToPhotos(blob, "video");
+        toast({ title: t("flow_draft_saved"), description: t("flow_draft_saved_video") });
+        return;
+      }
+
+      const canvas = await buildDraftCanvas();
+      if (!canvas) throw new Error("compose-failed");
+      await saveMediaToPhotos(await canvasToBlob(canvas), "image");
+      toast({ title: t("flow_draft_saved"), description: t("flow_draft_saved_photo") });
+    } catch (err) {
+      const reason = err instanceof SaveMediaError ? err.reason : "unknown";
+      toast({
+        title:
+          reason === "permission"
+            ? t("flow_draft_permission")
+            : reason === "unsupported"
+              ? t("flow_draft_unsupported")
+              : t("flow_draft_error"),
+        description:
+          reason === "permission"
+            ? t("flow_draft_permission_desc")
+            : reason === "unsupported"
+              ? t("flow_draft_unsupported_desc")
+              : t("flow_draft_error_desc"),
+        variant: "destructive",
+      });
+    } finally {
+      setIsSavingDraft(false);
+    }
+  };
+
+  // Botão de salvar rascunho — mesmo visual nas duas etapas de compartilhar.
+  const saveDraftButton = (
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        handleSaveDraft();
+      }}
+      disabled={isSavingDraft || isSubmitting || isLoading}
+      className="w-full h-10 rounded-full bg-white/10 backdrop-blur border border-white/20 flex items-center justify-center gap-2 text-white text-sm font-semibold disabled:opacity-50 active:opacity-70"
+    >
+      {isSavingDraft ? (
+        <Loader2 className="h-4 w-4 animate-spin" />
+      ) : (
+        <Download className="h-4 w-4" />
+      )}
+      {isSavingDraft ? t("flow_save_draft_saving") : t("flow_save_draft")}
+    </button>
+  );
+
   const handleSubmitMedia = async () => {
     if (!mediaPreview) return;
     setIsSubmitting(true);
@@ -1302,6 +1610,7 @@ export function FlowCreationDialog({
       prepareSafetyRef.current = null;
     }
     setIsPreparingMedia(false);
+    setIsSavingDraft(false);
     setDescription("");
     setTaggedUsers([]);
     setSelectedGradient(GRADIENT_PRESETS[0].value);
@@ -1997,6 +2306,7 @@ export function FlowCreationDialog({
                 >
                   {isSubmitting || isLoading ? "Enviando..." : "Compartilhar flow"}
                 </Button>
+                {texts.length > 0 && saveDraftButton}
               </div>
             )}
           </>
@@ -2261,6 +2571,7 @@ export function FlowCreationDialog({
                 >
                   {isSubmitting || isLoading ? "Enviando..." : "Compartilhar flow"}
                 </Button>
+                {saveDraftButton}
               </div>
             )}
           </>

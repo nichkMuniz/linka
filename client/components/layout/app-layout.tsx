@@ -37,6 +37,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { IncentiveConfirmToast } from "@/components/shared/incentive-confirm-toast";
+import { IncomingMessageToast } from "@/components/shared/incoming-message-toast";
+import { showIncomingMessageToast } from "@/lib/incoming-message-toast";
 import { RoutineCompletedToast } from "@/components/shared/routine-completed-toast";
 import { PaywallDrawer } from "@/components/shared/paywall-drawer";
 import { usePremium } from "@/lib/premium-context";
@@ -356,18 +358,18 @@ export function AppLayout() {
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${user.id}` },
         async (payload) => {
+          const row = payload.new as NotificationRow | undefined;
+          if (!row) return;
+          const type = Number(row.type ?? 0);
+          // Mensagem privada (type 10) em primeiro plano é responsabilidade do
+          // canal de `messages` logo abaixo — só ele tem o TEXTO para montar o
+          // pop up com preview real. Sair aqui (antes da vibração) é o que
+          // impede a mesma mensagem avisar duas vezes.
+          if (type === 10) return;
           // Vibrate for every incoming notification, regardless of which screen the user is on
           hapticSuccess();
           // Don't fire the visual/local notification if user is already on the notifications page
           if (window.location.pathname === "/notificacoes") return;
-          const row = payload.new as NotificationRow | undefined;
-          if (!row) return;
-          const type = Number(row.type ?? 0);
-          // Mensagem nova (type 10) do contato cuja conversa está ABERTA na tela:
-          // o usuário já a vê chegar em tempo real, então não sobe banner — só a
-          // vibração acima. Em qualquer outra tela o banner aparece normalmente.
-          // (row.follower_id = remetente; getActiveConversationUserId = contato aberto.)
-          if (type === 10 && row.follower_id && getActiveConversationUserId() === row.follower_id) return;
           // Texto explícito ("Fulano curtiu sua promoção"), não "você tem uma nova
           // notificação": o banner tinha mapa só dos tipos 1–7 e corpo sem o nome
           // de quem originou, então o usuário precisava abrir o app para descobrir
@@ -393,7 +395,21 @@ export function AppLayout() {
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "messages", filter: `following_id=eq.${user.id}` },
-        () => {
+        (payload) => {
+          // Aviso imediato de mensagem nova, em qualquer tela: vibração leve
+          // sempre + pop up com nome, foto e preview (IncomingMessageToast).
+          // O banner é suprimido quando a conversa daquele remetente já está
+          // aberta — ali o usuário vê a mensagem chegar e só a vibração faz
+          // sentido. Fora do debounce abaixo de propósito: o aviso tem que ser
+          // instantâneo; o debounce existe só para não repetir a query do badge.
+          const msg = payload.new as { user_id?: string | null; text?: string | null } | undefined;
+          const senderId = msg?.user_id ?? null;
+          if (senderId && senderId !== user.id) {
+            hapticLight();
+            if (getActiveConversationUserId() !== senderId) {
+              showIncomingMessageToast({ senderId, text: String(msg?.text ?? "") });
+            }
+          }
           // Debounce: if multiple messages arrive in quick succession, only query once
           if (msgDebounceTimer) clearTimeout(msgDebounceTimer);
           msgDebounceTimer = setTimeout(() => {
@@ -1014,6 +1030,9 @@ export function AppLayout() {
 
       {/* Global routine-completed celebration (haptic + on-screen toast) */}
       <RoutineCompletedToast />
+
+      {/* Pop up de mensagem privada recebida com o app aberto (qualquer tela) */}
+      <IncomingMessageToast />
 
       {/* Timer Expired Full-Screen Block */}
       {timerBlockVisible && (

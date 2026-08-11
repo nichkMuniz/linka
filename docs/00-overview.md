@@ -18,6 +18,7 @@ O objetivo central é motivar pessoas a manterem uma rotina saudável através d
 | Backend / BaaS | Supabase (Auth, Database, Storage, Realtime) |
 | Ícones | Lucide React |
 | Tema | next-themes (dark/light) |
+| Monitoramento de erros | Sentry (`@sentry/capacitor` + `@sentry/react`) |
 
 ---
 
@@ -78,6 +79,7 @@ Menu flutuante arrastável que dá acesso rápido às principais telas.
 - **Toast notifications** — feedback visual de ações
 - **Responsividade** — layout distinto para mobile e desktop
 - **Cache de queries** — cache em memória com TTL em `ritmofit-db.ts` via helper `cached()`, com camada persistida em `localStorage`. Todas as funções de leitura retornam dados cacheados; funções de escrita chamam `invalidateQueryCache(prefix)` para invalidar caches relacionados. Cache limpo automaticamente no logout e, no login, quando o usuário é diferente do dono do cache persistido (marcador `lk:cacheOwner`). Regras anti-envenenamento: `getViewer()` nunca cacheia viewer `null`, e funções user-scoped resolvem o viewer **fora** do `cached()` — com viewer nulo retornam vazio sem gravar no cache (chaves são sufixadas com o id do usuário, ex.: `followingIds:<uid>`). Ver **Estratégia de cache** abaixo.
+- **Captura de erros (2026-08-05)** — Sentry via `client/lib/monitoring.ts`. Como o app roda em WKWebView, erro de JS **não** é crash de processo iOS e nunca aparece no relatório da Apple; esta camada é o único canal para a maioria dos bugs reais. Cobre erro de render (ErrorBoundary raiz), `unhandledrejection`, `catch` tratados (`reportHandledError`), crash nativo de plugin e o relato manual do usuário (**Perfil → Configurações → Outros → Relatar um problema**). Ativada por `VITE_SENTRY_DSN`; sem a variável vira no-op e sai do bundle. Ver `docs/13-layouts-e-componentes.md → monitoring.ts`.
 - **Telemetria bufferizada** — tempo de tela (`screen_time_logs`) é acumulado em `localStorage` (`lk:screenTimeBuf`, somado por dia+tela) via `bufferScreenTime()` e enviado num **único insert em lote** por `flushScreenTimeDb()` quando o app vai para background, no logout e na abertura seguinte (resíduo). Antes era 1 INSERT por troca de rota.
 
 ---

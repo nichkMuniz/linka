@@ -272,9 +272,8 @@ export function GoalShareDrawer({ goal, onClose, onShared }: GoalShareDrawerProp
   };
 
   return (
-    <Drawer open={!!goal} onOpenChange={(open) => !open && !isSharing && onClose()} handleOnly>
+    <Drawer open={!!goal} onOpenChange={(open) => !open && !isSharing && onClose()}>
       <DrawerContent
-        handleOnly
         handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
         className="!rounded-t-[32px] !border-0"
         style={{

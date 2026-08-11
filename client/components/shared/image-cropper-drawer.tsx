@@ -422,6 +422,8 @@ export function ImageCropperDrawer({
           <div
             ref={containerRef}
             className="w-full relative select-none overflow-hidden bg-black cursor-grab active:cursor-grabbing"
+            // Arrastar/pinçar a foto aqui é só do crop — o sheet não se mexe junto.
+            data-vaul-no-drag
             style={{ height: frameH, touchAction: "none" }}
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}

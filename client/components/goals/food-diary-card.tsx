@@ -487,8 +487,8 @@ export function FoodDiaryDrawer({
   useKeyboardInputScroll(scrollRef, open);
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange} handleOnly>
-      <DrawerContent {...GLASS_SHEET_PROPS} handleOnly style={GLASS_SHEET_STYLE}>
+    <Drawer open={open} onOpenChange={onOpenChange}>
+      <DrawerContent {...GLASS_SHEET_PROPS} style={GLASS_SHEET_STYLE}>
         <div
           ref={scrollRef}
           className="flex flex-col px-5 pt-2 overflow-y-auto"

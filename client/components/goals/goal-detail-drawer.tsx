@@ -118,9 +118,8 @@ export function GoalDetailDrawer({
 
   return (
     <>
-      <Drawer open={!!goal} onOpenChange={(open) => !open && onClose()} handleOnly>
+      <Drawer open={!!goal} onOpenChange={(open) => !open && onClose()}>
         <DrawerContent
-          handleOnly
           handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
           className="!rounded-t-[32px] !border-0"
           style={{

@@ -8,7 +8,7 @@
 client/components/
 ├── ui/             ← Shadcn UI (não mexer)
 ├── layout/         ← Componentes estruturais globais (AppLayout, ShotsLayout, ThemeProvider, FloatingActionMenu)
-├── shared/         ← Componentes reutilizáveis em 2+ domínios (ImageWithFallback, AnimatedLoading, PostIncentiveButton, ExerciseImage, DietImage, EmojiPicker, InlineCropPreview, RouteMap, CheckInCalendarGrid)
+├── shared/         ← Componentes reutilizáveis em 2+ domínios (ImageWithFallback, AnimatedLoading, PostIncentiveButton, ExerciseImage, DietImage, EmojiPicker, InlineCropPreview, RouteMap, CheckInCalendarGrid, ReportDrawer, ReportProblemDrawer, IncomingMessageToast)
 ├── modals/         ← Modais e Dialogs globais (PostCommentsDialog, PostLikesModal, FlowViewerModal, FlowCreationDialog)
 ├── post/           ← Componentes de post (PostCarousel)
 ├── shots/          ← Componentes de shots/flows (FlowCarousel)
@@ -46,7 +46,8 @@ client/components/
 - **Alvos de toque:** os ícones do header são `40×40` (eram `36×36`), aproximando-se do mínimo de 44pt da Apple HIG
 - **Toque no logo:** `navigate("/")` quando fora do feed; no feed, dispara `ritmofit-refresh-feed`. **Nunca** `window.location.href` — isso recarregava a WebView inteira (perde cache de feed, remonta a app, refaz auth), que era a maior quebra de fluidez do app
 - **Limite diário atingido:** o botão "Ignorar hoje" é `variant="ghost"` (ação terciária). Como ele derrota o propósito do limite, não pode ser o CTA em destaque — os botões de adiar (5/10/30 min) são os `outline`
-- **Vibração ao receber notificação:** A subscription realtime (`app-layout-notif-push`, canal `notifications`) dispara `hapticSuccess()` (`client/lib/haptics.ts`) para qualquer INSERT na tabela `notifications` do usuário logado — independentemente do tipo (follow, incentivo, comentário, duelo, reação) e da tela em que o usuário está, inclusive na própria tela de Notificações. Roda antes da checagem que pula a notificação local visual (`LocalNotifications.schedule`) quando o usuário já está em `/notificacoes`, então a vibração sempre ocorre mesmo quando o banner é suprimido. Sem efeito fora do runtime nativo (Capacitor) — `hapticSuccess()` é no-op no browser.
+- **Vibração ao receber notificação:** A subscription realtime (`app-layout-notif-push`, canal `notifications`) dispara `hapticSuccess()` (`client/lib/haptics.ts`) para qualquer INSERT na tabela `notifications` do usuário logado — independentemente do tipo (follow, incentivo, comentário, duelo, reação) e da tela em que o usuário está, inclusive na própria tela de Notificações. Roda antes da checagem que pula a notificação local visual (`LocalNotifications.schedule`) quando o usuário já está em `/notificacoes`, então a vibração sempre ocorre mesmo quando o banner é suprimido. Sem efeito fora do runtime nativo (Capacitor) — `hapticSuccess()` é no-op no browser. **Exceção: mensagem privada (`type 10`)** sai do handler antes da vibração — quem avisa DM em primeiro plano é o canal de `messages` (item seguinte), e vibrar nos dois seria aviso duplo da mesma mensagem
+- **Pop up de mensagem recebida (2026-08-06):** a subscription `app-layout-messages` (INSERT em `messages` com `following_id = usuário logado`) dispara `hapticLight()` — vibração leve, em qualquer tela — e publica no pub/sub `client/lib/incoming-message-toast.ts`, exibido pelo `IncomingMessageToast` montado ao lado dos outros overlays globais. O banner mostra avatar, apelido e preview da mensagem; toque abre `/comunidade?user=<remetente>`. **Suprimido** (só vibra) quando a conversa daquele remetente já está aberta na tela — `getActiveConversationUserId()`. Disparado **fora** do debounce de 1s que existe nesse handler: o debounce protege só a query do badge, o aviso precisa ser instantâneo. Detalhes em `docs/10-notificacoes.md`
 - **Refetch de badges no refresh do feed:** contadores são carregados no mount e mantidos via subscription realtime do Supabase (que pode cair silenciosamente em background no iOS). Para evitar badge desatualizado, o `AppLayout` também escuta os eventos `ritmofit-refresh-feed` (toque no logo/home) e `ritmofit-refresh-badges` (disparado pelo pull-to-refresh em `Index.tsx`) e refaz o fetch de `getUnreadMessageCountDb`/`getUnreadNotificationsCountDb` a cada um deles
 - **Invalidação no realtime dos badges (performance):** os handlers realtime chamam `invalidateQueryCache("unreadMsgCount"/"conversations")` **antes** de reler o contador. `getUnreadMessageCountDb`/`getUnreadNotificationsCountDb` são cacheadas (30s); sem invalidar, o evento realtime relia a própria entrada em cache e o badge só acertava quando o TTL vencia — o realtime virava no-op
 - **Tempo de tela bufferizado (performance):** a troca de rota **não vai mais ao banco**. `bufferScreenTime(tela, segundos)` acumula em `localStorage` (somado por dia+tela) e `flushScreenTimeDb(userId)` envia tudo num **único insert em lote** quando o app vai para background (`appStateChange`/`visibilitychange`), no logout (`settings-drawer`, antes do `signOut` por causa do RLS) e na abertura seguinte (resíduo de sessão encerrada abruptamente). Antes: 1 INSERT por navegação
@@ -109,6 +110,7 @@ Dialog para criar um novo story:
 - Modo texto/gradiente
 - **Enquadramento da mídia na tela de compartilhar:** pinça para redimensionar + arraste para mover (estilo Instagram). Imagem → composta via canvas (`bakeTransformedImage`); vídeo → enquadramento persistido em `flow.media_transform` (%), reaplicado no `FlowViewer`. A camada de gestos também bloqueia gestos nativos do iOS sobre o `<video>`
 - Preview/legenda antes de publicar
+- **Salvar rascunho** (botão abaixo de "Compartilhar flow"): grava o flow como ele está na **galeria do celular**, sem publicar. Imagem/gradiente são compostos num canvas (`buildDraftCanvas` → `bakeTransformedCanvas` + `drawTextsOnCanvas` / `paintCssGradient`); vídeo é salvo como está, sem as frases. A escrita usa `saveMediaToPhotos` (`client/lib/native-media.ts`)
 - Botão confirmar: chama `createStoryDb`
 
 ---
@@ -343,6 +345,32 @@ Exibe badges/conquistas do usuário:
 
 ---
 
+### IncomingMessageToast (2026-08-06)
+**Arquivo:** `client/components/shared/incoming-message-toast.tsx`
+**Usado em:** `AppLayout` (montado uma única vez, aparece sobre qualquer tela)
+
+Pop up glass no topo avisando que chegou uma mensagem privada com o app aberto:
+- **Conteúdo:** avatar + apelido do remetente + preview da mensagem (via `conversationPreviewText`, o mesmo helper da lista de conversas — resolve `[audio]:`, `[image]:`, `[post]:`, `[shot]:` e respostas `↩`)
+- **Entrada:** pub/sub `client/lib/incoming-message-toast.ts`, alimentado pelo canal realtime de `messages` do `AppLayout` — nunca por props
+- **Saída:** some em 5s, arrasta para cima para dispensar, toque abre `/comunidade?user=<remetente>`
+- **Safe area:** `top: max(12px, env(safe-area-inset-top))`, `z-[9999]`, wrapper `pointer-events-none` com o botão `pointer-events-auto`
+- A **vibração não fica aqui** — mora no `AppLayout`, porque deve ocorrer inclusive quando o banner é suprimido (conversa já aberta)
+
+---
+
+### BannedScreen (2026-08-11)
+**Arquivo:** `client/components/shared/banned-screen.tsx`
+**Usado em:** `RequireAuth` (`client/App.tsx`) — substitui o `<Outlet/>` inteiro quando a conta está banida
+
+Tela cheia de conta suspensa: ícone `ShieldBan`, título, explicação e botão "Sair" (`resetSupabaseAuth`). Textos traduzidos (`banned_title`, `banned_description`).
+
+- **A trava real não é esta tela** — é o `banned_until` do GoTrue, gravado por `admin_set_banned` (ver `docs/18-admin.md`). Ela cobre a janela em que o access token já emitido ainda vale (até 1h).
+- O guard `useBanGuard` **não bloqueia o primeiro render**: consulta `is_current_user_banned()` em background e só então troca a tela. Travar o boot atrás de uma ida ao servidor penalizaria todo mundo pelo caso raro.
+- `ritmofit-db` entra por **import dinâmico** dentro do guard — `App.tsx` é o chunk de entrada e não importa o módulo em nenhum outro ponto, de propósito.
+- Não redireciona para `/login`: sair sem explicação vira "o app parou de funcionar" no review da App Store.
+
+---
+
 ### AnimatedLoading
 **Arquivo:** `client/components/shared/animated-loading.tsx`
 
@@ -480,6 +508,80 @@ Monitora conectividade:
 
 ---
 
+### monitoring.ts (captura de erros — 2026-08-05)
+**Arquivos:** `client/lib/monitoring.ts`, `client/App.tsx` (ErrorBoundary + `MonitoringBridge`), `client/components/shared/report-problem-drawer.tsx`
+
+**Por que existe:** o app roda dentro de um WKWebView. Um erro de JavaScript **não é um crash do processo iOS** — o relatório automático da Apple (Xcode Organizer / App Store Connect) nunca enxerga esses erros, que são a esmagadora maioria dos bugs reais do app. Sem esta camada, um erro em produção só chegava até nós como review na loja.
+
+**SDK:** `@sentry/capacitor` (nativo + JS) no device, `@sentry/react` no navegador. Configurado por `VITE_SENTRY_DSN`; **sem a variável o módulo inteiro vira no-op** e o Vite tree-shaka o SDK do bundle (custo zero quando não configurado; ~36 kB gzip quando ativo).
+
+| Função | Uso |
+|---|---|
+| `initMonitoring()` | Chamada no topo de `App.tsx`, **antes de qualquer render** — erro no primeiro frame também precisa chegar |
+| `setMonitoringUser(id)` | Só o `id`, nunca e-mail/nome/IP (ver privacidade abaixo) |
+| `setMonitoringScreen(path)` | Tag `screen` + breadcrumb de navegação |
+| `reportHandledError(err, where)` | Erro que o app **já tratou** (`catch` que só mostra toast). Sem isto, "deu erro" para o usuário = "nunca aconteceu" para nós |
+| `reportFatalError(err, stack)` | Usada pelo ErrorBoundary; devolve o `eventId` exibido na tela |
+| `sendProblemReport({...})` | Relato manual do usuário, tag `report_source: in_app`, fingerprint único por relato |
+| `flushMonitoring()` | Garante que o evento saiu antes de fechar a tela |
+
+**Filtro de ruído (`ignoreErrors` + `beforeSend`):** rede indisponível (`Failed to fetch`, `Load failed`, …) **não é bug** — o app tem modo offline e já trata isso com a fila `lk:outbox`. Também são descartados aborts intencionais, `ResizeObserver loop`, `play() request was interrupted` (Shots/flows) e erros de sessão expirada que o app já resolve redirecionando ao login. Sem esse filtro a cota gratuita do Sentry queima em dias.
+
+**Privacidade (relevante para a nutrition label da App Store):** nenhum evento automático carrega e-mail, nome ou IP — `beforeSend` apaga esses campos e `sendDefaultPii: false`. O e-mail só sai do app quando a própria pessoa o digita no `ReportProblemDrawer`, que exibe a lista do que será enviado junto antes do envio.
+
+**Source maps:** `vite.config.ts` só ativa o `@sentry/vite-plugin` quando `SENTRY_AUTH_TOKEN` + `SENTRY_ORG` + `SENTRY_PROJECT` estão no ambiente (lugar delas: env vars do Appflow). Nesse modo os `.map` são gerados, enviados e **apagados do `dist`** — sem isso viajariam dentro do binário e entregariam o código-fonte. Sem as variáveis o build é idêntico ao de antes, só com stack trace minificado. Falha de upload nunca reprova o build.
+
+**Versão:** `import.meta.env.VITE_APP_VERSION` é lida do `MARKETING_VERSION` do `project.pbxproj` em tempo de build — não existe um segundo lugar a manter em sincronia.
+
+---
+
+### ErrorBoundary raiz (`client/App.tsx`)
+
+Última linha de defesa: um erro de render derrubaria a árvore inteira e deixaria tela branca. Mostra uma tela explicável com **"Tentar novamente"** (reseta o state) e **"Reiniciar o app"** (`location.reload()`), respeita safe area, e reporta via `reportFatalError` exibindo os 8 primeiros caracteres do `eventId` — é o código que o usuário cita no suporte e que nos leva direto ao evento.
+
+O **stack trace só é renderizado em `import.meta.env.DEV`**. Em produção seria um paredão de código para o usuário — e um risco de rejeição na review da Apple. Como o boundary vive **fora** do `LanguageProvider`, o idioma é lido direto de `localStorage["ritmofit-language"]` e traduzido com a função `t(lang, key)` standalone do `i18n.ts`.
+
+**`MonitoringBridge`** (dentro do `BrowserRouter` e do `AuthProvider`) sincroniza usuário e rota atual para o Sentry. **`unhandledrejection`** mantém a supressão de `Failed to fetch` do Supabase e reporta todo o resto — antes só fazia `console.error`, que no device não existe para ninguém.
+
+---
+
+### ReportProblemDrawer
+**Arquivo:** `client/components/shared/report-problem-drawer.tsx`
+
+Relato manual de bug. **Por que existe além da captura automática:** o SDK só pega erro que *estoura*. Boa parte dos bugs não estoura — o treino não salvou, a foto subiu girada, o contador veio errado. Para o usuário "está bugado"; para o SDK, nunca aconteceu nada.
+
+| Campo | Regra |
+|---|---|
+| O que aconteceu? | Textarea, mín. 10 caracteres, máx. 1000 |
+| E-mail para contato | Opcional, pré-preenchido com o e-mail da conta |
+| Contexto técnico | Anexado sozinho e **exibido antes do envio**: versão + build (`CapApp.getInfo()`), tela (`location.pathname`), plataforma, idioma, online, user agent, viewport |
+
+Bloqueia o envio quando `!navigator.onLine` (senão o relato se perderia em silêncio e o usuário acharia que enviou) e aguarda `flushMonitoring()` antes de fechar. Padrão visual e de teclado idêntico aos demais drawers (glass, `useKeyboardAwareHeight`, `paddingBottom` com `--keyboard-height`).
+
+---
+
+### ReportDrawer (denúncia de conteúdo)
+**Arquivo:** `client/components/shared/report-drawer.tsx`
+
+Drawer único de denúncia usado pelo Feed e pela tela de Shots. Seletor de motivo (radio) + botões Cancelar / Enviar denúncia.
+
+| Prop | Descrição |
+|---|---|
+| `type` | `"user"` \| `"post"` \| `"shot"` — define título, subtítulo e a tabela de destino |
+| `target` | `{ id, userId, userName, description? }` — `id` é o post/shot denunciado, `userId` é o autor |
+
+| `type` | Título | Função DB | Tabela |
+|---|---|---|---|
+| `user` | Denunciar usuário | `reportUserDb(userId, reason)` | `user_complaint` |
+| `post` | Denunciar post | `reportPostDb(postId, reason)` | `post_complaint` |
+| `shot` | Denunciar shots | `reportShotDb(shotId, reason)` | `shots_complaint` |
+
+- Motivos: Conteúdo inadequado, Spam, Assédio ou bullying, Violação de direitos autorais, Outro
+- **Rótulos traduzidos (PT/EN), valor gravado sempre em PT** — a fila de moderação do Admin (`admin_complaints_view`) precisa de `reason` comparável entre usuários de idiomas diferentes
+- Todas as strings do drawer passaram a usar `t()` em 2026-08-06 (antes eram hardcoded em PT)
+
+---
+
 ### i18n.ts / language-context.tsx
 **Arquivos:** `client/lib/i18n.ts`, `client/lib/language-context.tsx`
 
@@ -527,14 +629,20 @@ Este hook é a peça que faltava. Ao focar um campo / abrir o teclado, ele rola 
 
 > **Referências pré-existentes** com a mesma lógica inline (não migradas, funcionam): `workout-session-dialog.tsx` (overlay de registrar treino) e `Login.tsx` (form de cadastro rolável). Código novo deve usar o hook.
 
-#### `handleOnly` — fechar só pela alça (2026-07-16)
+#### Swipe para fechar — vale no sheet inteiro (2026-08-06)
 
-Prop opt-in (`handleOnly`) no `<Drawer>` **e** no `<DrawerContent>`. Quando ligada, arrastar para baixo só fecha o drawer a partir da **alça** (a pílula do topo); um swipe no **corpo** (rolar a lista, tocar numa opção, digitar) **nunca** dispara o dismiss. Resolve o miss-click de fechar sem querer durante a interação — relatado nos drawers de criar rotina de dieta/hábito.
+**Regra:** arrastar para baixo a partir de **qualquer ponto do corpo** do drawer fecha o drawer. Não existe "zona de fechar" no topo — o gesto é o mesmo que o iOS ensina em qualquer sheet, independente de onde o dedo está. Duas coisas quebravam isso e foram removidas:
 
-- **Mecanismo (vaul):** com `handleOnly`, o `onPointerDown`/`onPointerMove` do corpo do sheet retorna cedo (`if (handleOnly) return`), então o corpo não inicia arraste; só o `<Drawer.Handle>` inicia (via `onPress`). Por isso o `DrawerContent`, no modo `handleOnly`, renderiza a alça como **`DrawerPrimitive.Handle`** (que o vaul reconhece) em vez do `<div>` decorativo. As demais formas de fechar continuam: **tocar no overlay**, botões **Cancelar/fechar**, e o **voltar** do Android/gesto.
-- **Aparência:** o vaul injeta estilos default de `[data-vaul-handle]` em runtime, que venceriam utilitárias de igual especificidade; a pílula é forçada com `!` (`!h-1 !w-[38px] !rounded-full !bg-white/25 !opacity-100`), e o `handleClassName` segue mandando na margem. `preventCycle`: sem snap points, o clique na alça não faz nada.
-- **É opt-in de propósito** (default `false`): não muda os ~40 drawers do app. Ligado nos de digitação/seleção da tela de Metas: `create-wizard-drawer`, `food-diary-card`, `goal-detail-drawer`, `routine-detail-drawer`, `goal-share-drawer`. Para ligar em outro drawer, passar `handleOnly` nos **dois** (`<Drawer>` e `<DrawerContent>`).
-- **Bônus:** como o corpo deixa de capturar o gesto para arraste, o **scroll interno** fica mais confiável.
+| Causa | Onde estava | Correção |
+|---|---|---|
+| `handleOnly` no `<Drawer>` + `<DrawerContent>` | `create-wizard-drawer`, `food-diary-card`, `goal-detail-drawer`, `routine-detail-drawer`, `goal-share-drawer` | prop removida — só a pílula (~38px) arrastava |
+| `onPointerDown={(e) => e.stopPropagation()}` no container rolável do corpo | `Store` (3 drawers de promoção), `Shots` (comentários), `promotion-comments-drawer`, `post-comments-dialog`, `item-detail-drawer`, `routine-list-drawer` | handler removido — o `pointerdown` nunca chegava ao `DrawerContent`, então o vaul não iniciava arraste |
+
+- **O vaul já protege o scroll sozinho** — não é preciso ajudá-lo. O `shouldDrag` cancela o dismiss quando o container rolável **não está no topo** (`scrollTop !== 0`) e quando o arraste é para **cima**. Por isso remover o `stopPropagation` não quebra rolagem: o gesto de rolar continua rolando, e só o "puxar para baixo já no topo" fecha.
+- **Exceção 1 — campos de formulário (automática):** o `DrawerContent` marca `input`/`textarea`/`[contenteditable]` com **`data-vaul-no-drag`** no *capture* do `pointerdown` (roda antes do handler do próprio vaul). Puxar para baixo a partir de um campo — tipicamente com o teclado aberto — não fecha o drawer nem joga fora o que estava sendo digitado. Vale para **todos** os drawers e para campos renderizados dinamicamente; não é preciso anotar campo por campo.
+- **Exceção 2 — widgets com arraste próprio (manual):** quem tem gesto próprio leva `data-vaul-no-drag` no elemento: `inline-crop-preview`, o frame do `image-cropper-drawer` e o `Slider` (`ui/slider.tsx`). Sem isso, arrastar a foto arrastaria o sheet junto. **Ao criar qualquer área com arraste próprio dentro de um drawer, adicione o atributo.**
+- **`handleOnly` continua existindo** como escape hatch no `<Drawer>` + `<DrawerContent>` (default `false`, **desligado em todo o app**). Nesse modo o `onPointerDown`/`onPointerMove` do corpo retorna cedo e só o `<DrawerPrimitive.Handle>` arrasta — por isso o `DrawerContent`, com `handleOnly`, renderiza a alça como `Drawer.Handle` (a única que o vaul reconhece) em vez do `<div>` decorativo, com a pílula forçada por `!` (o vaul injeta estilos default de `[data-vaul-handle]` em runtime). Preferir sempre `data-vaul-no-drag` cirúrgico a ligar `handleOnly`.
+- As outras formas de fechar seguem inalteradas: **tocar no overlay**, botões **Cancelar/fechar** e o **voltar** do sistema.
 
 #### Empilhamento (z-index) — regra do overlay dentro do lift wrapper (2026-07-13)
 

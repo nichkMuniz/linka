@@ -48,6 +48,8 @@ import { LocalNotifications } from "@capacitor/local-notifications";
 import { useLanguage } from "@/lib/language-context";
 import { videoPosterSrc } from "@/lib/video-thumb";
 import { WeightHistoryDrawer } from "@/components/shared/weight-history-drawer";
+import { ReportProblemDrawer } from "@/components/shared/report-problem-drawer";
+import { isMonitoringEnabled } from "@/lib/monitoring";
 import { usePremium } from "@/lib/premium-context";
 import { SubscriptionDrawer } from "@/components/profile/subscription-drawer";
 import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
@@ -75,6 +77,7 @@ import {
   Repeat,
   Crown,
   LineChart,
+  Bug,
 } from "lucide-react";
 import {
   isBiometricSupported,
@@ -363,6 +366,9 @@ export function SettingsDrawer({
       setIsSavingCommercial(false);
     }
   };
+
+  // --- Relatar um problema ---
+  const [isReportProblemOpen, setIsReportProblemOpen] = React.useState(false);
 
   // --- Language ---
   const [isLanguageOpen, setIsLanguageOpen] = React.useState(false);
@@ -2039,6 +2045,19 @@ export function SettingsDrawer({
               </DrawerContent>
             </Drawer>
 
+            {/* Relatar um problema — só aparece com o Sentry configurado, senão
+                seria um formulário sem destino (ver client/lib/monitoring.ts). */}
+            {isMonitoringEnabled() && (
+              <Button
+                onClick={() => setIsReportProblemOpen(true)}
+                variant="outline"
+                className="gap-2 justify-between"
+              >
+                <span>{t("report_problem_title")}</span>
+                <Bug className="h-4 w-4" />
+              </Button>
+            )}
+
             {/* Logout */}
             <Button onClick={handleLogout} variant="destructive" className="gap-2">
               <LogOut className="h-4 w-4" />
@@ -2064,6 +2083,15 @@ export function SettingsDrawer({
           if (pendingPhotoCropSrc) URL.revokeObjectURL(pendingPhotoCropSrc);
           setPendingPhotoCropSrc(null);
         }}
+      />
+
+      {/* Relatar um problema — fora do <Drawer> de settings de propósito: o vaul
+          aplica transform no DrawerContent, e um drawer aninhado aqui herdaria
+          esse containing block. */}
+      <ReportProblemDrawer
+        open={isReportProblemOpen}
+        onOpenChange={setIsReportProblemOpen}
+        defaultEmail={userEmail}
       />
 
       {/* Cropper — commercial logo */}

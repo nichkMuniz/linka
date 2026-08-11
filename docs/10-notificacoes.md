@@ -212,7 +212,9 @@ Quando a notificação chega com o **app aberto**, quem mostra o banner não é 
 
 > **Fonte única do banner em foreground (2026-07-20):** `capacitor.config.ts` passou a ter `PushNotifications.presentationOptions: []`. Assim o push remoto (APNs) **não** apresenta banner com o app em primeiro plano — só em background/fechado (o `presentationOptions` só rege o foreground). Antes, com `["badge","sound","alert"]`, o push remoto **também** aparecia em foreground, duplicando o banner local do `AppLayout` e, pior, impedindo qualquer supressão por tela. Agora o `AppLayout` é a fonte única de banner em foreground — é ele que decide mostrar ou não. **Exige `npx cap sync ios` + rebuild no Appflow** para o `capacitor.config.json` nativo ser atualizado.
 >
-> **Mensagem da conversa aberta só vibra (2026-07-20):** o handler do `AppLayout` **suprime o banner** de uma mensagem nova (type 10) quando o remetente é o contato cuja conversa está **aberta na tela** — o usuário já vê a mensagem chegar em tempo real, então o celular apenas **vibra** (o `hapticSuccess` roda antes, para toda notificação). Em qualquer outra tela (feed, perfil…) ou com o app em background, o banner aparece normalmente. A tela aberta é publicada por `client/lib/active-conversation.ts` (`setActiveConversationUserId`, gravado/limpo pela `Community`) e lida no handler via `getActiveConversationUserId()`; a comparação é direta porque a linha type 10 traz o remetente em `follower_id`.
+> **Mensagem privada (type 10) saiu deste caminho em 2026-08-06:** com o app aberto, DM não passa mais pelo `LocalNotifications` — é o **pop up in-app** `IncomingMessageToast` que avisa, disparado pelo Realtime da tabela `messages` (ver seção abaixo). O handler de `notifications` **retorna antes de qualquer coisa** quando `type === 10` (inclusive antes do `hapticSuccess`), senão a mesma mensagem avisaria duas vezes — uma por linha de `notifications`, outra por linha de `messages`. Nada muda em background/app fechado: lá continua valendo o push remoto da edge function.
+>
+> **Histórico (2026-07-20):** antes disso o type 10 usava o banner local e era **suprimido** quando o remetente era o contato da conversa aberta (só vibrava). A regra sobreviveu, apenas mudou de lugar — hoje mora no handler de `messages`.
 
 **Correção 2026-07-21:** esse banner tinha um mapa próprio, com título e corpo **só dos tipos 1–7**, e o corpo nem citava quem tinha originado ("Alguém reagiu à sua postagem"). Tudo fora dessa faixa — promoção, mensagem, marcação, check-in de duelo — caía em "Nova notificação 🔔 / Você tem uma nova notificação no LinKa", e o usuário precisava abrir o app para descobrir o que era.
 
@@ -229,6 +231,26 @@ Agora título, corpo e deep link vêm de `client/lib/notification-copy.ts`:
 - **Os dois caminhos são independentes:** a edge function (Deno) não enxerga o `i18n.ts`. Ao mudar texto de um lado, espelhe no outro — o comentário no topo dos dois arquivos registra isso.
 - **Idioma:** o efeito das subscriptions roda uma vez (`[]`), então `t` é lido de uma **ref** (`tRef`) — capturado direto, o banner ficaria congelado no idioma ativo na montagem do layout.
 - **Chaves removidas:** `notif_body_1`…`notif_body_7` e `notif_title_post_tag` saíram do `i18n.ts` — eram os textos genéricos ("Alguém comentou na sua postagem"), sem uso depois da mudança.
+
+---
+
+## Pop up de mensagem recebida com o app aberto (2026-08-06)
+
+Antes, uma mensagem que chegasse enquanto o usuário navegava (feed, metas, perfil…) só produzia o banner **do sistema** (`LocalNotifications`) — que depende de permissão de notificação concedida e some para dentro da Central de Notificações. Agora existe um **pop up dentro do app**, independente de permissão do iOS.
+
+| Peça | Papel |
+|---|---|
+| `client/lib/incoming-message-toast.ts` | Pub/sub (`showIncomingMessageToast` / `subscribeIncomingMessageToast`), mesmo par emissor/exibidor do `RoutineCompletedToast` |
+| `client/components/shared/incoming-message-toast.tsx` | O banner glass no topo: avatar + apelido + preview da mensagem |
+| `app-layout.tsx` (canal `app-layout-messages`) | Emissor: vibra e publica no pub/sub a cada INSERT em `messages` |
+
+**Fluxo:** INSERT em `messages` com `following_id = eu` → `hapticLight()` (vibração leve, em qualquer tela) → se a conversa daquele remetente **não** está aberta, `showIncomingMessageToast({ senderId, text })` → o componente busca apelido/foto (`getUserProfileDb`, cacheado) e sobe o banner.
+
+- **Por que o gatilho é `messages` e não a notificação type 10:** só a linha de `messages` carrega o **texto**. Com ela o banner mostra o preview real ("bora treinar?", "🎤 Áudio") em vez do genérico "Fulano te enviou uma mensagem". Prefixos do protocolo de chat e respostas (`↩ …`) são resolvidos por `conversationPreviewText` — o mesmo helper da lista de conversas.
+- **Vibração antes da supressão:** o `hapticLight` roda mesmo quando o banner é suprimido (conversa aberta) — ali o usuário já vê a mensagem chegar, mas o aviso tátil continua fazendo sentido. A supressão continua vindo de `getActiveConversationUserId()`.
+- **Comportamento:** some sozinho em 5s, dispensa arrastando para cima, e o toque abre `/comunidade?user=<remetente>`. Uma mensagem nova durante o banner **substitui** o conteúdo e reinicia o timer (só o aviso mais recente fica na tela).
+- **Idioma:** o efeito de assinatura roda uma vez (`[]`), então `t` vem de uma **ref** — mesmo motivo do banner de notificações.
+- **Depende do Realtime de `messages`:** é a mesma assinatura que alimenta o badge da Comunidade. Sem a tabela na publicação `supabase_realtime` (migração `20260720-messages-realtime.sql`) nenhum evento chega e o pop up nunca aparece.
 
 ---
 

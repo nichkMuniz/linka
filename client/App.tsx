@@ -2,30 +2,148 @@ import * as React from "react";
 
 import "./global.css";
 
+import { t as translate, type Language, type TranslationKey } from "@/lib/i18n";
+import {
+  APP_VERSION,
+  initMonitoring,
+  reportFatalError,
+  reportHandledError,
+  setMonitoringScreen,
+  setMonitoringUser,
+} from "@/lib/monitoring";
+
+// Antes de qualquer render: erro no primeiro frame também precisa ser capturado.
+initMonitoring();
+
+/**
+ * O boundary vive FORA do LanguageProvider (ele embrulha o <App/> inteiro, que
+ * é quem monta os providers), então não dá para usar `useLanguage`. Lê o idioma
+ * da mesma chave que o provider persiste — ver language-context.tsx.
+ */
+function boundaryLanguage(): Language {
+  try {
+    return localStorage.getItem("ritmofit-language") === "en" ? "en" : "pt";
+  } catch {
+    return "pt";
+  }
+}
+
+/**
+ * Última linha de defesa: um erro de render derrubaria a árvore inteira e
+ * deixaria a tela branca. Aqui ele vira uma tela explicável, com caminho de
+ * saída, e — o principal — é reportado. Sem o reporte, uma tela branca em
+ * produção é invisível para nós.
+ */
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
-  { error: Error | null }
+  { error: Error | null; eventId?: string }
 > {
   constructor(props: { children: React.ReactNode }) {
     super(props);
     this.state = { error: null };
   }
+
   static getDerivedStateFromError(error: Error) {
     return { error };
   }
+
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    this.setState({ eventId: reportFatalError(error, info.componentStack) });
+  }
+
   render() {
-    if (this.state.error) {
-      return (
-        <div style={{ padding: 24, color: "#fff", background: "#111", minHeight: "100dvh", fontFamily: "monospace" }}>
-          <p style={{ fontWeight: "bold", fontSize: 16, marginBottom: 8 }}>App error</p>
-          <p style={{ fontSize: 13, color: "#f87171" }}>{this.state.error.message}</p>
-          <pre style={{ fontSize: 11, marginTop: 12, color: "#aaa", whiteSpace: "pre-wrap" }}>
-            {this.state.error.stack}
-          </pre>
+    const { error, eventId } = this.state;
+    if (!error) return this.props.children;
+
+    const t = (key: TranslationKey) => translate(boundaryLanguage(), key);
+
+    return (
+      <div
+        style={{
+          minHeight: "100dvh",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 12,
+          textAlign: "center",
+          background: "linear-gradient(rgba(30,28,40,1),rgba(14,13,20,1))",
+          color: "#fff",
+          paddingTop: "max(24px, env(safe-area-inset-top))",
+          paddingBottom: "max(24px, env(safe-area-inset-bottom))",
+          paddingLeft: "max(24px, env(safe-area-inset-left))",
+          paddingRight: "max(24px, env(safe-area-inset-right))",
+        }}
+      >
+        <span style={{ fontSize: 44 }} aria-hidden>
+          ⚠️
+        </span>
+        <p style={{ fontSize: 18, fontWeight: 600 }}>{t("app_error_title")}</p>
+        <p style={{ fontSize: 14, color: "rgba(255,255,255,.6)", maxWidth: 320, lineHeight: 1.5 }}>
+          {t("app_error_desc")}
+        </p>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8, width: "100%", maxWidth: 280 }}>
+          <button
+            onClick={() => this.setState({ error: null, eventId: undefined })}
+            style={{
+              padding: "12px 20px",
+              borderRadius: 9999,
+              border: "none",
+              fontSize: 15,
+              fontWeight: 600,
+              color: "#fff",
+              background: "linear-gradient(135deg,#5b8cff,#9d6bff)",
+            }}
+          >
+            {t("app_error_retry")}
+          </button>
+          <button
+            onClick={() => window.location.reload()}
+            style={{
+              padding: "12px 20px",
+              borderRadius: 9999,
+              fontSize: 15,
+              fontWeight: 500,
+              color: "rgba(255,255,255,.75)",
+              background: "rgba(255,255,255,.08)",
+              border: "1px solid rgba(255,255,255,.12)",
+            }}
+          >
+            {t("app_error_reload")}
+          </button>
         </div>
-      );
-    }
-    return this.props.children;
+
+        {/* O código é o que o usuário consegue citar no suporte, e nos leva
+            direto ao evento no painel do Sentry. */}
+        {eventId && (
+          <p style={{ fontSize: 11, marginTop: 12, color: "rgba(255,255,255,.35)", fontFamily: "monospace" }}>
+            {t("app_error_code").replace("{code}", eventId.slice(0, 8))} · v{APP_VERSION}
+          </p>
+        )}
+
+        {/* Stack só em desenvolvimento: em produção seria um paredão de código
+            para o usuário — e um convite à rejeição na review da Apple. */}
+        {import.meta.env.DEV && (
+          <pre
+            style={{
+              fontSize: 11,
+              marginTop: 16,
+              color: "#f87171",
+              whiteSpace: "pre-wrap",
+              textAlign: "left",
+              maxHeight: "40vh",
+              overflow: "auto",
+              width: "100%",
+            }}
+          >
+            {error.message}
+            {"\n\n"}
+            {error.stack}
+          </pre>
+        )}
+      </div>
+    );
   }
 }
 
@@ -44,6 +162,7 @@ import { App as CapApp } from "@capacitor/app";
 import { StatusBar, Style as StatusBarStyle } from "@capacitor/status-bar";
 
 import { AppLayout } from "@/components/layout/app-layout";
+import { BannedScreen } from "@/components/shared/banned-screen";
 import { ThemeProvider } from "@/components/layout/theme-provider";
 import { LanguageProvider } from "@/lib/language-context";
 import { WorkoutProvider } from "@/lib/workout-context";
@@ -251,9 +370,48 @@ function AuthLoadingScreen() {
   return <div className="min-h-dvh bg-background" />;
 }
 
+/**
+ * Conta banida pela moderação.
+ *
+ * Não bloqueia o primeiro render de propósito: a checagem é uma ida ao servidor
+ * e travar o app inteiro atrás dela pioraria o cold start de **todo mundo** para
+ * pegar o caso raríssimo do banido. Quem manda o usuário embora de fato é o
+ * `banned_until` do GoTrue (ver `20260811-admin-ban-user.sql`); esta tela é o
+ * aviso imediato, enquanto o access token que ele já tem não expira.
+ */
+function useBanGuard(userId: string | null): boolean {
+  const [banned, setBanned] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!userId) {
+      setBanned(false);
+      return;
+    }
+
+    let active = true;
+    // Import dinâmico: `ritmofit-db` é enorme e o App.tsx é o chunk de entrada —
+    // um import estático aqui atrasaria o primeiro frame de todo mundo.
+    import("@/lib/ritmofit-db")
+      .then(({ isCurrentUserBannedDb }) => isCurrentUserBannedDb())
+      .then((isBanned) => {
+        if (active) setBanned(isBanned);
+      })
+      .catch(() => {
+        // Sem resposta = sem bloqueio; o GoTrue ainda barra o refresh.
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [userId]);
+
+  return banned;
+}
+
 function RequireAuth() {
   const location = useLocation();
   const { user, loading } = useAuth();
+  const banned = useBanGuard(user?.id ?? null);
 
   // Register for remote push notifications when user is authenticated
   usePushNotifications(user?.id ?? null);
@@ -270,6 +428,8 @@ function RequireAuth() {
     );
   }
 
+  if (banned) return <BannedScreen />;
+
   return <Outlet />;
 }
 
@@ -282,6 +442,26 @@ function RequireAdmin() {
   if (!ADMIN_USER_IDS.includes(user.id)) return <Navigate to="/" replace />;
 
   return <Outlet />;
+}
+
+/**
+ * Alimenta o Sentry com o contexto que transforma "quebrou" em "quebrou na tela
+ * X, para N usuários": quem está logado e em que rota o erro aconteceu.
+ * Renderiza dentro do BrowserRouter e do AuthProvider — precisa dos dois.
+ */
+function MonitoringBridge() {
+  const { user } = useAuth();
+  const location = useLocation();
+
+  React.useEffect(() => {
+    setMonitoringUser(user?.id ?? null);
+  }, [user?.id]);
+
+  React.useEffect(() => {
+    setMonitoringScreen(location.pathname);
+  }, [location.pathname]);
+
+  return null;
 }
 
 function GlobalFABContainer() {
@@ -318,8 +498,11 @@ const App = () => {
         return;
       }
 
-      // Let other errors propagate
+      // Todo o resto é bug de verdade. `console.error` sozinho não existe para
+      // ninguém no device — sem este reporte, todo erro assíncrono que escapa
+      // some sem deixar rastro. (O filtro de ruído fica no beforeSend.)
       console.error("[Unhandled rejection]", reason);
+      reportHandledError(reason, "unhandled-rejection");
     };
 
     window.addEventListener("unhandledrejection", handleUnhandledRejection);
@@ -341,6 +524,7 @@ const App = () => {
               <Toaster />
               <Sonner />
               <BrowserRouter>
+                <MonitoringBridge />
                 <DeepLinkHandler />
                 <GlobalFABContainer />
                 <Routes>

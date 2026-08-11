@@ -8318,6 +8318,30 @@ export async function reportPostDb(postId: string, reason: string): Promise<bool
   }
 }
 
+export async function reportShotDb(shotId: string, reason: string): Promise<boolean> {
+  if (!supabase) throw new Error("Supabase não configurado");
+
+  try {
+    const viewer = await getViewer();
+    if (!viewer) throw new Error("Usuário não autenticado");
+
+    const { error } = await supabase
+      .from("shots_complaint")
+      .insert({
+        user_id: viewer.id,
+        shots_id: shotId,
+        reason: reason,
+        created_at: new Date().toISOString(),
+      });
+
+    if (error) throw error;
+    return true;
+  } catch (err: any) {
+    console.error("Error reporting shot:", err);
+    throw err;
+  }
+}
+
 // Check-in Functions
 export type CheckIn = {
   id: string;
@@ -9678,6 +9702,7 @@ export async function getRecentCompletedRoutinesDb(userId: string): Promise<Comp
       .select(`
         id,
         user_workout_id,
+        routine_id,
         workout_id,
         kilos,
         volume,
@@ -9690,46 +9715,116 @@ export async function getRecentCompletedRoutinesDb(userId: string): Promise<Comp
 
     if (error || !data || data.length === 0) return [];
 
-    // Get all distinct user_workout_ids to fetch routine names
+    // Nome da rotina: `user_workouts.name` é o nome denormalizado em CADA
+    // exercício da rotina; `routines.name` é a fonte de verdade e serve de
+    // reserva quando a linha do exercício está sem nome (rotina antiga, item
+    // criado sem `name`). Só entram no mapa os nomes de verdade — um nome
+    // vazio tem que cair para a reserva seguinte, não virar "Rotina de
+    // Exercícios" antes da hora.
     const userWorkoutIds = [...new Set((data as any[]).map((r: any) => r.user_workout_id).filter(Boolean))];
+    const routineIds = [...new Set((data as any[]).map((r: any) => r.routine_id).filter((v: any) => v != null))];
 
+    const itemNameMap: Record<string, string> = {};
     const routineNameMap: Record<string, string> = {};
-    if (userWorkoutIds.length > 0) {
-      const { data: uwData } = await supabase
-        .from("user_workouts")
-        .select("id, name")
-        .in("id", userWorkoutIds);
-      (uwData ?? []).forEach((uw: any) => {
-        routineNameMap[String(uw.id)] = uw.name || "Rotina de Exercícios";
-      });
+    await Promise.all([
+      (async () => {
+        if (userWorkoutIds.length === 0) return;
+        const { data: uwData } = await supabase!
+          .from("user_workouts")
+          .select("id, name")
+          .in("id", userWorkoutIds);
+        (uwData ?? []).forEach((uw: any) => {
+          if (uw.name) itemNameMap[String(uw.id)] = String(uw.name);
+        });
+      })(),
+      (async () => {
+        if (routineIds.length === 0) return;
+        const { data: rData } = await supabase!
+          .from("routines")
+          .select("id, name")
+          .in("id", routineIds);
+        (rData ?? []).forEach((r: any) => {
+          if (r.name) routineNameMap[String(r.id)] = String(r.name);
+        });
+      })(),
+    ]);
+
+    // ── Sessões ───────────────────────────────────────────────────────────
+    // Uma sessão = as séries gravadas em um mesmo "Finalizar": todas recebem
+    // `sessionBaseMs + índice` em ms, portanto ficam a poucos ms umas das
+    // outras (mesma premissa de getLastWorkoutSessionSeriesDb). Agrupar só
+    // por NOME, como antes, quebrava uma única execução em dois cards sempre
+    // que parte das séries não resolvia o nome — o caso mais comum é o
+    // exercício AVULSO adicionado durante o treino, que grava
+    // `user_workout_id` NULL e caía num segundo card "Rotina de Exercícios".
+    // Clusterizar pelo carimbo mantém a execução inteira num card só.
+    const SESSION_GAP_MS = 60_000; // >> rajada de uma execução, << intervalo entre execuções
+    type HistSession = { rows: any[]; endMs: number };
+    const sessions: HistSession[] = [];
+    const sortedRows = (data as any[])
+      .slice()
+      .sort((a, b) => new Date(a.date_completed).getTime() - new Date(b.date_completed).getTime());
+
+    for (const row of sortedRows) {
+      const raw = new Date(row.date_completed).getTime();
+      const current = sessions[sessions.length - 1];
+      // Data inválida não pode abrir uma sessão nova a cada linha: cola na
+      // sessão em aberto (ou começa a primeira).
+      const ms = Number.isFinite(raw) ? raw : current?.endMs ?? 0;
+      if (current && ms - current.endMs <= SESSION_GAP_MS) {
+        current.rows.push(row);
+        current.endMs = ms;
+      } else {
+        sessions.push({ rows: [row], endMs: ms });
+      }
     }
 
-    // Group by (routineName + date day) to avoid duplicates when the user has
-    // multiple user_workouts rows with the same name (e.g. two "Peito" entries).
+    // Dia LOCAL — é o que o card mostra ("Hoje HH:mm", com o relógio do
+    // aparelho) e o que o bloqueio de check-in repetido compara. Cortar a
+    // string ISO daria o dia em UTC, e à noite no Brasil isso já é o dia
+    // seguinte: a mesma rotina virava dois cards em dias diferentes.
+    const localDayKey = (iso: string) => {
+      const d = new Date(iso);
+      if (isNaN(d.getTime())) return String(iso ?? "unknown").slice(0, 10);
+      return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+    };
+
+    // Sessões da mesma rotina no mesmo dia local viram um card só — é o
+    // mesmo par (rotina, dia) que o check-in usa como chave de duplicidade.
     const sessionMap: Record<string, { userWorkoutId: string; routineName: string; exercises: CompletedRoutineExercise[]; completedAt: string }> = {};
 
-    for (const row of data as any[]) {
-      const uwId = row.user_workout_id ? String(row.user_workout_id) : "__none__";
-      const routineName = routineNameMap[uwId] || "Rotina de Exercícios";
-      const day = row.date_completed?.substring(0, 10) ?? "unknown";
-      // Key by name+day so all same-named routines on the same day merge into one card
-      const key = `${routineName}__${day}`;
+    for (const session of sessions) {
+      const namedItem = session.rows.find((r: any) => r.user_workout_id && itemNameMap[String(r.user_workout_id)]);
+      const namedRoutine = session.rows.find((r: any) => r.routine_id != null && routineNameMap[String(r.routine_id)]);
+      const routineName =
+        (namedItem && itemNameMap[String(namedItem.user_workout_id)]) ||
+        (namedRoutine && routineNameMap[String(namedRoutine.routine_id)]) ||
+        "Rotina de Exercícios";
+      const completedAt = String(session.rows[session.rows.length - 1].date_completed);
+      const key = `${routineName.trim().toLowerCase()}__${localDayKey(completedAt)}`;
 
       if (!sessionMap[key]) {
         sessionMap[key] = {
-          userWorkoutId: uwId,
+          userWorkoutId: session.rows.find((r: any) => r.user_workout_id)?.user_workout_id
+            ? String(session.rows.find((r: any) => r.user_workout_id).user_workout_id)
+            : "__none__",
           routineName,
           exercises: [],
-          completedAt: row.date_completed,
+          completedAt,
         };
       }
+      // Cards mesclados guardam o horário da execução mais recente do dia.
+      if (new Date(completedAt).getTime() >= new Date(sessionMap[key].completedAt).getTime()) {
+        sessionMap[key].completedAt = completedAt;
+      }
 
-      // Avoid adding the exact same exercise twice (same workout_id + kilos)
-      const exerciseKey = `${row.workout_id}__${row.kilos ?? ""}`;
-      const alreadyAdded = sessionMap[key].exercises.some(
-        (ex) => `${ex.workoutId}__${ex.kilos ?? ""}` === exerciseKey,
-      );
-      if (!alreadyAdded) {
+      for (const row of session.rows) {
+        // Avoid adding the exact same exercise twice (same workout_id + kilos)
+        const exerciseKey = `${row.workout_id}__${row.kilos ?? ""}`;
+        const alreadyAdded = sessionMap[key].exercises.some(
+          (ex) => `${ex.workoutId}__${ex.kilos ?? ""}` === exerciseKey,
+        );
+        if (alreadyAdded) continue;
         sessionMap[key].exercises.push({
           workoutId: String(row.workout_id),
           workoutName: pickLocalized((row.workouts as any)?.name, (row.workouts as any)?.name_eng) || "Exercício",
@@ -9740,30 +9835,32 @@ export async function getRecentCompletedRoutinesDb(userId: string): Promise<Comp
       }
     }
 
-    return Object.values(sessionMap).map((session) => {
-      const totalSeries = session.exercises.length;
-      const totalVolume = session.exercises.reduce((sum, ex) => {
-        const v = parseFloat(String(ex.volume ?? "0")) || 0;
-        return sum + v;
-      }, 0);
+    return Object.values(sessionMap)
+      .sort((a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime())
+      .map((session) => {
+        const totalSeries = session.exercises.length;
+        const totalVolume = session.exercises.reduce((sum, ex) => {
+          const v = parseFloat(String(ex.volume ?? "0")) || 0;
+          return sum + v;
+        }, 0);
 
-      // Most frequent muscle group
-      const mgCount: Record<string, number> = {};
-      session.exercises.forEach((ex) => {
-        if (ex.muscleGroup) mgCount[ex.muscleGroup] = (mgCount[ex.muscleGroup] || 0) + 1;
+        // Most frequent muscle group
+        const mgCount: Record<string, number> = {};
+        session.exercises.forEach((ex) => {
+          if (ex.muscleGroup) mgCount[ex.muscleGroup] = (mgCount[ex.muscleGroup] || 0) + 1;
+        });
+        const primaryMuscleGroup = Object.entries(mgCount).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+
+        return {
+          userWorkoutId: session.userWorkoutId,
+          routineName: session.routineName,
+          exercises: session.exercises,
+          totalVolume,
+          totalSeries,
+          primaryMuscleGroup,
+          completedAt: session.completedAt,
+        };
       });
-      const primaryMuscleGroup = Object.entries(mgCount).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
-
-      return {
-        userWorkoutId: session.userWorkoutId,
-        routineName: session.routineName,
-        exercises: session.exercises,
-        totalVolume,
-        totalSeries,
-        primaryMuscleGroup,
-        completedAt: session.completedAt,
-      };
-    });
   } catch (err: any) {
     console.error("Error fetching completed routines:", err);
     return [];
@@ -13534,26 +13631,154 @@ export async function adminDismissComplaintDb(
   if (error) throw new Error(error.message);
 }
 
+/**
+ * Apaga do storage os arquivos que sobraram de um conteúdo removido.
+ *
+ * Best-effort por definição: mídia órfã é desperdício de cota, não um bug
+ * visível — falhar aqui não pode desfazer uma remoção de moderação que já
+ * aconteceu no banco.
+ */
+async function removeStorageObjects(urls: string[]): Promise<void> {
+  if (!supabase || urls.length === 0) return;
+
+  const MARKER = "/storage/v1/object/public/";
+  // Agrupa por bucket: `remove` só aceita caminhos de um bucket por chamada.
+  const byBucket = new Map<string, string[]>();
+
+  for (const url of urls) {
+    const at = url.indexOf(MARKER);
+    if (at === -1) continue;
+    const rest = url.slice(at + MARKER.length).split("?")[0];
+    const slash = rest.indexOf("/");
+    if (slash <= 0) continue;
+    const bucket = rest.slice(0, slash);
+    const path = decodeURIComponent(rest.slice(slash + 1));
+    if (!path) continue;
+    byBucket.set(bucket, [...(byBucket.get(bucket) ?? []), path]);
+  }
+
+  await Promise.all(
+    Array.from(byBucket.entries()).map(([bucket, paths]) =>
+      supabase!.storage
+        .from(bucket)
+        .remove(paths)
+        .catch(() => undefined),
+    ),
+  );
+}
+
+/**
+ * Remove um post/shot/flow denunciado, junto das dependências (comentários,
+ * curtidas, marcações, visualizações e a própria denúncia).
+ *
+ * Via RPC `SECURITY DEFINER` porque a RLS de `posts`/`shots`/`flow` só deixa o
+ * **autor** apagar: o DELETE direto do painel casava 0 linhas, não retornava
+ * erro, e a tela dava baixa na denúncia com o conteúdo ainda no ar.
+ *
+ * Migration: `docs/migrations/20260811-admin-moderation.sql`.
+ */
 export async function adminDeleteContentDb(
   tipo: AdminComplaint["tipo"],
   conteudo_id: string,
-): Promise<void> {
-  if (!supabase) return;
-  if (tipo === "usuario") return; // ban handled separately
+): Promise<{ deleted: boolean }> {
+  if (!hasSupabaseConfig || !supabase) throw new Error("Supabase não configurado");
+  if (tipo === "usuario") return { deleted: false }; // ban handled separately
 
-  const tableMap = { post: "posts", shot: "shots", flow: "flow" } as const;
-  const table = tableMap[tipo as keyof typeof tableMap];
-  const { error } = await supabase.from(table).delete().eq("id", conteudo_id);
-  if (error) throw new Error(error.message);
+  const { data, error } = await supabase.rpc("admin_delete_content", {
+    p_tipo: tipo,
+    p_id: String(conteudo_id),
+  });
+
+  if (error) {
+    if (error.message?.includes("NOT_ADMIN")) {
+      throw new Error("Sua conta não tem permissão de admin no servidor.");
+    }
+    throw new Error(error.message);
+  }
+
+  const result = (data ?? {}) as { deleted?: boolean; media?: string[] };
+
+  await removeStorageObjects(result.media ?? []);
+
+  invalidateQueryCache("userPosts");
+  invalidateQueryCache("post:");
+  invalidateQueryCache("shots");
+  invalidateQueryCache("userShots");
+  invalidateQueryCache("activeStories");
+  invalidateQueryCache("userActiveStories");
+
+  // `deleted: false` aqui só pode significar que a linha já não existia — a RPC
+  // ignora RLS, então não há mais o no-op silencioso de antes. Quem chama usa
+  // isso para arquivar a denúncia avisando, em vez de travá-la na fila.
+  return { deleted: result.deleted === true };
 }
 
-export async function adminBanUserDb(userId: string): Promise<void> {
-  if (!supabase) return;
-  const { error } = await supabase
-    .from("profiles")
-    .update({ is_banned: true })
-    .eq("id", userId);
-  if (error) throw new Error(error.message);
+/**
+ * Marca (ou desmarca) um perfil como banido.
+ *
+ * Passa por RPC `SECURITY DEFINER` por dois motivos, os dois já custaram bug:
+ *   1. `profiles.id` é bigint e o uuid mora em `user_id` — o UPDATE direto
+ *      filtrando por `id` estourava `invalid input syntax for type bigint`.
+ *   2. Mesmo com a coluna certa, `profiles_update_own` limita o UPDATE à
+ *      própria linha: banir outra pessoa casaria 0 linhas **sem erro** e o
+ *      painel diria "usuário banido" sem ter banido ninguém.
+ *
+ * Migration: `docs/migrations/20260811-admin-ban-user.sql`.
+ */
+/**
+ * O usuário logado está banido?
+ *
+ * Usado pelo guard de rota para mostrar a tela de bloqueio na hora. A trava de
+ * verdade é o `banned_until` do GoTrue (que derruba login e refresh); esta
+ * checagem existe porque o access token corrente ainda vale até expirar, e
+ * ninguém deveria continuar postando nessa janela.
+ *
+ * Devolve `false` em qualquer falha — rede fora do ar ou migração ainda não
+ * rodada não podem trancar quem não fez nada.
+ */
+export async function isCurrentUserBannedDb(): Promise<boolean> {
+  if (!hasSupabaseConfig || !supabase) return false;
+
+  try {
+    const { data, error } = await supabase.rpc("is_current_user_banned");
+    if (error) return false;
+    return data === true;
+  } catch {
+    return false;
+  }
+}
+
+export async function adminBanUserDb(
+  userId: string,
+  banned = true,
+): Promise<{ sessionRevoked: boolean }> {
+  if (!hasSupabaseConfig || !supabase) throw new Error("Supabase não configurado");
+  assertUUID(userId, "ID do usuário");
+
+  const { data, error } = await supabase.rpc("admin_set_banned", {
+    p_user_id: userId,
+    p_banned: banned,
+  });
+
+  if (error) {
+    if (error.message?.includes("NOT_ADMIN")) {
+      throw new Error("Sua conta não tem permissão de admin no servidor.");
+    }
+    if (error.message?.includes("CANNOT_BAN_SELF")) {
+      throw new Error("Você não pode banir a própria conta.");
+    }
+    throw new Error(error.message);
+  }
+
+  const result = (data ?? {}) as { updated?: boolean; session_revoked?: boolean };
+
+  // A RPC devolve updated=false quando nenhuma linha casou (perfil
+  // inexistente) — sem isto o painel comemoraria um no-op.
+  if (result.updated === false) {
+    throw new Error("Perfil não encontrado para este usuário.");
+  }
+
+  return { sessionRevoked: result.session_revoked === true };
 }
 
 // ─── Push Token Management ─────────────────────────────────────────────────────
@@ -13597,19 +13822,32 @@ export async function deletePushTokenDb(token: string): Promise<void> {
 
 // ─── Admin: verified accounts ─────────────────────────────────────────────────
 
+/**
+ * Marca/desmarca a conta como verificada (selo dourado).
+ *
+ * Via RPC `SECURITY DEFINER`: o UPDATE direto batia em duas travas de uma vez —
+ * `profiles_update_own` (só a própria linha) e o trigger `freeze_is_verified`,
+ * que reverte a coluna fora do service_role. As duas falham **sem erro**, então
+ * a tela dizia "verificado com sucesso" sem ter verificado ninguém.
+ *
+ * Migration: `docs/migrations/20260811-admin-moderation.sql`.
+ */
 export async function setUserVerifiedDb(userId: string, verified: boolean): Promise<boolean> {
   if (!hasSupabaseConfig || !supabase) return false;
   assertUUID(userId, "ID do usuário");
 
-  const { error } = await supabase
-    .from("profiles")
-    .update({ is_verified: verified })
-    .eq("user_id", userId);
+  const { data, error } = await supabase.rpc("admin_set_verified", {
+    p_user_id: userId,
+    p_verified: verified,
+  });
 
   if (error) {
     console.error("Error setting verified status:", error);
     return false;
   }
+
+  // false = nenhuma linha casou (perfil inexistente).
+  if (data === false) return false;
 
   invalidateProfileCache(userId);
   return true;

@@ -370,7 +370,7 @@ export function PromotionCommentsSection({ promotionId }: { promotionId: string 
   const state = usePromotionComments(promotionId, true);
 
   return (
-    <div className="space-y-3" onPointerDown={(e) => e.stopPropagation()}>
+    <div className="space-y-3">
       <PromotionCommentsList state={state} />
       <PromotionCommentComposer state={state} />
     </div>
@@ -435,8 +435,7 @@ export function PromotionCommentsDrawer({
           </DrawerDescription>
         </DrawerHeader>
 
-        {/* stopPropagation prevents vaul from starting a drag gesture when tapping inside the content */}
-        <div className="flex flex-col flex-1 gap-3 overflow-hidden px-4 pb-4" onPointerDown={(e) => e.stopPropagation()}>
+        <div className="flex flex-col flex-1 gap-3 overflow-hidden px-4 pb-4">
           <PromotionCommentsList state={state} className="flex-1 overflow-y-auto" />
           <PromotionCommentComposer state={state} />
         </div>

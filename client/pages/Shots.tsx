@@ -32,11 +32,12 @@ import {
 } from "@/lib/ritmofit-db";
 import { renderIncentiveIcon } from "@/lib/incentive-config";
 import { PostLikesModal } from "@/components/modals/post-likes-modal";
-import { MessageCircle, Send, Trash2, VolumeX, Volume2, MoreVertical, Edit2, AlertTriangle, Pencil, Check, X, Play, Users, Eye } from "lucide-react";
+import { MessageCircle, Send, Trash2, VolumeX, Volume2, MoreVertical, Edit2, AlertTriangle, Pencil, Check, X, Play, Users, Eye, Flag } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -51,6 +52,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { EditShotDescriptionDrawer } from "@/components/shots/edit-shot-description-drawer";
 import { SendToFriendDrawer } from "@/components/shared/send-to-friend-drawer";
+import { ReportDrawer } from "@/components/shared/report-drawer";
 import { CommentReactions } from "@/components/shared/comment-reactions";
 import { useAuth } from "@/hooks/useAuth";
 import { useNavigate, useLocation } from "react-router-dom";
@@ -129,6 +131,9 @@ export default function Shots() {
   const [sendToFriendShot, setSendToFriendShot] = React.useState<ShotWithUser | null>(null);
   const [deleteShotDialogOpen, setDeleteShotDialogOpen] = React.useState(false);
   const [deletingShot, setDeletingShot] = React.useState<ShotWithUser | null>(null);
+  const [reportDrawerOpen, setReportDrawerOpen] = React.useState(false);
+  const [reportType, setReportType] = React.useState<"user" | "shot" | null>(null);
+  const [reportedShot, setReportedShot] = React.useState<ShotWithUser | null>(null);
   const [isDeletingShot, setIsDeletingShot] = React.useState(false);
   const [deleteCommentDialogOpen, setDeleteCommentDialogOpen] = React.useState(false);
   const [deletingCommentId, setDeletingCommentId] = React.useState<string | null>(null);
@@ -199,6 +204,18 @@ export default function Shots() {
       setIsLoadingViewers(false);
     }
   }, [t]);
+
+  const handleReportUser = React.useCallback((shot: ShotWithUser) => {
+    setReportedShot(shot);
+    setReportType("user");
+    setReportDrawerOpen(true);
+  }, []);
+
+  const handleReportShot = React.useCallback((shot: ShotWithUser) => {
+    setReportedShot(shot);
+    setReportType("shot");
+    setReportDrawerOpen(true);
+  }, []);
 
   // Autoplay resiliente à política do iOS.
   //
@@ -1093,42 +1110,56 @@ export default function Shots() {
                     {isMuted ? t("shots_muted") : t("shots_sound")}
                   </span>
                 </button>
-                {user?.id === shot.user_id && (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <button aria-label={t("shots_options_label")} className="flex items-center justify-center h-8 w-8 bg-black/40 hover:bg-black/60 text-white rounded-full transition-colors">
-                        <MoreVertical className="h-4 w-4" />
-                      </button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-48">
-                      <DropdownMenuItem onClick={() => {
-                        setEditingShot(shot);
-                        setEditShotOpen(true);
-                      }}>
-                        <Edit2 className="h-4 w-4 mr-2" />
-                        {t("shots_edit_desc")}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => handleOpenShotLikes(shot.id)} disabled={shotLikesLoading}>
-                        <Users className="h-4 w-4 mr-2" />
-                        {t("shots_see_incentives")}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => handleOpenShotViewers(shot.id)}>
-                        <Eye className="h-4 w-4 mr-2" />
-                        {t("shots_see_views")}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        className="text-destructive focus:text-destructive"
-                        onClick={() => {
-                          setDeletingShot(shot);
-                          setDeleteShotDialogOpen(true);
-                        }}
-                      >
-                        <Trash2 className="h-4 w-4 mr-2" />
-                        {t("shots_delete_clip")}
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                )}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button aria-label={t("shots_options_label")} className="flex items-center justify-center h-8 w-8 bg-black/40 hover:bg-black/60 text-white rounded-full transition-colors">
+                      <MoreVertical className="h-4 w-4" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-48">
+                    {user?.id === shot.user_id ? (
+                      <>
+                        <DropdownMenuItem onClick={() => {
+                          setEditingShot(shot);
+                          setEditShotOpen(true);
+                        }}>
+                          <Edit2 className="h-4 w-4 mr-2" />
+                          {t("shots_edit_desc")}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleOpenShotLikes(shot.id)} disabled={shotLikesLoading}>
+                          <Users className="h-4 w-4 mr-2" />
+                          {t("shots_see_incentives")}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleOpenShotViewers(shot.id)}>
+                          <Eye className="h-4 w-4 mr-2" />
+                          {t("shots_see_views")}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="text-destructive focus:text-destructive"
+                          onClick={() => {
+                            setDeletingShot(shot);
+                            setDeleteShotDialogOpen(true);
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4 mr-2" />
+                          {t("shots_delete_clip")}
+                        </DropdownMenuItem>
+                      </>
+                    ) : (
+                      <>
+                        <DropdownMenuItem onClick={() => handleReportUser(shot)}>
+                          <Flag className="h-4 w-4 mr-2" />
+                          {t("report_user")}
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={() => handleReportShot(shot)}>
+                          <Flag className="h-4 w-4 mr-2" />
+                          {t("report_shot")}
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
 
               {/* User Info - Top Left */}
@@ -1337,6 +1368,23 @@ export default function Shots() {
         }
       />
 
+      {/* Report Drawer (denunciar usuário / denunciar shots) */}
+      <ReportDrawer
+        open={reportDrawerOpen}
+        onOpenChange={setReportDrawerOpen}
+        type={reportType}
+        target={
+          reportedShot
+            ? {
+                id: reportedShot.id,
+                userId: reportedShot.user_id,
+                userName: reportedShot.userNickname,
+                description: reportedShot.description,
+              }
+            : null
+        }
+      />
+
       {/* Edit Shot Drawer */}
       <EditShotDescriptionDrawer
         open={editShotOpen}
@@ -1483,7 +1531,6 @@ export default function Shots() {
             ref={commentsListRef}
             className="flex-1 overflow-y-auto px-[18px] pb-3"
             style={{ display: "flex", flexDirection: "column", gap: "18px" }}
-            onPointerDown={(e) => e.stopPropagation()}
           >
             {isLoadingComments ? (
               <div className="text-sm py-6 text-center" style={{ color: "rgba(255,255,255,.5)" }}>

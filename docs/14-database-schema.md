@@ -834,6 +834,7 @@ Perfil público dos usuários da plataforma.
 | `is_verified` | boolean | ✓ | `false` | Indica conta oficial verificada (badge dourado). Só pode ser alterado via service_role (admin). |
 | `hide_follow_lists` | boolean | ✓ | `false` | Privacidade: quando `true`, outros usuários não conseguem abrir as listas de seguidores/seguindo deste perfil (gating client-side em `Profile.tsx`). |
 | `hide_posts_from_non_followers` | boolean | ✓ | `false` | Privacidade: quando `true`, a aba Posts do perfil só é visível para quem segue o dono. |
+| `is_banned` | boolean | ✓ | `false` | Conta banida pela moderação. Escrito **só** pela RPC `admin_set_banned` (o trigger `freeze_is_banned` reverte qualquer outra origem). Sozinho ele **não bloqueia nada** — quem barra o acesso é o `auth.users.banned_until` que a mesma RPC grava; este flag serve ao card de métricas e à tela `BannedScreen`. Migration: `docs/migrations/20260811-admin-ban-user.sql` |
 | `selected_badge_id` | uuid | — | `null` | FK → `badges.id`. Insígnia que o usuário **escolheu** exibir. Persistente: check-ins e novas conquistas **nunca** a alteram — só uma troca explícita no `InsigniasDrawer`. `null` = nunca escolheu (exibe a de maior `sort_order` do acervo). Migration: `docs/migrations/20260714-badge-selection-persist.sql` |
 
 > Migration: `docs/migrations/20260626-profile-privacy.sql`
@@ -843,6 +844,21 @@ Perfil público dos usuários da plataforma.
 - `profiles_handle_unique_idx` — índice único case-insensitive garante handle único global.
 - `check_handle_exists(p_handle text, p_exclude_user uuid default null) → boolean` — RPC `SECURITY DEFINER` (grant `anon, authenticated`) para checar disponibilidade de handle em tempo real no cadastro (`checkHandleExistsDb`), normalizando com/sem `@`.
 - `handle_new_user` reescrito: grava `handle` **sem** `@`, com de-colisão por sufixo numérico (nunca quebra o `signUp` por handle duplicado).
+
+**Banimento (migration `20260811-admin-ban-user.sql`):**
+- `admin_set_banned(p_user_id uuid, p_banned boolean default true) → jsonb` — RPC `SECURITY DEFINER` (grant `authenticated`) que checa `is_app_admin(auth.uid())`, recusa banir a própria conta (`CANNOT_BAN_SELF`), grava `is_banned` **e** aplica `auth.users.banned_until = now() + 100 anos` + `delete from auth.sessions` (é isto que expulsa o usuário; a RLS não conhece "banido"). Retorna `{"updated": bool, "session_revoked": bool}` — `session_revoked: false` significa que o flag foi gravado mas o acesso continua de pé (dono da função sem grant em `auth`).
+- `freeze_is_banned` (trigger `before update`) — reverte `is_banned` para quem não é service_role nem admin, senão qualquer um se desbaniria sozinho via `profiles_update_own`.
+- `is_current_user_banned() → boolean` — RPC estreita (grant `authenticated`) usada pelo guard de rota no app. Existe para a tela de bloqueio não precisar de `select` em `profiles`, que é público e permitiria varrer quem foi banido.
+
+**Moderação e verificação (migration `20260811-admin-moderation.sql`):**
+- `admin_delete_content(p_tipo text, p_id text) → jsonb` — remove post/shot/flow denunciado com as dependências; retorna `{"deleted": bool, "media": [urls]}` (o cliente apaga o storage). `p_id` é texto porque as três PKs têm tipos diferentes.
+- `admin_purge_refs(p_table, p_col, p_id)` — helper **interno** (sem grant) que apaga referências comparando `coluna::text`, tolerando as divergências de tipo do schema e tabelas ausentes.
+- `admin_set_verified(p_user_id uuid, p_verified boolean default true) → boolean` — único caminho de escrita de `is_verified`.
+- `freeze_is_verified` foi reescrito para reconhecer `is_app_admin` — sem isso a RPC acima gravaria e o trigger reverteria na saída.
+
+> ⚠️ **`profiles.id` é bigint; o uuid do usuário é `user_id`.** Filtrar por `id` com um uuid gera `invalid input syntax for type bigint` — foi exatamente o bug do botão "Banir usuário" do painel admin.
+>
+> ⚠️ **`UPDATE`/`DELETE` barrado por RLS casa 0 linhas e não retorna erro.** Toda escrita do painel em linha de terceiro precisa de RPC `SECURITY DEFINER` que devolva o `row_count` — foi a causa de "remover conteúdo", "banir" e "verificar conta" fingirem sucesso.
 
 ---
 

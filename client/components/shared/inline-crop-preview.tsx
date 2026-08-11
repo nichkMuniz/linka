@@ -339,6 +339,9 @@ export function InlineCropPreview({
     <div
       ref={containerRef}
       className="w-full h-full relative select-none overflow-hidden cursor-grab active:cursor-grabbing"
+      // Dentro de um drawer, arrastar a foto aqui não pode arrastar o sheet junto:
+      // `data-vaul-no-drag` desliga o swipe-para-fechar só nesta área.
+      data-vaul-no-drag
       style={{ touchAction: "none" }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}

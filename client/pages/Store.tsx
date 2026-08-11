@@ -311,7 +311,7 @@ function PromotionDetailDrawer({
           </div>
         </DrawerHeader>
 
-        <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4 space-y-4" onPointerDown={(e) => e.stopPropagation()}>
+        <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4 space-y-4">
           {/* Imagem ampliada */}
           {promo.photo_url && (
             <div className="relative w-full aspect-square rounded-2xl overflow-hidden" style={{ background: "rgba(255,255,255,.04)" }}>
@@ -889,7 +889,6 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
         <div
           className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4 space-y-4"
           style={{ paddingBottom: "calc(0.5rem + var(--keyboard-height, 0px))" }}
-          onPointerDown={(e) => e.stopPropagation()}
         >
           {/* ── Step 1: Link ── */}
           <div
@@ -1328,7 +1327,6 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
         <div
           className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4 space-y-4"
           style={{ paddingBottom: "calc(1.5rem + var(--keyboard-height, 0px))" }}
-          onPointerDown={(e) => e.stopPropagation()}
         >
           {/* Title */}
           <div className="space-y-1.5">

@@ -81,6 +81,7 @@ import {
 } from "@/lib/ritmofit-db";
 import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
 import { Input } from "@/components/ui/input";
+import { reportHandledError } from "@/lib/monitoring";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -604,6 +605,21 @@ function ComplaintRow({
   );
 }
 
+/**
+ * O ban grava o flag e manda o GoTrue revogar a sessão. Quando a segunda parte
+ * não passa (o dono da função sem grant em `auth`), a conta fica marcada mas o
+ * usuário continua entrando — dizer só "banido" aí seria mentira.
+ */
+function banToast(sessionRevoked: boolean, successTitle: string) {
+  if (sessionRevoked) return { title: successTitle };
+  return {
+    title: "Banido, mas a sessão não caiu",
+    description:
+      "A conta foi marcada como banida, porém o acesso não pôde ser revogado no auth. O usuário continua conseguindo entrar — ver docs/18-admin.md.",
+    variant: "destructive" as const,
+  };
+}
+
 // ─── confirm dialog ───────────────────────────────────────────────────────────
 
 function confirmTexts(action: PendingAction | null) {
@@ -662,6 +678,7 @@ export default function Admin() {
         toast({ title: "Erro ao verificar conta", variant: "destructive" });
       }
     } catch (err: any) {
+      reportHandledError(err, "admin:set-verified");
       toast({ title: "Erro", description: err.message, variant: "destructive" });
     } finally {
       setVerifyingHandle(false);
@@ -733,6 +750,7 @@ export default function Admin() {
       setPremiumUsers(await getAdminPremiumUsersDb());
       if (active) setPremiumQuery("");
     } catch (err: any) {
+      reportHandledError(err, "admin:set-premium");
       toast({ title: "Erro ao alterar premium", description: err.message, variant: "destructive" });
     } finally {
       setPremiumActingId(null);
@@ -760,6 +778,7 @@ export default function Admin() {
       setPremiumUsers(pu);
       setTodayActivity(ta);
     } catch (err: any) {
+      reportHandledError(err, "admin:load");
       toast({ title: "Erro ao carregar dados", description: err.message, variant: "destructive" });
     } finally {
       setLoading(false);
@@ -780,24 +799,31 @@ export default function Admin() {
           await adminDismissComplaintDb(complaint.tipo, complaint.id);
           toast({ title: "Denúncia ignorada" });
           break;
-        case "delete":
+        case "delete": {
+          const { deleted } = await adminDeleteContentDb(complaint.tipo, complaint.conteudo_id);
+          await adminDismissComplaintDb(complaint.tipo, complaint.id);
+          toast(
+            deleted
+              ? { title: "Conteúdo removido" }
+              : { title: "Conteúdo já não existia", description: "A denúncia foi arquivada." },
+          );
+          break;
+        }
+        case "ban": {
+          const { sessionRevoked } = await adminBanUserDb(pendingAction.userId);
+          await adminDismissComplaintDb(complaint.tipo, complaint.id);
+          toast(banToast(sessionRevoked, "Usuário banido"));
+          break;
+        }
+        case "delete_and_ban": {
+          // Sequencial: se o ban falhar, o conteúdo já removido é aceitável —
+          // o inverso (banir e deixar o conteúdo no ar) não é.
           await adminDeleteContentDb(complaint.tipo, complaint.conteudo_id);
+          const { sessionRevoked } = await adminBanUserDb(pendingAction.userId);
           await adminDismissComplaintDb(complaint.tipo, complaint.id);
-          toast({ title: "Conteúdo removido" });
+          toast(banToast(sessionRevoked, "Conteúdo removido e usuário banido"));
           break;
-        case "ban":
-          await adminBanUserDb(pendingAction.userId);
-          await adminDismissComplaintDb(complaint.tipo, complaint.id);
-          toast({ title: "Usuário banido" });
-          break;
-        case "delete_and_ban":
-          await Promise.all([
-            adminDeleteContentDb(complaint.tipo, complaint.conteudo_id),
-            adminBanUserDb(pendingAction.userId),
-          ]);
-          await adminDismissComplaintDb(complaint.tipo, complaint.id);
-          toast({ title: "Conteúdo removido e usuário banido" });
-          break;
+        }
       }
 
       setComplaints((prev) => prev.filter((c) => c.id !== complaint.id));
@@ -805,6 +831,11 @@ export default function Admin() {
         prev ? { ...prev, complaintsTotal: Math.max(0, prev.complaintsTotal - 1) } : prev,
       );
     } catch (err: any) {
+      reportHandledError(err, "admin:moderation-action", {
+        acao: pendingAction.type,
+        tipo: complaint.tipo,
+        complaint_id: complaint.id,
+      });
       toast({ title: "Erro", description: err.message, variant: "destructive" });
     } finally {
       setActing(false);

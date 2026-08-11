@@ -68,7 +68,7 @@
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Permita o acesso à galeria para escolher uma foto de perfil.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>Permita salvar fotos na galeria.</string>
+	<string>Permita salvar na galeria para guardar rascunhos das fotos e vídeos que você cria no app.</string>
 	<key>NSUserTrackingUsageDescription</key>
 	<string>Permitir o rastreamento nos ajuda a personalizar sua experiência e exibir conteúdo relevante para você.</string>
 	<key>CFBundleURLTypes</key>

@@ -380,7 +380,6 @@ export function PostCommentsDialog({
           gap: "18px",
           justifyContent: loading || !comments.length ? "center" : "flex-start",
         }}
-        onPointerDown={(e) => e.stopPropagation()}
       >
         {loading ? (
           <div className="text-sm py-6 text-center" style={{ color: "rgba(255,255,255,.5)" }}>

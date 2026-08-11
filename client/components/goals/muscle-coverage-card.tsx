@@ -149,10 +149,21 @@ export function MuscleCoverageCard({ refreshToken }: MuscleCoverageCardProps) {
           </div>
 
           <div className="flex items-center gap-3">
-            {/* As duas vistas lado a lado: o card é um panorama, não um detalhe */}
-            <div className="flex gap-1 shrink-0">
-              <MuscleMap intensity={intensity} view="front" width={54} />
-              <MuscleMap intensity={intensity} view="back" width={54} />
+            {/* As duas vistas lado a lado: o card é um panorama, não um detalhe.
+                Aqui não há alternador que diga qual é qual (como no drawer), então
+                a legenda entra sob cada silhueta. */}
+            <div className="flex gap-1.5 shrink-0">
+              {(["front", "back"] as const).map((v) => (
+                <div key={v} className="flex flex-col items-center gap-1">
+                  <MuscleMap intensity={intensity} view={v} width={54} />
+                  <span
+                    className="text-[9px] font-semibold uppercase tracking-wide"
+                    style={{ color: "rgba(255,255,255,.4)" }}
+                  >
+                    {t(v === "front" ? "goals_anatomy_front" : "goals_anatomy_back")}
+                  </span>
+                </div>
+              ))}
             </div>
 
             <div className="flex-1 min-w-0 space-y-2">

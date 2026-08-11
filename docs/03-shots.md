@@ -48,7 +48,7 @@ Feed de vídeos curtos no estilo TikTok/Reels. O usuário rola verticalmente ent
 | Nome do criador | Inferior esquerdo | Nickname do usuário + `VerifiedBadge` (se verificado) + `UserInsignias` (insígnia selecionada, mesmo componente do feed/perfil) |
 | Botão Seguir/Seguindo | Inferior esquerdo | Follow/unfollow inline |
 | Descrição | Inferior esquerdo | Texto descritivo do clipe. Se ultrapassar 80 caracteres ou tiver quebra de linha, é truncado com botão "ver mais/menos" (mesmo padrão do feed) — evita que uma descrição longa ocupe a tela toda |
-| Menu de opções (⋮) | Superior direito | Editar, Ver incentivos, Ver visualizações ou Excluir (só para o dono) |
+| Menu de opções (⋮) | Superior direito | Sempre visível. Dono: Editar, Ver incentivos, Ver visualizações, Excluir. Outro usuário: Denunciar usuário, Denunciar shots |
 | Botão Mudo/Som | Superior direito | Toggle de áudio |
 | Botões de Incentivo | Lateral direita | 6 tipos de reação |
 | Botão Comentários | Lateral direita | Ícone de balão + contagem |
@@ -98,6 +98,16 @@ Feed de vídeos curtos no estilo TikTok/Reels. O usuário rola verticalmente ent
 - **Ver incentivos recebidos** — Abre `PostLikesModal` com a lista de quem incentivou (via `getShotLikeUsersDb`)
 - **Ver visualizações** — Abre o Drawer "Visualizações" com a lista de quem viu o shot (via `getShotViewersDb`) — visível apenas para o dono. Ver seção "Visualizações (quem viu o shot)"
 - **Excluir** — AlertDialog de confirmação → chama `deleteShotDb` que remove o shot e suas dependências (`shots_likes`, `shots_comments` e `shot_user_viewed`) em cascata, depois remove o item do estado local
+
+### Menu de Opções (shot de outro usuário) — 2026-08-06
+- O botão ⋮ agora aparece **para todos os shots**, não só para os do próprio usuário
+- Quando o shot é de outra pessoa, o menu traz as mesmas opções do feed (`PostCard`), com a nomenclatura de Shots:
+  - **Denunciar usuário** (`report_user`) — abre o `ReportDrawer` com `type="user"` → grava em `user_complaint` via `reportUserDb`
+  - **Denunciar shots** (`report_shot`) — abre o `ReportDrawer` com `type="shot"` → grava em `shots_complaint` via `reportShotDb`
+- Componente reutilizado: `ReportDrawer` (`components/shared/report-drawer.tsx`) — o mesmo do feed, estendido com o tipo `"shot"`
+- Cabeçalho do drawer mostra "Shot de {nickname}" + a descrição do shot (uma linha), igual ao padrão de post
+- As denúncias caem na fila de moderação do Admin (`admin_complaints_view`, tipo `shot`)
+- **Motivos**: os rótulos são traduzidos (PT/EN), mas o valor gravado em `reason` é sempre o texto em PT — o painel de admin fica consistente entre usuários de idiomas diferentes
 
 ### Visualizações (quem viu o shot)
 - Mesmo sistema da tela de Flow ("quem viu o seu flow")
@@ -196,6 +206,8 @@ Feed de vídeos curtos no estilo TikTok/Reels. O usuário rola verticalmente ent
 | Quem mandou incentivos | `getShotLikeUsersDb(shotId)` — carregado sob demanda pelo dono |
 | Quem visualizou o shot | `getShotViewersDb(shotId)` — carregado sob demanda pelo dono |
 | Registro de visualização | `recordShotViewDb(shotId, ownerId)` — gravado ao shot ficar visível |
+| Denúncia de shot | `reportShotDb(shotId, reason)` → tabela `shots_complaint` |
+| Denúncia de usuário | `reportUserDb(userId, reason)` → tabela `user_complaint` |
 
 ---
 

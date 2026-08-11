@@ -5,9 +5,16 @@ import Foundation
 import Photos
 import UniformTypeIdentifiers
 
-/// Exporta a versão **atual (editada)** de um asset da galeria do iOS.
+/// Ponte com a galeria de fotos do iOS. Faz duas coisas:
 ///
-/// Por que este plugin existe:
+/// 1. **Ler** — exporta a versão **atual (editada)** de um asset (ver abaixo).
+/// 2. **Escrever** — salva uma mídia nova no rolo da câmera em pedaços
+///    (`startMediaWrite` → `appendMediaWrite`* → `saveMediaWrite`), usado pelo
+///    "salvar rascunho" do flow. A escrita é fatiada porque um vídeo de até
+///    100MB viraria uma string base64 de ~133MB se atravessasse a ponte de uma
+///    vez só — memória que o WKWebView não tem para dar.
+///
+/// Por que a parte de leitura existe:
 /// o `@capgo/capacitor-photo-library` exporta o arquivo full-res via
 /// `PHAssetResource` e escolhe o primeiro recurso que casa com
 /// `.photo || .fullSizePhoto || .alternatePhoto`. Edições feitas no app Fotos
@@ -26,7 +33,11 @@ public class EditedMediaPlugin: CAPPlugin, CAPBridgedPlugin {
     public let jsName = "EditedMedia"
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "getMediaUrl", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "purgeStaleCache", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "purgeStaleCache", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "startMediaWrite", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "appendMediaWrite", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "saveMediaWrite", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "cancelMediaWrite", returnType: CAPPluginReturnPromise)
     ]
 
     private struct ExportedFile {
@@ -47,6 +58,21 @@ public class EditedMediaPlugin: CAPPlugin, CAPBridgedPlugin {
         }
         return directory
     }()
+
+    /// Diretório de staging das mídias que estão sendo escritas para a galeria.
+    /// Separado do cache de leitura para o purge nunca esbarrar nele.
+    private lazy var outgoingDirectory: URL = {
+        let caches = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first ?? fileManager.temporaryDirectory
+        let directory = caches.appendingPathComponent("LinkaMediaSave", isDirectory: true)
+        if !fileManager.fileExists(atPath: directory.path) {
+            try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
+        }
+        return directory
+    }()
+
+    /// Sessões de escrita em andamento, por token. Só é tocado dentro de
+    /// `queue`, que é serial — daí não precisar de lock.
+    private var writeSessions: [String: URL] = [:]
 
     // MARK: - Métodos expostos ao JS
 
@@ -87,6 +113,112 @@ public class EditedMediaPlugin: CAPPlugin, CAPBridgedPlugin {
         queue.async {
             let removed = self.purgeStaleEntries(limit: limit)
             call.resolve(["removed": removed])
+        }
+    }
+
+    // MARK: - Escrita na galeria (salvar rascunho do flow)
+
+    /// Abre um arquivo de staging vazio e devolve o token que identifica a sessão.
+    @objc public func startMediaWrite(_ call: CAPPluginCall) {
+        // Só letras/números: o valor vem do JS e vira nome de arquivo.
+        let raw = call.getString("ext") ?? "jpg"
+        let ext = String(raw.filter { $0.isLetter || $0.isNumber }).lowercased()
+        let safeExt = ext.isEmpty ? "jpg" : ext
+
+        queue.async {
+            let token = UUID().uuidString
+            let url = self.outgoingDirectory.appendingPathComponent("\(token).\(safeExt)")
+            guard self.fileManager.createFile(atPath: url.path, contents: nil) else {
+                call.reject("Não foi possível preparar o arquivo", "WRITE_FAILED")
+                return
+            }
+            self.writeSessions[token] = url
+            call.resolve(["token": token])
+        }
+    }
+
+    /// Anexa um pedaço (base64) ao arquivo da sessão.
+    @objc public func appendMediaWrite(_ call: CAPPluginCall) {
+        guard let token = call.getString("token"), let chunk = call.getString("data") else {
+            call.reject("Parâmetros 'token' e 'data' são obrigatórios")
+            return
+        }
+
+        queue.async {
+            guard let url = self.writeSessions[token] else {
+                call.reject("Sessão de escrita inválida", "WRITE_FAILED")
+                return
+            }
+            guard let data = Data(base64Encoded: chunk) else {
+                call.reject("Pedaço inválido", "WRITE_FAILED")
+                return
+            }
+            do {
+                let handle = try FileHandle(forWritingTo: url)
+                defer { try? handle.close() }
+                _ = try handle.seekToEnd()
+                try handle.write(contentsOf: data)
+                call.resolve()
+            } catch {
+                call.reject("Falha ao gravar a mídia: \(error.localizedDescription)", "WRITE_FAILED")
+            }
+        }
+    }
+
+    /// Fecha a sessão e move o arquivo para o rolo da câmera.
+    @objc public func saveMediaWrite(_ call: CAPPluginCall) {
+        guard let token = call.getString("token") else {
+            call.reject("Parâmetro 'token' é obrigatório")
+            return
+        }
+        let isVideo = call.getBool("isVideo") ?? false
+
+        queue.async {
+            guard let url = self.writeSessions.removeValue(forKey: token) else {
+                call.reject("Sessão de escrita inválida", "WRITE_FAILED")
+                return
+            }
+
+            // `.addOnly` pede só permissão de ESCRITA (NSPhotoLibraryAddUsageDescription),
+            // sem exigir acesso de leitura à galeria inteira.
+            PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+                guard status == .authorized || status == .limited else {
+                    try? self.fileManager.removeItem(at: url)
+                    call.reject("Acesso às Fotos negado", "PERMISSION_DENIED")
+                    return
+                }
+
+                let resourceType: PHAssetResourceType = isVideo ? .video : .photo
+                PHPhotoLibrary.shared().performChanges({
+                    let request = PHAssetCreationRequest.forAsset()
+                    let options = PHAssetResourceCreationOptions()
+                    options.shouldMoveFile = true
+                    request.addResource(with: resourceType, fileURL: url, options: options)
+                }, completionHandler: { success, error in
+                    // `shouldMoveFile` costuma consumir o arquivo; o remove é a
+                    // rede de segurança para quando a criação falha no meio.
+                    try? self.fileManager.removeItem(at: url)
+                    if success {
+                        call.resolve(["saved": true])
+                    } else {
+                        call.reject(error?.localizedDescription ?? "Falha ao salvar na galeria", "WRITE_FAILED")
+                    }
+                })
+            }
+        }
+    }
+
+    /// Descarta uma sessão abandonada (o JS chama isto quando desiste no meio).
+    @objc public func cancelMediaWrite(_ call: CAPPluginCall) {
+        guard let token = call.getString("token") else {
+            call.resolve()
+            return
+        }
+        queue.async {
+            if let url = self.writeSessions.removeValue(forKey: token) {
+                try? self.fileManager.removeItem(at: url)
+            }
+            call.resolve()
         }
     }
 
