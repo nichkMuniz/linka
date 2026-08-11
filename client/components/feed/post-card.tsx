@@ -46,7 +46,7 @@ interface PostCardProps {
   onDelete: (post: PostWithStats) => void;
 }
 
-export function PostCard({
+function PostCardImpl({
   post,
   currentUserId,
   togglingIncentives,
@@ -467,3 +467,54 @@ export function PostCard({
     </div>
   );
 }
+
+/**
+ * O feed renderiza dezenas destes cards, e a tela que os hospeda tem 46 peças de
+ * estado próprias (drawers, modais, texto de compartilhamento, pull-to-refresh).
+ * Sem `memo`, abrir qualquer drawer reconstruía a lista INTEIRA — com as imagens,
+ * o carrossel e o `backdrop-filter` de cada card. É o custo mais alto e mais
+ * frequente da tela mais usada do app.
+ *
+ * O comparador é explícito por causa de UMA prop: `togglingIncentives` é um
+ * `Set` recriado a cada curtida em qualquer lugar do feed. Comparado por
+ * referência (o padrão do `memo`), ele sozinho anularia a memoização toda vez —
+ * curtir um post re-renderizaria os outros quarenta. Aqui olhamos só as chaves
+ * DESTE post; o resto do Set não diz respeito a ele.
+ *
+ * As demais props são comparadas por referência de propósito: os oito handlers
+ * já são `useCallback` estáveis no Index, e `post` é substituído por um objeto
+ * novo exatamente quando seu conteúdo muda (curtida otimista, edição).
+ */
+function arePropsEqual(prev: PostCardProps, next: PostCardProps): boolean {
+  if (
+    prev.post !== next.post ||
+    prev.currentUserId !== next.currentUserId ||
+    prev.showFollowButton !== next.showFollowButton ||
+    prev.likesLoading !== next.likesLoading ||
+    prev.onToggleLike !== next.onToggleLike ||
+    prev.onOpenLikes !== next.onOpenLikes ||
+    prev.onOpenGoal !== next.onOpenGoal ||
+    prev.onShare !== next.onShare ||
+    prev.onReportUser !== next.onReportUser ||
+    prev.onReportPost !== next.onReportPost ||
+    prev.onEdit !== next.onEdit ||
+    prev.onDelete !== next.onDelete
+  ) {
+    return false;
+  }
+
+  if (prev.togglingIncentives === next.togglingIncentives) return true;
+
+  // As chaves são `${postId}-${tipo}` (ver handleToggleLike no Index) e os tipos
+  // vêm do INCENTIVE_CONFIG, então basta varrer os seis deste post.
+  const id = next.post.id;
+  for (const type of Object.keys(INCENTIVE_CONFIG)) {
+    const key = `${id}-${type}`;
+    if (prev.togglingIncentives.has(key) !== next.togglingIncentives.has(key)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+export const PostCard = React.memo(PostCardImpl, arePropsEqual);

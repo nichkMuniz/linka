@@ -161,15 +161,12 @@ import {
 import { App as CapApp } from "@capacitor/app";
 import { StatusBar, Style as StatusBarStyle } from "@capacitor/status-bar";
 
-import { AppLayout } from "@/components/layout/app-layout";
-import { BannedScreen } from "@/components/shared/banned-screen";
 import { ThemeProvider } from "@/components/layout/theme-provider";
 import { LanguageProvider } from "@/lib/language-context";
 import { WorkoutProvider } from "@/lib/workout-context";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { FloatingActionMenu } from "@/components/layout/floating-action-menu";
 
 import { useAuthContext as useAuth, AuthProvider } from "@/lib/auth-context";
 import { PremiumProvider } from "@/lib/premium-context";
@@ -182,6 +179,28 @@ import { APP_STORE_URL, parseDeepLinkUrl } from "@/lib/share-url";
 // Teclado iOS (Keyboard resize:'none'): publica --keyboard-height/kb-open no
 // <html> a partir dos eventos nativos. Singleton de app — inicia no bootstrap.
 initKeyboardTracker();
+
+// ─── Fronteira do chunk de ENTRADA ───────────────────────────────────────────
+//
+// Tudo que este arquivo importa ESTATICAMENTE é baixado, parseado e executado
+// antes do primeiro pixel — em toda abertura do app. O chunk de entrada estava
+// em 1,34 MB porque o caminho estático daqui alcançava o `ritmofit-db`
+// (12k linhas, 328 funções) por três arestas ao mesmo tempo: `AppLayout`,
+// `Login` e o `PremiumProvider`. Cortadas as três, o módulo passa a viajar num
+// chunk próprio, carregado em paralelo com o da rota — e só por quem precisa.
+//
+// A shell (`AppLayout`) é lazy junto com as páginas de propósito: ela nunca
+// aparece sozinha, sempre acompanha uma rota que também é lazy, então os dois
+// chunks são buscados no mesmo instante e do disco local (Capacitor).
+const AppLayout = React.lazy(() =>
+  import("@/components/layout/app-layout").then((m) => ({ default: m.AppLayout })),
+);
+const BannedScreen = React.lazy(() =>
+  import("@/components/shared/banned-screen").then((m) => ({ default: m.BannedScreen })),
+);
+const FloatingActionMenu = React.lazy(() =>
+  import("@/components/layout/floating-action-menu").then((m) => ({ default: m.FloatingActionMenu })),
+);
 
 // Lazy-load heavy pages to split the initial bundle
 const Index = React.lazy(() => import("@/pages/Index"));
@@ -253,10 +272,19 @@ function Lazy({ skeleton, children }: { skeleton: React.ReactNode; children: Rea
   return <React.Suspense fallback={skeleton}>{children}</React.Suspense>;
 }
 
-// Kept eager — tiny files needed on first paint or error boundaries
-import Login from "@/pages/Login";
-import ResetPassword from "@/pages/ResetPassword";
+// `Login` também é lazy: são 104 KB de fonte que importam o `ritmofit-db`, e
+// quem abre o app já logado — a maioria esmagadora das aberturas — nunca
+// renderiza esta tela. Deixá-la eager fazia todo mundo pagar por ela.
+const Login = React.lazy(() => import("@/pages/Login"));
+const ResetPassword = React.lazy(() => import("@/pages/ResetPassword"));
+
+// `NotFound` continua eager: é minúsculo e serve de rota de fallback.
 import NotFound from "@/pages/NotFound";
+
+/** Fundo sólido do app — placeholder enquanto um chunk de tela chega do disco. */
+function AppShellFallback() {
+  return <div className="min-h-dvh bg-background" />;
+}
 
 const ADMIN_USER_IDS = [
   "c954d5ab-9d72-4785-bc21-bf469a5e8052",
@@ -428,7 +456,13 @@ function RequireAuth() {
     );
   }
 
-  if (banned) return <BannedScreen />;
+  if (banned) {
+    return (
+      <React.Suspense fallback={<AppShellFallback />}>
+        <BannedScreen />
+      </React.Suspense>
+    );
+  }
 
   return <Outlet />;
 }
@@ -473,7 +507,13 @@ function GlobalFABContainer() {
     return null;
   }
 
-  return <FloatingActionMenu />;
+  // Sem fallback: o FAB é um adorno flutuante — aparecer alguns ms depois é
+  // invisível, e um placeholder no lugar dele só piscaria sobre o conteúdo.
+  return (
+    <React.Suspense fallback={null}>
+      <FloatingActionMenu />
+    </React.Suspense>
+  );
 }
 
 const App = () => {
@@ -528,12 +568,12 @@ const App = () => {
                 <DeepLinkHandler />
                 <GlobalFABContainer />
                 <Routes>
-                  <Route path="/login" element={<Login />} />
-                  <Route path="/reset-password" element={<ResetPassword />} />
+                  <Route path="/login" element={<Lazy skeleton={<AppShellFallback />}><Login /></Lazy>} />
+                  <Route path="/reset-password" element={<Lazy skeleton={<AppShellFallback />}><ResetPassword /></Lazy>} />
 
                   <Route element={<RequireAuth />}>
                     <Route path="/flows/:storyId" element={<React.Suspense fallback={<div className="fixed inset-0 bg-black" />}><FlowViewer /></React.Suspense>} />
-                    <Route element={<AppLayout />}>
+                    <Route element={<Lazy skeleton={<AppShellFallback />}><AppLayout /></Lazy>}>
                       <Route path="/" element={<Lazy skeleton={<FeedSkeleton />}><Index /></Lazy>} />
                       <Route path="/shots" element={<Lazy skeleton={<ShotsSkeleton />}><Shots /></Lazy>} />
                       <Route path="/postar" element={<Lazy skeleton={<GenericPageSkeleton />}><NewPost /></Lazy>} />

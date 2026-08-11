@@ -41,6 +41,7 @@ import { SendToFriendDrawer, type SendableContent } from "@/components/shared/se
 import { postShareUrl } from "@/lib/share-url";
 import { EditPostDrawer } from "@/components/post/edit-post-drawer";
 import { PostCard } from "@/components/feed/post-card";
+import { LazyMount } from "@/components/shared/lazy-mount";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -846,8 +847,14 @@ export default function Index() {
     setReportDialogOpen(true);
   }, []);
 
+  // A trava de reentrada mora numa ref, não no estado: dependendo de
+  // `likesLoading`, este callback trocava de identidade a cada abertura e
+  // levava junto o `sharedCardProps` — re-renderizando todos os cards do feed
+  // por causa de um guard que nem precisa disparar render.
+  const likesLoadingRef = React.useRef(false);
   const handleOpenLikesModal = React.useCallback(async (post: PostWithStats) => {
-    if (likesLoading) return;
+    if (likesLoadingRef.current) return;
+    likesLoadingRef.current = true;
     setLikesLoading(true);
     try {
       await flushPendingIncentivesDb(post.id);
@@ -858,9 +865,10 @@ export default function Index() {
       console.error("Error loading post likes:", err);
       toast({ title: t("error"), description: t("post_incentives_load_error"), variant: "destructive" });
     } finally {
+      likesLoadingRef.current = false;
       setLikesLoading(false);
     }
-  }, [likesLoading, t]);
+  }, [t]);
 
   const handleDeletePost = React.useCallback(
     (post: PostWithStats) => {
@@ -904,19 +912,38 @@ export default function Index() {
   }, [loadFeed]);
 
   // Shared PostCard props factory
-  const sharedCardProps = {
-    currentUserId: user?.id,
-    togglingIncentives,
-    likesLoading,
-    onToggleLike: handleToggleLike,
-    onOpenLikes: handleOpenLikesModal,
-    onOpenGoal: openGoalModal,
-    onShare: handleSharePost,
-    onReportUser: handleReportUser,
-    onReportPost: handleReportPost,
-    onEdit: handleEditPost,
-    onDelete: handleDeletePost,
-  };
+  // Memoizado porque é espalhado em TODO PostCard: como objeto literal, cada
+  // render desta tela (46 estados, qualquer drawer abre um) entregava props
+  // novas aos quarenta cards e anulava o `memo` deles. Os oito handlers já são
+  // `useCallback` estáveis, então este objeto só muda quando algo real muda.
+  const sharedCardProps = React.useMemo(
+    () => ({
+      currentUserId: user?.id,
+      togglingIncentives,
+      likesLoading,
+      onToggleLike: handleToggleLike,
+      onOpenLikes: handleOpenLikesModal,
+      onOpenGoal: openGoalModal,
+      onShare: handleSharePost,
+      onReportUser: handleReportUser,
+      onReportPost: handleReportPost,
+      onEdit: handleEditPost,
+      onDelete: handleDeletePost,
+    }),
+    [
+      user?.id,
+      togglingIncentives,
+      likesLoading,
+      handleToggleLike,
+      handleOpenLikesModal,
+      openGoalModal,
+      handleSharePost,
+      handleReportUser,
+      handleReportPost,
+      handleEditPost,
+      handleDeletePost,
+    ],
+  );
 
   const feedScrollRef = React.useRef<HTMLDivElement>(null);
 
@@ -1144,7 +1171,9 @@ export default function Index() {
         {feedTab === "following" ? (
           <>
             {posts.map((post) => (
-              <PostCard key={post.id} post={post} {...sharedCardProps} />
+              <LazyMount key={post.id}>
+                <PostCard post={post} {...sharedCardProps} />
+              </LazyMount>
             ))}
 
             {/* Feed vazio = primeira tela de todo usuário novo. Em vez de um link
@@ -1227,12 +1256,13 @@ export default function Index() {
             ) : (
               <>
                 {discoverPosts.map((post) => (
-                  <PostCard
-                    key={`seed-${post.id}`}
-                    post={post}
-                    {...sharedCardProps}
-                    showFollowButton
-                  />
+                  <LazyMount key={`seed-${post.id}`}>
+                    <PostCard
+                      post={post}
+                      {...sharedCardProps}
+                      showFollowButton
+                    />
+                  </LazyMount>
                 ))}
                 {hasMoreDiscover && discoverPosts.length > 0 && (
                   <div ref={discoverBottomSentinelRef}>

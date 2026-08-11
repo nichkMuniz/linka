@@ -1,7 +1,11 @@
 import { useEffect } from "react";
 import { PushNotifications } from "@capacitor/push-notifications";
 import { Capacitor } from "@capacitor/core";
-import { savePushTokenDb, deletePushTokenDb } from "@/lib/ritmofit-db";
+// Import dinâmico: este hook é chamado pelo `RequireAuth`, que vive no App.tsx
+// — uma importação estática daqui prendia o `ritmofit-db` inteiro no chunk de
+// entrada. As duas funções só rodam dentro de callbacks assíncronos do plugin
+// de push (registro do token e logout), muito depois do primeiro frame.
+const db = () => import("@/lib/ritmofit-db");
 
 const PUSH_TOKEN_KEY = "linka_push_token";
 
@@ -38,7 +42,7 @@ export function usePushNotifications(userId: string | null) {
         const existingToken = localStorage.getItem(PUSH_TOKEN_KEY);
         // Avoid redundant DB writes if token hasn't changed
         if (existingToken !== token.value) {
-          await savePushTokenDb(token.value, "ios");
+          await (await db()).savePushTokenDb(token.value, "ios");
           localStorage.setItem(PUSH_TOKEN_KEY, token.value);
         }
       });
@@ -93,7 +97,7 @@ export function usePushNotifications(userId: string | null) {
     if (!Capacitor.isNativePlatform()) return;
     const token = localStorage.getItem(PUSH_TOKEN_KEY);
     if (token) {
-      await deletePushTokenDb(token);
+      await (await db()).deletePushTokenDb(token);
       localStorage.removeItem(PUSH_TOKEN_KEY);
     }
     await PushNotifications.unregister();

@@ -51,6 +51,7 @@ import {
   type NotificationRow,
 } from "@/lib/notification-copy";
 import { OUTBOX_SYNCED_EVENT } from "@/lib/offline-outbox";
+import { prefetchPrimaryRoutes, prefetchRoute } from "@/lib/route-prefetch";
 import { toast } from "@/components/ui/use-toast";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
@@ -98,6 +99,37 @@ export function AppLayout() {
   // e o gesto poderia conflitar com o crop inline.
   const mainRef = React.useRef<HTMLElement>(null);
   useEdgeSwipeBack(mainRef, location.pathname !== "/postar");
+
+  // ─── Prefetch dos chunks de tela ──────────────────────────────────────────
+  //
+  // Um único listener delegado no documento, em vez de um handler por <Link>:
+  // pega qualquer link interno do app (menu, sidebar, header, cards dentro das
+  // páginas) sem espalhar a mesma prop por dezenas de lugares — e continua
+  // valendo para links criados depois.
+  //
+  // `pointerdown` e não `click`: entre encostar e soltar o dedo passam ~100ms,
+  // e a navegação só acontece no clique. O chunk viaja dentro dessa folga, de
+  // graça. Em `capture` para não depender de nenhum `stopPropagation` no meio
+  // do caminho, e `passive` para nunca atrasar o scroll.
+  React.useEffect(() => {
+    const onPointerDown = (e: Event) => {
+      const target = e.target as HTMLElement | null;
+      const anchor = target?.closest?.("a[href]") as HTMLAnchorElement | null;
+      const href = anchor?.getAttribute("href");
+      // Só rotas internas: href externo não tem chunk nosso para aquecer.
+      if (href && href.startsWith("/")) prefetchRoute(href);
+    };
+
+    document.addEventListener("pointerdown", onPointerDown, { passive: true, capture: true });
+    return () => document.removeEventListener("pointerdown", onPointerDown, { capture: true });
+  }, []);
+
+  // Segunda oportunidade: as telas do bottom nav são aquecidas quando a thread
+  // fica ociosa, então mesmo a primeira navegação do dia já encontra o chunk
+  // pronto — sem competir com a carga da tela que está na frente do usuário.
+  React.useEffect(() => {
+    prefetchPrimaryRoutes();
+  }, []);
 
   // Auto-reopen workout modal when rest timer reaches 0 while minimized
   const prevRestTimerActiveRef = React.useRef(globalRestTimerActive);

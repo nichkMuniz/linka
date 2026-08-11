@@ -1,7 +1,11 @@
 import * as React from "react";
 import { LocalNotifications } from "@capacitor/local-notifications";
 import { Capacitor } from "@capacitor/core";
-import { type SetKind, type UserWorkoutWithDetails } from "@/lib/ritmofit-db";
+// `import type` explícito: garante que o bundler ELIMINE a aresta para
+// `ritmofit-db`. Este provider é montado no App.tsx, então uma importação de
+// valor aqui prenderia o módulo inteiro no chunk de entrada — e daqui só saem
+// tipos, que não existem em runtime.
+import type { SetKind, UserWorkoutWithDetails } from "@/lib/ritmofit-db";
 
 // ID da notificação local de "tempo de descanso terminou". Exportado para que
 // o listener genérico de notificações (use-routine-notifications) saiba

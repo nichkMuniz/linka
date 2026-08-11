@@ -557,6 +557,21 @@ Ao publicar com sucesso, o drawer de compartilhamento fecha e chama `onShared` �
 | Última sessão (prefill séries) | `getLastWorkoutSessionSeriesDb` |
 | Perfil fitness (pré-preenche o quiz do "Sugerido") | `getFitnessProfileDb` |
 
+### Recarga em fatias (2026-08-11)
+
+A tela não recarrega tudo depois de cada ação. Existiam 21 chamadas de `loadData()` — doze queries e a tela inteira reconstruída — para coisas como renomear uma rotina ou mudar um horário, e o usuário esperava pela carga completa antes de ver o resultado da própria ação.
+
+| Fatia | Recarrega | Usada por |
+|---|---|---|
+| `reloadRoutines()` | rotinas + treinos/dietas/hábitos (+ `getRoutineLastDatesBatchDb` em background) | renomear, apagar item/rotina, horário, dias, modo de treino, técnicas, criar rotina |
+| `reloadGoals()` | `getUserGoalsDb` | editar/apagar meta |
+| `reloadProgress()` | check-ins, streak, semana, insígnias | concluir treino, fechar rotina do dia, insígnia no diário |
+| `loadData()` | tudo (as três + peso) | **só** primeira montagem e drenagem da fila offline (`OUTBOX_SYNCED_EVENT`) |
+
+- Vincular meta ↔ rotina mexe nos dois lados → `reloadRoutines()` + `reloadGoals()`.
+- `getRoutineLastDatesBatchDb` depende dos ids que acabaram de chegar, então é sequencial de verdade — mas **não bloqueia**: saiu do caminho crítico e atualiza quando chegar. Antes era um `await` extra depois das outras onze.
+- O toggle de item (dieta/hábito) **já era otimista** e continua sem recarga alguma — é a ação mais repetida da tela.
+
 Mutations: `createUserWorkoutsDb/createUserDietsDb/createUserHabitsDb`, `backfillRoutineIdOnItemsDb`, `updateRoutineItemsScheduledTimeDb` (em massa, por rotina), `updateRoutineItemScheduledTimeDb` (nova — um item, usada só para hábitos com horário individual), `updateRoutineItemsScheduledDaysDb`, `updateRoutineProgramMetaDb` (nova — grava séries×reps do programa gerado em `routines.program_meta`), `upsertFitnessProfileDb` (nova — salva as respostas do quiz em `user_fitness_profile`), `updateRoutineGoalDb`, `updateRoutineNameDb`, `deleteRoutineCardDb` (nova), `deleteRoutineItemDb` (nova), `toggleUserDietCompletionDb/toggleUserHabitCompletionDb`, `saveDietHistoryDb/saveHabitHistoryDb`, `saveWorkoutHistoryDb`, `createCheckInDb`, `awardBadgesForCheckInsDb`, `incrementGoalProgressDb`, `createUserGoalDb`, `createCustomGoalAndSelectDb`, `deleteUserGoalDb`, `createCustomWorkoutDb/createCustomDietDb/createCustomHabitDb`.
 
 ## Itens criados manualmente persistem (14/07/2026)

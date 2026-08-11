@@ -371,6 +371,27 @@ Tela cheia de conta suspensa: ícone `ShieldBan`, título, explicação e botão
 
 ---
 
+### LazyMount (2026-08-11)
+**Arquivo:** `client/components/shared/lazy-mount.tsx`
+**Usado em:** `client/pages/Index.tsx` — envolve cada `PostCard` das abas "Seguindo" e "Descobrir"
+
+Mantém no DOM só o que está perto da viewport. Item longe → conteúdo desmontado e substituído por um espaçador com a altura medida antes de sair.
+
+| Prop | Padrão | Descrição |
+|---|---|---|
+| `estimatedHeight` | `480` | Altura do espaçador enquanto o item nunca foi medido |
+| `rootMargin` | `"150%"` | Folga ao redor da viewport que ainda conta como "perto" |
+
+- **O ganho não é re-render** — o `memo` do `PostCard` já cobre isso. É contagem de nós, decodificação de imagem, layout, pintura e composição do `backdrop-filter`, que o WKWebView paga mesmo para o que está a dez telas de distância.
+- **Começa montado** de propósito: o feed restaura a posição de scroll ao voltar de outra tela, e com alturas estimadas essa restauração cairia no lugar errado. O observer recolhe no frame seguinte, já com alturas reais.
+- **Sem `content-visibility: auto`**, que resolveria com uma linha de CSS: só existe do Safari 18 em diante, e o `IPHONEOS_DEPLOYMENT_TARGET` é 15.0.
+- **Sem biblioteca de virtualização**: as existentes assumem altura fixa, e dependência nova exige regenerar os dois lockfiles (npm/Appflow + pnpm/Vercel).
+- Sem `IntersectionObserver` no ambiente, vira passthrough — tudo montado, como antes.
+
+> **Não usar em chat.** A conversa privada é capada em 200 mensagens e é ancorada embaixo; desmontar bolhas de altura variável faria o scroll pular.
+
+---
+
 ### AnimatedLoading
 **Arquivo:** `client/components/shared/animated-loading.tsx`
 
@@ -404,12 +425,18 @@ Provedor de tema dark/light:
 ## Hooks Customizados
 
 ### useAuth
-**Arquivo:** `client/hooks/useAuth.ts`
+**Arquivo:** `client/hooks/useAuth.ts` (contexto em `client/lib/auth-context.tsx`)
 
 Gerencia estado de autenticação:
 - `user` — usuário logado (ou null)
 - `loading` — se ainda está verificando a sessão
 - Integrado com Supabase Auth
+
+**`loading` só é `true` quando NÃO há sessão em disco (2026-08-11).** O provider lê a chave `sb-*-auth-token` do localStorage no estado inicial; se ela traz um usuário, a árvore renderiza na hora e a verificação assíncrona corrige depois.
+
+- **Por quê:** `loading` começava sempre `true`, e o app inteiro ficava atrás da tela vazia do `AuthLoadingScreen` até `getUserSafe()` resolver. Só que `getSession()` **não é local** quando o access token venceu (vive 1h — ou seja, quase todo cold start): com `autoRefreshToken`, ele espera o refresh na rede, e esse fetch ainda passa pelo `fetchWithRetry` (até 4 tentativas, ~2,1 s de backoff em rede ruim).
+- **O `null` da verificação inicial não desloga.** `getUserSafe()` também devolve `null` em falha de rede; aceitá-lo jogaria no login quem abriu o app sem internet — justamente o cenário do modo offline. Quem desloga é o `onAuthStateChange` (SIGNED_OUT).
+- **A identidade de `user` só muda quando a pessoa muda.** Cada refresh de token entregava um objeto novo com o mesmo id, invalidando todo `useCallback` que depende de `user` — e, por tabela, os `useEffect` de carga das telas: um refresh de token disparava refetch em cascata pelo app inteiro.
 
 ---
 
@@ -428,6 +455,24 @@ Detecta o modo de layout:
 Hook simples para detectar mobile:
 - Baseado em `window.innerWidth`
 - Retorna `true` se largura < breakpoint
+
+---
+
+### route-prefetch (2026-08-11)
+**Arquivo:** `client/lib/route-prefetch.ts`
+**Usado por:** AppLayout (dois efeitos, montados uma vez)
+
+Aquece o chunk de uma tela antes de ela ser necessária. Todas as páginas são `React.lazy`, então sem isto o chunk só começa a ser buscado quando a rota já mudou — é esse intervalo que dá a sensação de que o app "pensa" antes de trocar de página.
+
+| Export | Quando dispara | O que faz |
+|---|---|---|
+| `prefetchRoute(path)` | `pointerdown` em qualquer `<a href="/…">` | Carrega o chunk daquela rota |
+| `prefetchPrimaryRoutes()` | `requestIdleCallback` (fallback `setTimeout` 2 s) | Aquece `/`, `/metas`, `/comunidade`, `/shots`, uma de cada vez |
+
+- **Um listener delegado no `document`**, em `capture` + `passive`, em vez de um handler por `<Link>`: pega menu, sidebar, header e links dentro das páginas de uma vez, e continua valendo para links criados depois.
+- **`pointerdown`, não `click`:** entre encostar e soltar o dedo passam ~100 ms e a navegação só acontece no clique — o chunk viaja dentro dessa folga.
+- **Os `import()` são duplicados de propósito** entre este arquivo e o `App.tsx`. O bundler casa chunks pelo especificador **literal**; um wrapper genérico com caminho em variável geraria outro chunk (ou nenhum). Ao adicionar uma tela nova ao menu, adicione aqui também.
+- `requestIdleCallback` não existe no WKWebView do iOS — o `setTimeout` é o caminho real no device.
 
 ---
 

@@ -104,6 +104,30 @@ O TTL de cada chave é definido pela **mutabilidade do dado — quem pode escrev
 
 ---
 
+## Fronteira do chunk de entrada (2026-08-11)
+
+> **Regra:** tudo que o `client/App.tsx` importa **estaticamente** é baixado, parseado e executado **antes do primeiro pixel**, em toda abertura do app. Antes de adicionar um `import` lá — ou em qualquer módulo que ele alcance — pergunte se aquilo precisa existir no primeiro frame.
+
+O chunk de entrada estava em **1,34 MB (393 KB gzip)** porque o caminho estático a partir do `App.tsx` alcançava o `ritmofit-db` (12k linhas, 328 funções) por **quatro arestas ao mesmo tempo**: `AppLayout`, `Login`, `PremiumProvider` e `usePushNotifications`. O Sentry (SDK React + ponte Capacitor/Cocoa, **503 KB**) também entrava inteiro, porque `initMonitoring()` era chamado no topo do módulo.
+
+Resultado depois do corte: **369 KB (112 KB gzip)** — 72% menor.
+
+| Módulo | Como entra hoje | Chunk |
+|---|---|---|
+| `AppLayout`, `Login`, `ResetPassword`, `BannedScreen`, `FloatingActionMenu` | `React.lazy` | próprios |
+| `ritmofit-db` | só por telas lazy e `import()` dinâmico | `ritmofit-db-*.js` (208 KB) |
+| `@sentry/react` + `@sentry/capacitor` | `import()` dentro de `initMonitoring()`, com fila | `vendor-sentry-*.js` (503 KB) |
+| react / react-dom / router, supabase, framer-motion, lucide | `manualChunks` (`vite.config.ts`) | `vendor-*.js` |
+
+**Padrões a manter:**
+- Provider ou hook montado no `App.tsx` que só usa `ritmofit-db` dentro de callback assíncrono → `const db = () => import("@/lib/ritmofit-db")` (ver `premium-context.tsx`, `use-push-notifications.ts`, `useBanGuard`).
+- Só tipos vindos do `ritmofit-db` → `import type { … }` **explícito**, para o bundler eliminar a aresta (ver `workout-context.tsx`).
+- O `i18n.ts` **continua no entry de propósito**: o `LanguageProvider` e o `ErrorBoundary` precisam dele antes de qualquer tela.
+
+Ao mexer nisso, confira com `npx vite build` — o tamanho do `index-*.js` é o número que importa.
+
+---
+
 ## Conceito de Incentivos
 
 Em vez de um simples "curtir", o RitmoFit usa **incentivos** com 6 tipos distintos:

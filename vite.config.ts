@@ -108,6 +108,35 @@ export default defineConfig(async () => {
     define,
     build: {
       sourcemap: SENTRY_UPLOAD ? ("hidden" as const) : false,
+      rollupOptions: {
+        output: {
+          // Separa as dependências grandes em chunks próprios.
+          //
+          // Sem isto, tudo que a entrada alcançava virava um único arquivo de
+          // 1,34 MB — o Rollup avisava literalmente sobre isso a cada build.
+          // Dois ganhos: o parse do arquivo de entrada deixa de carregar o que
+          // só uma tela usa, e cada chunk passa a ter hash próprio, então uma
+          // mudança no nosso código não invalida o cache das bibliotecas.
+          //
+          // React e Supabase continuam sendo buscados na abertura (a árvore e
+          // a sessão dependem deles) — mas agora em paralelo, e não como um
+          // bloco monolítico a ser parseado antes de qualquer outra coisa.
+          manualChunks(id: string) {
+            if (!id.includes("node_modules")) return;
+            if (/[\\/]node_modules[\\/](react|react-dom|scheduler|react-router|react-router-dom)[\\/]/.test(id)) {
+              return "vendor-react";
+            }
+            if (id.includes("@supabase")) return "vendor-supabase";
+            if (id.includes("framer-motion") || id.includes("motion-dom") || id.includes("motion-utils")) {
+              return "vendor-motion";
+            }
+            // Já chega por import dinâmico (ver client/lib/monitoring.ts); o
+            // chunk nomeado só o mantém fora dos chunks de tela.
+            if (id.includes("@sentry")) return "vendor-sentry";
+            if (id.includes("lucide-react")) return "vendor-icons";
+          },
+        },
+      },
     },
     resolve: {
       alias: {

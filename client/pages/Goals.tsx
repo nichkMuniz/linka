@@ -237,44 +237,83 @@ export default function Goals() {
   const [pendingGoal, setPendingGoal] = React.useState<UserGoal | null>(null);
   const [sessionCardKey, setSessionCardKey] = React.useState<string | null>(null);
 
+  // ─── Recarga em FATIAS ────────────────────────────────────────────────────
+  //
+  // Antes existia só o `loadData()`: doze queries e a tela inteira reconstruída.
+  // Ele era chamado em 21 lugares — renomear uma rotina, mudar um horário,
+  // vincular uma meta, tudo disparava a carga completa, e o usuário esperava
+  // por ela antes de ver o resultado da própria ação.
+  //
+  // Cada fatia abaixo recarrega só o que a ação mexeu. As demais continuam em
+  // tela, com o dado que já estava correto — e o cache de `ritmofit-db` nem
+  // chega a ser consultado para elas.
+
+  /** Rotinas e seus itens (treinos, dietas, hábitos). */
+  const reloadRoutines = React.useCallback(async () => {
+    if (!user) return;
+    const [rts, ws, ds, hs] = await Promise.all([
+      getUserRoutinesDb(user.id),
+      getUserWorkoutsDb(user.id),
+      getUserDietsDb(user.id),
+      getUserHabitsDb(user.id),
+    ]);
+    setRoutines(rts);
+    setWorkouts(ws);
+    setDiets(ds);
+    setHabits(hs);
+
+    // Depende dos ids que acabaram de chegar, então é sequencial de verdade —
+    // mas não bloqueia: a tela já pode desenhar as rotinas sem as datas.
+    getRoutineLastDatesBatchDb(user.id, ws.map((w) => w.id))
+      .then(setRoutineLastDates)
+      .catch(() => { /* datas ausentes só escondem o "último treino" */ });
+  }, [user]);
+
+  /** Metas do usuário. */
+  const reloadGoals = React.useCallback(async () => {
+    setUserGoals(await getUserGoalsDb());
+  }, []);
+
+  /** Check-ins, sequência e insígnias — muda quando um treino é concluído. */
+  const reloadProgress = React.useCallback(async () => {
+    if (!user) return;
+    const [hist, badges, allB, totalCi, displayB] = await Promise.all([
+      getCheckInHistoryDb(user.id, 60),
+      getUserBadgesDb(user.id),
+      getAllBadgesDb(),
+      getTotalCheckInsDb(user.id),
+      getDisplayBadgeDb(user.id),
+    ]);
+    setStreak(computeStreak(hist));
+    setRecordStreak(Math.max(computeRecordStreak(hist), computeStreak(hist)));
+    setWeek(computeWeekCheckins(hist));
+    setCheckInDates(Array.from(new Set(hist.map((h) => h.check_in_date))));
+    setUserBadges(badges);
+    setAllBadges(allB);
+    setSelectedBadgeId(displayB?.id ?? null);
+    setTotalCheckIns(totalCi);
+  }, [user]);
+
+  /**
+   * Carga completa. Fica reservada para o que realmente precisa de tudo: a
+   * primeira montagem da tela e o retorno do modo offline (quando a fila de
+   * escritas foi drenada e qualquer parte do estado pode ter mudado).
+   */
   const loadData = React.useCallback(async () => {
     if (!user) return;
     try {
-      const [rts, ws, ds, hs, gs, hist, badges, allB, totalCi, wl, displayB] = await Promise.all([
-        getUserRoutinesDb(user.id),
-        getUserWorkoutsDb(user.id),
-        getUserDietsDb(user.id),
-        getUserHabitsDb(user.id),
-        getUserGoalsDb(),
-        getCheckInHistoryDb(user.id, 60),
-        getUserBadgesDb(user.id),
-        getAllBadgesDb(),
-        getTotalCheckInsDb(user.id),
-        getWeightLogsDb(90),
-        getDisplayBadgeDb(user.id),
+      await Promise.all([
+        reloadRoutines(),
+        reloadGoals(),
+        reloadProgress(),
+        getWeightLogsDb(90).then(setWeightLogs),
       ]);
-      setRoutines(rts);
-      setWorkouts(ws);
-      setDiets(ds);
-      setHabits(hs);
-      setUserGoals(gs);
-      setStreak(computeStreak(hist));
-      setRecordStreak(Math.max(computeRecordStreak(hist), computeStreak(hist)));
-      setWeek(computeWeekCheckins(hist));
-      setCheckInDates(Array.from(new Set(hist.map((h) => h.check_in_date))));
-      setUserBadges(badges);
-      setAllBadges(allB);
-      setSelectedBadgeId(displayB?.id ?? null);
-      setTotalCheckIns(totalCi);
-      setWeightLogs(wl);
-      const lastDates = await getRoutineLastDatesBatchDb(user.id, ws.map((w) => w.id));
-      setRoutineLastDates(lastDates);
     } catch {
       toast({ title: t("goals_load_error"), variant: "destructive" });
     } finally {
       setLoading(false);
     }
-  }, [user, t]);
+  }, [user, t, reloadRoutines, reloadGoals, reloadProgress]);
 
   React.useEffect(() => {
     loadData();
@@ -336,7 +375,7 @@ export default function Goals() {
         const inserted = await createUserDietsDb(user.id, dietIds, { name: routineName });
         await backfillRoutineIdOnItemsDb(user.id, 2, routineName, inserted.map((i) => i.id)).catch(() => {});
         toast({ title: t("nutrition_routine_created"), description: t("nutrition_routine_created_desc") });
-        await loadData();
+        await reloadRoutines();
         return true;
       } catch {
         toast({ title: t("nutrition_error"), variant: "destructive" });
@@ -656,7 +695,9 @@ export default function Goals() {
         }
       }
     }
-    loadData();
+    // Fim de treino: progresso (check-in/insígnias), metas e o "último treino"
+    // dos cards. O peso corporal não muda por concluir um treino.
+    void Promise.all([reloadProgress(), reloadGoals(), reloadRoutines()]);
   };
 
   // Reabre o resumo do último treino finalizado desta rotina (ícone no
@@ -774,8 +815,10 @@ export default function Goals() {
           }
         }
       }
-      // Só aqui vale pagar a recarga: streak, semana, insígnias e metas mudaram.
-      await loadData();
+      // Fechar a rotina do dia mexe em progresso (streak, semana, insígnias),
+      // nas metas vinculadas e no estado dos itens — mas não no peso nem no
+      // catálogo, que continuavam sendo relidos à toa pela carga completa.
+      await Promise.all([reloadProgress(), reloadGoals(), reloadRoutines()]);
     } catch {
       toast({ title: t("goals_load_error"), variant: "destructive" });
     }
@@ -783,31 +826,32 @@ export default function Goals() {
 
   const handleDeleteItem = async (card: RoutineCard, item: RoutineItem) => {
     await deleteRoutineItemDb(card.type, item.id);
+
     // O histórico do item foi apagado junto: a cobertura muscular precisa
     // reler, senão segue mostrando o volume de um exercício que não existe mais.
     setMuscleCoverageVersion((v) => v + 1);
-    await loadData();
+    await reloadRoutines();
   };
 
   const handleRename = async (card: RoutineCard, newName: string) => {
     if (!user) return;
     await updateRoutineNameDb(user.id, card.name, card.type, newName);
     setSelectedCardKey(`${card.type}::${newName}`);
-    await loadData();
+    await reloadRoutines();
   };
 
   const handleSetTime = async (card: RoutineCard, time: string | null) => {
     if (!user) return;
     await updateRoutineItemsScheduledTimeDb(user.id, card.type, card.name, time);
     window.dispatchEvent(new CustomEvent("ritmofit-routines-changed"));
-    await loadData();
+    await reloadRoutines();
   };
 
   const handleSetDays = async (card: RoutineCard, days: string | null) => {
     if (!user) return;
     await updateRoutineItemsScheduledDaysDb(user.id, card.type, card.name, days);
     window.dispatchEvent(new CustomEvent("ritmofit-routines-changed"));
-    await loadData();
+    await reloadRoutines();
   };
 
   // Troca o modo de treino de uma rotina já criada. Prefere o id (FK sem
@@ -820,7 +864,7 @@ export default function Goals() {
     } else {
       await updateRoutineTrainingModeByNameDb(user.id, card.type, card.name, mode);
     }
-    await loadData();
+    await reloadRoutines();
   };
 
   // Plano de técnicas (bi-set, drop-set…) de uma rotina já criada.
@@ -830,14 +874,14 @@ export default function Goals() {
   ) => {
     if (!user || card.type !== 1) return;
     await updateRoutineTechniquesDb(user.id, assignments);
-    await loadData();
+    await reloadRoutines();
   };
 
   const handleSetItemTime = async (item: RoutineItem, time: string | null) => {
     if (!user || !selectedCard) return;
     await updateRoutineItemScheduledTimeDb(user.id, selectedCard.type, item.id, time);
     window.dispatchEvent(new CustomEvent("ritmofit-routines-changed"));
-    await loadData();
+    await reloadRoutines();
   };
 
   // Hora de fim do hábito (só user_habits tem a coluna — ver migração 20260716).
@@ -845,19 +889,21 @@ export default function Goals() {
     if (!user || selectedCard?.type !== 3) return;
     await updateHabitScheduledEndTimeDb(user.id, item.id, endTime);
     window.dispatchEvent(new CustomEvent("ritmofit-routines-changed"));
-    await loadData();
+    await reloadRoutines();
   };
 
+  // Vincular meta ↔ rotina mexe nos dois lados: a rotina passa a exibir a meta,
+  // e a meta passa a listar a rotina. Daí as duas fatias — e nenhuma a mais.
   const handleLinkGoal = async (card: RoutineCard, goal: UserGoal | null) => {
     if (!card.routineId) return;
     await updateRoutineGoalDb(card.routineId, goal ? goal.goal_id : null);
-    await loadData();
+    await Promise.all([reloadRoutines(), reloadGoals()]);
   };
 
   // Vincula/desvincula uma rotina à meta a partir do drawer de detalhe da meta.
   const handleToggleRoutineLink = async (routineId: string, goalId: string | null) => {
     await updateRoutineGoalDb(routineId, goalId);
-    await loadData();
+    await Promise.all([reloadRoutines(), reloadGoals()]);
   };
 
   const handleDeleteCard = async (card: RoutineCard) => {
@@ -866,18 +912,18 @@ export default function Goals() {
     setSelectedCardKey(null);
     // Idem: apagar a rotina apaga o histórico dela.
     setMuscleCoverageVersion((v) => v + 1);
-    await loadData();
+    await reloadRoutines();
   };
 
   const handleEditGoal = async (goal: UserGoal, updates: { duration: number; quantity: number }) => {
     await updateUserGoalDb(goal.id, updates);
-    await loadData();
+    await reloadGoals();
   };
 
   const handleDeleteGoal = async (goal: UserGoal) => {
     await deleteUserGoalDb(goal.id);
     setSelectedGoalId(null);
-    await loadData();
+    await reloadGoals();
   };
 
   // Toque num card de tipo:
@@ -1016,7 +1062,8 @@ export default function Goals() {
             if (pendingBadges.length > 0) {
               setUnlockedBadges(pendingBadges);
               setPendingBadges([]);
-              loadData();
+              // Só as insígnias/check-ins mudaram dentro do diário.
+              void reloadProgress();
             }
           }
         }}
@@ -1062,7 +1109,8 @@ export default function Goals() {
             setCreateOpen(false);
             setEditRoutineCard(null);
             setCreateGoalFlow(false);
-            loadData();
+            // O wizard cria rotina, meta, ou as duas — daí as duas fatias.
+            void Promise.all([reloadRoutines(), reloadGoals()]);
           }}
         />
       )}

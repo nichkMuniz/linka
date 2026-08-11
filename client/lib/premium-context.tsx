@@ -1,10 +1,6 @@
 import * as React from "react";
 import { useAuthContext } from "@/lib/auth-context";
 import {
-  getPremiumStatusDb,
-  invalidatePremiumStatus,
-} from "@/lib/ritmofit-db";
-import {
   configurePurchases,
   hasActiveEntitlement,
   isPurchasesAvailable,
@@ -27,6 +23,16 @@ interface PremiumContextValue {
    */
   applyPurchase: () => void;
 }
+
+/**
+ * `ritmofit-db` só é tocado dentro de callbacks assíncronos, nunca no render.
+ * Importar estaticamente aqui arrastava o módulo inteiro (12k linhas, 328
+ * funções) para o chunk de ENTRADA — este provider é montado direto no App.tsx,
+ * então tudo que ele importa entra no caminho crítico do primeiro frame.
+ * Duas funções não justificam esse custo; o import dinâmico é resolvido no
+ * mesmo tick em que a carga do status acontece, que já é assíncrona.
+ */
+const db = () => import("@/lib/ritmofit-db");
 
 const PremiumContext = React.createContext<PremiumContextValue>({
   isPremium: false,
@@ -60,7 +66,7 @@ export function PremiumProvider({ children }: { children: React.ReactNode }) {
     }
     setLoading(true);
     try {
-      setDbPremium(await getPremiumStatusDb());
+      setDbPremium(await (await db()).getPremiumStatusDb());
     } catch {
       setDbPremium(false);
     }
@@ -89,7 +95,7 @@ export function PremiumProvider({ children }: { children: React.ReactNode }) {
   }, [userId]);
 
   const refresh = React.useCallback(async () => {
-    await invalidatePremiumStatus();
+    await (await db()).invalidatePremiumStatus();
     await load();
   }, [load]);
 
@@ -98,6 +104,7 @@ export function PremiumProvider({ children }: { children: React.ReactNode }) {
     // Reconcilia com o banco em background — quando o webhook gravar, o status
     // passa a vir das duas fontes. Um erro aqui não retira o acesso concedido.
     void (async () => {
+      const { invalidatePremiumStatus, getPremiumStatusDb } = await db();
       await invalidatePremiumStatus();
       try {
         setDbPremium(await getPremiumStatusDb());

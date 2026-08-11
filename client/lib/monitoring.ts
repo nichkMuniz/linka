@@ -18,8 +18,9 @@
  * "Relatar um problema" (ver `report-problem-drawer.tsx`).
  */
 import { Capacitor } from "@capacitor/core";
-import * as SentryCapacitor from "@sentry/capacitor";
-import * as SentryReact from "@sentry/react";
+import type * as SentryReactNS from "@sentry/react";
+
+type SentryReactModule = typeof SentryReactNS;
 
 const DSN = import.meta.env.VITE_SENTRY_DSN as string | undefined;
 
@@ -29,9 +30,57 @@ export const APP_VERSION =
 
 let enabled = false;
 
-/** True quando o Sentry foi inicializado de fato (DSN presente e init OK). */
+/**
+ * True quando o monitoramento está ATIVO — não quando o SDK já terminou de
+ * carregar. A distinção importa: o SDK agora chega por import dinâmico, e o
+ * botão "Relatar um problema" precisa decidir se aparece já no primeiro render
+ * (ver report-problem-drawer.tsx). Vira false de novo só se o init falhar.
+ */
 export function isMonitoringEnabled(): boolean {
   return enabled;
+}
+
+// ─── Carga assíncrona do SDK ─────────────────────────────────────────────────
+//
+// Os SDKs do Sentry (React + ponte Capacitor/Cocoa) somam ~100KB minificados.
+// Importados estaticamente, entravam no chunk de ENTRADA e eram parseados e
+// executados antes do primeiro pixel, em TODA abertura do app — telemetria
+// pagando o preço mais caro que existe no cold start.
+//
+// Agora o módulo é buscado em paralelo e tudo que chega antes dele fica numa
+// fila, drenada assim que o init termina. A janela é de alguns milissegundos
+// (o arquivo vem do disco local no Capacitor), e nada é perdido nela: o
+// ErrorBoundary e o listener de `unhandledrejection` do App.tsx continuam
+// capturando desde o primeiro frame — só a ENTREGA é que espera o SDK.
+
+let sentry: SentryReactModule | null = null;
+let queue: Array<(s: SentryReactModule) => void> = [];
+
+function whenReady(fn: (s: SentryReactModule) => void): void {
+  if (!enabled) return;
+  if (sentry) {
+    fn(sentry);
+    return;
+  }
+  // Teto de segurança: se o import falhar de vez, a fila não pode crescer sem
+  // limite e virar vazamento de memória.
+  if (queue.length < 100) queue.push(fn);
+}
+
+/**
+ * Identificador local do evento, gerado sem depender do SDK.
+ *
+ * É o código que o usuário lê na tela de erro e cita no suporte. Antes vinha do
+ * retorno de `captureException`, que agora pode não estar disponível ainda —
+ * então geramos o nosso e o anexamos como tag `report_id`, que é pesquisável no
+ * painel exatamente como o event id era.
+ */
+function newReportId(): string {
+  try {
+    return crypto.randomUUID().replace(/-/g, "");
+  } catch {
+    return Math.random().toString(16).slice(2).padEnd(16, "0");
+  }
 }
 
 /**
@@ -65,12 +114,9 @@ const IGNORED_ERRORS = [
 const EXPECTED_AUTH_ERRORS =
   /Auth session missing|Invalid Refresh Token|refresh_token_not_found|JWT expired/i;
 
-type SentryEvent = Parameters<
-  NonNullable<Parameters<typeof SentryReact.init>[0]>["beforeSend"] & object
->[0];
-type SentryHint = Parameters<
-  NonNullable<Parameters<typeof SentryReact.init>[0]>["beforeSend"] & object
->[1];
+type SentryOptions = NonNullable<Parameters<SentryReactModule["init"]>[0]>;
+type SentryEvent = Parameters<NonNullable<SentryOptions["beforeSend"]> & object>[0];
+type SentryHint = Parameters<NonNullable<SentryOptions["beforeSend"]> & object>[1];
 
 function beforeSend(event: SentryEvent, hint: SentryHint): SentryEvent | null {
   const original = hint?.originalException as { message?: string } | string | undefined;
@@ -101,13 +147,21 @@ function beforeSend(event: SentryEvent, hint: SentryHint): SentryEvent | null {
 }
 
 /**
- * Inicializa o Sentry. Chamada uma única vez no bootstrap (`App.tsx`), antes de
- * qualquer render — erro que acontece no primeiro frame também precisa chegar.
+ * Liga o monitoramento. Chamada uma única vez no bootstrap (`App.tsx`).
+ *
+ * Retorna imediatamente: o SDK é buscado em background e o init acontece
+ * quando ele chega. Tudo que for reportado nesse meio-tempo fica na fila do
+ * `whenReady` — nada se perde, só atrasa alguns milissegundos.
  */
 export function initMonitoring(): void {
   if (enabled || !DSN) return;
 
-  const options: Parameters<typeof SentryReact.init>[0] = {
+  // Já marcamos como ativo aqui (e não depois do init): é o que permite ao
+  // `isMonitoringEnabled()` responder na hora e ao `whenReady` aceitar itens
+  // na fila antes de o SDK existir.
+  enabled = true;
+
+  const options: SentryOptions = {
     dsn: DSN,
     release: `linka@${APP_VERSION}`,
     environment: import.meta.env.DEV ? "development" : "production",
@@ -120,33 +174,51 @@ export function initMonitoring(): void {
     beforeSend,
   };
 
-  try {
-    if (Capacitor.isNativePlatform()) {
-      // No device o SDK do Capacitor embrulha o init do React e ainda liga o
-      // Sentry Cocoa — é o que captura crash nativo de plugin.
-      SentryCapacitor.init(options, SentryReact.init);
-    } else {
-      // Navegador (pnpm dev / preview): só o SDK web, sem ponte nativa.
-      SentryReact.init(options);
+  void (async () => {
+    try {
+      const SentryReact = await import("@sentry/react");
+
+      if (Capacitor.isNativePlatform()) {
+        // No device o SDK do Capacitor embrulha o init do React e ainda liga o
+        // Sentry Cocoa — é o que captura crash nativo de plugin.
+        const SentryCapacitor = await import("@sentry/capacitor");
+        SentryCapacitor.init(options, SentryReact.init);
+      } else {
+        // Navegador (pnpm dev / preview): só o SDK web, sem ponte nativa.
+        SentryReact.init(options);
+      }
+
+      sentry = SentryReact;
+      const pending = queue;
+      queue = [];
+      for (const fn of pending) {
+        try {
+          fn(SentryReact);
+        } catch {
+          // Um item defeituoso na fila não pode impedir os outros de saírem.
+        }
+      }
+    } catch (err) {
+      // Telemetria nunca pode derrubar o app. Sem SDK, voltamos ao modo
+      // no-op — e a fila é descartada para não vazar memória.
+      enabled = false;
+      queue = [];
+      console.warn("[monitoring] falha ao inicializar o Sentry", err);
     }
-    enabled = true;
-  } catch (err) {
-    // Telemetria nunca pode derrubar o app.
-    console.warn("[monitoring] falha ao inicializar o Sentry", err);
-  }
+  })();
 }
 
 /** Associa os próximos eventos ao usuário logado (só o id — ver nota de PII). */
 export function setMonitoringUser(userId: string | null): void {
-  if (!enabled) return;
-  SentryReact.setUser(userId ? { id: userId } : null);
+  whenReady((s) => s.setUser(userId ? { id: userId } : null));
 }
 
 /** Marca a tela atual, para saber onde o erro aconteceu sem depender do stack. */
 export function setMonitoringScreen(path: string): void {
-  if (!enabled) return;
-  SentryReact.setTag("screen", path);
-  SentryReact.addBreadcrumb({ category: "navigation", message: path, level: "info" });
+  whenReady((s) => {
+    s.setTag("screen", path);
+    s.addBreadcrumb({ category: "navigation", message: path, level: "info" });
+  });
 }
 
 /**
@@ -166,18 +238,24 @@ export function reportHandledError(
     console.error(`[${where}]`, error);
     return;
   }
-  SentryReact.withScope((scope) => {
-    scope.setTag("handled_at", where);
-    scope.setLevel("warning");
-    if (extra) scope.setContext("detalhes", extra);
-    SentryReact.captureException(error);
-  });
+  whenReady((s) =>
+    s.withScope((scope) => {
+      scope.setTag("handled_at", where);
+      scope.setLevel("warning");
+      if (extra) scope.setContext("detalhes", extra);
+      s.captureException(error);
+    }),
+  );
 }
 
 /**
  * Reporta o erro que derrubou a árvore React (ErrorBoundary).
- * @returns o id do evento, para exibir na tela de erro — é o que o usuário pode
- *   citar no suporte e nos leva direto ao evento no painel.
+ *
+ * @returns o código a exibir na tela de erro — é o que o usuário pode citar no
+ *   suporte. Gerado localmente (`report_id`) em vez de vir do retorno do
+ *   `captureException`: o SDK pode ainda não ter chegado no instante em que a
+ *   árvore quebra, e justamente um erro no primeiro frame é o mais provável de
+ *   cair nessa janela. A tag é pesquisável no painel igual ao event id era.
  */
 export function reportFatalError(
   error: unknown,
@@ -187,12 +265,18 @@ export function reportFatalError(
     console.error("[fatal]", error, componentStack);
     return undefined;
   }
-  return SentryReact.withScope((scope) => {
-    scope.setLevel("fatal");
-    scope.setTag("boundary", "root");
-    if (componentStack) scope.setContext("react", { componentStack });
-    return SentryReact.captureException(error);
-  });
+
+  const reportId = newReportId();
+  whenReady((s) =>
+    s.withScope((scope) => {
+      scope.setLevel("fatal");
+      scope.setTag("boundary", "root");
+      scope.setTag("report_id", reportId);
+      if (componentStack) scope.setContext("react", { componentStack });
+      s.captureException(error);
+    }),
+  );
+  return reportId;
 }
 
 /** Contexto técnico anexado a um relato manual de problema. */
@@ -214,7 +298,10 @@ export interface ProblemReportContext {
  * fingerprint único, para dois relatos nunca se fundirem num issue só), o que
  * o coloca na mesma lista onde já olhamos os erros automáticos.
  *
- * @returns o id do evento, ou `null` se o envio não pôde ser feito.
+ * @returns o código do relato (tag `report_id`), ou `null` se o monitoramento
+ *   está desligado. Na prática o SDK já chegou muito antes — abrir o drawer e
+ *   escrever o relato leva segundos —, mas o código é gerado localmente para
+ *   nunca depender disso.
  */
 export function sendProblemReport(input: {
   message: string;
@@ -224,28 +311,44 @@ export function sendProblemReport(input: {
   if (!enabled) return null;
 
   const summary = input.message.trim().replace(/\s+/g, " ").slice(0, 80);
+  const reportId = newReportId();
 
-  let eventId: string | null = null;
-  SentryReact.withScope((scope) => {
-    scope.setLevel("info");
-    scope.setTag("report_source", "in_app");
-    scope.setTag("screen", input.context.screen);
-    scope.setContext("relato", {
-      mensagem: input.message,
-      email: input.email || "(não informado)",
-    });
-    scope.setContext("ambiente", input.context);
-    // Cada relato é um relato — sem isto o Sentry agruparia textos parecidos
-    // no mesmo issue e o segundo usuário viraria só um contador.
-    scope.setFingerprint(["user-report", String(Date.now()), summary]);
-    eventId = SentryReact.captureMessage(`Relato do usuário: ${summary}`, "info");
-  });
+  whenReady((s) =>
+    s.withScope((scope) => {
+      scope.setLevel("info");
+      scope.setTag("report_source", "in_app");
+      scope.setTag("screen", input.context.screen);
+      scope.setTag("report_id", reportId);
+      scope.setContext("relato", {
+        mensagem: input.message,
+        email: input.email || "(não informado)",
+      });
+      scope.setContext("ambiente", input.context);
+      // Cada relato é um relato — sem isto o Sentry agruparia textos parecidos
+      // no mesmo issue e o segundo usuário viraria só um contador.
+      scope.setFingerprint(["user-report", String(Date.now()), summary]);
+      s.captureMessage(`Relato do usuário: ${summary}`, "info");
+    }),
+  );
 
-  return eventId;
+  return reportId;
 }
 
-/** Garante que o evento saiu antes de fechar a tela. */
+/**
+ * Garante que o evento saiu antes de fechar a tela.
+ *
+ * Se o SDK ainda não chegou, espera-o entrar (a fila já foi drenada quando ele
+ * chega) — daí o `whenReady` com resolve próprio em vez de um retorno direto.
+ */
 export function flushMonitoring(timeoutMs = 3000): Promise<boolean> {
   if (!enabled) return Promise.resolve(true);
-  return SentryReact.flush(timeoutMs).catch(() => false);
+  if (sentry) return sentry.flush(timeoutMs).catch(() => false);
+
+  return new Promise<boolean>((resolve) => {
+    const timer = setTimeout(() => resolve(false), timeoutMs);
+    whenReady((s) => {
+      clearTimeout(timer);
+      s.flush(timeoutMs).then(resolve).catch(() => resolve(false));
+    });
+  });
 }
