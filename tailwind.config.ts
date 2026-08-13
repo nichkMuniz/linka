@@ -5,6 +5,18 @@ export default {
   darkMode: ["class"],
   content: ["./client/**/*.{ts,tsx}"],
   prefix: "",
+  future: {
+    // App iOS: quem toca não tem ponteiro. Sem isto, `hover:` vira uma regra
+    // simples e o WKWebView aplica o :hover no elemento tocado — o item fica
+    // "aceso" como se um cursor tivesse parado nele (e ao arrastar o dedo a
+    // lista inteira vai acendendo), e o primeiro toque num elemento com estilo
+    // de hover é gasto só para aplicar esse hover: o clique só sai no segundo.
+    // Com a flag, todo `hover:` é compilado dentro de
+    // `@media (hover: hover) and (pointer: fine)` — vale no navegador de dev e
+    // simplesmente não existe no device. Feedback de toque é sempre `active:`.
+    // (É o comportamento padrão do Tailwind v4.)
+    hoverOnlyWhenSupported: true,
+  },
   theme: {
     container: {
       center: true,

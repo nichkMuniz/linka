@@ -23,6 +23,7 @@ import {
   incrementOfferClickDb,
   type CommercialOffer,
   getUserActiveStoriesDb,
+  getMyViewedFlowUserIdsDb,
   getUserPostLikesDb,
   deleteAllUserDataDb,
   type UserProfile,
@@ -91,7 +92,7 @@ import { ProfileSkeleton } from "@/components/shared/animated-loading";
 import { ShareDrawer } from "@/components/shared/share-drawer";
 import { ImageCropperDrawer } from "@/components/shared/image-cropper-drawer";
 import { profileShareUrl } from "@/lib/share-url";
-import { videoPosterSrc } from "@/lib/video-thumb";
+import { ShotThumb } from "@/components/shared/shot-thumb";
 import {
   Edit2,
   ArrowLeft,
@@ -117,6 +118,8 @@ import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { useLanguage } from "@/lib/language-context";
 import { Browser } from "@capacitor/browser";
 import { hapticLight } from "@/lib/haptics";
+import { prefetchFlowMedia } from "@/lib/media-prefetch";
+import { pickFlowEntry } from "@/lib/flow-entry";
 
 export default function Profile() {
   const { user, loading: authLoading } = useAuth();
@@ -194,6 +197,8 @@ export default function Profile() {
   const [tabsDataLoaded, setTabsDataLoaded] = React.useState(false);
   const [userGoals, setUserGoals] = React.useState<UserGoal[]>([]);
   const [profileStories, setProfileStories] = React.useState<StoryWithUser[]>([]);
+  // Flows deste perfil que o visitante já viu — usado só para escolher por qual o ring abre.
+  const [viewedFlowIds, setViewedFlowIds] = React.useState<Set<string>>(() => new Set());
   const [isStoryViewerOpen, setIsStoryViewerOpen] = React.useState(false);
   const [selectedProfileStory, setSelectedProfileStory] = React.useState<StoryWithUser | null>(null);
   const [showFollowersModal, setShowFollowersModal] = React.useState(false);
@@ -346,7 +351,21 @@ export default function Profile() {
 
     // Batch 3 — stories: fire-and-forget
     getUserActiveStoriesDb(profileUserId)
-      .then((stories) => { if (!isStale()) setProfileStories(stories); })
+      .then(async (stories) => {
+        if (isStale()) return;
+        setProfileStories(stories);
+        // Quais desses flows já foram vistos — define por qual o ring abre (o 1º não
+        // visto) em vez de recomeçar sempre do mais antigo.
+        const viewed = await getMyViewedFlowUserIdsDb(stories.map((s) => s.id)).catch(
+          () => new Set<string>(),
+        );
+        if (isStale()) return;
+        setViewedFlowIds(viewed);
+        // Aquece o flow que o ring vai abrir: a capa vem inteira e do vídeo só o
+        // cabeçalho, então tocar no ring já encontra o player com bytes em mãos.
+        const entry = pickFlowEntry(stories, viewed);
+        if (entry) prefetchFlowMedia(entry, "metadata");
+      })
       .catch((err) => console.error("Erro ao carregar stories do perfil:", err));
 
     // Status de seguimento do visitante (usado nas regras de privacidade)
@@ -919,9 +938,14 @@ export default function Profile() {
                   </div>
                 </div>
               );
-              return profileStories.length > 0 ? (
+              // Abre no 1º flow ainda não visto (se todos foram vistos, no mais antigo).
+              const entryStory = pickFlowEntry(profileStories, viewedFlowIds);
+              return entryStory ? (
                 <button
-                  onClick={() => { setSelectedProfileStory(profileStories[0]); setIsStoryViewerOpen(true); }}
+                  // O dedo encostou → começa a baixar o clipe antes do modal montar.
+                  // São ~200ms de vantagem, e é o que faz o flow abrir já rodando.
+                  onPointerDown={() => prefetchFlowMedia(entryStory, "auto")}
+                  onClick={() => { setSelectedProfileStory(entryStory); setIsStoryViewerOpen(true); }}
                   className="shrink-0 active:scale-95 transition-transform"
                   title={t("profile_view_flow")}
                 >
@@ -1327,13 +1351,11 @@ export default function Profile() {
                     onClick={() => navigate(`/shots`, { state: { shotId: shot.id } })}
                     className="w-full h-full cursor-pointer"
                   >
-                    <video
-                      // videoPosterSrc anexa #t=0.1 para o WebView pintar o frame
-                      // como preview (senão fica preto no iOS até dar play).
-                      src={videoPosterSrc(shot.video_url)}
-                      playsInline
-                      muted
-                      preload="metadata"
+                    {/* ShotThumb: carrega só o que está na tela e LIBERA o player
+                        do iOS ao sair — senão a grade estoura o teto de vídeos
+                        simultâneos e o shot em tela cheia abre sem imagem. */}
+                    <ShotThumb
+                      videoUrl={shot.video_url}
                       className="h-full w-full object-cover group-hover:scale-110 transition-transform"
                     />
                     <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
@@ -1830,7 +1852,14 @@ export default function Profile() {
         open={isStoryViewerOpen}
         onOpenChange={(open) => {
           setIsStoryViewerOpen(open);
-          if (!open) setSelectedProfileStory(null);
+          if (!open) {
+            setSelectedProfileStory(null);
+            // Ao fechar, ressincroniza o que foi visto: o modal grava cada visualização
+            // enquanto o usuário assiste, e o ring precisa reabrir no lugar certo.
+            getMyViewedFlowUserIdsDb(profileStories.map((s) => s.id))
+              .then(setViewedFlowIds)
+              .catch(() => {});
+          }
         }}
         onNextStory={() => {
           if (!selectedProfileStory) return;

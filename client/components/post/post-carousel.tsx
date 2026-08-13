@@ -26,6 +26,8 @@ interface PostCarouselProps {
   hideCounter?: boolean;
   /** Frame alto ocupando a maior parte da viewport (usado no feed para "1 post por tela"). */
   tall?: boolean;
+  /** Avisa quando o gesto de pinça começa/termina — usado no feed para ocultar os overlays (nome, descrição, "Ver treino") enquanto o usuário dá zoom. */
+  onZoomChange?: (zooming: boolean) => void;
   /** Preenche 100% da altura do container pai (usado quando o pai já controla a altura via flexbox, ex: tela de detalhe do post). Tem prioridade sobre `tall`. */
   fill?: boolean;
   /** A primeira foto carrega "eager" mesmo com uma única imagem — usar quando o carrossel já abre visível (modal/drawer de detalhe), onde "lazy" só atrasa o fetch à toa. */
@@ -63,6 +65,7 @@ function ZoomableImage({
   className,
   loading,
   adaptiveFit,
+  onZoomChange,
 }: {
   src: string;
   alt: string;
@@ -70,6 +73,7 @@ function ZoomableImage({
   loading?: "eager" | "lazy";
   /** Troca para "contain" + fundo desfocado quando a proporção da foto destoa muito do frame. */
   adaptiveFit?: boolean;
+  onZoomChange?: (zooming: boolean) => void;
 }) {
   const [scale, setScale] = React.useState(1);
   const [origin, setOrigin] = React.useState({ x: 50, y: 50 });
@@ -90,6 +94,19 @@ function ZoomableImage({
     const deviation = Math.abs(Math.log(imageRatio / frameRatio));
     setFitMode(deviation > ADAPTIVE_FIT_LOG_THRESHOLD ? "contain" : "cover");
   };
+
+  // O callback vive numa ref para o efeito abaixo depender só de `isPinching`:
+  // quem hospeda o carrossel não precisa memoizar a função para o aviso funcionar.
+  const onZoomChangeRef = React.useRef(onZoomChange);
+  onZoomChangeRef.current = onZoomChange;
+
+  React.useEffect(() => {
+    onZoomChangeRef.current?.(isPinching);
+  }, [isPinching]);
+
+  // Se a imagem sair da tela no meio da pinça (troca de foto, virtualização do
+  // feed), o host ficaria com os overlays escondidos para sempre.
+  React.useEffect(() => () => onZoomChangeRef.current?.(false), []);
 
   // Non-passive touchmove so we can preventDefault during pinch only
   React.useEffect(() => {
@@ -131,6 +148,16 @@ function ZoomableImage({
     }
   };
 
+  // O iOS cancela os toques em várias situações (gesto do sistema, drawer que
+  // abre por cima). Sem isto a pinça ficaria "presa" ativa — e, com o aviso de
+  // zoom, os overlays do post ficariam invisíveis.
+  const handleTouchCancel = () => {
+    if (!pinch.current.active) return;
+    pinch.current.active = false;
+    setIsPinching(false);
+    setScale(1);
+  };
+
   const resolvedSrc = cdnImg(src, { width: POST_PHOTO_WIDTH, quality: POST_PHOTO_QUALITY }) ?? src;
   const isContain = adaptiveFit && fitMode === "contain";
 
@@ -140,6 +167,7 @@ function ZoomableImage({
       className="relative w-full h-full overflow-hidden"
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
+      onTouchCancel={handleTouchCancel}
     >
       {/* Fundo desfocado da própria foto — evita barras vazias quando a imagem usa "contain" */}
       {isContain && (
@@ -190,6 +218,7 @@ export function PostCarousel({
   tall,
   fill,
   priority,
+  onZoomChange,
 }: PostCarouselProps) {
   const [currentIndex, setCurrentIndex] = React.useState(0);
 
@@ -215,7 +244,7 @@ export function PostCarousel({
   if (!Array.isArray(photos)) {
     return photos ? (
       <div className={coverBox} style={tallFrameStyle}>
-        <ZoomableImage src={String(photos)} alt={alt} className={imgClass} loading="eager" adaptiveFit={tall} />
+        <ZoomableImage src={String(photos)} alt={alt} className={imgClass} loading="eager" adaptiveFit={tall} onZoomChange={onZoomChange} />
       </div>
     ) : null;
   }
@@ -223,7 +252,7 @@ export function PostCarousel({
   if (photos.length === 1) {
     return (
       <div className={coverBox} style={tallFrameStyle}>
-        <ZoomableImage src={photos[0]} alt={alt} className={imgClass} loading={priority ? "eager" : "lazy"} adaptiveFit={tall} />
+        <ZoomableImage src={photos[0]} alt={alt} className={imgClass} loading={priority ? "eager" : "lazy"} adaptiveFit={tall} onZoomChange={onZoomChange} />
       </div>
     );
   }
@@ -311,6 +340,7 @@ export function PostCarousel({
               className={imgClass}
               loading={i === 0 ? "eager" : "lazy"}
               adaptiveFit={tall}
+              onZoomChange={onZoomChange}
             />
           </div>
         ))}

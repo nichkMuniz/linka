@@ -22,6 +22,10 @@ import {
   saveWorkoutHistoryDb,
   getPreviousBestKgDb,
   getWorkoutsDb,
+  getWorkoutGroupsDb,
+  updateUserWorkoutExerciseDb,
+  getLastWorkoutSessionSeriesDb,
+  type WorkoutGroup,
   createCustomWorkoutDb,
   createUserWorkoutsDb,
   updateUserWorkoutNotesDb,
@@ -165,11 +169,22 @@ function fmtRest(secs: number): string {
 
 // ── Tipos de série (modo expert) ────────────────────────────────────────────
 // A série deixa de ser um número anônimo e passa a declarar o que é. Isso é o
-// que permite tirar o aquecimento do volume, da contagem e do PR — no modo
+// que permite dar descanso curto ao aquecimento e mantê-lo fora do PR e da
+// progressão (ele conta no volume e na contagem como qualquer série) — no modo
 // simplificado nada disso existe e toda série é tratada como 'normal'.
 
 /** Descanso após uma série de aquecimento: a rampa não pede pausa cheia. */
 const WARMUP_REST_SECS = 30;
+
+/**
+ * Teto de descanso do rest-pause. A técnica É a micro-pausa: 15s é o que separa
+ * um rest-pause de duas séries normais, então o preset do exercício é limitado
+ * aqui em vez de depender de o usuário lembrar de baixar o cronômetro.
+ */
+const REST_PAUSE_MAX_SECS = 15;
+
+/** Presets de descanso oferecidos num exercício de rest-pause (todos ≤ teto). */
+const REST_PAUSE_PRESETS = [0, 10, 15];
 
 /**
  * Rampa de aquecimento sugerida, em % da carga de trabalho. É a progressão
@@ -217,9 +232,9 @@ const SET_KIND_LABEL_KEYS: Record<SetKind, TranslationKey> = {
   drop: "goals_set_kind_drop",
 };
 
-// Letra exibida na coluna "#" no lugar do número. A série válida mantém o
-// número (é a numeração que o usuário conta como "3×10"), então só aquecimento
-// e falha ganham símbolo próprio.
+// Cor do selo da coluna "#" por tipo de série. `label` só é usado pelo DROP,
+// que não numera (é a continuação da série de cima) — as demais, aquecimento
+// incluído, mantêm o número da contagem e se distinguem pela cor.
 const SET_KIND_STYLE: Record<SetKind, { label: string; fg: string; bg: string; border: string }> = {
   warmup: { label: "A", fg: "#f0b429", bg: "rgba(240,180,41,0.14)", border: "rgba(240,180,41,0.42)" },
   normal: { label: "", fg: "rgba(255,255,255,.72)", bg: "transparent", border: "transparent" },
@@ -235,25 +250,31 @@ function setKindOf(row: { kind?: SetKind } | undefined | null): SetKind {
 /**
  * Séries que entram na CONTAGEM ("3 séries de supino").
  *
- * Difere de `isWorkingSet` (que decide volume/PR) num ponto: o **drop conta
- * como trabalho mas não como série nova**. Ele é a continuação da série
- * anterior — quem faz 3×10 com drop na última diz "fiz 3 séries", não 4. O
- * volume levantado no drop, porém, é real e entra normalmente.
+ * O **aquecimento conta**: ele foi executado e o peso foi levantado, então
+ * aparece no contador e no volume da sessão como qualquer outra série. O que o
+ * aquecimento continua não fazendo é valer como MARCA — fica fora do PR, do
+ * e1RM, da tendência de carga e do gráfico de progressão (ver `isWorkingSet`),
+ * porque uma rampa leve não é desempenho.
+ *
+ * Só o **drop** fica fora da contagem: ele é a continuação da série anterior —
+ * quem faz 3×10 com drop na última diz "fiz 3 séries", não 4. O volume
+ * levantado no drop, porém, é real e entra normalmente.
  */
 function countsAsSeries(kind: SetKind): boolean {
-  return kind !== "warmup" && kind !== "drop";
+  return kind !== "drop";
 }
 
 /**
- * Numeração VISÍVEL das séries válidas. O aquecimento não recebe número: quem
- * faz 2 de aquecimento + 3 válidas quer ver "A A 1 2 3", não "1 2 3 4 5" — o
- * treino é de 3 séries. Devolve o rótulo por índice do array.
+ * Numeração VISÍVEL das séries contadas. Segue `countsAsSeries`: o aquecimento
+ * é numerado junto (2 de aquecimento + 3 normais = "1 2 3 4 5"), senão o
+ * cabeçalho diria "5 séries" e o cartão mostraria linhas numeradas até 3.
+ * Quem identifica o aquecimento é a cor âmbar do selo, não o rótulo.
+ * Devolve o rótulo por índice do array.
  */
 function workingSetLabels(series: Array<{ kind?: SetKind }>): string[] {
   let n = 0;
   return series.map((row) => {
     const kind = setKindOf(row);
-    if (kind === "warmup") return SET_KIND_STYLE.warmup.label;
     // Drop não numera: é a continuação da série de cima, não a próxima série.
     if (kind === "drop") return SET_KIND_STYLE.drop.label;
     n += 1;
@@ -958,6 +979,7 @@ export function WorkoutSessionDialog({
     workoutRemovedIds, setWorkoutRemovedIds,
     workoutExpandedId: expandedId, setWorkoutExpandedId: setExpandedId,
     maxedExerciseIds, setMaxedExerciseIds,
+    dismissedWarmupIds, setDismissedWarmupIds,
     globalRestTimerRemaining, setGlobalRestTimerRemaining,
     globalRestTimerActive, setGlobalRestTimerActive,
     globalRestTimerPaused, setGlobalRestTimerPaused,
@@ -1043,6 +1065,12 @@ export function WorkoutSessionDialog({
   const [editedExercises, setEditedExercises] = React.useState<
     Record<string, { name: string; description: string; photo: string | null }>
   >({});
+  // Trocas de variação feitas nesta sessão: `user_workouts.id` → exercício novo.
+  // Mesmo papel de `editedExercises` — o prop `items` só recarrega num
+  // loadData() do Goals, e a troca precisa aparecer no ato (ver swapVariation).
+  const [swappedVariations, setSwappedVariations] = React.useState<
+    Record<string, { workout_id: string; workoutName: string; workoutPhoto: string | null; workoutDescription?: string; muscle_group?: string | null }>
+  >({});
   const applyExerciseEdit = React.useCallback(
     (u: { id: string; name: string; description: string; photo: string | null }) => {
       setEditedExercises((prev) => ({
@@ -1093,15 +1121,18 @@ export function WorkoutSessionDialog({
         return true;
       })
       .map((i) => {
-        const edited = editedExercises[i.workout_id];
+        // Variação trocada nesta sessão manda sobre o que veio no prop.
+        const swapped = swappedVariations[i.id];
+        const base = swapped ? { ...i, ...swapped } : i;
+        const edited = editedExercises[base.workout_id];
         return edited
           ? {
-              ...i,
+              ...base,
               workoutName: edited.name,
               workoutDescription: edited.description,
               workoutPhoto: edited.photo,
             }
-          : i;
+          : base;
       })
       // Ordem explícita da rotina (definida ao montar blocos de bi-set) tem
       // prioridade; sem ela, mantém a ordem de chegada de sempre. Sem isto os
@@ -1113,7 +1144,7 @@ export function WorkoutSessionDialog({
         if (bi == null) return -1;
         return ai - bi;
       });
-  }, [items, workoutExtraItems, workoutRemovedIds, editedExercises]);
+  }, [items, workoutExtraItems, workoutRemovedIds, editedExercises, swappedVariations]);
 
   /**
    * Blocos de bi-set/tri-set desta sessão: `technique_group` → workout_ids na
@@ -1141,15 +1172,47 @@ export function WorkoutSessionDialog({
     return out;
   }, [blocks]);
 
+  /** Técnica configurada para este exercício NESTA rotina. */
+  const techniqueOf = React.useCallback(
+    (workoutId: string): WorkoutTechnique =>
+      allItems.find((i) => i.workout_id === workoutId)?.technique ?? "straight",
+    [allItems],
+  );
+
   /**
-   * true = exercício está num bloco e NÃO é o último. Concluir uma série aqui
-   * não abre o descanso: o próximo passo é o exercício seguinte do bloco, que é
-   * a definição de bi-set.
+   * Descanso que vale de fato para o exercício. O preset escolhido pelo usuário
+   * manda, com uma exceção: no **rest-pause** o descanso é limitado a
+   * {@link REST_PAUSE_MAX_SECS} — pausa longa ali descaracteriza a técnica.
+   * "Sem descanso" (0) continua valendo como escolha explícita.
    */
-  const isMidBlock = React.useCallback((workoutId: string) => {
-    const info = blockInfo.get(workoutId);
-    return !!info && info.index < info.size - 1;
-  }, [blockInfo]);
+  const restSecsFor = React.useCallback((workoutId: string): number => {
+    const configured = workoutExerciseRestTimes[workoutId] ?? 60;
+    if (configured <= 0) return 0;
+    // Técnica é coisa do modo expert: uma rotina que voltou para o simplificado
+    // mantém as colunas gravadas, mas a sessão dela não executa técnica nenhuma.
+    return isExpert && techniqueOf(workoutId) === "rest_pause"
+      ? Math.min(configured, REST_PAUSE_MAX_SECS)
+      : configured;
+  }, [workoutExerciseRestTimes, techniqueOf, isExpert]);
+
+  /**
+   * true = a rodada `index` do bloco ainda tem exercício por fazer (contando
+   * `justCompletedId` como já concluído, porque o estado só muda no próximo
+   * render). É o que segura o descanso no meio de um bi-set: a pausa é UMA, no
+   * fim da rodada. Independe da ordem em que o usuário marcou os exercícios —
+   * na grade lado a lado ele pode marcar A2 antes de A1.
+   */
+  const blockRoundPending = React.useCallback(
+    (justCompletedId: string, index: number): boolean => {
+      const info = blockInfo.get(justCompletedId);
+      if (!info) return false;
+      const ids = blocks.get(info.group) ?? [];
+      return ids.some(
+        (id) => id !== justCompletedId && !(workoutSeries[id]?.[index]?.completed ?? false),
+      );
+    },
+    [blockInfo, blocks, workoutSeries],
+  );
 
   // Rotina atual (para vincular exercícios criados/adicionados aos itens persistidos).
   // O id/nome autoritativos vêm do card (props); os itens podem ter routine_id nulo
@@ -1197,6 +1260,32 @@ export function WorkoutSessionDialog({
     });
   }, [open, items, setWorkoutSeries]);
 
+  // Bloco = rodadas pareadas. Todos os membros precisam ter o mesmo número de
+  // séries, senão a grade lado a lado renderiza uma coluna mais curta que a
+  // outra. Iguala pelo maior — só acrescenta linhas vazias, nunca apaga.
+  React.useEffect(() => {
+    if (!open || blocks.size === 0) return;
+    setWorkoutSeries((prev) => {
+      let next = prev;
+      let changed = false;
+      for (const ids of blocks.values()) {
+        const rounds = Math.max(1, ...ids.map((id) => (prev[id] ?? []).length));
+        for (const id of ids) {
+          const list = prev[id] ?? [];
+          if (list.length >= rounds) continue;
+          if (!changed) { next = { ...prev }; changed = true; }
+          next[id] = [
+            ...list,
+            ...Array.from({ length: rounds - list.length }, (_, k) => ({
+              series: list.length + k + 1, kg: 0, reps: 0, completed: false,
+            })),
+          ];
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [open, blocks, setWorkoutSeries]);
+
   // Melhor peso "anterior" por exercício — referência para avisar em tempo real
   // quando o usuário bate um recorde ao concluir uma série. O baseline inicial
   // vem do campo "anterior" (prevKg da última sessão, já carregado e visível);
@@ -1217,6 +1306,133 @@ export function WorkoutSessionDialog({
       .catch(() => setCatalogLoading(false));
   }, [pickerOpen, catalog.length]);
 
+  // ── Variações do exercício (grupos) ──────────────────────────────────────
+  // O catálogo tem 13 supinos; o grupo diz que todos são "Supino". A rotina
+  // guarda a variação escolhida por último (`user_workouts.workout_id`) e aqui
+  // o usuário troca — na academia, olhando o que está livre.
+  //
+  // O grupo NÃO vem no item da rotina: é resolvido pelo catálogo, que é
+  // cacheado e degrada sozinho quando a migração 20260812 não foi rodada
+  // (sem `group_id`, nenhum exercício tem irmão e a UI de variação some).
+  const [groups, setGroups] = React.useState<WorkoutGroup[]>([]);
+  // Exercício com o seletor de variação aberto (workout_id) — `null` = fechado.
+  const [variationPickerId, setVariationPickerId] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (!open) return;
+    let alive = true;
+    void getWorkoutGroupsDb().then((g) => { if (alive) setGroups(g); }).catch(() => {});
+    // O catálogo é a fonte do `group_id` de cada exercício; sem ele não dá para
+    // saber que "Supino Inclinado com Halteres" tem irmãos.
+    if (catalog.length === 0) {
+      void getWorkoutsDb().then((d) => { if (alive) setCatalog(d); }).catch(() => {});
+    }
+    return () => { alive = false; };
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const groupById = React.useMemo(
+    () => new Map(groups.map((g) => [g.id, g])),
+    [groups],
+  );
+  /** workout_id → grupo a que ele pertence (undefined = exercício sem irmãos). */
+  const groupOfWorkout = React.useCallback(
+    (workoutId: string): WorkoutGroup | undefined => {
+      const gid = catalog.find((w) => w.id === workoutId)?.groupId;
+      return gid ? groupById.get(gid) : undefined;
+    },
+    [catalog, groupById],
+  );
+  /** Irmãos de um grupo, em ordem alfabética — é a lista do seletor. */
+  const variationsOf = React.useCallback(
+    (groupId: string): Workout[] =>
+      catalog
+        .filter((w) => w.groupId === groupId)
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [catalog],
+  );
+
+  /**
+   * Troca a variação de um exercício no meio do treino ("o supino de hoje é com
+   * halteres").
+   *
+   * O que acontece com o que já foi registrado: as séries **concluídas ficam na
+   * variação em que foram feitas** — elas aconteceram, e o histórico tem que ser
+   * fiel. Só as séries pendentes (e o descanso, a nota e o estado da rampa)
+   * migram para a variação nova. Se sobrar alguma série concluída, o exercício
+   * antigo continua na sessão como um card próprio, com o que foi feito nele.
+   */
+  const swapVariation = async (item: UserWorkoutWithDetails, target: Workout) => {
+    const oldId = item.workout_id;
+    if (oldId === target.id) { setVariationPickerId(null); return; }
+    setVariationPickerId(null);
+
+    const doneSets = (workoutSeries[oldId] ?? []).filter((s) => s.completed);
+    const pendingSets = (workoutSeries[oldId] ?? []).filter((s) => !s.completed);
+
+    // A coluna ANTERIOR tem que passar a falar da variação nova — o peso do
+    // supino com halteres não é o da barra. Falha de rede aqui só custa a
+    // referência: a troca acontece do mesmo jeito.
+    let prev: Array<{ kg: number; reps: number }> = [];
+    try {
+      const last = await getLastWorkoutSessionSeriesDb(userId, [target.id]);
+      prev = last[target.id] ?? [];
+    } catch { /* sem rede: segue sem a coluna ANTERIOR */ }
+
+    setWorkoutSeries((prevState) => {
+      const next = { ...prevState };
+      // Séries pendentes viram as séries da variação nova, com o ANTERIOR dela.
+      const seeded = (pendingSets.length > 0
+        ? pendingSets
+        : [{ series: 1, kg: 0, reps: 0, completed: false }]
+      ).map((s, i) => ({
+        ...s,
+        series: i + 1,
+        // Carga vem zerada: manter o peso da barra num halter é sugerir um
+        // número errado, e errado para MAIS (o usuário levanta menos por lado).
+        kg: 0,
+        prevKg: prev[i]?.kg ?? 0,
+        prevReps: prev[i]?.reps ?? 0,
+      })) as typeof pendingSets;
+      next[target.id] = seeded;
+      if (doneSets.length > 0) next[oldId] = doneSets.map((s, i) => ({ ...s, series: i + 1 }));
+      else delete next[oldId];
+      return next;
+    });
+
+    // Descanso, nota e "aquecimento dispensado" acompanham o exercício.
+    setWorkoutExerciseRestTimes((p) => (p[oldId] == null ? p : { ...p, [target.id]: p[oldId] }));
+    setWorkoutExerciseNotes((p) => (p[oldId] ? { ...p, [target.id]: p[oldId] } : p));
+    setDismissedWarmupIds((p) => (p.includes(oldId) ? [...p, target.id] : p));
+    prevBestRef.current.delete(oldId);
+
+    // Card mostra a variação nova na hora…
+    setSwappedVariations((p) => ({
+      ...p,
+      [item.id]: {
+        workout_id: target.id,
+        workoutName: target.name,
+        workoutPhoto: target.photo,
+        workoutDescription: target.description,
+        muscle_group: target.muscle_group,
+      },
+    }));
+    if (expandedId === oldId) setExpandedId(target.id);
+    // …e o exercício antigo, se ainda tem série concluída, continua na lista
+    // como um item extra (senão o trabalho feito sumiria da tela).
+    if (doneSets.length > 0) {
+      setWorkoutExtraItems((p) =>
+        p.some((e) => e.workout_id === oldId) ? p : [...p, { ...item, id: `swapped:${item.id}:${oldId}` }],
+      );
+    }
+
+    // Persiste a escolha: a próxima sessão abre já com esta variação.
+    try {
+      await updateUserWorkoutExerciseDb(userId, item.id, target.id);
+    } catch {
+      showNotice({ kind: "warn", title: t("goals_variation_saved_error"), desc: "" });
+    }
+  };
+
   // Muscle group filter chips
   const muscleGroups = React.useMemo(
     () => [...new Set(allItems.map((i) => i.muscle_group).filter(Boolean) as string[])],
@@ -1232,6 +1448,42 @@ export function WorkoutSessionDialog({
     return true;
   });
 
+  /**
+   * A lista de cards da sessão. Um exercício comum vira um card; um bloco de
+   * bi-set/tri-set vira UM card com os membros lado a lado, ancorado na posição
+   * do primeiro membro.
+   *
+   * Filtro/busca é por bloco inteiro: casar um membro basta para o bloco
+   * aparecer, porque meio bi-set na tela não é a técnica que o usuário montou.
+   */
+  type RenderUnit =
+    | { kind: "single"; item: UserWorkoutWithDetails }
+    | { kind: "block"; group: string; members: UserWorkoutWithDetails[] };
+
+  const visibleIds = new Set(filteredItems.map((i) => i.workout_id));
+  const renderUnits: RenderUnit[] = [];
+  {
+    const placed = new Set<string>();
+    for (const item of allItems) {
+      if (placed.has(item.workout_id)) continue;
+      // Bloco só existe no expert. Rotina que voltou ao simplificado mantém as
+      // colunas gravadas, mas a sessão dela é a clássica: um card por exercício.
+      const info = isExpert ? blockInfo.get(item.workout_id) : undefined;
+      if (info) {
+        const members = (blocks.get(info.group) ?? [])
+          .map((id) => allItems.find((i) => i.workout_id === id))
+          .filter((m): m is UserWorkoutWithDetails => !!m);
+        for (const m of members) placed.add(m.workout_id);
+        if (members.some((m) => visibleIds.has(m.workout_id))) {
+          renderUnits.push({ kind: "block", group: info.group, members });
+        }
+        continue;
+      }
+      placed.add(item.workout_id);
+      if (visibleIds.has(item.workout_id)) renderUnits.push({ kind: "single", item });
+    }
+  }
+
   // Live stats
   const stats = React.useMemo(() => {
     let volume = 0, totalDone = 0, doneEx = 0;
@@ -1240,14 +1492,14 @@ export function WorkoutSessionDialog({
       const isCardio = isCardioExercise(item.muscle_group, item.workout_id);
       let any = false;
       series.forEach((s) => {
-        // Mesma regra da finalização: o aquecimento não entra no contador de
-        // séries nem no volume ao vivo, senão a barra de estatísticas mostraria
-        // um número diferente do que o resumo grava no fim.
-        if (s.completed && countsAsSeries(setKindOf(s))) {
-          totalDone++;
-          if (!isCardio) volume += (s.kg || 0) * (s.reps || 0);
-          any = true;
-        }
+        if (!s.completed) return;
+        // Mesma regra da finalização, para a barra ao vivo nunca mostrar número
+        // diferente do que o resumo grava no fim:
+        //  - VOLUME = tudo que foi levantado, incluindo aquecimento e drop;
+        //  - CONTAGEM = séries contadas (o drop pertence à série de cima).
+        if (!isCardio) volume += (s.kg || 0) * (s.reps || 0);
+        if (countsAsSeries(setKindOf(s))) totalDone++;
+        any = true;
       });
       if (any) doneEx++;
     });
@@ -1322,12 +1574,21 @@ export function WorkoutSessionDialog({
       const list = prev[workoutId] ?? [];
       const parent = list[index];
       if (!parent) return prev;
-      const dropped = Math.max(0, Math.round(((parent.kg || 0) * 0.8) / 2.5) * 2.5);
+      // Fim da corrente de quedas que já pende desta série. Sem isso, pedir a 2ª
+      // queda a partir da mesma série de trabalho inseriria a nova ANTES da
+      // anterior, e a corrente sairia fora de ordem (12 → 8 → 10 em vez de
+      // 12 → 10 → 8).
+      let tail = index;
+      while (setKindOf(list[tail + 1]) === "drop") tail += 1;
+      const from = list[tail];
+      const dropped = Math.max(0, Math.round(((from.kg || 0) * 0.8) / 2.5) * 2.5);
       const next = [...list];
-      next.splice(index + 1, 0, {
+      next.splice(tail + 1, 0, {
         series: 0, // renumerado abaixo
+        // Cada queda parte da carga da ANTERIOR (não da série de trabalho), que
+        // é o que faz a corrente descer de verdade a cada degrau.
         kg: dropped,
-        reps: parent.reps || 0,
+        reps: from.reps || 0,
         completed: false,
         kind: "drop",
       });
@@ -1479,7 +1740,8 @@ export function WorkoutSessionDialog({
   // exercício (usado pelo aquecimento no modo expert). Respeita "sem descanso":
   // quem zerou o descanso do exercício não ganha timer nem no aquecimento.
   const startRestTimer = (workoutId: string, overrideSecs?: number) => {
-    const configured = workoutExerciseRestTimes[workoutId] ?? 60;
+    // Já vem com o teto do rest-pause aplicado (ver restSecsFor).
+    const configured = restSecsFor(workoutId);
     const secs = overrideSecs != null ? Math.min(overrideSecs, configured) : configured;
     if (secs === 0) return; // sem descanso — não abre modal
     setGlobalRestTimerTotal(secs);
@@ -1705,6 +1967,29 @@ export function WorkoutSessionDialog({
     });
   };
 
+  // ── Operações de BLOCO (bi-set / tri-set) ───────────────────
+  // No bloco a unidade não é a série de um exercício, é a RODADA: A1 e A2 são
+  // feitos em seguida e só então vem o descanso. Por isso as três operações
+  // abaixo agem sobre todos os membros de uma vez — deixar as listas com
+  // tamanhos diferentes abriria buracos na grade lado a lado.
+
+  const addBlockRound = (ids: string[]) => {
+    for (const id of ids) addSeries(id);
+  };
+
+  const removeBlockRound = (ids: string[], index: number) => {
+    for (const id of ids) deleteSeries(id, index);
+  };
+
+  /** Descanso do bloco: um valor só, espelhado em todos os membros. */
+  const setBlockRest = (ids: string[], secs: number) => {
+    setWorkoutExerciseRestTimes((prev) => {
+      const next = { ...prev };
+      for (const id of ids) next[id] = secs;
+      return next;
+    });
+  };
+
   const deleteSeries = (workoutId: string, index: number) => {
     setWorkoutSeries((prev) => ({
       ...prev,
@@ -1744,6 +2029,51 @@ export function WorkoutSessionDialog({
     const dx = e.changedTouches[0].clientX - swipeStartX.current;
     if (dx < -50) setSwipedSeriesKey(key);            // swipe esquerda → abre
     else if (dx > 20 && swipedSeriesKey === key) setSwipedSeriesKey(null); // swipe direita → fecha
+  };
+
+  // ── Swipe para dispensar o convite de aquecimento ────────────────────────
+  // Quem não usa a rampa não deveria ter que conviver com o convite: arrastar
+  // para a ESQUERDA some com ele naquele exercício (mesma direção do swipe-to-
+  // delete das séries, para o gesto ser um só no app inteiro). Estado no
+  // contexto → não volta ao minimizar/recarregar o treino.
+  const warmupSwipeStartX = React.useRef(0);
+  const warmupSwipeStartY = React.useRef(0);
+  const warmupSwipeHorizontal = React.useRef(false);
+  // Arraste em andamento: o botão acompanha o dedo (feedback de que o gesto
+  // existe). `null` = nenhum. Só um por vez — não dá para arrastar dois.
+  const [warmupDrag, setWarmupDrag] = React.useState<{ id: string; dx: number } | null>(null);
+
+  const dismissWarmupRamp = (workoutId: string) => {
+    setWarmupDrag(null);
+    setDismissedWarmupIds((prev) => (prev.includes(workoutId) ? prev : [...prev, workoutId]));
+  };
+
+  const onWarmupTouchStart = (e: React.TouchEvent, workoutId: string) => {
+    warmupSwipeStartX.current = e.touches[0].clientX;
+    warmupSwipeStartY.current = e.touches[0].clientY;
+    warmupSwipeHorizontal.current = false;
+    setWarmupDrag({ id: workoutId, dx: 0 });
+  };
+
+  const onWarmupTouchMove = (e: React.TouchEvent, workoutId: string) => {
+    const dx = e.touches[0].clientX - warmupSwipeStartX.current;
+    const dy = e.touches[0].clientY - warmupSwipeStartY.current;
+    // Decide uma vez se o gesto é horizontal, para não roubar o scroll vertical
+    // da lista de exercícios (mesma heurística das linhas de série).
+    if (!warmupSwipeHorizontal.current) {
+      if (Math.abs(dx) > 6 || Math.abs(dy) > 6) {
+        warmupSwipeHorizontal.current = Math.abs(dx) > Math.abs(dy);
+      }
+      if (!warmupSwipeHorizontal.current) return;
+    }
+    // Só para a esquerda: puxar para a direita não faz nada, então não move.
+    setWarmupDrag({ id: workoutId, dx: Math.min(0, dx) });
+  };
+
+  const onWarmupTouchEnd = (e: React.TouchEvent, workoutId: string) => {
+    const dx = e.changedTouches[0].clientX - warmupSwipeStartX.current;
+    if (warmupSwipeHorizontal.current && dx < -60) dismissWarmupRamp(workoutId);
+    else setWarmupDrag(null); // volta ao lugar
   };
 
   const updateSeries = (
@@ -1806,12 +2136,18 @@ export function WorkoutSessionDialog({
       // Descanso depende do que vem A SEGUIR, não só do que acabou:
       //  - próxima linha é um drop  → emenda, sem descanso nenhum;
       //  - a série atual é aquecimento → descanso curto (a rampa não pede pausa cheia);
-      //  - exercício num bloco de bi-set/tri-set e NÃO é o último → sem descanso,
-      //    o usuário vai direto para o próximo exercício do bloco.
+      //  - bloco de bi-set/tri-set com a rodada incompleta → sem descanso, o
+      //    usuário vai direto para o outro exercício do bloco. A pausa é uma só,
+      //    quando a rodada inteira fecha.
       const nextIsDrop = setKindOf(workoutSeries[workoutId]?.[index + 1]) === "drop";
-      const holdsRest = nextIsDrop || isMidBlock(workoutId);
+      const holdsRest = nextIsDrop || blockRoundPending(workoutId, index);
       if (!holdsRest) {
-        startRestTimer(workoutId, kind === "warmup" ? WARMUP_REST_SECS : undefined);
+        // Num bloco o descanso é do BLOCO, não de quem calhou de ser marcado por
+        // último: ancora sempre no primeiro membro, que é onde o preset
+        // compartilhado é editado.
+        const bInfo = blockInfo.get(workoutId);
+        const restAnchor = bInfo ? (blocks.get(bInfo.group) ?? [workoutId])[0] : workoutId;
+        startRestTimer(restAnchor, kind === "warmup" ? WARMUP_REST_SECS : undefined);
       }
 
       // PR em tempo real — ao concluir uma série de força com peso acima do
@@ -1865,9 +2201,9 @@ export function WorkoutSessionDialog({
 
   // ── Finalizar ───────────────────────────────────────────────
 
-  // Só aquecimento não é treino: sem nenhuma série de trabalho concluída o
-  // resumo nasceria zerado (volume 0, nenhum exercício), então o botão de
-  // finalizar continua desabilitado.
+  // Sem nenhuma série concluída o resumo nasceria zerado (volume 0, nenhum
+  // exercício), então o botão de finalizar continua desabilitado. O aquecimento
+  // concluído já habilita: ele conta como série feita em todo o resto da tela.
   const hasCompletedSeries = Object.values(workoutSeries).some((list) =>
     list.some((s) => s.completed && countsAsSeries(setKindOf(s))),
   );
@@ -1946,23 +2282,28 @@ export function WorkoutSessionDialog({
         const rawId = isExtra ? null : (row?.id ?? null);
         const userWorkoutId: number | null = rawId && !isNaN(Number(rawId)) ? Number(rawId) : null;
 
-        // Séries que contam como trabalho. O aquecimento CONTINUA sendo gravado
-        // no histórico (o registro do treino tem que ser fiel) — o que ele não
-        // faz é entrar em volume, contagem, PR e no resumo publicado.
+        // Séries de MARCA: as que podem virar recorde. O aquecimento fica fora
+        // daqui (uma rampa leve não é desempenho) — mas entra normalmente em
+        // volume, contagem e resumo, como qualquer série executada.
         const workingSets = completed.filter((s) => isWorkingSet(s.kind));
 
+        // Carga máxima exibida no resumo — sobre TUDO que foi levantado, para o
+        // exercício que só teve aquecimento não aparecer com 0kg.
         let bestKg = 0;
+        // Carga máxima para efeito de RECORDE — só séries de trabalho, senão um
+        // treino só de aquecimento poderia registrar um PR falso.
+        let bestWorkingKg = 0;
         for (const serie of completed) {
           const kind = setKindOf(serie);
-          if (isWorkingSet(kind)) {
-            // Volume e carga máxima incluem o drop — é peso levantado de verdade.
-            if (!isCardio) {
-              totalVolume += (serie.kg || 0) * (serie.reps || 0);
-              bestKg = Math.max(bestKg, serie.kg || 0);
-            }
-            // Já a CONTAGEM de séries não: o drop pertence à série de cima.
-            if (countsAsSeries(kind)) totalSeries++;
+          // Volume e carga máxima incluem aquecimento e drop — é peso levantado
+          // de verdade.
+          if (!isCardio) {
+            totalVolume += (serie.kg || 0) * (serie.reps || 0);
+            bestKg = Math.max(bestKg, serie.kg || 0);
+            if (isWorkingSet(kind)) bestWorkingKg = Math.max(bestWorkingKg, serie.kg || 0);
           }
+          // Já a CONTAGEM de séries não conta o drop: ele pertence à série de cima.
+          if (countsAsSeries(kind)) totalSeries++;
           await saveWorkoutHistoryDb(
             userId, userWorkoutId, workoutId,
             serie.kg || null,
@@ -1977,33 +2318,37 @@ export function WorkoutSessionDialog({
           );
         }
 
-        // Exercício que só teve aquecimento não entra no resumo — não houve
-        // trabalho a reportar (e `bestKg` seria 0, virando um card vazio).
-        if (workingSets.length === 0) continue;
+        // Sem nenhuma série concluída não há o que reportar. O exercício que só
+        // teve aquecimento ENTRA no resumo: a série foi feita e já está contada
+        // no cabeçalho, então sumir daqui abriria um buraco entre os dois.
+        if (completed.length === 0) continue;
 
         completedExercises.push({
           name: row?.workoutName ?? workoutId,
-          // "4 séries" no resumo = séries contadas, drops fora (o peso deles já
-          // está no volume e nos `sets` abaixo).
-          totalSets: workingSets.filter((s) => countsAsSeries(setKindOf(s))).length,
+          // "4 séries" no resumo = séries contadas (aquecimento incluído, drops
+          // fora — o peso deles já está no volume e nos `sets` abaixo).
+          totalSets: completed.filter((s) => countsAsSeries(setKindOf(s))).length,
           bestKg,
           muscleGroup: row?.muscle_group ?? null,
           photo: row?.workoutPhoto ?? null,
-          sets: workingSets.map((s) => ({ kg: s.kg || 0, reps: s.reps || 0 })),
+          sets: completed.map((s) => ({ kg: s.kg || 0, reps: s.reps || 0 })),
           isCardio,
         });
 
         const exerciseName = row?.workoutName ?? workoutId;
 
-        // PR all-time — exige rede (compara com o histórico do banco).
-        if (!isCardio && bestKg > 0 && canDetectAllTimePR) {
+        // PR all-time — exige rede (compara com o histórico do banco). Usa a
+        // carga das séries de TRABALHO: o histórico do banco também é lido sem
+        // aquecimento (WORKING_SETS_FILTER), então comparar com `bestKg` (que
+        // inclui a rampa) misturaria duas réguas diferentes.
+        if (!isCardio && bestWorkingKg > 0 && canDetectAllTimePR) {
           const prev = prevBests.get(workoutId) ?? 0;
-          const beatWeight = bestKg > prev;
+          const beatWeight = bestWorkingKg > prev;
 
           if (!isExpert) {
             // Simplificado: só carga máxima, exatamente como antes.
             if (beatWeight) {
-              prExercises.push({ name: exerciseName, previousBestKg: prev, newBestKg: bestKg });
+              prExercises.push({ name: exerciseName, previousBestKg: prev, newBestKg: bestWorkingKg });
             }
           } else {
             // Expert: UM recorde por exercício, o mais expressivo. Emitir os
@@ -2037,7 +2382,7 @@ export function WorkoutSessionDialog({
             if (beatWeight) {
               prExercises.push({
                 name: exerciseName, kind: "weight",
-                previousBestKg: prev, newBestKg: bestKg,
+                previousBestKg: prev, newBestKg: bestWorkingKg,
               });
             } else if (beatsE1rm(bestE1rm, rec.bestE1rm)) {
               prExercises.push({
@@ -2045,7 +2390,7 @@ export function WorkoutSessionDialog({
                 // previousBestKg = 0 esconde o riscado de carga (que não mudou)
                 // e mantém este PR fora do cálculo de "% de superação" do card
                 // compartilhável, que só faz sentido para carga.
-                previousBestKg: 0, newBestKg: bestKg,
+                previousBestKg: 0, newBestKg: bestWorkingKg,
                 previousE1rm: roundE1rm(rec.bestE1rm), newE1rm: roundE1rm(bestE1rm),
               });
             } else if (repsPr) {
@@ -2119,11 +2464,356 @@ export function WorkoutSessionDialog({
   const pickerMuscleGroups = [
     ...new Set(catalog.map((w) => w.muscle_group).filter(Boolean) as string[]),
   ].sort((a, b) => a.localeCompare(b));
-  const catalogFiltered = catalog.filter((w) => {
+  const catalogMatches = catalog.filter((w) => {
     if (pickerBrowseMode === "group" && pickerMuscleFilter && w.muscle_group !== pickerMuscleFilter) return false;
     if (!matchesCatalogSearch(w, pickerSearch)) return false;
     return true;
   });
+  /**
+   * Lista do picker com as variações COLAPSADAS: 13 supinos viram uma linha
+   * "Supino". A variação é decisão da academia, não do momento de montar a
+   * rotina — quem escolhe o grupo leva a variação padrão e troca no treino.
+   *
+   * Durante uma BUSCA não colapsa: quem digitou "halteres" está sendo
+   * específico, e esconder o resultado exato atrás do nome do movimento seria
+   * responder outra pergunta.
+   */
+  const isSearching = pickerSearch.trim().length > 0;
+  const catalogFiltered = isSearching
+    ? catalogMatches
+    : (() => {
+        const seenGroups = new Set<string>();
+        const out: Workout[] = [];
+        for (const w of catalogMatches) {
+          if (!w.groupId || !groupById.has(w.groupId)) { out.push(w); continue; }
+          if (seenGroups.has(w.groupId)) continue;
+          seenGroups.add(w.groupId);
+          // Representante do grupo: a variação padrão, se ela sobreviveu ao
+          // filtro; senão a primeira que apareceu.
+          const def = groupById.get(w.groupId)!.defaultWorkoutId;
+          out.push(catalogMatches.find((x) => x.id === def && x.groupId === w.groupId) ?? w);
+        }
+        return out;
+      })();
+  /** Quantas variações o grupo deste exercício tem (0 = não é grupo). */
+  const variationCountOf = (w: Workout): number =>
+    !isSearching && w.groupId && groupById.has(w.groupId) ? variationsOf(w.groupId).length : 0;
+
+  /**
+   * Card de um bloco de bi-set/tri-set — os exercícios LADO A LADO.
+   *
+   * Por que não são os cards normais empilhados: num bi-set os exercícios são
+   * executados em seguida, sem descanso no meio, e o usuário anota os dois na
+   * mesma ida ao aparelho. Com um card embaixo do outro ele preenche A1, rola a
+   * tela, preenche A2 e perde a noção da rodada. Aqui a linha é a RODADA e cada
+   * coluna é um exercício, que é como o bloco acontece de verdade.
+   *
+   * A grade rola na horizontal quando não cabe (tri-set em tela estreita) — a
+   * coluna do número da rodada fica fixa fora da área rolável, para o usuário
+   * nunca perder a referência de qual rodada está preenchendo.
+   */
+  const renderBlockCard = (group: string, members: UserWorkoutWithDetails[]) => {
+    const ids = members.map((m) => m.workout_id);
+    const letter = String.fromCharCode(65 + [...blocks.keys()].indexOf(group));
+    // Rodadas = maior lista entre os membros (o efeito de padding já igualou;
+    // isto cobre o frame anterior à igualação).
+    const rounds = Math.max(1, ...ids.map((id) => (workoutSeries[id] ?? []).length));
+    // O bloco está aberto se QUALQUER membro é o exercício expandido.
+    const isExpanded = ids.some((id) => id === expandedId);
+    const restSecs = restSecsFor(ids[0]);
+    const doneRounds = Array.from({ length: rounds }, (_, r) =>
+      ids.every((id) => workoutSeries[id]?.[r]?.completed),
+    ).filter(Boolean).length;
+    const isTriset = members.some((m) => m.technique === "triset");
+    // Larguras: 2 colunas cabem numa tela de iPhone; 3 estouram e a grade rola.
+    const colWidth = isTriset ? 132 : 150;
+
+    return (
+      <div
+        key={`block:${group}`}
+        style={{
+          background: CARD, borderRadius: 24, overflow: "hidden",
+          marginBottom: 20, position: "relative",
+          borderLeft: "3px solid #c084fc",
+          border: `1px solid ${BORDER}`,
+          backdropFilter: GLASS_BLUR, WebkitBackdropFilter: GLASS_BLUR,
+          boxShadow: "0 8px 32px rgba(0,0,0,0.32), inset 0 1px 0 rgba(255,255,255,0.08)",
+        }}
+      >
+        {/* ── CABEÇALHO DO BLOCO ───────────────────────── */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 14px 0" }}>
+          <button
+            onClick={() => setTechniqueInfo({
+              technique: isTriset ? "triset" : "biset",
+              members: members.map((m) => m.workoutName ?? "").filter(Boolean),
+            })}
+            style={{
+              display: "flex", alignItems: "center", gap: 5,
+              fontSize: 11, fontWeight: 800, color: "#c084fc",
+              background: "rgba(192,132,252,0.14)",
+              border: "1px solid rgba(192,132,252,0.45)",
+              borderRadius: 20, padding: "3px 10px", flexShrink: 0,
+              whiteSpace: "nowrap", cursor: "pointer", fontFamily: "'Inter', system-ui",
+            }}
+          >
+            {letter} · {t(isTriset ? "goals_technique_triset" : "goals_technique_biset")}
+            <span style={{ opacity: 0.75, fontWeight: 700 }}>?</span>
+          </button>
+          <span style={{ marginLeft: "auto", fontSize: 13, fontWeight: 600, color: MUTED_FG }}>
+            {doneRounds}/{rounds}
+          </span>
+        </div>
+
+        {/* Barra abrir/fechar — mesma gramática dos cards normais */}
+        <button
+          onClick={() => setExpandedId(isExpanded ? null : ids[0])}
+          style={{
+            width: "100%", background: "none", border: "none",
+            borderTop: `1px solid ${BORDER}`, borderBottom: isExpanded ? `1px solid ${BORDER}` : "none",
+            cursor: "pointer", marginTop: 10,
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            padding: "11px 16px",
+          }}
+        >
+          <span style={{
+            fontWeight: 700, fontSize: 13, color: isExpanded ? PRIMARY : FG,
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            textAlign: "left", flex: 1, marginRight: 8,
+          }}>
+            {members.map((m) => m.workoutName).filter(Boolean).join("  +  ")}
+          </span>
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"
+            style={{ transform: isExpanded ? "rotate(180deg)" : "none", transition: "transform 0.2s", flexShrink: 0 }}>
+            <path d="M3 5l4 4 4-4" stroke={isExpanded ? PRIMARY : MUTED_FG} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </button>
+
+        {isExpanded && (
+          <>
+            {/* Descanso compartilhado — um preset só, espelhado nos membros */}
+            <div style={{
+              display: "flex", alignItems: "center", gap: 10,
+              padding: "10px 16px", borderBottom: `1px solid ${BORDER}`,
+            }}>
+              <button
+                onClick={() => {
+                  const idx = REST_PRESETS.indexOf(restSecs);
+                  setBlockRest(ids, REST_PRESETS[(idx + 1) % REST_PRESETS.length]);
+                }}
+                style={{
+                  background: "none", border: "none", cursor: "pointer",
+                  display: "flex", alignItems: "center", gap: 5, padding: 0, opacity: 0.75,
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <circle cx="7" cy="7" r="5.5" stroke={MUTED_FG} strokeWidth="1.3"/>
+                  <path d="M7 4v3.5l2 1.5" stroke={MUTED_FG} strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                <span style={{ fontSize: 13, fontWeight: 600, color: MUTED_FG }}>
+                  {t("goals_block_shared_rest")}: {fmtRest(restSecs)}
+                </span>
+              </button>
+              <button
+                onClick={() => { for (const id of ids) removeFromSession(id); }}
+                style={{
+                  marginLeft: "auto", background: "none", border: "none", cursor: "pointer",
+                  padding: 0, fontSize: 12, fontWeight: 600, color: "hsl(var(--destructive))",
+                  opacity: 0.8, fontFamily: "'Inter', system-ui",
+                }}
+              >
+                {t("goals_block_remove_exercises")}
+              </button>
+            </div>
+
+            <p style={{
+              margin: 0, padding: "8px 16px 0",
+              fontSize: 11, color: MUTED_FG, opacity: 0.75, lineHeight: 1.35,
+            }}>
+              {t("goals_block_hint")}
+            </p>
+
+            {/* ── GRADE: linha = rodada, coluna = exercício ── */}
+            <div style={{ display: "flex", padding: "8px 12px 4px", gap: 6 }}>
+              {/* Coluna fixa do número da rodada (fora do scroll horizontal) */}
+              <div style={{ flexShrink: 0, width: 30 }}>
+                <div style={{ height: 34 }} />
+                {Array.from({ length: rounds }, (_, r) => (
+                  <div key={r} style={{
+                    height: 40, marginBottom: 7,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                  }}>
+                    <div style={{
+                      width: 26, height: 26, borderRadius: "50%",
+                      background: ids.every((id) => workoutSeries[id]?.[r]?.completed) ? PRIMARY : SURFACE,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      fontSize: 11, fontWeight: 800,
+                      color: ids.every((id) => workoutSeries[id]?.[r]?.completed) ? PRIMARY_FG : MUTED_FG,
+                    }}>
+                      {r + 1}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Colunas dos exercícios — rolam juntas quando não cabem */}
+              <div style={{ flex: 1, overflowX: "auto", overflowY: "hidden" }}>
+                <div style={{ display: "flex", gap: 6, minWidth: "min-content" }}>
+                  {members.map((m, mi) => {
+                    const list = workoutSeries[m.workout_id] ?? [];
+                    const isCardio = isCardioExercise(m.muscle_group, m.workout_id);
+                    return (
+                      <div key={m.workout_id} style={{ width: colWidth, flexShrink: 0 }}>
+                        {/* Cabeçalho da coluna: A1/A2 + nome + ⓘ */}
+                        <button
+                          onClick={() => setInfoExerciseId(m.workout_id)}
+                          style={{
+                            width: "100%", height: 34, background: "none", border: "none",
+                            padding: 0, cursor: "pointer", display: "flex",
+                            alignItems: "center", gap: 4, overflow: "hidden",
+                          }}
+                        >
+                          <span style={{
+                            fontSize: 10, fontWeight: 800, color: "#c084fc",
+                            background: "rgba(192,132,252,0.14)", borderRadius: 6,
+                            padding: "1px 5px", flexShrink: 0,
+                          }}>
+                            {letter}{mi + 1}
+                          </span>
+                          <span style={{
+                            fontSize: 11, fontWeight: 700, color: FG,
+                            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                            textAlign: "left",
+                          }}>
+                            {m.workoutName}
+                          </span>
+                        </button>
+
+                        {Array.from({ length: rounds }, (_, r) => {
+                          const row = list[r] ?? { kg: 0, reps: 0, completed: false };
+                          const prevKg = (row as any).prevKg ?? 0;
+                          const locked = !row.completed && !canCompleteSeries(row, isCardio);
+                          const invalid = invalidSeries.has(seriesKey(m.workout_id, r));
+                          return (
+                            <div key={r} style={{
+                              display: "flex", alignItems: "center", gap: 4,
+                              height: 40, marginBottom: 7,
+                              background: "rgba(255,255,255,0.04)", borderRadius: 10,
+                              padding: "0 4px",
+                            }}>
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                aria-label={`${m.workoutName} — ${isCardio ? "MIN" : "KG"}`}
+                                value={
+                                  editingCell?.key === `${m.workout_id}:${r}:kg`
+                                    ? editingCell.text
+                                    : (row.kg || "")
+                                }
+                                // O "anterior" vira placeholder: não há espaço para
+                                // uma coluna própria aqui, mas a referência da última
+                                // sessão é o que o usuário consulta antes de digitar.
+                                placeholder={prevKg > 0 ? String(prevKg) : "—"}
+                                onChange={(e) => handleSeriesInput(m.workout_id, r, "kg", e.target.value, isCardio)}
+                                onBlur={() => setEditingCell(null)}
+                                style={{
+                                  flex: 1, minWidth: 0, background: SURFACE,
+                                  border: "1.5px solid transparent", borderRadius: 8,
+                                  height: 32, textAlign: "center",
+                                  fontWeight: 700, fontSize: 14, color: FG,
+                                  padding: "0 2px", boxSizing: "border-box" as const,
+                                  WebkitAppearance: "none" as any,
+                                  fontFamily: "'Inter', system-ui",
+                                }}
+                              />
+                              <input
+                                type="text"
+                                inputMode={isCardio ? "decimal" : "numeric"}
+                                aria-label={`${m.workoutName} — ${isCardio ? "KM" : "REPS"}`}
+                                value={
+                                  editingCell?.key === `${m.workout_id}:${r}:reps`
+                                    ? editingCell.text
+                                    : (row.reps || "")
+                                }
+                                placeholder={invalid ? "!" : "—"}
+                                onChange={(e) => handleSeriesInput(m.workout_id, r, "reps", e.target.value, isCardio)}
+                                onBlur={() => setEditingCell(null)}
+                                style={{
+                                  flex: 1, minWidth: 0,
+                                  background: invalid ? "hsl(var(--destructive) / 0.12)" : SURFACE,
+                                  border: invalid ? "1.5px solid hsl(var(--destructive))" : "1.5px solid transparent",
+                                  borderRadius: 8, height: 32, textAlign: "center",
+                                  fontWeight: 700, fontSize: 14, color: FG,
+                                  padding: "0 2px", boxSizing: "border-box" as const,
+                                  WebkitAppearance: "none" as any,
+                                  fontFamily: "'Inter', system-ui",
+                                }}
+                              />
+                              <button
+                                onClick={() => toggleCompleted(m.workout_id, r, isCardio)}
+                                aria-label={t("goals_session_mark_done")}
+                                aria-disabled={locked}
+                                style={{
+                                  width: 28, height: 28, borderRadius: "50%", flexShrink: 0,
+                                  background: row.completed ? PRIMARY : SURFACE,
+                                  border: row.completed ? "none" : `2px solid ${locked ? MUTED_FG : PRIMARY}`,
+                                  cursor: locked ? "not-allowed" : "pointer",
+                                  opacity: locked ? 0.45 : 1,
+                                  display: "flex", alignItems: "center", justifyContent: "center",
+                                  transition: "background 0.15s, border-color 0.15s",
+                                }}
+                              >
+                                {row.completed && (
+                                  <svg width="11" height="9" viewBox="0 0 13 10" fill="none">
+                                    <path d="M1.5 5L5 8.5L11.5 1.5" stroke={PRIMARY_FG} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                  </svg>
+                                )}
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Rodada entra e sai para o bloco inteiro */}
+            <div style={{ display: "flex", gap: 8, padding: "0 12px 12px" }}>
+              <button
+                onClick={() => addBlockRound(ids)}
+                style={{
+                  flex: 1, background: "transparent",
+                  border: `2px dashed ${BORDER}`, borderRadius: 12, padding: "10px 0",
+                  cursor: "pointer", fontWeight: 600, fontSize: 13, color: MUTED_FG,
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                }}
+              >
+                <span style={{ fontSize: 16, lineHeight: 1, opacity: 0.6 }}>+</span>
+                {t("goals_block_add_round")}
+              </button>
+              {rounds > 1 && (
+                <button
+                  onClick={() => removeBlockRound(ids, rounds - 1)}
+                  aria-label={t("goals_block_remove_round")}
+                  style={{
+                    width: 44, background: "transparent",
+                    border: `2px dashed ${BORDER}`, borderRadius: 12,
+                    cursor: "pointer", color: MUTED_FG,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                  }}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                    <path d="M5 12h14"/>
+                  </svg>
+                </button>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    );
+  };
 
   const content = (
     <div
@@ -2316,8 +3006,8 @@ export function WorkoutSessionDialog({
             {routineLabel}
           </div>
           {/* Selo do modo: a rotina expert se comporta de forma diferente
-              (aquecimento fora do volume/PR), então o usuário precisa saber em
-              qual tela está — sem isso a métrica "some" sem explicação. */}
+              (séries tipadas, aquecimento fora do PR/progressão), então o
+              usuário precisa saber em qual tela está. */}
           {isExpert && (
             <span style={{
               fontSize: 9, fontWeight: 800, letterSpacing: 0.8,
@@ -2471,28 +3161,33 @@ export function WorkoutSessionDialog({
           paddingBottom: "calc(96px + var(--keyboard-height, 0px))",
         }}
       >
-        {filteredItems.map((item) => {
+        {renderUnits.map((unit) => {
+          // Bi-set/tri-set não é uma sequência de cards, é UM card com os
+          // exercícios lado a lado — ver renderBlockCard.
+          if (unit.kind === "block") return renderBlockCard(unit.group, unit.members);
+          const item = unit.item;
           const series = workoutSeries[item.workout_id] ?? [];
           const isExpanded = expandedId === item.workout_id;
-          // "3 de 4 séries" conta trabalho, não aquecimento (ver stats/finish).
-          // O denominador acompanha: 2 aquecimentos + 3 válidas mostra "0/3",
-          // não "0/5" — é o treino que o usuário conta como 3 séries.
-          const workingSeries = series.filter((s) => countsAsSeries(setKindOf(s)));
-          const doneSeries = workingSeries.filter((s) => s.completed).length;
-          const totalSeriesCount = workingSeries.length;
-          // Rótulo por linha: aquecimento vira "A", válidas seguem 1,2,3…
+          // "3 de 5 séries" segue `countsAsSeries` — a mesma regra do cabeçalho
+          // e da finalização, para o card somar com a barra do topo. Aquecimento
+          // entra; drop não (é a continuação da série de cima).
+          const countedSeries = series.filter((s) => countsAsSeries(setKindOf(s)));
+          const doneSeries = countedSeries.filter((s) => s.completed).length;
+          const totalSeriesCount = countedSeries.length;
+          // Rótulo por linha: numeração contínua 1,2,3… (drop vira "D")
           const seriesLabels = isExpert ? workingSetLabels(series) : null;
-          // Bloco de bi-set/tri-set: "A1", "A2"… A letra vem da posição do
-          // bloco na rotina (1º bloco = A, 2º = B), o número da posição dentro.
-          const bInfo = blockInfo.get(item.workout_id);
-          const blockBadge = bInfo
-            ? `${String.fromCharCode(65 + [...blocks.keys()].indexOf(bInfo.group))}${bInfo.index + 1}`
-            : null;
           // Exercício de técnica individual (drop-set / rest-pause) declarada na
           // rotina — o selo lembra o que fazer, o "+ drop" faz acontecer.
           const soloTechnique =
             item.technique === "drop" || item.technique === "rest_pause" ? item.technique : null;
-          const restSecs = workoutExerciseRestTimes[item.workout_id] ?? 60;
+          // Já com o teto do rest-pause aplicado — o que o relógio mostra é o
+          // que o cronômetro vai usar.
+          const restSecs = restSecsFor(item.workout_id);
+          const isRestPause = isExpert && item.technique === "rest_pause";
+          const isDropExercise = isExpert && item.technique === "drop";
+          // Movimento a que este exercício pertence (Supino, Remada…). Só existe
+          // quando o catálogo tem irmãos dele — ver migração 20260812.
+          const exerciseGroup = groupOfWorkout(item.workout_id);
           const isCardio = isCardioExercise(item.muscle_group, item.workout_id);
           // Corrida ao Ar Livre: modo GPS estilo Strava — a tabela de séries
           // (MIN×KM manual) fica oculta; quem registra é o painel de corrida.
@@ -2506,8 +3201,16 @@ export function WorkoutSessionDialog({
           // Rampa de aquecimento: só quando ainda não há aquecimento no
           // exercício e existe carga de trabalho de onde derivar a progressão.
           const hasWarmup = series.some((s) => setKindOf(s) === "warmup");
+          // …e só ENQUANTO o exercício não começou. Aquecer é decisão da 1ª
+          // série: depois de concluir uma série de trabalho, a rampa deixou de
+          // fazer sentido (ela entra ANTES das válidas) e o botão vira ruído
+          // repetido a cada série. Cada exercício tem sua própria 1ª série,
+          // então a oferta reaparece no exercício seguinte da rotina.
+          const exerciseStarted = series.some((s) => s.completed);
+          // Dispensado com swipe para a esquerda neste exercício.
+          const warmupDismissed = dismissedWarmupIds.includes(item.workout_id);
           const rampPreview =
-            isExpert && !isCardio && !isRunExercise && !hasWarmup
+            isExpert && !isCardio && !isRunExercise && !hasWarmup && !exerciseStarted && !warmupDismissed
               ? buildWarmupSets(workingTargetKg(item.workout_id))
               : [];
           const canRampWarmup = rampPreview.length > 0;
@@ -2517,12 +3220,8 @@ export function WorkoutSessionDialog({
               key={item.id}
               style={{
                 background: CARD, borderRadius: 24, overflow: "hidden",
-                // Membro de bloco não-final cola no próximo: a folga menor faz
-                // os dois cards lerem como uma unidade.
-                marginBottom: bInfo && bInfo.index < bInfo.size - 1 ? 6 : 20,
+                marginBottom: 20,
                 position: "relative",
-                // Trilho roxo à esquerda amarrando o bloco visualmente.
-                borderLeft: bInfo ? "3px solid #c084fc" : undefined,
                 border: isMaxed ? "1.5px solid #eab308" : `1px solid ${BORDER}`,
                 backdropFilter: GLASS_BLUR, WebkitBackdropFilter: GLASS_BLUR,
                 boxShadow: isMaxed
@@ -2535,38 +3234,42 @@ export function WorkoutSessionDialog({
                 display: "flex", alignItems: "center", gap: 10,
                 padding: "10px 14px 0",
               }}>
-                <span style={{
-                  fontSize: 13, fontWeight: 700, color: FG,
-                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1,
-                }}>
-                  {item.workoutName}
-                </span>
-                {/* Selo do bloco (A1/A2/A3). Junto com a borda lateral roxa do
-                    card, é o que faz o bi-set ser lido como UM bloco sem
-                    reestruturar a lista de exercícios. Tocar explica a técnica:
-                    sugerir um bi-set sem dizer o que é só transfere a dúvida. */}
-                {blockBadge && (
-                  <button
-                    onClick={() => setTechniqueInfo({
-                      technique: item.technique === "triset" ? "triset" : "biset",
-                      members: (blocks.get(bInfo!.group) ?? [])
-                        .map((id) => allItems.find((i) => i.workout_id === id)?.workoutName ?? "")
-                        .filter(Boolean),
-                    })}
-                    style={{
-                      display: "flex", alignItems: "center", gap: 4,
-                      fontSize: 11, fontWeight: 800, color: "#c084fc",
-                      background: "rgba(192,132,252,0.14)",
-                      border: "1px solid rgba(192,132,252,0.45)",
-                      borderRadius: 20, padding: "2px 10px", flexShrink: 0,
-                      whiteSpace: "nowrap", cursor: "pointer",
-                      fontFamily: "'Inter', system-ui",
-                    }}
-                  >
-                    {blockBadge}
-                    <span style={{ opacity: 0.75, fontWeight: 700 }}>?</span>
-                  </button>
-                )}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  {/* Com grupo, o título é o MOVIMENTO ("Supino") e a variação
+                      vira um chip tocável logo abaixo — é a variação que muda
+                      de treino para treino, não o movimento. */}
+                  <span style={{
+                    display: "block",
+                    fontSize: 13, fontWeight: 700, color: FG,
+                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                  }}>
+                    {exerciseGroup ? exerciseGroup.name : item.workoutName}
+                  </span>
+                  {exerciseGroup && (
+                    <button
+                      onClick={() => setVariationPickerId(
+                        variationPickerId === item.workout_id ? null : item.workout_id,
+                      )}
+                      style={{
+                        display: "flex", alignItems: "center", gap: 4, marginTop: 2,
+                        maxWidth: "100%", background: "none", border: "none", padding: 0,
+                        cursor: "pointer", fontFamily: "'Inter', system-ui",
+                        fontSize: 11.5, fontWeight: 600, color: PRIMARY,
+                      }}
+                    >
+                      <span style={{
+                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                      }}>
+                        {item.workoutName}
+                      </span>
+                      <svg width="10" height="10" viewBox="0 0 14 14" fill="none" style={{ flexShrink: 0 }}>
+                        <path d="M3 5l4 4 4-4" stroke={PRIMARY} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    </button>
+                  )}
+                </div>
+                {/* Bi-set/tri-set não passa por aqui: bloco tem card próprio
+                    (renderBlockCard), com os exercícios lado a lado. */}
                 {soloTechnique && (
                   <button
                     onClick={() => setTechniqueInfo({ technique: soloTechnique, members: [] })}
@@ -2608,6 +3311,45 @@ export function WorkoutSessionDialog({
                   </span>
                 )}
               </div>
+
+              {/* ── VARIAÇÕES DO MOVIMENTO ──────────────────
+                  "Qual supino você vai fazer hoje?". A escolha é gravada em
+                  user_workouts.workout_id, então o próximo treino já abre nela
+                  — o app aprende o hábito em vez de perguntar toda vez. */}
+              {exerciseGroup && variationPickerId === item.workout_id && (
+                <div style={{
+                  display: "flex", flexWrap: "wrap", gap: 6,
+                  padding: "10px 14px 2px",
+                }}>
+                  <p style={{
+                    width: "100%", margin: 0, fontSize: 11, fontWeight: 700,
+                    letterSpacing: 0.5, textTransform: "uppercase",
+                    color: MUTED_FG, opacity: 0.8,
+                  }}>
+                    {t("goals_variation_pick")}
+                  </p>
+                  {variationsOf(exerciseGroup.id).map((v) => {
+                    const active = v.id === item.workout_id;
+                    return (
+                      <button
+                        key={v.id}
+                        onClick={() => { void swapVariation(item, v); }}
+                        style={{
+                          background: active ? "rgba(91,140,255,0.16)" : SURFACE,
+                          border: `1px solid ${active ? PRIMARY : BORDER}`,
+                          borderRadius: 12, padding: "7px 12px",
+                          fontSize: 12, fontWeight: 600,
+                          color: active ? PRIMARY : FG,
+                          cursor: "pointer", textAlign: "left",
+                          fontFamily: "'Inter', system-ui",
+                        }}
+                      >
+                        {v.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
 
               {/* ── IMAGE AREA ─────────────────────────────── */}
               <div
@@ -2774,8 +3516,12 @@ export function WorkoutSessionDialog({
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        const idx = REST_PRESETS.indexOf(restSecs);
-                        const next = REST_PRESETS[(idx + 1) % REST_PRESETS.length];
+                        // No rest-pause a roda de presets é a curta (≤15s): oferecer
+                        // 90s num exercício cuja técnica é a micro-pausa seria
+                        // oferecer o que o cronômetro vai recusar.
+                        const presets = isRestPause ? REST_PAUSE_PRESETS : REST_PRESETS;
+                        const idx = presets.indexOf(restSecs);
+                        const next = presets[(idx + 1) % presets.length];
                         setWorkoutExerciseRestTimes((prev) => ({ ...prev, [item.workout_id]: next }));
                       }}
                       style={{
@@ -2855,6 +3601,25 @@ export function WorkoutSessionDialog({
                       </div>
                     )}
                   </div>
+
+                  {/* Rest-pause: o teto de 15s não é preferência, é a técnica —
+                      dizer isso evita que o usuário ache que o preset quebrou. */}
+                  {isRestPause && (
+                    <p style={{
+                      margin: 0, padding: "8px 16px 0",
+                      fontSize: 11, color: "#c084fc", opacity: 0.85, lineHeight: 1.35,
+                    }}>
+                      {t("goals_rest_pause_capped").replace("{secs}", String(REST_PAUSE_MAX_SECS))}
+                    </p>
+                  )}
+                  {isDropExercise && !isCardio && !isRunExercise && (
+                    <p style={{
+                      margin: 0, padding: "8px 16px 0",
+                      fontSize: 11, color: "#c084fc", opacity: 0.85, lineHeight: 1.35,
+                    }}>
+                      {t("goals_drop_stage_hint")}
+                    </p>
+                  )}
 
                   {/* Campo de nota (lápis) */}
                   {noteOpen && (
@@ -3158,6 +3923,33 @@ export function WorkoutSessionDialog({
                             )}
                           </div>
                         )}
+
+                        {/* Drop-set declarado na rotina: a corrente de quedas se
+                            monta aqui, sem passar pelo seletor de tipo. Cada
+                            queda entra como uma LINHA própria, com seus próprios
+                            campos de KG e REPS — é assim que o usuário registra
+                            "12kg, depois 10kg, depois 8kg" com as repetições de
+                            cada degrau. O convite fica no fim da corrente, então
+                            tocar de novo aprofunda a queda em vez de duplicar. */}
+                        {isDropExercise && !isCardio && !isRunExercise
+                          && setKindOf(row) !== "warmup"
+                          && setKindOf(series[idx + 1]) !== "drop" && (
+                          <button
+                            onClick={() => addDropSet(item.workout_id, idx)}
+                            style={{
+                              display: "flex", alignItems: "center", gap: 5,
+                              marginLeft: 44, marginTop: -2, marginBottom: 2,
+                              background: SET_KIND_STYLE.drop.bg,
+                              border: `1px solid ${SET_KIND_STYLE.drop.border}`,
+                              borderRadius: 8, padding: "3px 10px",
+                              fontSize: 11, fontWeight: 700,
+                              color: SET_KIND_STYLE.drop.fg, cursor: "pointer",
+                              fontFamily: "'Inter', system-ui",
+                            }}
+                          >
+                            ↳ + {t("goals_drop_add_stage")}
+                          </button>
+                        )}
                         </div>
                       );
                     })}
@@ -3165,25 +3957,51 @@ export function WorkoutSessionDialog({
                     {/* Aquecimento automático — só faz sentido no expert (é ele
                         que tem série tipada), fora do cardio, quando ainda não
                         há rampa e há uma carga de trabalho de onde partir. */}
-                    {canRampWarmup && (
-                      <button
-                        onClick={() => addWarmupRamp(item.workout_id)}
-                        style={{
-                          width: "100%", background: SET_KIND_STYLE.warmup.bg,
-                          border: `1px solid ${SET_KIND_STYLE.warmup.border}`,
-                          borderRadius: 12, padding: "9px 0",
-                          cursor: "pointer", fontWeight: 700,
-                          fontSize: 12.5, color: SET_KIND_STYLE.warmup.fg,
-                          display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-                          marginTop: 4, fontFamily: "'Inter', system-ui",
-                        }}
-                      >
-                        ⚡ {t("goals_warmup_ramp_cta").replace(
-                          "{list}",
-                          rampPreview.map((r) => `${r.kg}×${r.reps}`).join(" · "),
-                        )}
-                      </button>
-                    )}
+                    {canRampWarmup && (() => {
+                      // Arraste ativo desta linha: o botão segue o dedo e some
+                      // ao passar do limiar (dismissWarmupRamp). Sem arraste,
+                      // dx = 0 e a transição devolve o botão ao lugar.
+                      const dragDx = warmupDrag?.id === item.workout_id ? warmupDrag.dx : 0;
+                      return (
+                        <button
+                          onClick={() => {
+                            // O toque que dispensou (ou tentou dispensar) também
+                            // dispara click no iOS — arrastar não pode inserir a
+                            // rampa. A flag guarda o último gesto e só é zerada
+                            // no próximo touchstart, então ainda vale aqui.
+                            if (warmupSwipeHorizontal.current) return;
+                            addWarmupRamp(item.workout_id);
+                          }}
+                          onTouchStart={(e) => onWarmupTouchStart(e, item.workout_id)}
+                          onTouchMove={(e) => onWarmupTouchMove(e, item.workout_id)}
+                          onTouchEnd={(e) => onWarmupTouchEnd(e, item.workout_id)}
+                          onTouchCancel={() => setWarmupDrag(null)}
+                          style={{
+                            width: "100%", background: SET_KIND_STYLE.warmup.bg,
+                            border: `1px solid ${SET_KIND_STYLE.warmup.border}`,
+                            borderRadius: 12, padding: "9px 0",
+                            cursor: "pointer", fontWeight: 700,
+                            fontSize: 12.5, color: SET_KIND_STYLE.warmup.fg,
+                            display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                            marginTop: 4, fontFamily: "'Inter', system-ui",
+                            // Feedback do swipe-to-dismiss: acompanha o dedo e
+                            // vai sumindo. Sem transição durante o arraste (ela
+                            // atrasaria o dedo); com ela na volta ao lugar.
+                            transform: `translateX(${dragDx}px)`,
+                            opacity: Math.max(0.25, 1 - Math.abs(dragDx) / 140),
+                            transition: dragDx === 0 ? "transform 0.18s ease, opacity 0.18s ease" : "none",
+                            // O gesto é horizontal; o vertical continua rolando
+                            // a lista de exercícios.
+                            touchAction: "pan-y",
+                          }}
+                        >
+                          ⚡ {t("goals_warmup_ramp_cta").replace(
+                            "{list}",
+                            rampPreview.map((r) => `${r.kg}×${r.reps}`).join(" · "),
+                          )}
+                        </button>
+                      );
+                    })()}
 
                     {/* Dashed add series */}
                     <button
@@ -3534,8 +4352,17 @@ export function WorkoutSessionDialog({
                               fontWeight: 600, fontSize: 15, color: FG,
                               overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                             }}>
-                              {w.name}
+                              {/* Linha colapsada mostra o MOVIMENTO; a variação
+                                  vem depois, no treino. */}
+                              {variationCountOf(w) > 1 && w.groupId
+                                ? (groupById.get(w.groupId)?.name ?? w.name)
+                                : w.name}
                             </div>
+                            {variationCountOf(w) > 1 && (
+                              <div style={{ fontSize: 12, color: PRIMARY, marginTop: 2 }}>
+                                {t("goals_variation_count").replace("{n}", String(variationCountOf(w)))}
+                              </div>
+                            )}
                             {w.muscle_group && (
                               <div style={{
                                 fontSize: 12, color: "rgba(255,255,255,.5)", marginTop: 2,

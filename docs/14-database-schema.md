@@ -420,7 +420,9 @@ Participantes de um grupo de duelo.
 | `group_id` | uuid | FK → `duel_groups.id` | — | Grupo de duelo |
 | `user_id` | uuid | FK → `auth.users` | — | Participante |
 | `joined_at` | timestamptz | — | `now()` | Data de entrada no grupo |
-| `status` | text | — | — | Status do participante (ex: `pending`, `accepted`) |
+| `status` | text | — | — | Status do participante (`pending` = pediu para entrar, `invited` = foi convidado, `accepted` = membro) |
+
+> **Realtime (2026-08-13):** a tabela está na publicação `supabase_realtime` (`docs/migrations/20260813-duel-participants-realtime.sql`, idempotente). É o que faz convite/pedido/aprovação aparecerem ao vivo na aba Solicitações da Comunidade. `REPLICA IDENTITY` é a padrão (chave primária): INSERT/UPDATE carregam a linha nova inteira, o DELETE traz só a PK — por isso o cliente trata DELETE como "recarrega tudo" em vez de tentar filtrar.
 
 ---
 
@@ -478,6 +480,8 @@ Posts de Flow (formato Stories, mídia efêmera).
 | `user_id` | uuid | FK → `auth.users` | — | Autor do Flow |
 | `description` | text | ✓ | — | Legenda do Flow |
 | `media_url` | text | ✓ | — | URL da mídia (imagem/vídeo). Vazio quando o Flow é só texto/gradient. |
+| `poster_url` | text | — | `null` | **Capa do flow em vídeo**: JPEG do 1º frame (~720px, algumas dezenas de KB), extraído no cliente ao postar. O viewer pinta essa imagem instantaneamente (atributo `poster` do `<video>`) enquanto o clipe baixa. `null` em imagens e texto. Migração `20260812-flow-poster.sql`. |
+| `duration_ms` | integer | — | `null` | **Duração real do vídeo em ms**, medida no cliente ao postar. O MediaRecorder do iOS grava MP4 **fragmentado**, cujo cabeçalho não traz a duração: no viewer `video.duration` fica `Infinity` até o arquivo **inteiro** baixar, e a barra de progresso trava em 0. Com este valor a barra sincroniza desde o 1º frame. `null` em imagens/texto e em flows anteriores à migração (caem no seek-trick antigo). Migração `20260812-flow-duration.sql`. |
 | `background_color` | text | — | `null` | Gradient CSS de fundo para Flows somente-texto. |
 | `text_position` | jsonb | — | `null` | **Legado**. Posição única em flows antigos de texto: `{ "x": number, "y": number }` em % (0–100). Substituído por `text_elements`. |
 | `text_elements` | jsonb | — | `null` | Lista de textos posicionados: `[{ "text": string, "x": number, "y": number, "style"?: StoryTextStyle }]` com x/y em % (0–100). `style` = `{ fontFamily?, fontWeight?, align?, color?, fontSize?, backgroundColor? }` — cor, fonte, alinhamento, tamanho e **realce de fundo** (estilo Instagram; `null`/ausente = sem fundo). Cada elemento pode ser arrastado/redimensionado independentemente pelo autor. |
@@ -489,8 +493,10 @@ Posts de Flow (formato Stories, mídia efêmera).
 > **Migração (rodar no Supabase SQL Editor):**
 > ```sql
 > ALTER TABLE public.flow ADD COLUMN IF NOT EXISTS media_transform jsonb;
+> ALTER TABLE public.flow ADD COLUMN IF NOT EXISTS poster_url text;   -- 20260812-flow-poster.sql
+> ALTER TABLE public.flow ADD COLUMN IF NOT EXISTS duration_ms integer; -- 20260812-flow-duration.sql
 > ```
-> Enquanto a coluna não existir, o app degrada graciosamente (vídeos são salvos sem o enquadramento; o código detecta `42703` e reenvia sem o campo).
+> Enquanto as colunas não existirem, o app degrada graciosamente: `selectFlow` cai em camadas (`DURATION → POSTER → FULL → TEXT → BASE`) e o insert detecta `42703` e reenvia sem os campos novos. Sem `poster_url` os flows de vídeo voltam a abrir com tela preta + spinner; sem `duration_ms` a barra de progresso volta a depender do seek-trick (trava até o clipe inteiro baixar). Em ambos os casos só se perde a otimização.
 
 ---
 
@@ -892,7 +898,7 @@ Rotinas de treino dos usuários (estrutura de programação).
 | `goal_id` | bigint | — | — | Meta vinculada à rotina |
 | `name` | text | — | — | Nome da rotina |
 | `last_summary` | jsonb | — | — | Snapshot do resumo do **último treino finalizado** desta rotina (mesmo formato de `WorkoutSummaryData`, sem `userId`/`userGroups` — resolvidos de novo ao reabrir): `routineName`, `totalSeries`, `totalVolume`, `durationSecs`, `badges`, `completedExercises`, `prExercises`, `machinedExercises`, `completedAt`. Sobrescrito a cada "Finalizar" (`updateRoutineLastSummaryDb`) — nunca há mais de um snapshot por rotina, sempre o mais recente. `NULL` = rotina nunca executada. Gateia o ícone de "resumo do treino" no `routine-detail-drawer.tsx` (só aparece quando não-nulo). Migration: `docs/migrations/20260702-routine-last-summary.sql`. |
-| `training_mode` | text | ✓ | `'simple'` | **(2026-08-05)** Modo da experiência de treino desta rotina — a escolha do usuário no passo `routine-mode` do wizard. `'simple'` = tela clássica de registro (tabela KG × REPS); `'expert'` = série tipada (aquecimento/válida/falha) com aquecimento fora do volume, da contagem de séries e do PR. `CHECK (training_mode IN ('simple','expert'))`. É **por rotina**, não por conta: o mesmo usuário pode ter "Peito/Tríceps" no expert e "Corrida de domingo" no simplificado. Só rotinas de treino (`type = 1`) perguntam; dieta/hábito ficam no default. Lido em `getUserRoutinesDb` → `RoutineCard.trainingMode` → prop `trainingMode` do `WorkoutSessionDialog`. Gravado por `updateRoutineTrainingModeDb` (por id, caminho do quiz) e `updateRoutineTrainingModeByNameDb` (por `user_id`+`type`+`name`, caminho "do zero", onde a linha nasce de trigger). Migration: `docs/migrations/20260805-training-mode.sql`. |
+| `training_mode` | text | ✓ | `'simple'` | **(2026-08-05)** Modo da experiência de treino desta rotina — a escolha do usuário no passo `routine-mode` do wizard. `'simple'` = tela clássica de registro (tabela KG × REPS); `'expert'` = série tipada (aquecimento/válida/falha), com o aquecimento contando no volume e na contagem de séries mas fora do PR e da progressão (ver `docs/05-metas.md`). `CHECK (training_mode IN ('simple','expert'))`. É **por rotina**, não por conta: o mesmo usuário pode ter "Peito/Tríceps" no expert e "Corrida de domingo" no simplificado. Só rotinas de treino (`type = 1`) perguntam; dieta/hábito ficam no default. Lido em `getUserRoutinesDb` → `RoutineCard.trainingMode` → prop `trainingMode` do `WorkoutSessionDialog`. Gravado por `updateRoutineTrainingModeDb` (por id, caminho do quiz) e `updateRoutineTrainingModeByNameDb` (por `user_id`+`type`+`name`, caminho "do zero", onde a linha nasce de trigger). Migration: `docs/migrations/20260805-training-mode.sql`. |
 | `program_meta` | jsonb | — | — | **(2026-07-08)** Metadados do programa que criou a rotina via o **quiz de personalização** do "Sugerido pelo app": `{ origin: "quiz", exercises: [{ name, muscleGroup, series, reps }] }` (formato `RoutineProgramMeta` em `ritmofit-db.ts`, nomes brutos PT do catálogo). Programas gerados são únicos por usuário e não existem no catálogo estático (`suggested-routines-data.ts`), então o **pré-preenchimento de séries×reps** na primeira execução (`getSuggestedSetsForCard` em `goals-helpers.ts`) lê daqui — rotinas antigas/sem meta caem no fallback por nome (`getSuggestedSetsForRoutine`). `NULL` = rotina criada do zero. Gravado por `updateRoutineProgramMetaDb`. Migration: `docs/migrations/20260708-fitness-profile-and-program-meta.sql`. |
 
 ---
@@ -1429,7 +1435,7 @@ Treinos salvos / atribuídos a um usuário.
 | `routine_id` | bigint | FK → `routines.id` ON DELETE SET NULL | — | Rotina à qual este exercício pertence |
 | `notes` | text | — | — | Notas livres do usuário para este exercício |
 | `time_to_rest` | integer | — | — | Tempo de descanso entre séries (em segundos) escolhido pelo usuário para este exercício |
-| `technique` | text | ✓ | `'straight'` | **(2026-08-05)** Técnica deste exercício **nesta** rotina: `straight` (série direta), `drop` (drop-set), `rest_pause`, `biset`/`triset` (exigem `technique_group`). `CHECK` nesses 5 valores. Vive aqui e não em `workouts` porque "supino reto" não é bi-set — é bi-set *nesta rotina*, pareado com um exercício específico. Escolhida no passo `build-technique` do wizard ou no botão "Técnicas" do `RoutineDetailDrawer`, **só no modo expert**. Migration: `docs/migrations/20260805-workout-techniques.sql` |
+| `technique` | text | ✓ | `'straight'` | **(2026-08-05)** Técnica deste exercício **nesta** rotina: `straight` (série direta), `drop` (drop-set), `rest_pause`, `biset`/`triset` (exigem `technique_group`). `CHECK` nesses 5 valores. Vive aqui e não em `workouts` porque "supino reto" não é bi-set — é bi-set *nesta rotina*, pareado com um exercício específico. Escolhida no passo `build-technique` do wizard ou no botão "Técnicas" do `RoutineDetailDrawer`, **só no modo expert**. **Desde 12/08/2026 a coluna muda a tela de registrar treino** (ver `docs/05-metas.md`): `biset`/`triset` renderizam **um card com os exercícios lado a lado** e descanso compartilhado, `drop` ganha o chip "+ queda" (cada queda é uma linha com KG/REPS próprios) e `rest_pause` limita o descanso a 15s. Rotina que voltou ao modo simplificado mantém o valor gravado, mas a sessão dela ignora tudo isso. Migration: `docs/migrations/20260805-workout-techniques.sql` |
 | `technique_group` | text | — | — | **(2026-08-05)** Chave que liga os exercícios de um mesmo bloco de bi-set/tri-set — mesmo valor = mesmo bloco, executados sem descanso entre eles. `NULL` para técnicas individuais e séries diretas. `updateRoutineTechniquesDb` **normaliza**: grupo com menos de 2 membros volta a `straight` (um bi-set órfão não é bi-set). Índice parcial `user_workouts_technique_group_idx` |
 | `order_index` | int | — | — | **(2026-08-05)** Ordem do exercício dentro da rotina (0-based). Existe porque um bloco só funciona com os membros **adjacentes e na ordem** (A1 → A2); `planToAssignments` puxa os membros de cada bloco para junto do primeiro. `NULL` = ordem legada por `created_at`, então rotinas antigas não se reorganizam sozinhas |
 
@@ -1453,7 +1459,7 @@ Histórico de treinos realizados pelo usuário.
 | `km` | float8 | — | - | quilometros percorridos |
 | `time` | varchar | — | - | tempo decorrido |
 | `routine_id` | bigint | FK → `routines.id` | — | Rotina à qual o treino concluído pertence. Populada ao finalizar o treino a partir de `user_workouts.routine_id`. Usada para gatear a exibição do ícone de resumo da rotina (só aparece se houver ao menos um registro com `routine_id` correspondente). |
-| `set_kind` | text | — | — | **(2026-08-05)** Tipo da série executada, gravado só por rotinas no modo **expert** (`routines.training_mode`): `'warmup'` = aquecimento, `'normal'` = série válida, `'failure'` = série levada à falha, `'drop'` = queda de carga emendada na série anterior (**adicionado em `20260805-workout-techniques.sql`**, que recria o CHECK). `CHECK (set_kind IS NULL OR set_kind IN ('warmup','normal','failure','drop'))`. **`drop` conta como TRABALHO** (volume e PR incluem — é peso levantado de verdade) mas **não conta como SÉRIE** (`countsAsSeries` no `workout-session-dialog.tsx`): quem faz 3×10 com drop na última fez 3 séries, não 4. **`NULL` = série do modo simplificado ou anterior a 05/08/2026 → lida como `'normal'`.** O aquecimento **é gravado** (o registro do treino é fiel ao que foi feito) mas é filtrado fora de toda leitura de carga: `getPreviousBestKgDb`, `getExerciseProgressionDb` e `getLastWorkoutSessionSeriesDb` aplicam `WORKING_SETS_FILTER` (`set_kind.is.null,set_kind.neq.warmup` — um `.neq` puro descartaria as linhas NULL, porque `NULL <> 'warmup'` é NULL e não TRUE no Postgres). Índice parcial `user_workouts_hist_working_sets_idx` cobre exatamente essas consultas. Migration: `docs/migrations/20260805-training-mode.sql`. |
+| `set_kind` | text | — | — | **(2026-08-05)** Tipo da série executada, gravado só por rotinas no modo **expert** (`routines.training_mode`): `'warmup'` = aquecimento, `'normal'` = série válida, `'failure'` = série levada à falha, `'drop'` = queda de carga emendada na série anterior (**adicionado em `20260805-workout-techniques.sql`**, que recria o CHECK). `CHECK (set_kind IS NULL OR set_kind IN ('warmup','normal','failure','drop'))`. **`drop` conta como TRABALHO** (volume e PR incluem — é peso levantado de verdade) mas **não conta como SÉRIE** (`countsAsSeries` no `workout-session-dialog.tsx`): quem faz 3×10 com drop na última fez 3 séries, não 4. **`NULL` = série do modo simplificado ou anterior a 05/08/2026 → lida como `'normal'`.** O aquecimento **é gravado** (o registro do treino é fiel ao que foi feito) e **desde 12/08/2026 conta no volume e no contador de séries da sessão** (`countsAsSeries` só exclui o `drop`); o que ele não faz é virar marca — segue filtrado fora de toda leitura de carga/progressão: `getPreviousBestKgDb`, `getExerciseProgressionDb` e `getLastWorkoutSessionSeriesDb` aplicam `WORKING_SETS_FILTER` (`set_kind.is.null,set_kind.neq.warmup` — um `.neq` puro descartaria as linhas NULL, porque `NULL <> 'warmup'` é NULL e não TRUE no Postgres). Índice parcial `user_workouts_hist_working_sets_idx` cobre exatamente essas consultas. Migration: `docs/migrations/20260805-training-mode.sql`. |
 
 ---
 
@@ -1476,9 +1482,35 @@ Catálogo de treinos disponíveis na plataforma.
 | `created_by_user` | boolean | — | `false` | `true` quando o exercício foi criado manualmente pelo usuário via "Criar novo exercício" (modo treino) ou "Criar Exercício Personalizado". A foto sobe para o bucket `posts` (`uploadCustomExercisePhotoDb`) e fica em `photo` como URL pública; `description` guarda o "como executar". |
 | `created_by` | uuid | — | — | FK → `auth.users` ON DELETE CASCADE. Dono do exercício custom; `NULL` nos itens de catálogo. Migração `20260714-custom-items-owner.sql`. Define a visibilidade em `getWorkoutsDb` (mesma regra de `diets.created_by`): o exercício custom aparece para o criador com ou sem vínculo em `user_workouts` |
 
+| `group_id` | text | — | — | **(2026-08-12)** FK → `workout_groups.id`. Movimento a que esta linha pertence — "Supino Inclinado com Halteres" é uma variação de `supino_inclinado`. `NULL` = exercício sem irmãos (~95 das 273 linhas de catálogo, e é o normal). Definido por **curadoria**, não derivado do nome: "Rosca Martelo" começa igual a "Rosca Direta" e é outro exercício. Índice parcial `workouts_group_idx`. Migration: `docs/migrations/20260812-workout-groups.sql` |
+
 **Anatomia:** o recrutamento muscular fino de cada exercício vive em [workout_muscles](#workout_muscles) → [muscles](#muscles). `muscle_group` **não foi substituída** — continua sendo o rótulo grosso do card, do filtro e do fallback de imagem.
 
 **RLS:** leitura pública; escrita só nas linhas do próprio usuário (`created_by_user = true and created_by = auth.uid()`). Os seeds de catálogo (`scripts/seed-exercises.mjs`, `scripts/migrate-exercise-images.mjs`) usam service role e passam por cima da RLS. `bulkUpsertCatalogWorkoutsDb` (em `ritmofit-db.ts`, sem callers) escreveria catálogo pelo cliente e **seria bloqueado** pela RLS se voltasse a ser usado.
+
+---
+
+## workout_groups
+
+**(2026-08-12)** Movimento que agrupa variações do mesmo exercício — "Supino" para os 13 supinos do catálogo. Migration: `docs/migrations/20260812-workout-groups.sql`.
+
+| Coluna | Tipo | Obrigatório | Padrão | Descrição |
+|---|---|---|---|---|
+| `id` | text | PK | — | Slug estável (`supino`, `remada`, `agachamento_bulgaro`) — é o que `workouts.group_id` referencia |
+| `name` | text | ✓ | — | Nome do movimento em PT ("Supino inclinado") |
+| `name_eng` | text | — | — | Nome em EN; localizado no cliente por `pickLocalized`, como os outros catálogos |
+| `muscle_group` | text | ✓ | — | Casa com `workouts.muscle_group` |
+| `default_workout_id` | uuid | — | — | FK → `workouts.id` `ON DELETE SET NULL`. Variação que a rotina recebe quando o usuário escolhe o GRUPO no picker. Regra da curadoria: a mais comum numa academia (barra livre antes de máquina exótica) |
+
+**Por que existe:** a variação sempre viveu só dentro do NOME do exercício. `equipment` estava preenchida em **17 de 273** linhas, e mesmo cheia não bastaria — em 168 linhas o que muda não é o aparelho, é o ângulo ou a pegada (*inclinado*, *pegada fechada*, *hex press*).
+
+**Critério do agrupamento:** mesmo padrão de movimento + mesmo músculo alvo. Ficam **separados** os casos em que a variação muda o estímulo — supino reto ≠ inclinado ≠ declinado, rosca direta ≠ martelo, agachamento livre ≠ búlgaro, terra convencional ≠ romeno ≠ sumô. Exercício sem irmão não vira grupo de um: a migração desfaz qualquer grupo que termine com menos de 2 variações.
+
+**O que NÃO mudou:** `user_workouts_hist.workout_id` continua gravando a **variação executada**, então PR, gráfico de progressão e coluna ANTERIOR seguem por variação — 80kg na barra não é 80kg em cada halter. `workout_muscles` e a cobertura muscular também continuam por `workout_id`.
+
+**Como a rotina usa:** `user_workouts.workout_id` continua NOT NULL e passa a significar **a variação escolhida por último**. A sessão exibe o nome do grupo, abre na última variação e grava a troca de volta com `updateUserWorkoutExerciseDb`.
+
+**RLS:** leitura pública, sem policy de escrita — só service role popula (mesma postura de `workouts` e `muscles`).
 
 ---
 

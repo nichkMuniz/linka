@@ -158,13 +158,18 @@ export function TodayDashboard({
     celebrateOnGoalReached: true, // o Hub sempre registra hoje
   });
 
-  // Água entra como último slide, depois das rotinas do dia.
+  // Água entra como último slide, depois das rotinas do dia — mas SÓ depois que
+  // o usuário registrar o primeiro copo do dia (no diário alimentar). No começo
+  // do dia o "Em foco" deve mostrar o que ele tem para fazer (o treino), não um
+  // card de hidratação zerado disputando atenção. Registrou uma vez, o slide
+  // aparece e vira o atalho para os copos seguintes.
+  const hasWaterToday = water > 0;
   const slides = React.useMemo<TodaySlide[]>(
     () => [
       ...tasks.map((card) => ({ kind: "routine" as const, key: card.key, card })),
-      { kind: "water" as const, key: "__water__" as const },
+      ...(hasWaterToday ? [{ kind: "water" as const, key: "__water__" as const }] : []),
     ],
-    [tasks],
+    [tasks, hasWaterToday],
   );
 
   // Dia de descanso: usuário segue um calendário de treino mas hoje não há treino.
@@ -225,9 +230,12 @@ export function TodayDashboard({
   const yesterdayCard =
     workoutCards.find((c) => cardLastDate(c, routineLastDates) === yesterday) ?? null;
 
-  // Antes a seção sumia sem nenhuma rotina cadastrada. Agora ela sobrevive pelo
-  // slide de água: beber água não depende de ter rotina (vale inclusive no dia
-  // de descanso), e é o atalho mais rápido para registrar.
+  // Sem nada para mostrar (nenhuma tarefa hoje, sem água registrada, sem card de
+  // descanso e sem o treino de ontem) a seção some — senão sobraria só o espaço
+  // vazio dela. Enquanto o slide de água era fixo isso nunca acontecia; agora
+  // que ele é condicional, o guard voltou a ser necessário.
+  // Sem hooks daqui para baixo: o retorno antecipado é seguro.
+  if (slides.length === 0 && !isRestDay && !yesterdayCard) return null;
 
   // ── Render helpers ──
 
@@ -486,8 +494,10 @@ export function TodayDashboard({
       : (slide.card.name ?? typeTopLabel(slide.card));
 
   // Água pendente também conta como "em foco" — senão o rótulo sumiria num dia
-  // sem rotinas, com o slide de água sozinho na tela.
-  const hasPending = tasks.some((c) => !isCardDoneToday(c)) || !waterDone;
+  // sem rotinas, com o slide de água sozinho na tela. Só vale quando o slide
+  // está visível (ou seja, já houve registro hoje).
+  const hasPending =
+    tasks.some((c) => !isCardDoneToday(c)) || (hasWaterToday && !waterDone);
 
   return (
     <section className="space-y-3">

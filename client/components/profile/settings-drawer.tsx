@@ -106,6 +106,37 @@ interface SettingsDrawerProps {
   initialArchivedFlow?: StoryWithUser | null;
 }
 
+/**
+ * Linha da lista de configurações — um alvo de toque, não um botão de página web.
+ *
+ * Antes cada item era um `<Button variant="outline">`, que traz `hover:bg-accent`
+ * e o fundo opaco do tema (destoando do vidro do sheet). No iPhone o hover é o
+ * problema: o WKWebView acende a linha sob o dedo e deixa acesa, como se um
+ * cursor tivesse parado ali. Aqui o único feedback é de press (`active:`), que é
+ * o que o iOS ensina, e o estilo é o mesmo vidro dos cards dos sub-drawers
+ * (ver docs/15-design-system.md, seção de superfícies de vidro).
+ */
+function SettingsRow({
+  label,
+  icon,
+  onClick,
+}: {
+  label: React.ReactNode;
+  icon: React.ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex w-full shrink-0 items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3.5 text-left text-sm font-medium text-white transition-[background-color,transform] duration-100 active:scale-[0.985] active:bg-white/[0.14]"
+    >
+      <span>{label}</span>
+      <span className="shrink-0 text-white/60">{icon}</span>
+    </button>
+  );
+}
+
 export function SettingsDrawer({
   profile,
   userId,
@@ -596,6 +627,11 @@ export function SettingsDrawer({
         flow.text_position ?? null,
         flow.text_elements ?? null,
         flow.media_transform ?? null,
+        undefined,
+        null,
+        // É o MESMO arquivo do flow original: carrega capa e duração junto, senão o
+        // republicado abriria com tela preta e barra de progresso dessincronizada.
+        { posterUrl: flow.poster_url ?? null, durationMs: flow.duration_ms ?? null },
       );
       if (created) {
         toast({ title: t("settings_flow_reposted_flow") });
@@ -720,7 +756,7 @@ export function SettingsDrawer({
   };
 
   const subDrawerBack = (setter: (v: boolean) => void) => (
-    <button onClick={() => setter(false)} className="p-1 rounded-full transition-colors" style={{ color: "rgba(255,255,255,.7)" }}>
+    <button onClick={() => setter(false)} className="p-1 rounded-full transition-transform duration-100 active:scale-90" style={{ color: "rgba(255,255,255,.7)" }}>
       <ArrowLeft className="h-5 w-5" />
     </button>
   );
@@ -762,10 +798,11 @@ export function SettingsDrawer({
 
             {/* My Profile (unified) */}
             <Drawer open={isEditOpen} onOpenChange={setIsEditOpen}>
-              <Button onClick={() => openEditProfile("public")} variant="outline" className="gap-2 justify-between">
-                <span>{t("settings_my_profile")}</span>
-                <User className="h-4 w-4" />
-              </Button>
+              <SettingsRow
+                label={t("settings_my_profile")}
+                icon={<User className="h-4 w-4" />}
+                onClick={() => openEditProfile("public")}
+              />
               <DrawerContent
                 handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
                 className="flex flex-col modal-enter !rounded-t-[32px] !border-0"
@@ -780,7 +817,7 @@ export function SettingsDrawer({
               >
                 <DrawerHeader className="shrink-0 flex items-center gap-2">
                   {subDrawerBack(setIsEditOpen)}
-                  <DrawerTitle style={{ color: "#fff" }}>Meu Perfil</DrawerTitle>
+                  <DrawerTitle style={{ color: "#fff" }}>{t("settings_my_profile")}</DrawerTitle>
                 </DrawerHeader>
 
                 {/* Tabs */}
@@ -791,14 +828,14 @@ export function SettingsDrawer({
                       className={`flex-1 text-sm font-medium py-1.5 rounded-md transition-colors`}
                       style={profileTab === "public" ? { background: "rgba(255,255,255,.15)", color: "#fff" } : { color: "rgba(255,255,255,.5)" }}
                     >
-                      Público
+                      {t("settings_tab_public")}
                     </button>
                     <button
                       onClick={() => setProfileTab("personal")}
                       className={`flex-1 text-sm font-medium py-1.5 rounded-md transition-colors`}
                       style={profileTab === "personal" ? { background: "rgba(255,255,255,.15)", color: "#fff" } : { color: "rgba(255,255,255,.5)" }}
                     >
-                      Pessoal
+                      {t("settings_tab_personal")}
                     </button>
                   </div>
                 </div>
@@ -808,7 +845,7 @@ export function SettingsDrawer({
                     <div className="space-y-4">
                       {/* Photo */}
                       <div className="space-y-2">
-                        <label className="text-sm font-medium" style={{ color: "#fff" }}>Foto do Perfil</label>
+                        <label className="text-sm font-medium" style={{ color: "#fff" }}>{t("settings_photo_label")}</label>
                         <div className="flex items-center gap-4">
                           <div className="relative h-16 w-16 shrink-0">
                             <div className="h-16 w-16 rounded-full overflow-hidden bg-muted">
@@ -855,7 +892,7 @@ export function SettingsDrawer({
                           <Input
                             value={editHandle}
                             onChange={(e) => setEditHandle(e.target.value.replace(/[^a-zA-Z0-9_.]/g, ""))}
-                            placeholder="seu_usuario"
+                            placeholder={t("settings_handle_placeholder")}
                             className="border-0 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-none"
                             style={{ background: "rgba(255,255,255,.07)", color: "#fff" }}
                           />
@@ -870,7 +907,7 @@ export function SettingsDrawer({
                     <div className="space-y-4">
                       <div className="space-y-2">
                         <label className="text-sm font-medium" style={{ color: "#fff" }}>{t("settings_height_label")}</label>
-                        <Input type="number" min={100} max={250} step={1} value={personalDataForm.height} onChange={(e) => setPersonalDataForm((prev) => ({ ...prev, height: String(Math.trunc(Number(e.target.value))) }))} placeholder="Ex: 175" style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }} />
+                        <Input type="number" min={100} max={250} step={1} value={personalDataForm.height} onChange={(e) => setPersonalDataForm((prev) => ({ ...prev, height: String(Math.trunc(Number(e.target.value))) }))} placeholder={t("settings_height_placeholder")} style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }} />
                       </div>
                       <div className="space-y-2">
                         <div className="flex items-center justify-between gap-2">
@@ -887,7 +924,7 @@ export function SettingsDrawer({
                             <span className="text-xs font-medium">{t("settings_weight_history")}</span>
                           </button>
                         </div>
-                        <Input type="number" min={30} max={300} step="0.1" value={personalDataForm.weight} onChange={(e) => setPersonalDataForm((prev) => ({ ...prev, weight: e.target.value }))} placeholder="Ex: 70.5" style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }} />
+                        <Input type="number" min={30} max={300} step="0.1" value={personalDataForm.weight} onChange={(e) => setPersonalDataForm((prev) => ({ ...prev, weight: e.target.value }))} placeholder={t("settings_weight_placeholder")} style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }} />
                         <WeightHistoryDrawer
                           open={isWeightHistoryOpen}
                           onOpenChange={setIsWeightHistoryOpen}
@@ -898,7 +935,7 @@ export function SettingsDrawer({
                       </div>
                       <div className="space-y-2">
                         <label className="text-sm font-medium" style={{ color: "#fff" }}>{t("settings_age_label")}</label>
-                        <Input type="number" min={10} max={120} step={1} value={personalDataForm.age} onChange={(e) => setPersonalDataForm((prev) => ({ ...prev, age: String(Math.trunc(Number(e.target.value))) }))} placeholder="Ex: 28" style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }} />
+                        <Input type="number" min={10} max={120} step={1} value={personalDataForm.age} onChange={(e) => setPersonalDataForm((prev) => ({ ...prev, age: String(Math.trunc(Number(e.target.value))) }))} placeholder={t("settings_age_placeholder")} style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }} />
                       </div>
                       {/* Objectives */}
                       <div className="space-y-2">
@@ -939,10 +976,11 @@ export function SettingsDrawer({
 
             {/* Account & Security */}
             <Drawer open={isAccountOpen} onOpenChange={setIsAccountOpen}>
-              <Button onClick={() => { setEditEmail(userEmail); setIsAccountOpen(true); }} variant="outline" className="gap-2 justify-between">
-                <span>{t("settings_account_security")}</span>
-                <Settings className="h-4 w-4" />
-              </Button>
+              <SettingsRow
+                label={t("settings_account_security")}
+                icon={<Settings className="h-4 w-4" />}
+                onClick={() => { setEditEmail(userEmail); setIsAccountOpen(true); }}
+              />
               <DrawerContent
                 handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
                 className="flex flex-col modal-enter !rounded-t-[32px] !border-0"
@@ -968,7 +1006,7 @@ export function SettingsDrawer({
                         type="email"
                         value={editEmail}
                         onChange={(e) => setEditEmail(e.target.value)}
-                        placeholder="seu@email.com"
+                        placeholder={t("settings_email_placeholder")}
                         style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }}
                       />
                       {editEmail.trim() && editEmail.trim() !== userEmail && (
@@ -1133,10 +1171,11 @@ export function SettingsDrawer({
             {/* Commercial Profile Dashboard */}
             {commercialProfile && (
               <>
-                <Button onClick={() => setIsCommercialDashboardOpen(true)} variant="outline" className="gap-2 justify-between">
-                  <span>{t("settings_manage_commercial")}</span>
-                  <BarChart3 className="h-4 w-4" />
-                </Button>
+                <SettingsRow
+                  label={t("settings_manage_commercial")}
+                  icon={<BarChart3 className="h-4 w-4" />}
+                  onClick={() => setIsCommercialDashboardOpen(true)}
+                />
                 <Drawer open={isCommercialDashboardOpen} onOpenChange={setIsCommercialDashboardOpen}>
                   <DrawerContent
                     handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
@@ -1270,10 +1309,11 @@ export function SettingsDrawer({
             )}
             <Drawer open={isCommercialOpen} onOpenChange={setIsCommercialOpen}>
               {!commercialProfile && (
-                <Button onClick={openCommercialProfile} variant="outline" className="gap-2 justify-between">
-                  <span>{t("settings_commercial_profile")}</span>
-                  <span className="text-lg">🏪</span>
-                </Button>
+                <SettingsRow
+                  label={t("settings_commercial_profile")}
+                  icon={<span className="text-lg">🏪</span>}
+                  onClick={openCommercialProfile}
+                />
               )}
               <DrawerContent
                 handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
@@ -1333,7 +1373,7 @@ export function SettingsDrawer({
                     </div>
                     <div className="space-y-2">
                       <label className="text-sm font-medium" style={{ color: "#fff" }}>{t("settings_commercial_name")}</label>
-                      <Input value={commercialFormData.business_name} onChange={(e) => setCommercialFormData({ ...commercialFormData, business_name: e.target.value })} placeholder="Ex: Academia Força Total" style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }} />
+                      <Input value={commercialFormData.business_name} onChange={(e) => setCommercialFormData({ ...commercialFormData, business_name: e.target.value })} placeholder={t("settings_business_name_placeholder")} style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }} />
                     </div>
                     <div className="space-y-2">
                       <label className="text-sm font-medium" style={{ color: "#fff" }}>{t("settings_commercial_desc")}</label>
@@ -1345,11 +1385,11 @@ export function SettingsDrawer({
                     </div>
                     <div className="space-y-2">
                       <label className="text-sm font-medium" style={{ color: "#fff" }}>{t("settings_commercial_email")}</label>
-                      <Input type="email" value={commercialFormData.business_email} onChange={(e) => setCommercialFormData({ ...commercialFormData, business_email: e.target.value })} placeholder="contato@negocio.com" style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }} />
+                      <Input type="email" value={commercialFormData.business_email} onChange={(e) => setCommercialFormData({ ...commercialFormData, business_email: e.target.value })} placeholder={t("settings_business_email_placeholder")} style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }} />
                     </div>
                     <div className="space-y-2">
                       <label className="text-sm font-medium" style={{ color: "#fff" }}>{t("settings_commercial_website")}</label>
-                      <Input type="url" value={commercialFormData.business_website} onChange={(e) => setCommercialFormData({ ...commercialFormData, business_website: e.target.value })} placeholder="https://seu-site.com" style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }} />
+                      <Input type="url" value={commercialFormData.business_website} onChange={(e) => setCommercialFormData({ ...commercialFormData, business_website: e.target.value })} placeholder={t("settings_business_website_placeholder")} style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }} />
                     </div>
                     {/* Logo */}
                     <div className="space-y-2">
@@ -1387,7 +1427,7 @@ export function SettingsDrawer({
                               onClick={() => setLogoZoomOpen(false)}
                               className="absolute top-4 right-4 flex items-center justify-center rounded-full"
                               style={{ width: 40, height: 40, background: "rgba(255,255,255,.12)", border: "1px solid rgba(255,255,255,.2)", color: "#fff" }}
-                              aria-label="Fechar"
+                              aria-label={t("close")}
                             >
                               <X className="h-5 w-5" />
                             </button>
@@ -1466,7 +1506,7 @@ export function SettingsDrawer({
                                   {plan.price != null && <p className="text-xs text-brand font-semibold">R$ {plan.price.toFixed(2).replace(".", ",")}</p>}
                                   {plan.description && <p className="text-xs line-clamp-2 mt-0.5" style={{ color: "rgba(255,255,255,.5)" }}>{plan.description}</p>}
                                 </div>
-                                <button type="button" onClick={() => { setEditingPlanIdx(idx); setEditPlanName(plan.name); setEditPlanPrice(plan.price != null ? String(plan.price) : ""); setEditPlanDescription(plan.description ?? ""); setIsAddingPlan(false); }} className="p-1 rounded-full hover:bg-muted transition-colors text-muted-foreground hover:text-foreground flex-shrink-0 mt-0.5" aria-label="Editar plano">
+                                <button type="button" onClick={() => { setEditingPlanIdx(idx); setEditPlanName(plan.name); setEditPlanPrice(plan.price != null ? String(plan.price) : ""); setEditPlanDescription(plan.description ?? ""); setIsAddingPlan(false); }} className="p-1 rounded-full hover:bg-muted transition-colors text-muted-foreground hover:text-foreground flex-shrink-0 mt-0.5" aria-label={t("settings_plan_edit_label")}>
                                   <Edit2 className="h-3.5 w-3.5" />
                                 </button>
                                 <button type="button" onClick={() => setServicePlans((prev) => prev.filter((_, i) => i !== idx))} className="p-1 rounded-full hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors flex-shrink-0 mt-0.5" aria-label={t("settings_plan_remove_label")}>
@@ -1518,10 +1558,11 @@ export function SettingsDrawer({
             {isPremium && (
               <>
                 <p className="text-xs font-semibold uppercase tracking-wider pt-2 pb-0.5" style={{ color: "rgba(255,255,255,.5)" }}>{t("settings_section_subscription")}</p>
-                <Button onClick={() => setIsSubscriptionOpen(true)} variant="outline" className="gap-2 justify-between">
-                  <span>{t("settings_subscription_manage")}</span>
-                  <Crown className="h-4 w-4" />
-                </Button>
+                <SettingsRow
+                  label={t("settings_subscription_manage")}
+                  icon={<Crown className="h-4 w-4" />}
+                  onClick={() => setIsSubscriptionOpen(true)}
+                />
                 <SubscriptionDrawer
                   open={isSubscriptionOpen}
                   onOpenChange={setIsSubscriptionOpen}
@@ -1535,10 +1576,11 @@ export function SettingsDrawer({
 
             {/* Language */}
             <Drawer open={isLanguageOpen} onOpenChange={setIsLanguageOpen}>
-              <Button onClick={() => setIsLanguageOpen(true)} variant="outline" className="gap-2 justify-between">
-                <span>{t("settings_language")}</span>
-                <Globe className="h-4 w-4" />
-              </Button>
+              <SettingsRow
+                label={t("settings_language")}
+                icon={<Globe className="h-4 w-4" />}
+                onClick={() => setIsLanguageOpen(true)}
+              />
               <DrawerContent
                 handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
                 className="flex flex-col modal-enter !rounded-t-[32px] !border-0"
@@ -1572,10 +1614,11 @@ export function SettingsDrawer({
 
             {/* Notifications */}
             <Drawer open={isNotificationsOpen} onOpenChange={setIsNotificationsOpen}>
-              <Button onClick={() => setIsNotificationsOpen(true)} variant="outline" className="gap-2 justify-between">
-                <span>{t("settings_notifications")}</span>
-                <Bell className="h-4 w-4" />
-              </Button>
+              <SettingsRow
+                label={t("settings_notifications")}
+                icon={<Bell className="h-4 w-4" />}
+                onClick={() => setIsNotificationsOpen(true)}
+              />
               <DrawerContent
                 handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
                 className="flex flex-col modal-enter !rounded-t-[32px] !border-0"
@@ -1630,10 +1673,11 @@ export function SettingsDrawer({
 
             {/* Privacy */}
             <Drawer open={isPrivacyOpen} onOpenChange={setIsPrivacyOpen}>
-              <Button onClick={() => setIsPrivacyOpen(true)} variant="outline" className="gap-2 justify-between">
-                <span>{t("settings_privacy")}</span>
-                <Lock className="h-4 w-4" />
-              </Button>
+              <SettingsRow
+                label={t("settings_privacy")}
+                icon={<Lock className="h-4 w-4" />}
+                onClick={() => setIsPrivacyOpen(true)}
+              />
               <DrawerContent
                 handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
                 className="flex flex-col modal-enter !rounded-t-[32px] !border-0"
@@ -1687,10 +1731,11 @@ export function SettingsDrawer({
 
             {/* Time Management */}
             <Drawer open={isTimeManagementOpen} onOpenChange={setIsTimeManagementOpen}>
-              <Button onClick={() => setIsTimeManagementOpen(true)} variant="outline" className="gap-2 justify-between">
-                <span>{t("settings_time_management")}</span>
-                <BarChart3 className="h-4 w-4" />
-              </Button>
+              <SettingsRow
+                label={t("settings_time_management")}
+                icon={<BarChart3 className="h-4 w-4" />}
+                onClick={() => setIsTimeManagementOpen(true)}
+              />
               <DrawerContent
                 handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
                 className="flex flex-col modal-enter !rounded-t-[32px] !border-0"
@@ -1744,10 +1789,11 @@ export function SettingsDrawer({
 
             {/* Flow History */}
             <Drawer open={isFlowHistoryOpen} onOpenChange={setIsFlowHistoryOpen}>
-              <Button onClick={openFlowHistory} variant="outline" className="gap-2 justify-between">
-                <span>{t("settings_flow_archive")}</span>
-                <span>🕐</span>
-              </Button>
+              <SettingsRow
+                label={t("settings_flow_archive")}
+                icon={<span>🕐</span>}
+                onClick={openFlowHistory}
+              />
               <DrawerContent
                 handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
                 className="flex flex-col modal-enter !rounded-t-[32px] !border-0"
@@ -1819,7 +1865,7 @@ export function SettingsDrawer({
                               onClick={() => setExpandedFlow(null)}
                               className="flex items-center justify-center rounded-full active:scale-95 transition-transform"
                               style={{ width: 38, height: 38, background: "rgba(0,0,0,.45)", border: "1px solid rgba(255,255,255,.18)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" }}
-                              aria-label="Fechar"
+                              aria-label={t("close")}
                             >
                               <X className="h-4.5 w-4.5 text-white" />
                             </button>
@@ -1878,7 +1924,7 @@ export function SettingsDrawer({
                             <button
                               className="absolute inset-0 w-full h-full"
                               onClick={() => setExpandedFlow(flow)}
-                              aria-label="Ver flow"
+                              aria-label={t("settings_flow_view_label")}
                             >
                               {flow.media_url ? (
                                 flow.media_url.match(/\.(mp4|mov|webm)/) ? (
@@ -2048,18 +2094,15 @@ export function SettingsDrawer({
             {/* Relatar um problema — só aparece com o Sentry configurado, senão
                 seria um formulário sem destino (ver client/lib/monitoring.ts). */}
             {isMonitoringEnabled() && (
-              <Button
+              <SettingsRow
+                label={t("report_problem_title")}
+                icon={<Bug className="h-4 w-4" />}
                 onClick={() => setIsReportProblemOpen(true)}
-                variant="outline"
-                className="gap-2 justify-between"
-              >
-                <span>{t("report_problem_title")}</span>
-                <Bug className="h-4 w-4" />
-              </Button>
+              />
             )}
 
             {/* Logout */}
-            <Button onClick={handleLogout} variant="destructive" className="gap-2">
+            <Button onClick={handleLogout} variant="destructive" className="mt-1 shrink-0 gap-2 rounded-2xl py-3.5 h-auto transition-transform duration-100 active:scale-[0.985]">
               <LogOut className="h-4 w-4" />
               {t("settings_logout")}
             </Button>

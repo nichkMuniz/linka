@@ -74,6 +74,17 @@ function PostCardImpl({
   const [descExpanded, setDescExpanded] = React.useState(false);
   const [carouselIndex, setCarouselIndex] = React.useState(0);
   const [taggedOpen, setTaggedOpen] = React.useState(false);
+  const [isZooming, setIsZooming] = React.useState(false);
+
+  // Durante a pinça a foto vira o conteúdo — os overlays de texto (identidade,
+  // marcações, descrição e "Ver treino") somem para não cobrir a imagem
+  // ampliada, e voltam sozinhos quando o usuário solta os dedos. Some por
+  // opacidade (não desmontando) para o layout não pular no meio do gesto.
+  const zoomHiddenStyle: React.CSSProperties = {
+    opacity: isZooming ? 0 : 1,
+    transition: "opacity .18s ease-out",
+    pointerEvents: isZooming ? "none" : undefined,
+  };
 
   const taggedUsers = post.taggedUsers ?? [];
   const description = post.description ?? "";
@@ -148,6 +159,7 @@ function PostCardImpl({
             hideCounter
             tall
             onIndexChange={setCarouselIndex}
+            onZoomChange={setIsZooming}
           />
         ) : (
           <div className="w-full rounded-lg" style={{ height: "calc(100dvh - max(14px, env(safe-area-inset-top) + 6px) - 314px - env(safe-area-inset-bottom))", maxHeight: "500px", background: getPostGradient(post.id) }} />
@@ -162,7 +174,7 @@ function PostCardImpl({
         {/* ── Compact pill — user identity (left side) ── */}
         <div
           className="absolute top-3 left-3 inline-flex items-center gap-2 pointer-events-auto z-10"
-          style={{ height: "44px", borderRadius: "22px", padding: "0 12px 0 6px", ...GLASS_TOP }}
+          style={{ height: "44px", borderRadius: "22px", padding: "0 12px 0 6px", ...GLASS_TOP, ...zoomHiddenStyle }}
           onClick={(e) => e.stopPropagation()}
         >
           <button
@@ -269,7 +281,7 @@ function PostCardImpl({
             <button
               type="button"
               className="flex items-center gap-1.5 mb-2 px-1 active:opacity-70 transition-opacity"
-              style={{ textShadow: "0 1px 8px rgba(0,0,0,.5)" }}
+              style={{ textShadow: "0 1px 8px rgba(0,0,0,.5)", ...zoomHiddenStyle }}
               onClick={() => {
                 hapticLight();
                 if (taggedUsers.length === 1) navigate(`/usuario/${taggedUsers[0].id}`);
@@ -301,6 +313,7 @@ function PostCardImpl({
                   padding: "8px 12px",
                   marginBottom: "10px",
                 } : {}),
+                ...zoomHiddenStyle,
               }}
               onClick={() => { if (isDescTruncatable) setDescExpanded((v) => !v); }}
             >
@@ -352,7 +365,7 @@ function PostCardImpl({
 
           {/* Workout summary — "Ver treino" pill opens the detail modal */}
           {post.workoutSummary && (
-            <div className="mb-2.5 px-1">
+            <div className="mb-2.5 px-1" style={zoomHiddenStyle}>
               <WorkoutDetailButton summary={post.workoutSummary} />
             </div>
           )}

@@ -344,11 +344,22 @@ async function cached<T>(
      * aconteceu com a anatomia (`muscles`) em 05/08/2026.
      */
     skipEmpty?: boolean;
+    /**
+     * Ignora o que está em cache (memória E localStorage) e vai à rede, mas
+     * continua GRAVANDO o resultado. Para telas em que servir dado velho é o
+     * mesmo que estar quebrado — ex.: a aba de Solicitações da Comunidade,
+     * aberta pelo toque no push, que precisa mostrar o pedido que acabou de
+     * chegar (e não o que existia até 60s atrás).
+     *
+     * Uma requisição já em voo para a mesma chave ainda é reaproveitada: ela
+     * também é uma leitura ao vivo, iniciada há milissegundos.
+     */
+    fresh?: boolean;
   },
 ): Promise<T> {
   // L1 — fresh memory hit.
   const hit = _queryCache.get(key);
-  if (hit && Date.now() < hit.expiry) return hit.data as T;
+  if (!opts?.fresh && hit && Date.now() < hit.expiry) return hit.data as T;
 
   // Dedup concurrent callers for the same key.
   const inflight = _inflight.get(key) as Promise<T> | undefined;
@@ -369,7 +380,7 @@ async function cached<T>(
     return p;
   };
 
-  const persisted = persistRead<T>(key);
+  const persisted = opts?.fresh ? null : persistRead<T>(key);
   if (persisted) {
     const age = Date.now() - persisted.storedAt;
 
@@ -2063,12 +2074,13 @@ export async function getWorkoutsDb(): Promise<Workout[]> {
     type: row.type != null ? Number(row.type) : null,
     // Editável só quando é custom E o dono é o próprio usuário.
     isCustom: !!row.created_by_user && !!userId && String(row.created_by ?? "") === userId,
+    groupId: row.group_id ? String(row.group_id) : null,
   });
 
   // Fetch all workouts including created_by_user for client-side filtering
   const { data: allData, error } = await supabase!
     .from("workouts")
-    .select("id, name, description, name_eng, description_eng, photo, muscle_group, type, wger_id, created_by_user, created_by")
+    .select("id, name, description, name_eng, description_eng, photo, muscle_group, type, wger_id, created_by_user, created_by, group_id")
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -2099,6 +2111,58 @@ export async function getWorkoutsDb(): Promise<Workout[]> {
     })
     .map(mapRow);
   });
+}
+
+/**
+ * Catálogo de grupos/movimentos ({@link WorkoutGroup}).
+ *
+ * Degrada sozinho: sem a migração `20260812-workout-groups.sql` a consulta
+ * falha e devolve `[]` — o app volta a listar cada variação como um exercício
+ * independente, que é o comportamento anterior. Nada quebra, só não agrupa.
+ */
+export async function getWorkoutGroupsDb(): Promise<WorkoutGroup[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+  return cached(`workoutGroups:${getUiLanguage()}`, CACHE_TTL_STATIC, async () => {
+    const { data, error } = await supabase!
+      .from("workout_groups")
+      .select("id, name, name_eng, muscle_group, default_workout_id");
+    if (error || !data) return [];
+    return (data as any[]).map((row) => ({
+      id: String(row.id),
+      name: pickLocalized(row.name, row.name_eng),
+      muscle_group: String(row.muscle_group ?? ""),
+      defaultWorkoutId: row.default_workout_id ? String(row.default_workout_id) : null,
+    }));
+  });
+}
+
+/**
+ * Troca a VARIAÇÃO de um exercício da rotina (`user_workouts.workout_id`) —
+ * "hoje o supino vai ser com halteres". Grava para valer: a próxima sessão abre
+ * já com a variação escolhida, que é o que faz o app aprender o hábito em vez
+ * de perguntar toda vez.
+ *
+ * O histórico não é tocado: `user_workouts_hist` guarda a variação de CADA
+ * série executada, então o que já foi feito continua registrado onde foi feito.
+ */
+export async function updateUserWorkoutExerciseDb(
+  userId: string,
+  userWorkoutId: string,
+  newWorkoutId: string,
+): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+  const { error } = await supabase
+    .from("user_workouts")
+    .update({ workout_id: newWorkoutId })
+    .eq("id", userWorkoutId)
+    .eq("user_id", userId);
+  if (error) {
+    console.error("Error swapping workout variation:", error.message || error);
+    throw error;
+  }
+  invalidateQueryCache("userWorkouts");
+  offlineCopyPatch<UserWorkoutWithDetails[]>(`userWorkouts:${userId}`, (rows) =>
+    rows.map((r) => (r.id === userWorkoutId ? { ...r, workout_id: newWorkoutId } : r)), []);
 }
 
 export async function bulkUpsertCatalogWorkoutsDb(
@@ -2433,15 +2497,22 @@ export function toTrainingMode(value: unknown): TrainingMode {
  * Tipo de uma série executada (`user_workouts_hist.set_kind`). Só o modo
  * `expert` classifica séries; no simplificado a coluna vai NULL.
  *
- * - `warmup`: aquecimento. **Não** entra em volume, contagem de séries, PR,
- *   progressão nem no prompt de "máquina zerada" — é o ponto todo de existir.
+ * - `warmup`: aquecimento. **Conta** como série executada — entra no contador
+ *   de séries e no volume da sessão (cabeçalho ao vivo e resumo). O que ele
+ *   **não** faz é valer como MARCA: fica fora do PR, do e1RM, da tendência de
+ *   carga, do gráfico de progressão, da cobertura muscular, da coluna ANTERIOR
+ *   e do prompt de "máquina zerada" — uma rampa leve não é desempenho.
  * - `normal`: série válida (o padrão).
  * - `failure`: série levada à falha; conta como válida em tudo, mas fica
  *   marcada para a leitura de sobrecarga progressiva das fases seguintes.
  */
 export type SetKind = "warmup" | "normal" | "failure" | "drop";
 
-/** Séries que contam como trabalho real (tudo que não é aquecimento). */
+/**
+ * Séries que podem virar MARCA (recorde/progressão) — tudo que não é
+ * aquecimento. Não confundir com "conta como série": para contagem e volume o
+ * aquecimento entra normalmente (ver `countsAsSeries`, na tela de treino).
+ */
 export function isWorkingSet(kind: SetKind | null | undefined): boolean {
   return kind !== "warmup";
 }
@@ -2555,6 +2626,29 @@ export type Workout = {
    * itens do catálogo e de outros usuários não são editáveis.
    */
   isCustom?: boolean;
+  /**
+   * Grupo/movimento a que esta variação pertence (`workouts.group_id`), quando
+   * o exercício tem irmãos — "Supino Inclinado com Halteres" pertence ao grupo
+   * `supino_inclinado`. `null` = exercício sem variações.
+   * Migração: `docs/migrations/20260812-workout-groups.sql`.
+   */
+  groupId?: string | null;
+};
+
+/**
+ * Movimento que agrupa variações do mesmo exercício ("Supino", "Remada").
+ *
+ * Existe porque a variação sempre viveu só dentro do NOME do exercício: o
+ * catálogo tem 13 supinos e nenhuma coluna dizia que eles são o mesmo
+ * movimento. O usuário escolhe o GRUPO ao montar a rotina e a VARIAÇÃO na hora
+ * do treino, que é quando ele sabe qual aparelho está livre.
+ */
+export type WorkoutGroup = {
+  id: string;
+  name: string;
+  muscle_group: string;
+  /** variação que a rotina recebe quando o usuário escolhe o grupo */
+  defaultWorkoutId: string | null;
 };
 
 export type Diet = {
@@ -3690,6 +3784,11 @@ export type UserWorkoutWithDetails = {
   technique_group?: string | null;
   /** ordem na rotina (0-based); null = ordem legada por created_at */
   order_index?: number | null;
+  // O GRUPO do exercício (variações) NÃO vem daqui de propósito: incluir
+  // `workouts.group_id` neste join derrubaria a lista de rotinas inteira em
+  // quem ainda não rodou a migração 20260812 (coluna inexistente = erro na
+  // query). A sessão resolve o grupo pelo catálogo (`getWorkoutsDb`), que já é
+  // cacheado e tem seu próprio fallback.
   /**
    * true = o exercício do catálogo foi criado manualmente por ESTE usuário
    * (`workouts.created_by_user` + `created_by` = dono). Habilita a edição de
@@ -4900,6 +4999,21 @@ export type Story = {
   user_id: string;
   description: string;
   media_url: string;
+  /**
+   * Capa do vídeo (1º frame em JPEG, ~720px). O viewer pinta esse frame na hora em que
+   * o flow abre, enquanto o clipe ainda está baixando — é o que evita a tela preta.
+   * Só existe para flows de vídeo; imagens não precisam.
+   */
+  poster_url?: string | null;
+  /**
+   * Duração real do vídeo em ms, medida no cliente ao postar.
+   *
+   * O `MediaRecorder` do iOS grava MP4 fragmentado, cujo cabeçalho não traz a duração:
+   * no viewer, `video.duration` fica `Infinity` até o arquivo INTEIRO baixar — e a barra
+   * de progresso fica parada até lá. Com este valor vindo do banco, a barra acompanha o
+   * vídeo desde o primeiro frame, sem depender do download terminar.
+   */
+  duration_ms?: number | null;
   background_color?: string | null;
   text_position?: StoryTextPosition | null;
   text_elements?: StoryTextElement[] | null;
@@ -4918,6 +5032,12 @@ export type StoryWithUser = Story & {
   repostedFromNickname?: string | null;
 };
 
+// Com a duração real do vídeo (migração 20260812-flow-duration)
+const FLOW_COLS_DURATION =
+  "id, user_id, description, media_url, poster_url, duration_ms, background_color, text_position, text_elements, media_transform, created_at";
+// Com a capa do vídeo (migração 20260812-flow-poster)
+const FLOW_COLS_POSTER =
+  "id, user_id, description, media_url, poster_url, background_color, text_position, text_elements, media_transform, created_at";
 const FLOW_COLS_FULL =
   "id, user_id, description, media_url, background_color, text_position, text_elements, media_transform, created_at";
 // Sem media_transform (banco ainda não migrado), mas preserva os textos
@@ -4925,9 +5045,16 @@ const FLOW_COLS_TEXT =
   "id, user_id, description, media_url, background_color, text_position, text_elements, created_at";
 const FLOW_COLS_BASE =
   "id, user_id, description, media_url, background_color, created_at";
-// Degradação em camadas: FULL → TEXT → BASE (cada queda remove só o que falta)
-const FLOW_COLS_TIERS = [FLOW_COLS_FULL, FLOW_COLS_TEXT, FLOW_COLS_BASE];
-let flowColsCache = FLOW_COLS_FULL;
+// Degradação em camadas: DURATION → POSTER → FULL → TEXT → BASE (cada queda remove só
+// o que falta). A primeira query da sessão paga o erro 42703 e o cache guarda o nível.
+const FLOW_COLS_TIERS = [
+  FLOW_COLS_DURATION,
+  FLOW_COLS_POSTER,
+  FLOW_COLS_FULL,
+  FLOW_COLS_TEXT,
+  FLOW_COLS_BASE,
+];
+let flowColsCache = FLOW_COLS_DURATION;
 
 // PostgREST code for "undefined column"
 const isMissingColumnError = (err: any) =>
@@ -5061,12 +5188,17 @@ export async function getExpiredUserFlowsDb(): Promise<StoryWithUser[]> {
 
   try {
     const [flowResult, profileResult] = await Promise.all([
-      supabase
-        .from("flow")
-        .select("id, user_id, description, media_url, created_at")
-        .eq("user_id", viewer.id)
-        .lt("created_at", twentyFourHoursAgo)
-        .order("created_at", { ascending: false }),
+      // selectFlow (em vez de uma lista fixa de colunas) para trazer também capa e
+      // duração: republicar um flow do arquivo reaproveita a mesma mídia, e sem esses
+      // campos o novo flow abriria com tela preta e barra dessincronizada.
+      selectFlow((cols) =>
+        supabase!
+          .from("flow")
+          .select(cols)
+          .eq("user_id", viewer.id)
+          .lt("created_at", twentyFourHoursAgo)
+          .order("created_at", { ascending: false }),
+      ),
       supabase
         .from("profiles")
         .select("user_id, nickname, photo")
@@ -5134,6 +5266,8 @@ export async function createStoryDb(
   mediaTransform?: StoryMediaTransform | null,
   taggedUserIds?: string[],
   repost?: { fromFlowId: string; fromUser: string } | null,
+  /** Metadados do vídeo medidos no cliente ao postar (capa + duração real). */
+  videoMeta?: { posterUrl?: string | null; durationMs?: number | null } | null,
 ): Promise<Story | null> {
   if (!hasSupabaseConfig || !supabase) return null;
 
@@ -5145,6 +5279,8 @@ export async function createStoryDb(
       user_id: viewer.id,
       description,
       media_url: mediaUrl,
+      poster_url: videoMeta?.posterUrl || null,
+      duration_ms: videoMeta?.durationMs || null,
       background_color: backgroundColor ?? null,
       text_position: textPosition ?? null,
       text_elements: textElements ?? null,
@@ -5168,6 +5304,8 @@ export async function createStoryDb(
         media_transform: _mt,
         reposted_from: _rf,
         reposted_from_user: _rfu,
+        poster_url: _pu,
+        duration_ms: _dm,
         ...basePayload
       } = fullPayload;
       const retry = await supabase!
@@ -5256,6 +5394,9 @@ export async function repostStoryDb(flowId: string): Promise<Story | null> {
     original.media_transform ?? null,
     undefined,
     { fromFlowId: original.id, fromUser: original.user_id },
+    // Reaproveita capa e duração do original — o repost abre e sincroniza a barra
+    // exatamente como o flow de origem (é o mesmo arquivo de mídia).
+    { posterUrl: original.poster_url ?? null, durationMs: original.duration_ms ?? null },
   );
 }
 
@@ -10021,6 +10162,8 @@ export type EnrichedDuelGroup = DuelGroup & {
 
 export async function getEnrichedDuelGroupsDb(
   userId: string,
+  /** `fresh` ignora o cache — usado pela aba de Solicitações e pelo realtime. */
+  opts?: { fresh?: boolean },
 ): Promise<{ myGroups: EnrichedDuelGroup[]; availableGroups: EnrichedDuelGroup[]; pendingInvites: Array<{ groupId: string; groupName: string; groupGoal: string; groupLocation: string }> }> {
   if (!supabase) return { myGroups: [], availableGroups: [], pendingInvites: [] };
 
@@ -10182,7 +10325,7 @@ export async function getEnrichedDuelGroupsDb(
     console.error("Error getting enriched duel groups:", error);
     return { myGroups: [], availableGroups: [], pendingInvites: [] };
   }
-  }); // end cached
+  }, { fresh: opts?.fresh }); // end cached
 }
 
 // Upload group cover photo and persist URL to DB
@@ -10707,7 +10850,7 @@ export async function addMembersToGroupDb(
     throw error;
   }
 
-  invalidateQueryCache("groupParticipants"); invalidateQueryCache("enrichedDuelGroups");
+  invalidateQueryCache("groupParticipants"); invalidateQueryCache("enrichedDuelGroups"); invalidateQueryCache("pendingGroupRequests");
 }
 
 // Leave a duel group (remove current user from participants)
@@ -10818,7 +10961,10 @@ export async function declineGroupInviteDb(groupId: string): Promise<void> {
 
   if (error) throw error;
 
-  invalidateQueryCache("pendingInvites");
+  // `pendingInvites` não é uma chave de cache própria — a lista sai de
+  // `enrichedDuelGroups`. Sem invalidar esta, o convite recusado voltava a
+  // aparecer por até 30s (e sobrevivia ao fechar o app, via localStorage).
+  invalidateQueryCache("pendingInvites"); invalidateQueryCache("enrichedDuelGroups"); invalidateQueryCache("groupParticipants");
 }
 
 // Get all participants of a duel group with their user details
@@ -11193,8 +11339,14 @@ export type GroupJoinRequest = {
   participants: number;
 };
 
-/** Returns all pending join requests for groups owned by the current user */
-export async function getPendingGroupRequestsDb(): Promise<GroupJoinRequest[]> {
+/**
+ * Pedidos de entrada pendentes nos grupos de que o usuário é dono.
+ *
+ * `fresh` pula o cache: a aba de Solicitações é aberta pelo toque no push do
+ * pedido que ACABOU de chegar — servir a lista de até 60s atrás ali é o mesmo
+ * que não mostrar o pedido.
+ */
+export async function getPendingGroupRequestsDb(opts?: { fresh?: boolean }): Promise<GroupJoinRequest[]> {
   if (!hasSupabaseConfig || !supabase) return [];
   const viewer = await getViewer();
   if (!viewer) return [];
@@ -11263,7 +11415,7 @@ export async function getPendingGroupRequestsDb(): Promise<GroupJoinRequest[]> {
     return [];
   }
 
-  });
+  }, { fresh: opts?.fresh });
 }
 
 /** Approve a pending group join request */
@@ -11276,6 +11428,8 @@ export async function approveGroupRequestDb(groupId: string, requestUserId: stri
     .eq("user_id", requestUserId)
     .eq("status", "pending");
   if (error) throw error;
+
+  invalidateQueryCache("pendingGroupRequests"); invalidateQueryCache("enrichedDuelGroups"); invalidateQueryCache("groupParticipants");
 }
 
 /** Reject a pending group join request */
@@ -11288,6 +11442,8 @@ export async function rejectGroupRequestDb(groupId: string, requestUserId: strin
     .eq("user_id", requestUserId)
     .eq("status", "pending");
   if (error) throw error;
+
+  invalidateQueryCache("pendingGroupRequests"); invalidateQueryCache("enrichedDuelGroups"); invalidateQueryCache("groupParticipants");
 }
 
 /** Remove an accepted member from a group (owner action) */

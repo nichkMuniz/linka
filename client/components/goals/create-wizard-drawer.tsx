@@ -75,6 +75,8 @@ import {
   type UserGoal,
   type UserHabit,
   type Workout,
+  type WorkoutGroup,
+  getWorkoutGroupsDb,
 } from "@/lib/ritmofit-db";
 import {
   type FitnessLevel,
@@ -312,6 +314,20 @@ export function CreateWizardDrawer({
 
   // catalogs (lazy)
   const [workouts, setWorkouts] = React.useState<Workout[]>([]);
+  // Grupos de movimento (Supino, Remada…) — colapsam as variações na lista.
+  // Vazio quando a migração 20260812 não rodou: aí a lista é a de sempre.
+  const [workoutGroups, setWorkoutGroups] = React.useState<WorkoutGroup[]>([]);
+  const groupById = React.useMemo(
+    () => new Map(workoutGroups.map((g) => [g.id, g])),
+    [workoutGroups],
+  );
+  /** Grupo do exercício, só quando a lista está colapsada (fora da busca). */
+  const itemGroup = (item: any): WorkoutGroup | undefined =>
+    routineType === 1 && !searchQuery.trim() && item?.groupId
+      ? groupById.get(item.groupId)
+      : undefined;
+  const groupVariationCount = (item: any): number =>
+    workouts.filter((w) => w.groupId && w.groupId === item?.groupId).length;
   const [diets, setDiets] = React.useState<Diet[]>([]);
   const [habits, setHabits] = React.useState<Habit[]>([]);
   const [catalogLoading, setCatalogLoading] = React.useState(false);
@@ -456,7 +472,11 @@ export function CreateWizardDrawer({
     if (!open || (step !== "build" && step !== "suggested-program")) return;
     setCatalogLoading(true);
     const load =
-      routineType === 1 || step === "suggested-program" ? getWorkoutsDb().then(setWorkouts)
+      routineType === 1 || step === "suggested-program"
+        ? getWorkoutsDb().then(setWorkouts).then(() =>
+            // Best-effort: sem os grupos a lista só não colapsa as variações.
+            getWorkoutGroupsDb().then(setWorkoutGroups).catch(() => {}),
+          )
       : routineType === 2 ? getDietsDb().then(setDiets)
       : getHabitsDb().then(setHabits);
     load
@@ -581,11 +601,27 @@ export function CreateWizardDrawer({
       if (browseMode === "anatomy" && anatomyMuscleId) {
         return muscleWorkouts.filter((w) => matchesCatalogSearch(w, q));
       }
-      return workouts.filter(
+      const matches = workouts.filter(
         (w) =>
           matchesCatalogSearch(w, q) &&
           (!muscleFilter || w.muscle_group === muscleFilter),
       );
+      // Variações colapsadas: o catálogo tem 13 supinos, e escolher entre eles
+      // ao MONTAR a rotina é uma decisão que o usuário só toma na academia.
+      // Aqui ele escolhe o movimento; a variação é escolhida no treino (a rotina
+      // nasce com a padrão do grupo). Buscando, não colapsa — quem digitou
+      // "halteres" quer ver justamente a variação com halteres.
+      if (q || workoutGroups.length === 0) return matches;
+      const seenGroups = new Set<string>();
+      const out: Workout[] = [];
+      for (const w of matches) {
+        const g = w.groupId ? groupById.get(w.groupId) : undefined;
+        if (!g) { out.push(w); continue; }
+        if (seenGroups.has(g.id)) continue;
+        seenGroups.add(g.id);
+        out.push(matches.find((x) => x.id === g.defaultWorkoutId && x.groupId === g.id) ?? w);
+      }
+      return out;
     }
     if (routineType === 2) {
       return diets.filter(
@@ -1438,6 +1474,8 @@ export function CreateWizardDrawer({
                   t("goals_mode_expert_f1"),
                   t("goals_mode_expert_f2"),
                   t("goals_mode_expert_f3"),
+                  t("goals_mode_expert_f4"),
+                  t("goals_mode_expert_f5"),
                 ],
               )}
 
@@ -2289,12 +2327,22 @@ export function CreateWizardDrawer({
                           className="flex-1 min-w-0 flex items-center gap-3 text-left"
                         >
                           <div className="flex-1 min-w-0">
-                            <p className="text-[15px] font-semibold truncate" style={{ color: locked ? "rgba(255,255,255,.6)" : "#fff" }}>{item.name}</p>
-                            <p className="text-xs truncate" style={{ color: "rgba(255,255,255,.5)" }}>
+                            {/* Linha que representa um MOVIMENTO com variações
+                                exibe o nome do grupo ("Supino") — a variação é
+                                escolhida na hora do treino. */}
+                            <p className="text-[15px] font-semibold truncate" style={{ color: locked ? "rgba(255,255,255,.6)" : "#fff" }}>
+                              {itemGroup(item)?.name ?? item.name}
+                            </p>
+                            <p className="text-xs truncate" style={{ color: itemGroup(item) && !locked ? "#5b8cff" : "rgba(255,255,255,.5)" }}>
                               {locked
                                 ? t("goals_wizard_already_added")
                                 : routineType === 1
-                                  ? item.muscle_group || ""
+                                  ? (itemGroup(item)
+                                      ? t("goals_variation_count").replace(
+                                          "{n}",
+                                          String(groupVariationCount(item)),
+                                        )
+                                      : item.muscle_group || "")
                                   : routineType === 2
                                     ? [item.category, item.calories ? `${item.calories} kcal` : null].filter(Boolean).join(" · ")
                                     : item.description || ""}

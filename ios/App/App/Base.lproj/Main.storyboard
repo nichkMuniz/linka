@@ -11,7 +11,12 @@
         <!--Bridge View Controller-->
         <scene sceneID="tne-QT-ifu">
             <objects>
-                <viewController id="BYZ-38-t0r" customClass="CAPBridgeViewController" customModule="Capacitor" sceneMemberID="viewController"/>
+                <!-- Precisa ser a NOSSA subclasse (App.ViewController), não o
+                     CAPBridgeViewController do Capacitor: é o `capacitorDidLoad()` dela
+                     que registra o plugin local EditedMedia. Apontando para a classe do
+                     Capacitor, o override nunca rodava e toda chamada ao plugin voltava
+                     UNIMPLEMENTED (salvar rascunho dizia "Atualize o app"). -->
+                <viewController id="BYZ-38-t0r" customClass="ViewController" customModule="App" customModuleProvider="target" sceneMemberID="viewController"/>
                 <placeholder placeholderIdentifier="IBFirstResponder" id="dkx-z0-nzr" sceneMemberID="firstResponder"/>
             </objects>
         </scene>

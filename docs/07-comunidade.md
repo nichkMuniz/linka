@@ -78,6 +78,21 @@ A aba aparece quando há convites ou pedidos pendentes. Exibe **duas seções**:
 
 > A aba recarrega os pendentes sempre que é selecionada (refresh automático).
 > Após recusar um convite, se não houver mais solicitações, retorna para a aba de Duelos.
+>
+> **Toda a aba é traduzida** (chaves `duels_requests_*` / `duels_request_sent_*` em `client/lib/i18n.ts`) — era a última parte da Comunidade com texto fixo em PT.
+
+### Solicitações são ao vivo — sem cache (2026-08-13)
+
+Convite e pedido de entrada são o único dado desta tela que o usuário vê **depois** de ser avisado dele: chega o push, ele toca e cai direto aqui. Servir cache nesse instante é o mesmo que não mostrar a solicitação — era o bug: o dono do grupo tocava na notificação, a aba abria vazia, e o pedido só aparecia depois de **fechar e reabrir o app** (o cache de `pendingGroupRequests` tem TTL de 60s **e** sobrevive no `localStorage`, então nem trocar de tela resolvia).
+
+Três frentes, todas em `Community.tsx` + `ritmofit-db.ts`:
+
+1. **Leitura sem cache.** `getPendingGroupRequestsDb({ fresh: true })` e `getEnrichedDuelGroupsDb(userId, { fresh: true })` — a opção `fresh` do helper `cached()` ignora memória **e** `localStorage` e vai à rede, mas continua **gravando** o resultado (não desliga o cache para os outros chamadores). Uma requisição já em voo para a mesma chave ainda é reaproveitada: também é leitura ao vivo. Roda ao entrar na aba, ao voltar do background (`visibilitychange`) e a cada evento realtime.
+2. **Realtime (`postgres_changes` em `duel_group_participants`).** Canal `duel-participants:{userId}:{rand}`, mesmo padrão de robustez da conversa privada (derruba o canal anterior antes de recriar; `Math.random()` no nome; refetch no `SUBSCRIBED`, que também cobre a reassinatura pós-reconexão). O cliente **filtra**: só reage a linha do próprio usuário (`user_id`) ou de grupo do qual ele é dono — sem isso, qualquer entrada de qualquer usuário em qualquer grupo do app dispararia refetch. `DELETE` é exceção obrigatória (o payload traz só a PK, sem `group_id`/`user_id`, porque a publicação usa `REPLICA IDENTITY` padrão) e sempre recarrega — são eventos raros. Rajadas são coalescidas com debounce de 250ms.
+   **Exige a migração `docs/migrations/20260813-duel-participants-realtime.sql`** (publica a tabela em `supabase_realtime`). Sem ela o item 1 ainda resolve o caso do push, mas a aprovação não aparece sozinha na tela de quem pediu.
+3. **Invalidação nas escritas.** `approveGroupRequestDb` / `rejectGroupRequestDb` passaram a invalidar `pendingGroupRequests`, `enrichedDuelGroups` e `groupParticipants` (antes não invalidavam nada). `declineGroupInviteDb` invalidava só `pendingInvites` — que **não é uma chave de cache**: a lista de convites sai de `enrichedDuelGroups`; por isso o convite recusado voltava a aparecer por até 30s (e sobrevivia ao fechar o app).
+
+Efeito prático: quem pede entrada vê o card virar ⏳ Pendente e, quando o dono aprova, entra no grupo sem recarregar nada; o dono vê o pedido chegar na aba aberta, e o badge de solicitações do header (que soma convites + pedidos) acompanha em tempo real.
 
 ---
 
@@ -127,6 +142,15 @@ Exibe:
 - Botão `ArrowLeft` para voltar à lista
 - Avatar + nome do contato + **insígnia do usuário** (`UserInsignias` component ao lado do nome)
 - Clicável → navega para o perfil do contato
+
+**Papel de parede (2026-08-13):**
+- A conversa individual tem fundo **ladrilhado de doodles** no espírito do WhatsApp, em vez do `bg-background` liso
+- Asset: `public/chat-wallpaper.webp` (2600×1370). É **derivado** — gerado por `scripts/build-chat-wallpaper.cjs` a partir da arte original em `public/background-mensagem.png`. O script recorta 1300×685 (tira as bordas e um glifo de estrela que a arte trazia em ~1325,707) e **espelha em 2×2**: a arte crua não é um ladrilho contínuo (as figuras estão cortadas nas bordas), então repeti-la direto criaria linha de emenda; o espelho casa as quatro bordas. Saída em WebP (alvo iOS 15+) — 1,2 MB de PNG viram ~120 KB. Refazer a arte = trocar o PNG e rodar o script de novo
+- Estilo: `.chat-doodle-wallpaper` em `client/global.css`. `background-size: 1240px auto` = 620px por quadrante espelhado, acima da largura de qualquer iPhone — assim o eixo vertical do espelho nunca aparece na tela e as figuras saem com ~70px. **Tamanho fixo em vez de `cover` é proposital:** o container encolhe quando o teclado abre, e `cover` faria o fundo dar um zoom acompanhando a animação
+- A arte já traz o próprio fundo e o próprio contraste, então a camada é **opaca** (sem `opacity`). O fundo da conversa fica num cinza-escuro um pouco mais claro que o `--background` do app — é o que dá a leitura de "superfície de conversa" do WhatsApp. Para clarear/escurecer, usar `filter: brightness()` na classe, nunca editar o arquivo
+- A camada é um `div` absoluto com `-z-10` dentro do container `fixed` da conversa: fica **acima** do `bg-background` do próprio container e **abaixo** de todo o conteúdo em fluxo (header, lista e barra de input), sem precisar dar `z-index` aos irmãos. Como não rola junto com a lista, o padrão fica **parado** enquanto as mensagens passam por cima (comportamento do WhatsApp). O container ganhou `overflow-hidden`
+- Header e barra de input continuam com `backdrop-filter`, então aparecem como vidro fosco **sobre** o padrão. As bolhas recebidas (`rgba(255,255,255,.08)`) deixam o doodle transparecer de leve — proposital, mantém o visual glass do app
+- Vale só para a **conversa privada**; a vista de grupo/duelo segue com fundo liso
 
 **Lista de Mensagens:**
 - Mensagens do usuário logado alinhadas à direita (estilo bolha)
@@ -435,7 +459,7 @@ Dados carregados via `getRankingDb()`
 | Check-ins de um grupo | `getGroupCheckInsDb(groupId)` |
 | Participantes de um grupo | `getGroupParticipantsDb(groupId)` |
 | Convites pendentes | `getPendingInvitesDb()` |
-| Solicitações de entrada nos grupos do dono | `getPendingGroupRequestsDb()` |
+| Solicitações de entrada nos grupos do dono | `getPendingGroupRequestsDb({ fresh? })` — `fresh: true` ignora o cache (aba Solicitações / realtime) |
 | Comentários de um check-in | `getCheckInCommentsDb(checkInId)` |
 | Adicionar comentário em check-in | `addCheckInCommentDb(checkInId, text)` |
 | Reações de emoji em check-ins | `getCheckInReactionsDb(checkInIds[])` |
@@ -458,6 +482,8 @@ Dados carregados via `getRankingDb()`
 - Evento: `INSERT` na tabela `messages` — a mensagem nova é **anexada** à lista (sem recarregar a conversa)
 - Marca como lida imediatamente ao receber mensagem com a conversa aberta
 - Badge de não lidas no ícone de navegação atualiza automaticamente (assinatura própria em `app-layout.tsx`, com filtro `following_id=eq.{userId}` e debounce)
+
+> A Comunidade tem um **segundo canal**, independente deste: `duel-participants:{userId}:{rand}`, em `duel_group_participants` — convites/pedidos/aprovações em tempo real. Ver "Solicitações são ao vivo — sem cache (2026-08-13)" na aba Solicitações.
 
 > **Confiabilidade do realtime (2026-07-20):** A conversa deixava de receber mensagens novas e só atualizava ao sair e entrar de novo. Três correções, alinhando ao padrão já maduro de `Notifications.tsx`:
 >

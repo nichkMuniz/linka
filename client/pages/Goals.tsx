@@ -212,6 +212,10 @@ export default function Goals() {
   const [calendarOpen, setCalendarOpen] = React.useState(false);
   const [checkInDates, setCheckInDates] = React.useState<string[]>([]);
   const [weightLogs, setWeightLogs] = React.useState<WeightLog[]>([]);
+  // Histórico de peso: o drawer vive no WeightTrackerCard, mas quem abre é o
+  // ícone ⚖️ do card de streak (acesso permanente, discreto) — por isso o
+  // estado sobe para cá.
+  const [weightHistoryOpen, setWeightHistoryOpen] = React.useState(false);
   // Bump força o FoodDiaryDrawer a recarregar quando o diário muda fora dele
   // (auto-log ao marcar/desmarcar um item da rotina de dieta).
   const [foodDiaryVersion, setFoodDiaryVersion] = React.useState(0);
@@ -1009,6 +1013,7 @@ export default function Goals() {
           lockedCount={Math.max(0, allBadges.length - userBadges.length)}
           onOpenCalendar={() => setCalendarOpen(true)}
           onOpenBadges={() => setBadgesOpen(true)}
+          onOpenWeight={() => setWeightHistoryOpen(true)}
         />
 
         <TodayDashboard
@@ -1034,10 +1039,15 @@ export default function Goals() {
             semeada ou nenhum treino no período (ver o componente). */}
         <MuscleCoverageCard refreshToken={muscleCoverageVersion} />
 
+        {/* Peso — só o lembrete semanal aparece aqui; fora dessa janela o
+            componente não renderiza nada e o acesso permanente é o ícone ⚖️ no
+            canto do card de streak (que abre o drawer montado aqui dentro). */}
         <WeightTrackerCard
           logs={weightLogs}
           onAddWeight={handleAddWeight}
           onDeleteWeight={handleDeleteWeight}
+          historyOpen={weightHistoryOpen}
+          onHistoryOpenChange={setWeightHistoryOpen}
         />
 
         <LifeGoalsSection

@@ -4,7 +4,7 @@ import { ArrowLeft, Hash, Video } from "lucide-react";
 import { useLanguage } from "@/lib/language-context";
 import { searchContentByHashtagDb, type HashtagItem } from "@/lib/ritmofit-db";
 import { getPostGradient } from "@/lib/post-visuals";
-import { videoPosterSrc } from "@/lib/video-thumb";
+import { ShotThumb } from "@/components/shared/shot-thumb";
 import { LoadingSpinner } from "@/components/shared/animated-loading";
 
 /**
@@ -102,11 +102,8 @@ export default function Hashtag() {
                 className="group relative aspect-square overflow-hidden rounded-[14px] bg-muted transition-all"
               >
                 {isShot ? (
-                  <video
-                    src={videoPosterSrc(item.video_url)}
-                    playsInline
-                    muted
-                    preload="metadata"
+                  <ShotThumb
+                    videoUrl={item.video_url}
                     className="h-full w-full bg-black object-cover transition-transform group-hover:scale-110"
                   />
                 ) : thumb ? (

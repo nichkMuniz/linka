@@ -62,6 +62,14 @@ export default defineConfig(async () => {
     react(),
     VitePWA({
       registerType: "autoUpdate",
+      workbox: {
+        // Sem esta lista, o NavigationRoute do Workbox responde TODA navegação
+        // com o index.html do cache. /termos e /privacidade são páginas
+        // estáticas (public/*.html) servidas por rewrite na Vercel — o SPA não
+        // tem rota para elas, então caíam no NotFound e daí no login.
+        // A Apple clica nesses dois links ao revisar a assinatura (3.1.2).
+        navigateFallbackDenylist: [/^\/termos$/, /^\/privacidade$/, /^\/api\//],
+      },
       manifest: {
         name: "Linka",
         short_name: "Linka",

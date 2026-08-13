@@ -162,13 +162,32 @@ export function TechniquePlanner({ items, plan, onChange }: TechniquePlannerProp
 
   return (
     <div className="space-y-2">
-      <p className="text-xs" style={{ color: "rgba(255,255,255,.45)" }}>
-        {pairing
-          ? blockSize(pairing.technique) === 3
-            ? t("goals_technique_pick_partners")
-            : t("goals_technique_pick_partner")
-          : t("goals_technique_hint")}
-      </p>
+      {/* Escolher "bi-set" é meia decisão: falta com QUEM. Em vez de uma linha
+          de ajuda cinza igual à do estado normal, o modo de pareamento vira um
+          aviso roxo que nomeia o exercício âncora — sem isso o usuário sai da
+          tela achando que já configurou o bloco. */}
+      {pairing ? (
+        <div
+          className="rounded-2xl px-3 py-2.5"
+          style={{ border: "1px solid rgba(192,132,252,.5)", background: "rgba(192,132,252,.12)" }}
+        >
+          <p className="text-[13px] font-bold" style={{ color: "#c084fc" }}>
+            {t("goals_technique_pairing_title").replace(
+              "{name}",
+              nameById.get(pairing.anchorId) ?? "",
+            )}
+          </p>
+          <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,.65)" }}>
+            {blockSize(pairing.technique) === 3
+              ? t("goals_technique_pick_partners")
+              : t("goals_technique_pick_partner")}
+          </p>
+        </div>
+      ) : (
+        <p className="text-xs" style={{ color: "rgba(255,255,255,.45)" }}>
+          {t("goals_technique_hint")}
+        </p>
+      )}
 
       {items.map((item) => {
         const entry = plan[item.id] ?? { technique: "straight" as WorkoutTechnique, group: null };

@@ -47,7 +47,7 @@ As hashtags nas legendas são renderizadas por `renderWithHashtags` (`client/lib
 | `kind` | Miniatura | Badge | Ao tocar |
 |---|---|---|---|
 | `post` | `post.photo` ou a 1ª de `post.photos`; sem foto → **gradiente determinístico** por id (`getPostGradient`) + ícone `Hash` | `📷 N` quando `photos.length > 1` | `navigate('/post/:id')` |
-| `shot` | `<video src={video_url} playsInline muted preload="metadata">` — mesmo padrão da aba Shots do Perfil | Ícone `Video` sobre `bg-black/55` | `navigate('/shots', { state: { shotId } })` |
+| `shot` | `ShotThumb` (`components/shared/shot-thumb.tsx`) — mesmo componente da aba Shots do Perfil e da Busca: `<video>` mudo, carrega só o que está perto da viewport e **libera o player do iOS** ao sair/desmontar (ver `docs/03-shots.md`) | Ícone `Video` sobre `bg-black/55` | `navigate('/shots', { state: { shotId } })` |
 
 - A `key` do React é `` `${kind}-${id}` `` — `posts.id` é uuid e `shots.id` é bigint, então o par evita qualquer colisão entre as fontes
 - Shots abertos por aqui funcionam mesmo se não estiverem entre os do feed: a tela de Shots já busca o `shotId` pedido via `getShotByIdDb` e o coloca no topo

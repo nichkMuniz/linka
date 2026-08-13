@@ -213,9 +213,12 @@ Feed de vídeos curtos no estilo TikTok/Reels. O usuário rola verticalmente ent
 
 ## Observações Técnicas
 
-- Referências de vídeo armazenadas em `videoRefsMap` (ref map por shotId)
+- Referências de vídeo armazenadas em `videoRefsMap` (ref map por shotId), preenchido/limpo pelo componente `ShotVideo` (ver abaixo)
 - `IntersectionObserver` detecta qual vídeo está visível e controla play/pause
 - **Preload sob demanda (performance):** o atributo `preload` de cada `<video>` é dinâmico conforme a distância para o shot visível — visível = `auto` (buffer), vizinhos imediatos = `metadata`, demais = `none`. Evita que os 50 vídeos baixem metadata ao mesmo tempo no WebView do iOS, acelerando o primeiro frame
+- **Janela de `<video>` montados (`VIDEO_WINDOW = 2`):** só os shots até 2 posições do shot visível têm elemento `<video>` no DOM; os demais renderizam um bloco preto. O wrapper com `data-shot-id` continua sempre presente, então `IntersectionObserver`, scroll-snap e overlays não mudam
+- **Componente `ShotVideo`:** o `<video>` de cada shot vive num componente memoizado próprio, que registra o elemento em `videoRefsMap` ao montar e o **libera** (`releaseVideoElement`) ao desmontar. Um `ref` callback inline não serviria: o React o recria a cada render e chamaria a liberação fora de hora
+- **Teto de players do iOS — "toca o áudio, mas a tela fica preta" (corrigido 2026-08-13):** ver seção dedicada abaixo
 - **Autoplay do shot ao abrir a tela pelo perfil/busca (`playVideoSafely` + retry, corrigido 2026-07-20):** abrir um shot pelo perfil às vezes deixava o vídeo **pausado mostrando o primeiro frame** (não preto — o vídeo tinha dados, só não tocava). Duas causas somadas, ambas no `play()` do autoplay de chegada:
   1. **No-op silencioso do iOS.** Os shots tocam **com som** (`isMuted` inicia `false`). No WKWebView, um `play()` com áudio sem "ativação do usuário" recente **nem sempre lança erro** — muitas vezes o iOS só **ignora** o `play()` e o vídeo fica pausado. O `playVideoSafely` antigo confiava em `try/catch`; sem rejeição, o fallback mudo nunca disparava. **Corrigido:** ele agora checa `video.paused` **depois** de cada tentativa (não confia no throw) — tenta com som, e se continuar pausado toca **mudo** (autoplay mudo é sempre permitido) + destaca o botão de som (`revealSoundLabel`) para reativar o áudio com um toque. Também é **idempotente** (`if (!video.paused) return`) para não brigar com chamadas concorrentes.
   2. **Prontidão (`readyState`) na chegada.** Logo após montar, o `<video>` do shot-alvo costuma não ter dados suficientes e um **único** `play()` falha em silêncio. O efeito de auto-play do primeiro shot agora **reagenda** (`setTimeout` 200ms, até 8 tentativas) enquanto o primeiro shot seguir pausado e ainda for o shot em foco — o `IntersectionObserver` assume dali em diante se o usuário rolar.
@@ -227,3 +230,31 @@ Feed de vídeos curtos no estilo TikTok/Reels. O usuário rola verticalmente ent
 - A abertura via notificação é guardada por `openCommentsFromNotifRef` para evitar dupla abertura
 - Ao navegar de uma notificação de incentivo recebido em um shot com `location.state = { openIncentives: true, shotId }`, o drawer "Ver incentivos" (lista de quem incentivou, via `handleOpenShotLikes`/`getShotLikeUsersDb`) abre automaticamente para o shot correto
 - A abertura via notificação é guardada por `openIncentivesFromNotifRef` para evitar dupla abertura
+
+---
+
+## Teto de players de vídeo do iOS ("áudio sem imagem") — corrigido 2026-08-13
+
+Abrir um shot **pela grade de miniaturas** (aba Shots do perfil próprio ou de outro usuário, Buscar, Hashtag) levava à tela de Shots com **o som tocando e nenhuma imagem** — tela preta ou congelada no primeiro frame. Rolar o feed de `/shots` normalmente não reproduzia o problema.
+
+### Causa
+
+O WKWebView do iOS tem um **teto de players de vídeo simultâneos**. Cada miniatura da grade era um `<video preload="metadata" src="...#t=0.1">`, ou seja, **um player por célula**. Uma grade com muitos shots estoura o teto e, quando a tela de Shots pede o player em tela cheia, o WebView o entrega **sem faixa de vídeo**: o áudio decodifica, nenhum frame é pintado.
+
+Dois agravantes:
+
+1. **Tirar o `<video>` do DOM não devolve o player.** O WebKit só solta o recurso na coleta de lixo, que pode demorar segundos — exatamente a janela em que a tela de Shots está montando o player dela.
+2. **A tela de Shots mantinha os 50 shots do feed com `<video>` vivo**, somando ao mesmo teto.
+
+Isso é distinto dos bugs de 2026-07-20 (autoplay silenciosamente ignorado e shot-alvo com `preload="none"`), que continuam corrigidos — aqui o `play()` funciona, o que falta é a faixa de vídeo.
+
+### Correção
+
+| Onde | O que mudou |
+|---|---|
+| `components/shared/shot-thumb.tsx` (novo) | Componente `ShotThumb`, usado por Perfil / Buscar / Hashtag. Anexa o `src` só quando a célula entra na viewport (folga de 400px) e **libera o player** ao sair dela (carência de 2s) e **ao desmontar** — então navegar para `/shots` devolve todos os players antes de o vídeo em tela cheia pedir o dele |
+| `lib/media-prefetch.ts` | Exporta `releaseVideoElement(video)` — `pause()` + `removeAttribute("src")` + `load()`, que zera o `networkState` e solta o player na hora |
+| `pages/Shots.tsx` | `<video>` isolado no componente `ShotVideo`, que libera o player ao desmontar; janela `VIDEO_WINDOW = 2` limita a 5 os elementos de vídeo montados |
+| `pages/Shots.tsx` — `playVideoSafely` | Se o elemento ainda não selecionou recurso (`readyState === 0` e não está carregando), chama `load()` **antes** do `play()` — um `play()` direto sobre `preload="none"` às vezes traz só o áudio |
+| `pages/Shots.tsx` — efeito de play no `visibleShotId` | Fecha a janela que o `VIDEO_WINDOW` abre: num scroll rápido o shot que entra pode ainda não ter `<video>` montado quando o `IntersectionObserver` dispara o `play()`. O efeito roda depois do render que montou o elemento e garante a reprodução |
+| `pages/Shots.tsx` — `ensureVideoPainted` | Rede de segurança: 900ms e 2200ms depois de o shot entrar em foco, checa se o vídeo está **realmente pintando** (`webkitDecodedFrameCount` / `getVideoPlaybackQuality().totalVideoFrames`). Se está tocando (`currentTime > 0.25`) com **zero frames decodificados**, refaz o pipeline (`load()` + `playVideoSafely`). Uma tentativa por shot, para nunca virar laço; se o WebView não expõe o contador, não faz nada |

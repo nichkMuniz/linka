@@ -156,6 +156,15 @@ const CHECKINS_PAGE_SIZE = 10;
 /** Distância do fim da rolagem que dispara a revelação do próximo lote. */
 const CHECKINS_LOAD_MORE_OFFSET = 320;
 
+/** Grupo do banco → card do carrossel de duelos. */
+const toGroupCard = (group: any) => ({
+  ...group,
+  icon: "⚔️",
+  description: group.goal,
+  city: group.location,
+  isOfficial: false,
+});
+
 export default function Community() {
   const { user } = useAuth();
   const { isPremium } = usePremium();
@@ -788,43 +797,38 @@ export default function Community() {
     openCheckInById(checkInParam);
   }, [searchParams, openCheckInById]);
 
-  // Load user nickname and groups when user changes
-  React.useEffect(() => {
-    const loadUserData = async () => {
+  // Carrega grupos + solicitações num par de queries paralelas.
+  //
+  // `fresh` existe porque convite/solicitação é o único dado desta tela que o
+  // usuário chega a ver DEPOIS de ser avisado dele (push → aba Solicitações).
+  // Com o cache normal (30s/60s + localStorage), o dono tocava na notificação e
+  // via a lista de antes do pedido — só fechando e reabrindo o app aparecia.
+  const loadGroupsAndRequests = React.useCallback(
+    async (opts?: { fresh?: boolean }) => {
       if (!user?.id) return;
       try {
-        // Fetch all group data in parallel (no waterfall)
         const [{ myGroups, availableGroups: enrichedAvailGroups, pendingInvites: invites }, joinRequests] =
           await Promise.all([
-            getEnrichedDuelGroupsDb(user.id),
-            getPendingGroupRequestsDb(),
+            getEnrichedDuelGroupsDb(user.id, { fresh: opts?.fresh }),
+            getPendingGroupRequestsDb({ fresh: opts?.fresh }),
           ]);
 
         setPendingInvites(invites);
         setPendingGroupRequests(joinRequests);
-
-        const toGroupCard = (group: any) => ({
-          ...group,
-          icon: "⚔️",
-          description: group.goal,
-          city: group.location,
-          isOfficial: false,
-        });
-
         setUserCreatedGroups(myGroups.map(toGroupCard));
-
-        const alreadyJoined = new Set(
-          enrichedAvailGroups.filter((g) => g.isAlreadyMember).map((g) => g.id)
-        );
-        setJoinedGroupIds(alreadyJoined);
+        setJoinedGroupIds(new Set(enrichedAvailGroups.filter((g) => g.isAlreadyMember).map((g) => g.id)));
         setAvailableGroups(enrichedAvailGroups.filter((g) => !g.isAlreadyMember).map(toGroupCard));
       } catch (err: any) {
         console.error("Error loading user groups:", err);
       }
-    };
+    },
+    [user?.id],
+  );
 
-    loadUserData();
-  }, [user?.id]);
+  // Load user nickname and groups when user changes
+  React.useEffect(() => {
+    void loadGroupsAndRequests();
+  }, [loadGroupsAndRequests]);
 
   // Auto-select tab from URL parameter (?tab=requests)
   React.useEffect(() => {
@@ -836,12 +840,90 @@ export default function Community() {
     }
   }, [searchParams]);
 
-  // Refresh pending group requests when switching to the requests tab
+  // Abrir a aba de Solicitações sempre vai à rede (sem cache). É o destino do
+  // toque no push do convite/pedido: o dado que o usuário veio ver nasceu
+  // depois da última leitura.
   React.useEffect(() => {
-    if (activeTab === "requests" && user?.id) {
-      getPendingGroupRequestsDb().then(setPendingGroupRequests).catch(() => { });
+    if (activeTab !== "requests" || !user?.id) return;
+    void loadGroupsAndRequests({ fresh: true });
+  }, [activeTab, user?.id, loadGroupsAndRequests]);
+
+  // Realtime de convites/solicitações — o dono aprova e o solicitante entra no
+  // grupo sem ninguém precisar recarregar nada.
+  //
+  // Só reage a linha que diz respeito a ESTE usuário: pedido/convite dele
+  // (`user_id`) ou pedido em grupo do qual ele é dono. Sem esse filtro, cada
+  // entrada de qualquer usuário em qualquer grupo do app dispararia refetch.
+  // DELETE é exceção obrigatória: o payload traz só a chave primária (a
+  // publicação usa REPLICA IDENTITY padrão), então não há como filtrar — e são
+  // eventos raros (recusa/saída de grupo).
+  const myGroupIdsRef = React.useRef<Set<string>>(new Set());
+  React.useEffect(() => {
+    myGroupIdsRef.current = new Set(userCreatedGroups.map((g: any) => String(g.id)));
+  }, [userCreatedGroups]);
+
+  const participantsChannelRef = React.useRef<ReturnType<NonNullable<typeof supabase>["channel"]> | null>(null);
+  React.useEffect(() => {
+    if (!user?.id || !supabase) return;
+
+    // Derruba o canal anterior ANTES de criar outro (mesmo padrão da conversa
+    // privada e de Notifications.tsx — ver comentário lá).
+    if (participantsChannelRef.current) {
+      supabase.removeChannel(participantsChannelRef.current);
+      participantsChannelRef.current = null;
     }
-  }, [activeTab, user?.id]);
+
+    // Coalesce rajadas (aprovar vários pedidos seguidos = um refetch).
+    let debounce: ReturnType<typeof setTimeout> | null = null;
+    const scheduleRefresh = () => {
+      if (debounce) clearTimeout(debounce);
+      debounce = setTimeout(() => {
+        debounce = null;
+        void loadGroupsAndRequests({ fresh: true });
+      }, 250);
+    };
+
+    const channelName = `duel-participants:${user.id.slice(0, 8)}:${Math.random().toString(36).slice(2, 9)}`;
+    const channel = supabase
+      .channel(channelName)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "duel_group_participants" },
+        (payload) => {
+          if (payload.eventType === "DELETE") {
+            scheduleRefresh();
+            return;
+          }
+          const row = payload.new as { user_id?: string; group_id?: string } | null;
+          if (!row) return;
+          const isMine = row.user_id === user.id || myGroupIdsRef.current.has(String(row.group_id));
+          if (isMine) scheduleRefresh();
+        },
+      )
+      .subscribe((status) => {
+        // Dispara na primeira assinatura E a cada reassinatura após reconexão
+        // do websocket — momento exato em que pode haver evento perdido.
+        if (status === "SUBSCRIBED") void loadGroupsAndRequests({ fresh: true });
+      });
+
+    participantsChannelRef.current = channel;
+
+    // O app fica minutos em background com o socket morto; ao voltar (inclusive
+    // pelo toque no push), busca o que mudou nesse meio-tempo.
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void loadGroupsAndRequests({ fresh: true });
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      if (debounce) clearTimeout(debounce);
+      document.removeEventListener("visibilitychange", onVisibility);
+      if (participantsChannelRef.current) {
+        supabase.removeChannel(participantsChannelRef.current);
+        participantsChannelRef.current = null;
+      }
+    };
+  }, [user?.id, loadGroupsAndRequests]);
 
   // Restore group view from URL param (?group=<groupId>) after refresh — runs once
   const groupRestoredRef = React.useRef(false);
@@ -1370,13 +1452,22 @@ export default function Community() {
       // animação do teclado. Um portal fixo não é drawer/dialog, então não herda
       // o lift automático de drawer.tsx/dialog.tsx — daí o tratamento aqui.
       <div
-        className="fixed top-0 right-0 bg-background flex flex-col z-[100]"
+        className="fixed top-0 right-0 bg-background flex flex-col z-[100] overflow-hidden"
         style={{
           left: "var(--sidebar-width, 0px)",
           bottom: "var(--keyboard-height, 0px)",
           transition: "bottom 0.25s cubic-bezier(0.22,0.61,0.36,1)",
         }}
       >
+        {/* Papel de parede de doodles (estilo WhatsApp). Fica fixo enquanto as
+            mensagens rolam por cima. O z-index negativo mantém a camada acima do
+            bg-background deste container e abaixo de todo o conteúdo em fluxo
+            (header, lista e barra de input), sem precisar empilhar os irmãos. */}
+        <div
+          aria-hidden="true"
+          className="chat-doodle-wallpaper pointer-events-none absolute inset-0 -z-10"
+        />
+
         {/* Header */}
         <div
           className="flex-shrink-0 px-4 py-3 flex items-center gap-3"
@@ -1908,7 +1999,7 @@ export default function Community() {
           {(pendingInvites.length > 0 || pendingGroupRequests.length > 0) && (
             <button
               onClick={() => setActiveTab("requests")}
-              aria-label="Solicitações pendentes"
+              aria-label={t("duels_requests_aria")}
               className={`relative p-2 rounded-lg transition-colors ${activeTab === "requests" ? "bg-brand text-white" : "text-white/50 hover:text-white/80"}`}
               style={activeTab !== "requests" ? { border: "1px solid rgba(255,255,255,.10)" } : undefined}
             >
@@ -3026,7 +3117,7 @@ export default function Community() {
                             setAvailableGroups((prev) =>
                               prev.map((g) => g.id === group.id ? { ...g, isPending: true } : g)
                             );
-                            toast({ title: "Solicitação enviada!", description: "Aguarde a aprovação do administrador." });
+                            toast({ title: t("duels_request_sent_title"), description: t("duels_request_sent_desc") });
                           } catch (err: any) {
                             console.error("Error joining group:", err);
                           } finally {
@@ -3071,14 +3162,14 @@ export default function Community() {
       {activeTab === "requests" && (
         <>
           <div className="flex-shrink-0 px-4 pt-4 pb-0">
-            <h1 className="text-2xl font-bold tracking-tight">Solicitações</h1>
+            <h1 className="text-2xl font-bold tracking-tight">{t("duels_requests_title")}</h1>
           </div>
           <div className="flex-1 overflow-y-auto px-4 pb-4 pt-4 space-y-3">
 
             {/* Convites recebidos pelo usuário */}
             {pendingInvites.length > 0 && (
               <div>
-                <p className="text-xs font-semibold text-white/40 uppercase tracking-wide mb-2">Convites recebidos</p>
+                <p className="text-xs font-semibold text-white/40 uppercase tracking-wide mb-2">{t("duels_requests_invites_section")}</p>
                 {pendingInvites.map((invite) => (
                   <div
                     key={invite.groupId}
@@ -3107,7 +3198,10 @@ export default function Community() {
                               await acceptGroupInviteDb(invite.groupId);
                               const updated = pendingInvites.filter((i) => i.groupId !== invite.groupId);
                               setPendingInvites(updated);
-                              toast({ title: "Convite aceito!", description: `Você entrou em "${invite.groupName}".` });
+                              toast({
+                                title: t("duels_requests_invite_accepted_title"),
+                                description: t("duels_requests_invite_accepted_desc").replace("{group}", invite.groupName),
+                              });
 
                               // Navigate directly to the group detail view (open instantly)
                               const group = await getDuelGroupDb(invite.groupId);
@@ -3116,11 +3210,11 @@ export default function Community() {
                                 openGroupView(group);
                               }
                             } catch (err: any) {
-                              toast({ title: "Erro", description: err?.message || "Tente novamente", variant: "destructive" });
+                              toast({ title: t("error"), description: err?.message || t("retry"), variant: "destructive" });
                             }
                           }}
                         >
-                          Aceitar
+                          {t("duels_requests_accept")}
                         </Button>
                         <Button
                           size="sm"
@@ -3132,22 +3226,15 @@ export default function Community() {
                               const updated = pendingInvites.filter((i) => i.groupId !== invite.groupId);
                               setPendingInvites(updated);
                               // Refresh groups so duels tab reflects the declined invite
-                              if (user?.id) {
-                                const toGroupCard = (g: any) => ({ ...g, icon: "⚔️", description: g.goal, city: g.location, isOfficial: false });
-                                getEnrichedDuelGroupsDb(user.id).then(({ myGroups, availableGroups: enriched }) => {
-                                  setUserCreatedGroups(myGroups.map(toGroupCard));
-                                  setJoinedGroupIds(new Set(enriched.filter((g) => g.isAlreadyMember).map((g) => g.id)));
-                                  setAvailableGroups(enriched.filter((g) => !g.isAlreadyMember).map(toGroupCard));
-                                }).catch(() => { });
-                              }
+                              void loadGroupsAndRequests({ fresh: true });
                               if (updated.length === 0 && pendingGroupRequests.length === 0) setActiveTab("duels");
-                              toast({ title: "Convite recusado" });
+                              toast({ title: t("duels_requests_invite_declined") });
                             } catch (err: any) {
-                              toast({ title: "Erro", description: err?.message || "Tente novamente", variant: "destructive" });
+                              toast({ title: t("error"), description: err?.message || t("retry"), variant: "destructive" });
                             }
                           }}
                         >
-                          Recusar
+                          {t("duels_requests_decline")}
                         </Button>
                       </div>
                   </div>
@@ -3158,7 +3245,7 @@ export default function Community() {
             {/* Solicitações de entrada nos grupos do usuário (dono) */}
             {pendingGroupRequests.length > 0 && (
               <div>
-                <p className="text-xs font-semibold text-white/40 uppercase tracking-wide mb-2">Pedidos para entrar nos seus grupos</p>
+                <p className="text-xs font-semibold text-white/40 uppercase tracking-wide mb-2">{t("duels_requests_joins_section")}</p>
                 {pendingGroupRequests.map((req) => (
                   <div
                     key={`${req.groupId}-${req.userId}`}
@@ -3179,10 +3266,12 @@ export default function Community() {
                         />
                         <div className="flex-1 min-w-0">
                           <p className="font-semibold text-sm">{req.userNickname}</p>
-                          <p className="text-xs text-white/50 truncate">quer entrar em <span className="font-medium">{req.groupName}</span></p>
+                          <p className="text-xs text-white/50 truncate">{t("duels_requests_wants_to_join")} <span className="font-medium">{req.groupName}</span></p>
                           <div className="flex items-center gap-1 mt-0.5">
                             <Users className="h-3 w-3 text-white/40" />
-                            <span className="text-xs text-white/40">{req.participants} participante{req.participants !== 1 ? "s" : ""}</span>
+                            <span className="text-xs text-white/40">
+                              {t(req.participants === 1 ? "duels_requests_participants_one" : "duels_requests_participants").replace("{n}", String(req.participants))}
+                            </span>
                           </div>
                         </div>
                       </div>
@@ -3194,13 +3283,18 @@ export default function Community() {
                             try {
                               await approveGroupRequestDb(req.groupId, req.userId);
                               setPendingGroupRequests((prev) => prev.filter((r) => !(r.groupId === req.groupId && r.userId === req.userId)));
-                              toast({ title: "Aprovado!", description: `${req.userNickname} entrou em "${req.groupName}".` });
+                              toast({
+                                title: t("duels_requests_approved_title"),
+                                description: t("duels_requests_approved_desc")
+                                  .replace("{name}", req.userNickname)
+                                  .replace("{group}", req.groupName),
+                              });
                             } catch (err: any) {
-                              toast({ title: "Erro", description: err?.message || "Tente novamente", variant: "destructive" });
+                              toast({ title: t("error"), description: err?.message || t("retry"), variant: "destructive" });
                             }
                           }}
                         >
-                          Aprovar
+                          {t("duels_requests_approve")}
                         </Button>
                         <Button
                           size="sm"
@@ -3210,13 +3304,13 @@ export default function Community() {
                             try {
                               await rejectGroupRequestDb(req.groupId, req.userId);
                               setPendingGroupRequests((prev) => prev.filter((r) => !(r.groupId === req.groupId && r.userId === req.userId)));
-                              toast({ title: "Solicitação recusada" });
+                              toast({ title: t("duels_requests_rejected") });
                             } catch (err: any) {
-                              toast({ title: "Erro", description: err?.message || "Tente novamente", variant: "destructive" });
+                              toast({ title: t("error"), description: err?.message || t("retry"), variant: "destructive" });
                             }
                           }}
                         >
-                          Recusar
+                          {t("duels_requests_decline")}
                         </Button>
                       </div>
                   </div>
@@ -3225,7 +3319,7 @@ export default function Community() {
             )}
 
             {pendingInvites.length === 0 && pendingGroupRequests.length === 0 && (
-              <p className="text-sm text-white/40 text-center py-8">Nenhuma solicitação pendente</p>
+              <p className="text-sm text-white/40 text-center py-8">{t("duels_requests_empty")}</p>
             )}
           </div>
         </>
@@ -4900,11 +4994,7 @@ export default function Community() {
                       setIsGroupDetailsOpen(false);
                       setSelectedGroupForView(null);
                       setGroupCheckIns([]);
-                      const toGroupCard = (g: any) => ({ ...g, icon: "⚔️", description: g.goal, city: g.location, isOfficial: false });
-                      const { myGroups, availableGroups: enriched } = await getEnrichedDuelGroupsDb(user!.id);
-                      setUserCreatedGroups(myGroups.map(toGroupCard));
-                      setJoinedGroupIds(new Set(enriched.filter((g) => g.isAlreadyMember).map((g) => g.id)));
-                      setAvailableGroups(enriched.filter((g) => !g.isAlreadyMember).map(toGroupCard));
+                      await loadGroupsAndRequests({ fresh: true });
                     } catch (error: any) {
                       toast({ title: t("duels_group_delete_error"), description: error?.message || t("duels_group_retry"), variant: "destructive" });
                     }
@@ -4940,14 +5030,7 @@ export default function Community() {
                       setSearchParams((prev) => { const next = new URLSearchParams(prev); next.delete("group"); next.set("tab", "duels"); return next; }, { replace: true });
                       setActiveTab("duels");
                       // Full refresh of groups
-                      if (user?.id) {
-                        getEnrichedDuelGroupsDb(user.id).then(({ myGroups, availableGroups: enriched }) => {
-                          const toGroupCard = (g: any) => ({ ...g, icon: "⚔️", description: g.goal, city: g.location, isOfficial: false });
-                          setUserCreatedGroups(myGroups.map(toGroupCard));
-                          setJoinedGroupIds(new Set(enriched.filter((g) => g.isAlreadyMember).map((g) => g.id)));
-                          setAvailableGroups(enriched.filter((g) => !g.isAlreadyMember).map(toGroupCard));
-                        }).catch(() => { });
-                      }
+                      void loadGroupsAndRequests({ fresh: true });
                     } catch (error: any) {
                       toast({ title: t("duels_group_leave_error"), description: error?.message || t("duels_group_retry"), variant: "destructive" });
                     }

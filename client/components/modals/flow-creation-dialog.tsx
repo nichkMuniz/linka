@@ -7,6 +7,8 @@ import { TagPeopleDrawer } from "@/components/shared/tag-people-drawer";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { useLanguage } from "@/lib/language-context";
 import { saveMediaToPhotos, SaveMediaError } from "@/lib/native-media";
+import { hapticLight } from "@/lib/haptics";
+import { motion } from "framer-motion";
 import type { SearchUser } from "@/lib/ritmofit-db";
 import {
   X,
@@ -109,6 +111,19 @@ const MAX_RECORD_MS = 60000;
 const MAX_VIDEO_DURATION_S = 60;
 // Tamanho máximo de arquivo de mídia (vídeos editados/da galeria costumam ser pesados)
 const MAX_MEDIA_BYTES = 100 * 1024 * 1024;
+
+// Ring de tempo restante desenhado em volta do obturador (SVG 80x80, traço de 4px).
+const RING_RADIUS = 36;
+const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
+
+// Teto de bitrate da gravação. Sem isso o MediaRecorder do iOS grava 1080p no bitrate
+// máximo (chega a ~10 Mbps ≈ 75MB/min), e o flow leva vários segundos para carregar em
+// rede móvel. 2 Mbps é sobra para conteúdo 9:16 visto no celular e derruba o arquivo em
+// ~4-5x — é a maior economia de tempo de carregamento do fluxo inteiro.
+const RECORDER_BITRATE = {
+  videoBitsPerSecond: 2_000_000,
+  audioBitsPerSecond: 96_000,
+};
 
 function pickVideoMimeType(): string {
   if (typeof MediaRecorder === "undefined" || !MediaRecorder.isTypeSupported) return "";
@@ -527,6 +542,10 @@ export function FlowCreationDialog({
   const ignoreNextShutterUpRef = React.useRef(false);
   // Verdadeiro enquanto o usuário mantém o obturador pressionado com intenção de gravar
   const wantRecordingRef = React.useRef(false);
+  // O dedo ainda está sobre o obturador? Usado quando a gravação termina sozinha no
+  // limite de 1 min: sem isso, ao soltar o dedo o pointerup cairia no ramo "toque = foto"
+  // e a foto substituiria o vídeo recém-gravado.
+  const shutterPointerDownRef = React.useRef(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
   // Zoom da câmera: usa zoom nativo do sensor quando suportado; senão, zoom
@@ -951,9 +970,10 @@ export function FlowCreationDialog({
     const mimeType = pickVideoMimeType();
     let recorder: MediaRecorder;
     try {
-      recorder = mimeType
-        ? new MediaRecorder(combined, { mimeType })
-        : new MediaRecorder(combined);
+      recorder = new MediaRecorder(combined, {
+        ...(mimeType ? { mimeType } : {}),
+        ...RECORDER_BITRATE,
+      });
     } catch {
       try {
         recorder = new MediaRecorder(combined);
@@ -976,13 +996,12 @@ export function FlowCreationDialog({
       if (chunks.length === 0) return;
       const blobType = recorder.mimeType || mimeType || "video/mp4";
       const blob = new Blob(chunks, { type: blobType });
+      // Gravação pesada NÃO é descartada: o usuário perderia o que acabou de gravar, e
+      // não há como refazer o momento. Com o teto de bitrate + 1 min o arquivo fica em
+      // ~15MB; se algum aparelho ignorar o bitrate, o vídeo segue assim mesmo e só
+      // avisamos que o envio vai demorar mais.
       if (blob.size > MAX_MEDIA_BYTES) {
-        toast({
-          title: "Vídeo muito pesado",
-          description: "O flow aceita vídeos de até 100MB",
-          variant: "destructive",
-        });
-        return;
+        toast({ title: t("flow_video_heavy"), description: t("flow_video_heavy_desc") });
       }
       // Blob URL evita o problema de tela preta que data: URLs causam no WebView do iOS
       const blobUrl = URL.createObjectURL(blob);
@@ -1008,6 +1027,12 @@ export function FlowCreationDialog({
       setRecordSeconds((s) => s + 1);
     }, 1000);
     maxDurationTimerRef.current = setTimeout(() => {
+      // Chegou no limite de 1 min: finaliza exatamente como se o usuário tivesse soltado
+      // o obturador — o vídeo vai para a etapa de postagem. Nada é descartado.
+      // Se o dedo ainda estiver no botão, o pointerup seguinte não pode virar "foto"
+      // (isso substituiria o vídeo recém-gravado por uma imagem).
+      if (shutterPointerDownRef.current) ignoreNextShutterUpRef.current = true;
+      hapticLight();
       stopRecording();
     }, MAX_RECORD_MS);
 
@@ -1020,6 +1045,10 @@ export function FlowCreationDialog({
   const handleShutterPointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
     e.preventDefault();
     if (!cameraReady) return;
+    shutterPointerDownRef.current = true;
+    // Um "ignorar" pendente de um ciclo anterior (ex.: a gravação fechou no limite de
+    // 1 min e o dedo só saiu depois de a tela trocar) não pode engolir este toque.
+    ignoreNextShutterUpRef.current = false;
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
     // Se já está gravando TRAVADO (mãos livres), este toque é para PARAR.
     if (recordLockedRef.current && recordingActiveRef.current) {
@@ -1051,6 +1080,7 @@ export function FlowCreationDialog({
   };
 
   const handleShutterPointerUp = (e: React.PointerEvent<HTMLButtonElement>) => {
+    shutterPointerDownRef.current = false;
     if (holdTimerRef.current) {
       clearTimeout(holdTimerRef.current);
       holdTimerRef.current = null;
@@ -2117,11 +2147,40 @@ export function FlowCreationDialog({
               >
                 {isRecording ? (
                   <span className="relative flex items-center justify-center h-20 w-20">
-                    <span className="absolute inset-0 rounded-full ring-4 ring-red-500 animate-pulse" />
+                    {/* Ring de tempo: esvazia ao longo do limite de 1 min, então o usuário
+                        vê quanto ainda pode gravar sem precisar ler o cronômetro. Ao
+                        fechar o ciclo a gravação é finalizada e segue para a postagem. */}
+                    <svg
+                      viewBox="0 0 80 80"
+                      className="absolute inset-0 h-full w-full -rotate-90"
+                      aria-hidden
+                    >
+                      <circle
+                        cx="40"
+                        cy="40"
+                        r={RING_RADIUS}
+                        fill="none"
+                        stroke="rgba(255,255,255,.28)"
+                        strokeWidth="4"
+                      />
+                      <motion.circle
+                        cx="40"
+                        cy="40"
+                        r={RING_RADIUS}
+                        fill="none"
+                        stroke="#FF3B30"
+                        strokeWidth="4"
+                        strokeLinecap="round"
+                        strokeDasharray={RING_CIRCUMFERENCE}
+                        initial={{ strokeDashoffset: 0 }}
+                        animate={{ strokeDashoffset: RING_CIRCUMFERENCE }}
+                        transition={{ duration: MAX_RECORD_MS / 1000, ease: "linear" }}
+                      />
+                    </svg>
                     {isRecordingLocked ? (
                       <Lock className="h-7 w-7 text-red-500" strokeWidth={2.5} />
                     ) : (
-                      <span className="h-7 w-7 rounded-md bg-red-500" />
+                      <span className="h-7 w-7 rounded-md bg-red-500 animate-pulse" />
                     )}
                   </span>
                 ) : (

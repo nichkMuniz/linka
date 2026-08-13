@@ -8,7 +8,7 @@
 client/components/
 ├── ui/             ← Shadcn UI (não mexer)
 ├── layout/         ← Componentes estruturais globais (AppLayout, ShotsLayout, ThemeProvider, FloatingActionMenu)
-├── shared/         ← Componentes reutilizáveis em 2+ domínios (ImageWithFallback, AnimatedLoading, PostIncentiveButton, ExerciseImage, DietImage, EmojiPicker, InlineCropPreview, RouteMap, CheckInCalendarGrid, ReportDrawer, ReportProblemDrawer, IncomingMessageToast)
+├── shared/         ← Componentes reutilizáveis em 2+ domínios (ImageWithFallback, AnimatedLoading, PostIncentiveButton, ExerciseImage, DietImage, EmojiPicker, InlineCropPreview, RouteMap, CheckInCalendarGrid, ReportDrawer, ReportProblemDrawer, IncomingMessageToast, ShotThumb)
 ├── modals/         ← Modais e Dialogs globais (PostCommentsDialog, PostLikesModal, FlowViewerModal, FlowCreationDialog)
 ├── post/           ← Componentes de post (PostCarousel)
 ├── shots/          ← Componentes de shots/flows (FlowCarousel)
@@ -389,6 +389,27 @@ Mantém no DOM só o que está perto da viewport. Item longe → conteúdo desmo
 - Sem `IntersectionObserver` no ambiente, vira passthrough — tudo montado, como antes.
 
 > **Não usar em chat.** A conversa privada é capada em 200 mensagens e é ancorada embaixo; desmontar bolhas de altura variável faria o scroll pular.
+
+---
+
+### ShotThumb (2026-08-13)
+**Arquivo:** `client/components/shared/shot-thumb.tsx`
+**Usado em:** `pages/Profile.tsx` (aba Shots), `pages/Search.tsx` e `pages/Hashtag.tsx` (itens `kind: "shot"` da grade)
+
+Miniatura de um shot nas grades. Substituiu o `<video src={videoPosterSrc(...)} preload="metadata">` que estava duplicado nas três telas.
+
+| Prop | Descrição |
+|---|---|
+| `videoUrl` | URL do vídeo do shot; `null`/vazio renderiza o elemento sem fonte |
+| `className` | Classes do `<video>` (as três telas passam variações de `h-full w-full object-cover`) |
+
+- **Poster sem coluna no banco:** o `src` sai de `videoPosterSrc()` (`lib/video-thumb.ts`), que anexa `#t=0.1` para o WebView fazer *seek* e pintar aquele frame.
+- **Gerencia o player de vídeo do iOS**, que é o motivo real de o componente existir. O WKWebView tem um **teto de players simultâneos** e cada `<video>` da grade ocupa um. Estourado o teto, o próximo vídeo a tocar vem **sem faixa de vídeo** — o áudio sai, a tela fica preta. Duas travas:
+  - `src` anexado só quando a célula entra na viewport (`rootMargin: 400px`) e solto 2s depois de sair → players vivos acompanham o que está na tela, não o total de shots.
+  - `releaseVideoElement` (`lib/media-prefetch.ts`) na limpeza do efeito → ao navegar para `/shots`, todos os players da grade são devolvidos **antes** de o vídeo em tela cheia pedir o dele. Tirar o `<video>` do DOM não basta: o WebKit só solta o recurso na coleta de lixo.
+- Sem `IntersectionObserver` no ambiente, carrega tudo direto — a liberação no desmonte, que é a trava principal, continua valendo.
+
+> **Sempre use `releaseVideoElement` ao desmontar um `<video>`** em qualquer tela nova. A tela de Shots faz o mesmo no componente `ShotVideo` (ver `docs/03-shots.md`).
 
 ---
 

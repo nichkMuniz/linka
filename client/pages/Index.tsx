@@ -1,6 +1,7 @@
 import * as React from "react";
 import { getFeedPosts, getDiscoverPosts, togglePostLike, FEED_PAGE_SIZE, DISCOVER_PAGE_SIZE } from "../services/post.service";
 import { withNetworkRetry, checkSupabaseReachability } from "@/lib/network-status";
+import { probeFlowVideo } from "@/lib/video-poster";
 import {
   Drawer,
   DrawerContent,
@@ -256,6 +257,21 @@ export default function Index() {
     if (feedCache.hydrated && feedCache.userId === (user?.id ?? null)) return;
     loadFeed();
   }, [loadFeed, user?.id]);
+
+  // Ao VOLTAR ao feed (cache hidratado → sem reload), ressincroniza quais flows já
+  // foram vistos. O viewer grava as visualizações uma a uma enquanto o usuário assiste;
+  // sem esta consulta o feed continuaria com a foto antiga do que foi visto, e o anel
+  // (e o ponto de entrada do ring) ficariam errados até o próximo reload completo.
+  React.useEffect(() => {
+    if (!feedCache.hydrated || feedCache.userId !== (user?.id ?? null)) return;
+    const activeFlowIds = feedCache.stories.map((s) => s.id);
+    if (activeFlowIds.length === 0) return;
+    getMyViewedFlowUserIdsDb(activeFlowIds)
+      .then(setViewedStoryIds)
+      .catch((err) => console.error("Erro ao sincronizar flows vistos:", err));
+    // Só no mount (voltar ao feed) — durante a sessão o clique já marca localmente.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   // Persiste o estado vivo do feed no cache de módulo para sobreviver ao unmount.
   React.useEffect(() => {
@@ -556,6 +572,8 @@ export default function Index() {
         if (!user || !supabase) throw new Error("User not authenticated");
 
         let publicUrl = "";
+        let posterUrl = "";
+        let durationMs: number | null = null;
 
         if (mediaDataUrl) {
           // Pre-warm network stack on iOS WKWebView to prevent "Load failed" on first attempt
@@ -567,21 +585,60 @@ export default function Index() {
           const mimeType = blob.type || "image/jpeg";
           const rawExtension = mimeType.split("/")[1] || "jpg";
           const extension = rawExtension === "quicktime" ? "mov" : rawExtension;
-          const fileName = `${Date.now()}-story.${extension}`;
-          const filePath = `${user.id}/stories/${fileName}`;
+          const stamp = Date.now();
+          const filePath = `${user.id}/stories/${stamp}-story.${extension}`;
 
-          const { error: uploadError } = await withNetworkRetry(() =>
-            supabase!.storage.from("posts").upload(filePath, blob),
-            { retries: 2, delayMs: 2000 },
-          );
+          // Sonda o vídeo enquanto o arquivo ainda é local (barato): capa de ~40KB com o
+          // 1º frame + duração real. A capa evita a tela preta ao abrir; a duração é o
+          // que mantém a barra de progresso sincronizada desde o primeiro frame, sem
+          // depender do clipe inteiro ter baixado.
+          const probe = mimeType.startsWith("video/")
+            ? await probeFlowVideo(mediaDataUrl).catch(() => null)
+            : null;
+          const posterBlob = probe?.poster ?? null;
+          durationMs = probe?.durationMs ?? null;
+
+          const uploadPoster = async (): Promise<string> => {
+            if (!posterBlob) return "";
+            try {
+              const posterPath = `${user.id}/stories/${stamp}-poster.jpg`;
+              const { error } = await supabase!.storage
+                .from("posts")
+                .upload(posterPath, posterBlob, {
+                  contentType: "image/jpeg",
+                  cacheControl: "86400",
+                });
+              if (error) return "";
+              return supabase!.storage.from("posts").getPublicUrl(posterPath).data.publicUrl;
+            } catch {
+              // Capa é ganho de percepção — nunca impede a publicação do flow.
+              return "";
+            }
+          };
+
+          // Vídeo e capa sobem em paralelo (a capa é minúscula e chega bem antes).
+          const [{ error: uploadError }, uploadedPosterUrl] = await Promise.all([
+            withNetworkRetry(
+              () =>
+                supabase!.storage.from("posts").upload(filePath, blob, {
+                  contentType: mimeType,
+                  // Flow vive 24h: cache longo deixa o arquivo na borda do CDN durante
+                  // toda a vida útil dele, então o 2º espectador em diante nem vai à origem.
+                  cacheControl: "86400",
+                }),
+              { retries: 2, delayMs: 2000 },
+            ),
+            uploadPoster(),
+          ]);
 
           if (uploadError) throw uploadError;
 
           const { data: { publicUrl: url } } = supabase.storage.from("posts").getPublicUrl(filePath);
           publicUrl = url;
+          posterUrl = uploadedPosterUrl;
         }
 
-        const newStory = await createStoryDb(description, publicUrl, backgroundColor, textPosition, textElements, mediaTransform, taggedUserIds);
+        const newStory = await createStoryDb(description, publicUrl, backgroundColor, textPosition, textElements, mediaTransform, taggedUserIds, null, { posterUrl, durationMs });
         if (newStory && user) {
           const enrichedStory: StoryWithUser = {
             ...newStory,

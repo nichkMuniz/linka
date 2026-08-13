@@ -39,6 +39,7 @@ import {
 } from "@/lib/ritmofit-db";
 import { X, ChevronLeft, ChevronRight, Send, Trash2, Eye, Pause, Play, Pencil, Check, Loader2, AtSign, Repeat2 } from "lucide-react";
 import { renderIncentiveIcon } from "@/lib/incentive-config";
+import { prefetchFlowMedia } from "@/lib/media-prefetch";
 import { CommentReactions } from "@/components/shared/comment-reactions";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
@@ -230,8 +231,18 @@ export function FlowViewerModal({
   const [mediaReady, setMediaReady] = React.useState(false);
   const mediaReadyRef = React.useRef(false);
   const mediaReadySafetyRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Duração finita já conhecida (corrige o seek-trick do MediaRecorder — ver abaixo).
-  const videoDurationReadyRef = React.useRef(false);
+  // Qual flow está na tela AGORA. Durante a transição do AnimatePresence o <video> do
+  // flow ANTERIOR continua montado (e tocando), então os eventos dele precisam ser
+  // ignorados — senão ele dirige a barra do flow atual. Atualizado no RENDER, não em
+  // efeito: eventos de mídia podem chegar antes de os efeitos rodarem.
+  const currentStoryIdRef = React.useRef<string | null>(null);
+  currentStoryIdRef.current = story?.id ?? null;
+  // Duração real (segundos) vinda do banco. É o que mantém a barra sincronizada desde o
+  // primeiro frame: o `duration` do próprio arquivo só resolve quando o clipe INTEIRO
+  // baixa (MP4 fragmentado do MediaRecorder), o que trava a barra ao pular de flow.
+  const knownDurationRef = React.useRef<number | null>(null);
+  knownDurationRef.current =
+    story?.duration_ms && story.duration_ms > 0 ? story.duration_ms / 1000 : null;
   const [taggedUsers, setTaggedUsers] = React.useState<SearchUser[]>([]);
   const [isReposting, setIsReposting] = React.useState(false);
 
@@ -335,8 +346,16 @@ export function FlowViewerModal({
     setTimerProgress(100);
     setIsPaused(false);
     isPausedRef.current = false;
-    videoDurationReadyRef.current = false;
     if (!isVideo) videoRef.current = null;
+
+    // O vídeo do flow anterior segue montado enquanto a animação de saída roda: pausa
+    // para não tocar dois áudios ao mesmo tempo nem disparar timeupdate/ended por cima
+    // do flow atual.
+    document
+      .querySelectorAll<HTMLVideoElement>("video[data-flow-video]")
+      .forEach((v) => {
+        if (v.dataset.storyId !== story.id) v.pause();
+      });
 
     // Recomeça "não pronto" até a mídia carregar; texto puro (sem media_url) já fica pronto.
     if (mediaReadySafetyRef.current) clearTimeout(mediaReadySafetyRef.current);
@@ -393,37 +412,80 @@ export function FlowViewerModal({
     setIsPaused((prev) => !prev);
   }, []);
 
-  // Mantém a barra de progresso sincronizada com a posição real do vídeo.
-  const handleVideoTimeUpdate = React.useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
-    const video = e.currentTarget;
-    // Só reflete quando a duração já é conhecida (evita a barra saltar durante o seek-trick).
-    if (!videoDurationReadyRef.current || !video.duration || !isFinite(video.duration)) return;
-    const remaining = Math.max(0, 100 - (video.currentTime / video.duration) * 100);
-    setTimerProgress(remaining);
+  // Duração de referência da barra, em ordem de confiança:
+  //   1. a do banco (`flow.duration_ms`) — conhecida antes do 1º byte de vídeo chegar;
+  //   2. a do arquivo — só vale depois de resolvida, e em MP4 fragmentado isso exige o
+  //      clipe inteiro baixado (era o que travava a barra ao pular para o próximo flow).
+  const effectiveDuration = React.useCallback((video: HTMLVideoElement): number | null => {
+    const known = knownDurationRef.current;
+    if (known && known > 0) return known;
+    if (
+      video.dataset.durationReady === "1" &&
+      Number.isFinite(video.duration) &&
+      video.duration > 0
+    ) {
+      return video.duration;
+    }
+    return null;
   }, []);
 
-  // Corrige o duration = Infinity dos vídeos do MediaRecorder (mesmo truque de seek do
-  // FlowViewer): sem isso a barra de progresso do vídeo nunca anda.
+  // Mantém a barra de progresso sincronizada com a posição real do vídeo.
+  const handleVideoTimeUpdate = React.useCallback(
+    (e: React.SyntheticEvent<HTMLVideoElement>) => {
+      const video = e.currentTarget;
+      // Ignora o vídeo que está saindo (ainda montado durante a transição).
+      if (video.dataset.storyId !== currentStoryIdRef.current) return;
+      const total = effectiveDuration(video);
+      if (!total) return;
+      const remaining = Math.max(0, 100 - (video.currentTime / total) * 100);
+      setTimerProgress(remaining);
+    },
+    [effectiveDuration],
+  );
+
+  // WebKit às vezes descobre a duração sozinho no meio do download — aproveita sem seek.
+  const handleVideoDurationChange = React.useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
+    const v = e.currentTarget;
+    if (Number.isFinite(v.duration) && v.duration > 0) v.dataset.durationReady = "1";
+  }, []);
+
+  // Fallback para flows ANTIGOS (sem `duration_ms` gravado): corrige o duration = Infinity
+  // dos vídeos do MediaRecorder com o seek-trick. É custoso — força baixar o clipe inteiro
+  // antes de a barra andar —, por isso só roda quando a duração não veio do banco.
+  // O "pronto" fica no PRÓPRIO elemento (data-duration-ready) e não num ref do
+  // componente: com dois vídeos no mesmo flow, o reset do ref na troca de story podia
+  // apagar o "pronto" que o vídeo novo já tinha sinalizado, e a barra travava em 0.
   const handleVideoLoadedMetadata = React.useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
     const v = e.currentTarget;
     if (Number.isFinite(v.duration) && v.duration > 0) {
-      videoDurationReadyRef.current = true;
+      v.dataset.durationReady = "1";
       return;
     }
+    // Duração já conhecida → não mexe no cursor (o seek empurraria o vídeo para o fim
+    // enquanto ele ainda está baixando).
+    if (knownDurationRef.current) return;
     const onTimeUpdate = () => {
       if (Number.isFinite(v.duration) && v.duration > 0) {
         v.removeEventListener("timeupdate", onTimeUpdate);
         try { v.currentTime = 0; } catch { /* ignore */ }
-        videoDurationReadyRef.current = true;
-        if (!isPausedRef.current && !isTypingRef.current) v.play().catch(() => {});
+        v.dataset.durationReady = "1";
+        if (
+          v.dataset.storyId === currentStoryIdRef.current &&
+          !isPausedRef.current &&
+          !isTypingRef.current
+        ) {
+          v.play().catch(() => {});
+        }
       }
     };
     v.addEventListener("timeupdate", onTimeUpdate);
     try { v.currentTime = 1e101; } catch { /* ignore */ }
   }, []);
 
-  // Quando o vídeo termina, avança para o próximo flow.
-  const handleVideoEnded = React.useCallback(() => {
+  // Quando o vídeo termina, avança para o próximo flow. O vídeo que está saindo não
+  // pode disparar isso — pularia um flow.
+  const handleVideoEnded = React.useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
+    if (e.currentTarget.dataset.storyId !== currentStoryIdRef.current) return;
     setTimerProgress(0);
     onNextStoryRef.current();
   }, []);
@@ -570,6 +632,16 @@ export function FlowViewerModal({
   const nextStory = hasNextStory ? sortedStories[currentIndex + 1] : null;
   const isTaggedViewer = !!user && !isOwner && taggedUsers.some((u) => u.id === user.id);
 
+  // Pré-aquece a mídia do PRÓXIMO flow assim que a atual apareceu (antes disso os dois
+  // downloads brigariam por banda). A capa vem inteira; do vídeo, só o cabeçalho —
+  // o suficiente para o próximo flow abrir sem espera.
+  const nextMediaUrl = nextStory?.media_url ?? null;
+  const nextPosterUrl = nextStory?.poster_url ?? null;
+  React.useEffect(() => {
+    if (!open || !mediaReady || !nextMediaUrl) return;
+    prefetchFlowMedia({ media_url: nextMediaUrl, poster_url: nextPosterUrl }, "metadata");
+  }, [open, mediaReady, nextMediaUrl, nextPosterUrl]);
+
   const handleRepost = async () => {
     if (!story || isReposting) return;
     setIsPaused(true);
@@ -660,7 +732,13 @@ export function FlowViewerModal({
                             <motion.div
                               initial={false}
                               animate={{ width: `${fillPercent}%` }}
-                              transition={{ duration: isActive ? 0.05 : 0.3, ease: "linear" }}
+                              // Vídeo: o `timeupdate` do iOS chega só ~4x/s, então a barra
+                              // interpola entre os avisos para não andar aos saltos.
+                              // Imagem: o timer manda a cada 50ms, e a animação acompanha.
+                              transition={{
+                                duration: isActive ? (isVideo ? 0.28 : 0.05) : 0.3,
+                                ease: "linear",
+                              }}
                               style={
                                 isDone
                                   ? { background: "linear-gradient(to right, #3A8DFF, #7B3FF2, #FF8A2A)" }
@@ -815,7 +893,35 @@ export function FlowViewerModal({
                             )}
                           </div>
                         ) : isVideo ? (
-                          <video ref={(el) => { if (el) videoRef.current = el; }} src={story.media_url} className="w-full h-full object-cover" autoPlay playsInline preload="auto" onLoadedMetadata={handleVideoLoadedMetadata} onLoadedData={() => { markMediaReady(); if (!isPausedRef.current && !isTypingRef.current) playWithSound(); }} onError={handleVideoEnded} onTimeUpdate={handleVideoTimeUpdate} onEnded={handleVideoEnded} />
+                          <video
+                            // Só o vídeo do flow ATUAL assume o ref: durante a transição o
+                            // que está saindo continua montado e reatribuiria o ponteiro a
+                            // cada render.
+                            ref={(el) => {
+                              if (el && el.dataset.storyId === currentStoryIdRef.current) {
+                                videoRef.current = el;
+                              }
+                            }}
+                            data-flow-video="1"
+                            data-story-id={story.id}
+                            src={story.media_url}
+                            // Capa: o 1º frame aparece na hora, enquanto o clipe baixa.
+                            poster={story.poster_url || undefined}
+                            className="w-full h-full object-cover"
+                            autoPlay
+                            playsInline
+                            preload="auto"
+                            onLoadedMetadata={handleVideoLoadedMetadata}
+                            onDurationChange={handleVideoDurationChange}
+                            onLoadedData={(e) => {
+                              if (e.currentTarget.dataset.storyId !== currentStoryIdRef.current) return;
+                              markMediaReady();
+                              if (!isPausedRef.current && !isTypingRef.current) playWithSound();
+                            }}
+                            onError={handleVideoEnded}
+                            onTimeUpdate={handleVideoTimeUpdate}
+                            onEnded={handleVideoEnded}
+                          />
                         ) : (
                           <img
                             key={story.id}
@@ -827,10 +933,20 @@ export function FlowViewerModal({
                           />
                         )}
 
-                        {/* Spinner enquanto a mídia ainda carrega — barra parada até sumir. */}
+                        {/* Spinner enquanto a mídia ainda carrega — barra parada até sumir.
+                            Com capa não escurece a tela: o frame já está visível, o
+                            spinner só sinaliza que o vídeo ainda vai começar. */}
                         {story.media_url && !mediaReady && (
-                          <div className="absolute inset-0 z-[4] flex items-center justify-center bg-black/30 pointer-events-none">
-                            <Loader2 className="h-8 w-8 text-white/90 animate-spin" />
+                          <div
+                            className={`absolute inset-0 z-[4] flex items-center justify-center pointer-events-none ${
+                              story.poster_url ? "" : "bg-black/30"
+                            }`}
+                          >
+                            <Loader2
+                              className={`animate-spin ${
+                                story.poster_url ? "h-6 w-6 text-white/70" : "h-8 w-8 text-white/90"
+                              }`}
+                            />
                           </div>
                         )}
 

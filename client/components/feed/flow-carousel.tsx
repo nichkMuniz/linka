@@ -9,6 +9,8 @@ import {
 import { Plus } from "lucide-react";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { hapticLight } from "@/lib/haptics";
+import { prefetchFlowMedia } from "@/lib/media-prefetch";
+import { pickFlowEntry } from "@/lib/flow-entry";
 
 interface FlowCarouselProps {
   stories: StoryWithUser[];
@@ -58,7 +60,11 @@ export function FlowCarousel({
   const otherStories = uniqueStories.filter((s) => s.user_id !== currentUserId);
 
   const handleViewFlow = () => {
-    if (userStory) navigate(`/flows/${userStory.id}`);
+    if (!userStory) return;
+    // A página do flow ainda vai buscar os flows no banco antes de montar o player —
+    // começar o download aqui aproveita essa janela em vez de esperar por ela.
+    prefetchFlowMedia(userStory, "auto");
+    navigate(`/flows/${userStory.id}`);
   };
 
   const CONIC_GRADIENTS = [
@@ -143,13 +149,20 @@ export function FlowCarousel({
         otherStories.map((story) => {
           const userStoryList = storiesByUserId.get(story.user_id) ?? [story];
           const isViewed = userStoryList.every((s) => viewedStoryIds?.has(s.id) ?? false);
+          const entryStory = pickFlowEntry(userStoryList, viewedStoryIds) ?? story;
           return (
             <button
               key={story.id}
+              // O dedo encostou → o clipe começa a baixar antes mesmo da navegação,
+              // então o viewer abre com o vídeo pronto em vez de tela preta.
+              onPointerDown={() => prefetchFlowMedia(entryStory, "auto")}
               onClick={() => {
                 hapticLight();
-                userStoryList.forEach((s) => onStoryView?.(s.id));
-                navigate(`/flows/${story.id}`);
+                // Abre no 1º flow não visto — quem já viu os antigos vai direto ao novo.
+                // Marca só esse (o que realmente será aberto): marcar o grupo inteiro
+                // fazia o próximo toque achar que tudo tinha sido visto e voltar ao 1º.
+                onStoryView?.(entryStory.id);
+                navigate(`/flows/${entryStory.id}`);
               }}
               className="shrink-0 flex flex-col items-center gap-1.5 active:scale-95 transition-transform"
             >

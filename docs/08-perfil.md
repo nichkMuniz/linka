@@ -167,7 +167,9 @@ Grade de thumbnails dos clipes do usuário.
 **Privacidade:** se o dono ativou **Ocultar posts de quem não te segue** (`hide_posts_from_non_followers`), a aba exibe um estado bloqueado ("Clipes privados" + cadeado) para não seguidores — mesma regra e condição da aba Posts. Ver "Drawer de Privacidade".
 
 Cada shot na grade:
-- **Preview do frame do vídeo** via `<video muted playsInline preload="metadata">` com o `src` passado por **`videoPosterSrc()`** (`client/lib/video-thumb.ts`, anexa `#t=0.1`) — o media fragment força o WebView a fazer *seek* e **pintar** esse frame como thumbnail. Sem ele, `preload="metadata"` sozinho deixa o `<video>` preto no WKWebView do iOS até dar play (era por isso que os previews não apareciam). Mesmo helper usado nas grades de Busca/Hashtag, na bolha de chat compartilhado e no arquivo de flows — ver `docs/15-design-system.md` §7.4
+- **Preview do frame do vídeo** via o componente **`ShotThumb`** (`client/components/shared/shot-thumb.tsx`), compartilhado com as grades de Busca e Hashtag. Ele encapsula duas coisas:
+  - o `src` passado por **`videoPosterSrc()`** (`client/lib/video-thumb.ts`, anexa `#t=0.1`) — o media fragment força o WebView a fazer *seek* e **pintar** esse frame como thumbnail. Sem ele, `preload="metadata"` sozinho deixa o `<video>` preto no WKWebView do iOS até dar play. Mesmo helper usado na bolha de chat compartilhado e no arquivo de flows — ver `docs/15-design-system.md` §7.4
+  - o **ciclo de vida do player de vídeo do iOS**: anexa o `src` só quando a célula chega perto da viewport e o **libera** (`releaseVideoElement`) ao sair dela e ao desmontar. Sem isso, uma grade com muitos shots estourava o teto de players simultâneos do WKWebView e o shot aberto em tela cheia entrava **sem imagem, só com o áudio** — ver `docs/03-shots.md`, "Teto de players de vídeo do iOS"
 - Glyph de **play** central (`Play`, `pointer-events-none`) sobre o tile, sinalizando que é um vídeo clicável
 - Ao clicar → navega para `/shots` com o shot aberto (que é movido para o topo da lista — ver `docs/03-shots.md`)
 - O rótulo da tab só mostra a contagem `(n)` depois que o batch 2 termina (evita o flicker "Shots (0)")
@@ -206,6 +208,23 @@ Botão "Salvar" → `updateUserProfileDb`
 ## Drawer de Configurações (próprio)
 
 Aberto pelo botão "Configurações". O menu é organizado em seções com separadores:
+
+### Linhas da lista (`SettingsRow`)
+
+Todo item da lista é um **`SettingsRow`** — componente local do `settings-drawer.tsx` (rótulo à esquerda, ícone à direita, `rounded-2xl`, vidro `bg-white/[.06]` + borda `border-white/10`).
+
+Antes cada item era um `<Button variant="outline">`. Isso trazia dois problemas de sensação "web" no iPhone (reportados em 13/08/2026):
+
+1. **Linha acesa como se houvesse um cursor parada nela.** O `variant="outline"` carrega `hover:bg-accent`; no WKWebView o `:hover` do toque é grudento — arrastar o dedo pela lista ia acendendo cada linha e a última ficava acesa.
+2. **Precisar tocar duas vezes.** O primeiro toque num elemento com estilo de hover é gasto aplicando esse hover; o clique só sai no segundo.
+
+A correção tem três frentes (as duas primeiras valem para o app inteiro):
+
+- `future.hoverOnlyWhenSupported: true` no `tailwind.config.ts` — todo `hover:` passa a viver dentro de `@media (hover: hover) and (pointer: fine)`, ou seja, existe no navegador de dev e **não existe no device**;
+- regra base em `client/global.css` para `button/[role=button]/a/label/summary`: `-webkit-touch-callout: none`, `user-select: none` e `touch-action: manipulation` (arrastar o dedo não seleciona mais o rótulo, o press longo não abre o menu de copiar e some o atraso do double-tap-zoom). Campos de texto ficam de fora de propósito;
+- feedback de toque exclusivamente por `active:` (`active:scale-[0.985]` + `active:bg-white/[.14]`), inclusive no botão de voltar dos sub-drawers (`active:scale-90`) e no botão Sair.
+
+> Ao adicionar um item novo à lista, use `SettingsRow` — não volte a usar `Button variant="outline"`, que reintroduz o fundo opaco do tema sobre o vidro.
 
 ### Seção: Perfil
 
@@ -314,6 +333,27 @@ Aberto ao clicar nas estatísticas:
 - Exibe ring de story ativo no avatar (se o usuário tem story ativo)
 - Ao clicar no avatar → abre `FlowViewerModal`
 - Apenas stories do próprio perfil são mostrados aqui
+- **Abre no 1º flow ainda não visto** (`pickFlowEntry`, `client/lib/flow-entry.ts`): o visitante que já viu os flows antigos vai direto ao novo, em vez de recomeçar do mais antigo. O conjunto de vistos vem de `getMyViewedFlowUserIdsDb` (carregado junto dos stories e ressincronizado ao **fechar** o viewer). No **próprio** perfil nenhum flow conta como visto (`recordFlowViewDb` ignora o dono), então o ring sempre começa do primeiro — igual ao Instagram.
+- **Abertura sem espera (`prefetchFlowMedia`):** assim que `getUserActiveStoriesDb` responde, o 1º flow é aquecido em modo `"metadata"` (capa inteira + cabeçalho do vídeo); no `onPointerDown` do ring o modo sobe para `"auto"` e o clipe começa a baixar ~200ms antes do modal montar. Somado à capa (`flow.poster_url`), o flow abre já exibindo o frame.
+
+### Barra de progresso do flow (segmentos)
+
+Um segmento por flow do usuário; o segmento ativo enche conforme o tempo do flow.
+
+| Tipo de flow | O que dirige a barra |
+|---|---|
+| Imagem / texto | Timer de 8s (`setInterval` de 50ms), só avança depois que a mídia carrega (`mediaReady`) |
+| Vídeo | `timeupdate` alimenta o progresso e `ended` avança para o próximo flow. A duração de referência é `flow.duration_ms` (medida no post), **não** o `video.duration` |
+
+**Regras de implementação (vale para `FlowViewerModal` e para a página `FlowViewer`):**
+
+- **Cada `<video>` carrega sua própria identidade**: `data-story-id` (a qual flow pertence) e `data-duration-ready` (a duração finita já foi resolvida). Durante a transição do `AnimatePresence` o vídeo do flow **anterior continua montado e tocando**, então `timeupdate`, `ended`, `error`, `loadeddata` e o `ref` só são aceitos quando `data-story-id` bate com o flow atual (`currentStoryIdRef`, atualizado **no render**, nunca em efeito — os eventos de mídia chegam antes dos efeitos).
+- **Nunca guardar o "duração pronta" num ref do componente.** Era a causa do bug com mais de um vídeo: o reset do ref na troca de flow apagava o "pronto" que o vídeo novo já tinha sinalizado no `loadedmetadata`, e a barra ficava travada em 0 para sempre (o `loadedmetadata` só dispara uma vez por elemento).
+- **A duração NÃO pode vir do arquivo.** MP4 fragmentado (MediaRecorder do iOS) reporta `duration = Infinity` até o clipe **inteiro** baixar — por isso a barra do 2º flow em diante travava em 0 quando o usuário pulava antes do download terminar. A referência é `flow.duration_ms`, medida no post; `video.duration` só é usado como segunda opção, depois de resolvida.
+- Sem `duration_ms` (flows antigos), o seek-trick (`currentTime = 1e101` → volta finito → `currentTime = 0`) resolve e marca `data-duration-ready="1"`. Ele força o download completo e **reinicia o vídeo**, então só roda quando a duração não veio do banco.
+- Enquanto o clipe carrega, o `<video>` mostra `poster={story.poster_url}` (capa gerada no post) — a barra continua parada até `mediaReady`, mas a tela já tem o frame em vez de preto.
+- Ao trocar de flow, os `video[data-flow-video]` de outros flows são pausados — evita dois áudios sobrepostos e eventos do vídeo antigo por cima do atual.
+- No modal, o preenchimento do segmento ativo interpola em `0.28s` para vídeo (o `timeupdate` do iOS chega só ~4x/s) e `0.05s` para imagem (timer de 50ms). A página `FlowViewer` amostra `currentTime` via `requestAnimationFrame` e usa `0.05s`.
 
 ---
 

@@ -137,6 +137,23 @@
     -webkit-tap-highlight-color: transparent;
   }
 
+  /* Controles são alvos de TOQUE, não texto de página web. Sem isto, arrastar o
+     dedo sobre um botão começa a selecionar o rótulo (a "linha" fica marcada) e
+     o toque seguinte só serve para desfazer essa seleção — daí a sensação de
+     precisar clicar duas vezes. `touch-callout` mata o menu de copiar/definir no
+     press longo e `manipulation` remove o atraso do double-tap-zoom.
+     Campos de texto ficam de fora de propósito: lá a seleção é essencial. */
+  button,
+  [role="button"],
+  a,
+  label,
+  summary {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+    touch-action: manipulation;
+  }
+
   /* Native momentum scroll on all scrollable containers */
   .overflow-y-auto,
   .overflow-x-auto,
@@ -385,6 +402,27 @@
     -webkit-backdrop-filter: blur(24px) saturate(180%);
     border: 1px solid rgba(255,255,255,.14);
     box-shadow: inset 0 1px 0 rgba(255,255,255,.28), 0 8px 24px -8px rgba(0,0,0,.5);
+  }
+
+  /* Papel de parede da conversa privada (Comunidade), no espírito do WhatsApp.
+     Asset: public/chat-wallpaper.webp — ladrilho 2600x1370 espelhado em 2x2,
+     gerado da arte original por scripts/build-chat-wallpaper.cjs (a arte crua
+     não é um ladrilho contínuo; espelhar é o que elimina a emenda).
+
+     background-size 1240px = 620px por quadrante espelhado: acima da largura
+     de qualquer iPhone, então na vertical o eixo do espelho nunca aparece e as
+     figuras saem com ~70px. Tamanho fixo (não `cover`) é proposital — o
+     container encolhe quando o teclado abre, e `cover` faria o fundo dar um
+     zoom junto com a animação.
+
+     A arte já vem com o próprio fundo e o próprio contraste, então a camada é
+     opaca. Para clarear/escurecer, usar `filter: brightness()` aqui — não
+     mexer no arquivo. */
+  .chat-doodle-wallpaper {
+    background-image: url("/chat-wallpaper.webp");
+    background-repeat: repeat;
+    background-size: 1240px auto;
+    background-position: left top;
   }
 }
 

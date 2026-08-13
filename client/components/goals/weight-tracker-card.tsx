@@ -26,11 +26,20 @@ const CARD_SHELL: React.CSSProperties = {
   boxShadow: "inset 0 1px 0 rgba(255,255,255,.16)",
 };
 
+const ICON_GRADIENT = "linear-gradient(135deg,#5b8cff,#9d6bff)";
+
 interface WeightTrackerCardProps {
   /** ordenados do mais antigo para o mais recente */
   logs: WeightLog[];
   onAddWeight: (weight: number) => Promise<void>;
   onDeleteWeight: (id: string) => Promise<void>;
+  /**
+   * Estado do drawer de histórico, controlado pela página: fora da semana de
+   * pesagem o card não renderiza nada, mas o ícone ⚖️ do card de streak ainda
+   * precisa abrir o histórico — e ele mora aqui, junto do fluxo de confirmação.
+   */
+  historyOpen: boolean;
+  onHistoryOpenChange: (open: boolean) => void;
 }
 
 // Dias inteiros entre a data (YYYY-MM-DD) e hoje.
@@ -41,13 +50,21 @@ function daysSinceISODate(iso: string): number {
   return Math.round((today - last) / 86400000);
 }
 
-export function WeightTrackerCard({ logs, onAddWeight, onDeleteWeight }: WeightTrackerCardProps) {
+export function WeightTrackerCard({
+  logs,
+  onAddWeight,
+  onDeleteWeight,
+  historyOpen,
+  onHistoryOpenChange,
+}: WeightTrackerCardProps) {
   const { t, language } = useLanguage();
-  const [open, setOpen] = React.useState(false);
   const [inlineInput, setInlineInput] = React.useState("");
   const [saving, setSaving] = React.useState(false);
-  // Fluxo "registrou → confirma → some"
+  // Fluxo "registrou → confirma → encolhe". O `seq` faz a confirmação reiniciar
+  // mesmo quando o valor registrado é igual ao anterior (senão o efeito abaixo
+  // não re-dispararia e o card ficaria travado na confirmação).
   const [confirmedValue, setConfirmedValue] = React.useState<number | null>(null);
+  const [confirmSeq, setConfirmSeq] = React.useState(0);
   const [dismissed, setDismissed] = React.useState(false);
   const [exiting, setExiting] = React.useState(false);
 
@@ -66,7 +83,15 @@ export function WeightTrackerCard({ logs, onAddWeight, onDeleteWeight }: WeightT
       clearTimeout(t1);
       clearTimeout(t2);
     };
-  }, [confirmedValue]);
+  }, [confirmedValue, confirmSeq]);
+
+  // Mostra (ou remostra) a confirmação verde, saindo do estado compacto.
+  const showConfirmation = (value: number) => {
+    setDismissed(false);
+    setExiting(false);
+    setConfirmedValue(value);
+    setConfirmSeq((n) => n + 1);
+  };
 
   const submitWeight = async (raw: string) => {
     const parsed = parseFloat(raw.replace(",", "."));
@@ -75,18 +100,21 @@ export function WeightTrackerCard({ logs, onAddWeight, onDeleteWeight }: WeightT
     try {
       await onAddWeight(parsed);
       setInlineInput("");
-      setConfirmedValue(parsed);
+      showConfirmation(parsed);
     } finally {
       setSaving(false);
     }
   };
 
   // ── Renderização por estado ──
-  if (dismissed) return null;
+  // Fora da semana de pesagem o card não mostra nada (anti-compulsão: o usuário
+  // deve focar nas rotinas, não no número). O acesso permanente é só o ícone ⚖️
+  // no canto do card de streak, que abre o drawer montado aqui embaixo.
+  let head: React.ReactNode = null;
 
-  // 1) Acabou de registrar → confirmação, some sozinha
-  if (confirmedValue != null) {
-    return (
+  if (confirmedValue != null && !dismissed) {
+    // 1) Acabou de registrar → confirmação, que depois encolhe para a compacta
+    head = (
       <div
         style={{
           opacity: exiting ? 0 : 1,
@@ -121,14 +149,11 @@ export function WeightTrackerCard({ logs, onAddWeight, onDeleteWeight }: WeightT
         </div>
       </div>
     );
-  }
-
-  // 2) Já registrou dentro do intervalo (semana) → não mostra nada (anti-compulsão)
-  if (loggedRecently) return null;
-
-  // 3) Lembrete da semana — input inline no próprio card
-  return (
-    <>
+  } else if (loggedRecently || dismissed) {
+    // 2) Já pesou nesta semana → nada na tela (`head` segue null)
+  } else {
+    // 3) Lembrete da semana — input inline no próprio card
+    head = (
       <div className="flex items-center gap-3" style={CARD_SHELL}>
         <div
           className="shrink-0 flex items-center justify-center"
@@ -136,7 +161,7 @@ export function WeightTrackerCard({ logs, onAddWeight, onDeleteWeight }: WeightT
             width: "48px",
             height: "48px",
             borderRadius: "16px",
-            background: "linear-gradient(135deg,#5b8cff,#9d6bff)",
+            background: ICON_GRADIENT,
             boxShadow: "0 6px 16px -6px rgba(91,140,255,.6)",
           }}
         >
@@ -150,7 +175,7 @@ export function WeightTrackerCard({ logs, onAddWeight, onDeleteWeight }: WeightT
             </span>
             {hasLogs && (
               <button
-                onClick={() => setOpen(true)}
+                onClick={() => onHistoryOpenChange(true)}
                 className="flex items-center gap-0.5 shrink-0"
                 style={{ fontSize: "11.5px", color: "rgba(255,255,255,.55)" }}
               >
@@ -190,15 +215,23 @@ export function WeightTrackerCard({ logs, onAddWeight, onDeleteWeight }: WeightT
           </div>
         </div>
       </div>
+    );
+  }
+
+  return (
+    <>
+      {head}
 
       {/* Histórico + gráfico — componente compartilhado com Configurações */}
       <WeightHistoryDrawer
-        open={open}
-        onOpenChange={setOpen}
+        open={historyOpen}
+        onOpenChange={onHistoryOpenChange}
         logs={logs}
         onAddWeight={onAddWeight}
         onDeleteWeight={onDeleteWeight}
-        onLogged={(w) => setConfirmedValue(w)}
+        // Registrou pelo drawer (inclusive vindo do ícone ⚖️ do card de streak)
+        // → mostra a confirmação, mesmo que o card já estivesse escondido.
+        onLogged={showConfirmation}
       />
     </>
   );

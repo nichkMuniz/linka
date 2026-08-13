@@ -18,6 +18,17 @@ import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
 import { addNetworkStatusListener, getNetworkStatus } from "@/lib/network-status";
 import { formatRunTime, formatRunPace, type RunPoint } from "@/lib/run-tracker";
 import type { PostWorkoutSummary } from "@/lib/workout-summary-types";
+import type { CardioKind } from "@/lib/cardio-exercises";
+import {
+  CARDIO_KIND_META,
+  drawCardioCanvas,
+  formatCardioKm,
+  formatCardioLine,
+  formatCardioMinutes,
+  getCardioBreakdown,
+  sumCardioSets,
+  type CardioGroup,
+} from "./cardio-canvas";
 import {
   CANVAS_W,
   CANVAS_H,
@@ -189,7 +200,14 @@ function generateDefaultDescription(data: WorkoutSummaryData): string {
   const runLine = data.run && data.run.distanceKm > 0
     ? `\n\n🏃 ${data.run.distanceKm.toFixed(2)} km • ${formatRunTime(data.run.elapsedMs)}${data.run.paceSecPerKm ? ` • ${formatRunPace(data.run.paceSecPerKm)}/km` : ""}`
     : "";
-  return `Treino de ${data.routineName} concluído! ✅\n\n⏱ ${duration} | 💪 ${data.totalSeries} séries${data.totalVolume > 0 ? ` | 🏋️ ${data.totalVolume}kg` : ""}${runLine}${exLine}\n\n#treino #fitness #linka`;
+  // Cardio da sessão (esteira, bike, remo...) — uma linha por modalidade, com
+  // distância/tempo/ritmo. A corrida GPS é pulada quando já tem a linha própria
+  // acima, para o texto não repetir os mesmos números.
+  const cardioLine = getCardioBreakdown(data.completedExercises)
+    .filter((g) => !(runLine && g.kind === "run"))
+    .map((g) => `\n${formatCardioLine(g)}`)
+    .join("");
+  return `Treino de ${data.routineName} concluído! ✅\n\n⏱ ${duration} | 💪 ${data.totalSeries} séries${data.totalVolume > 0 ? ` | 🏋️ ${data.totalVolume}kg` : ""}${runLine}${cardioLine ? `\n${cardioLine}` : ""}${exLine}\n\n#treino #fitness #linka`;
 }
 
 // ─── Persisted payload (posts.workout_summary) ──────────────────────────────
@@ -246,16 +264,32 @@ function getCanvasVariant(data: WorkoutSummaryData): CanvasVariant {
 // Templates escolhíveis pelo usuário no seletor de estilo. "auto" mantém o
 // comportamento clássico (variante padrão/PR/máquina decidida pelos dados);
 // os demais são cards "pôster" criativos pensados para gerar empolgação no feed.
-type CanvasTemplate = "auto" | "comparison" | "impact" | "evolution" | "numbers";
+// `cardio:{modalidade}` é gerado dinamicamente a partir do que a pessoa fez de
+// cardio na sessão (corrida, bike, remo...) — ver cardio-canvas.ts.
+type BaseTemplate = "auto" | "comparison" | "impact" | "evolution" | "numbers";
+type CanvasTemplate = BaseTemplate | `cardio:${CardioKind}`;
 
 // Acento de cada template (null = usa o acento da variante automática).
-const TEMPLATE_ACCENTS: Record<CanvasTemplate, string | null> = {
+const TEMPLATE_ACCENTS: Record<BaseTemplate, string | null> = {
   auto: null,
   comparison: "#38bdf8",
   impact: "#ef4444",
   evolution: "#a78bfa",
   numbers: "#2dd4bf",
 };
+
+/** Modalidade de um template de cardio, ou null se for um template clássico. */
+function cardioTemplateKind(template: CanvasTemplate): CardioKind | null {
+  return template.startsWith("cardio:")
+    ? (template.slice("cardio:".length) as CardioKind)
+    : null;
+}
+
+function templateAccent(template: CanvasTemplate): string | null {
+  const kind = cardioTemplateKind(template);
+  if (kind) return CARDIO_KIND_META[kind].accent;
+  return TEMPLATE_ACCENTS[template as BaseTemplate];
+}
 
 // ─── Canvas shared helpers ───────────────────────────────────────────────────
 
@@ -287,7 +321,20 @@ function drawCanvasExercises(
     ctx.font = `500 12px ${FONT}`;
     ctx.textAlign = "left";
     let name = ex.name;
-    const suffix = ex.bestKg > 0 ? `  ·  ${ex.totalSets}x  ${ex.bestKg}kg` : `  ·  ${ex.totalSets}x`;
+    // Cardio não tem carga: a linha mostra tempo/distância (kg = MIN, reps = KM)
+    // em vez de sair só com "1x", sem informação nenhuma.
+    const cardio = ex.isCardio ? sumCardioSets(ex.sets) : null;
+    const cardioText = cardio
+      ? [
+          cardio.minutes > 0 ? formatCardioMinutes(cardio.minutes) : null,
+          cardio.km > 0 ? `${formatCardioKm(cardio.km)}km` : null,
+        ].filter(Boolean).join("  ·  ")
+      : "";
+    const suffix = cardioText
+      ? `  ·  ${cardioText}`
+      : ex.bestKg > 0
+        ? `  ·  ${ex.totalSets}x  ${ex.bestKg}kg`
+        : `  ·  ${ex.totalSets}x`;
     while (ctx.measureText(name + suffix).width > W - 60 && name.length > 3) {
       name = name.slice(0, -2) + "…";
     }
@@ -937,8 +984,15 @@ function drawNumbersCanvas(
 
 function drawCanvas(
   canvas: HTMLCanvasElement, data: WorkoutSummaryData, logo: HTMLImageElement | null,
-  template: CanvasTemplate = "auto", comparisonIndex = 0,
+  template: CanvasTemplate = "auto", comparisonIndex = 0, cardioGroups: CardioGroup[] = [],
 ) {
+  const cardioKind = cardioTemplateKind(template);
+  if (cardioKind) {
+    const group = cardioGroups.find((g) => g.kind === cardioKind);
+    // Sem o grupo (dado sumiu numa re-renderização) cai no card clássico em vez
+    // de desenhar um card zerado.
+    if (group) return drawCardioCanvas(canvas, data, logo, group);
+  }
   if (template === "comparison" && data.totalVolume > 0) {
     return drawComparisonCanvas(canvas, data, logo, comparisonIndex);
   }
@@ -1035,10 +1089,22 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
   );
   const [showGroupPicker, setShowGroupPicker] = React.useState(false);
   const [showAllExercises, setShowAllExercises] = React.useState(false);
+  // Modalidades de cardio feitas na sessão (corrida na esteira e ao ar livre
+  // caem no mesmo grupo), ordenadas da mais longa para a mais curta. Cada uma
+  // vira um chip e um card compartilhável próprio.
+  const cardioGroups = React.useMemo(
+    () => getCardioBreakdown(data.completedExercises),
+    [data.completedExercises],
+  );
   // Template do card gerado, escolhido no seletor de estilo. "auto" = variante
   // clássica (padrão/PR/máquina). comparisonIndex alterna entre as equivalências
   // válidas (elefante, caminhonete...) ao tocar de novo no chip de Equivalência.
-  const [selectedTemplate, setSelectedTemplate] = React.useState<CanvasTemplate>("auto");
+  const [selectedTemplate, setSelectedTemplate] = React.useState<CanvasTemplate>(() => {
+    // Treino só de cardio: o card clássico não tem volume nem carga para
+    // mostrar, então já abre no card da modalidade principal da sessão.
+    const top = cardioGroups[0];
+    return data.totalVolume <= 0 && top ? `cardio:${top.kind}` : "auto";
+  });
   const [comparisonIndex, setComparisonIndex] = React.useState(0);
   // Mapa do trajeto (corrida GPS) renderizado em imagem — vira um slide
   // compartilhável entre as fotos do usuário e o card gerado.
@@ -1064,7 +1130,7 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
   // Accent colors per variant (non-CSS-var, for inline button styles).
   // Segue o template selecionado; "auto" cai na cor da variante clássica.
   const variantAccent = variant === "machine" ? "#eab308" : variant === "pr" ? "#f97316" : "#22c55e";
-  const accentHex = TEMPLATE_ACCENTS[selectedTemplate] ?? variantAccent;
+  const accentHex = templateAccent(selectedTemplate) ?? variantAccent;
   // Texto preto só no dourado da máquina zerada (contraste); demais acentos usam branco.
   const accentFg = selectedTemplate === "auto" && variant === "machine" ? "#000" : "#fff";
   const headerTitle = hasMachined
@@ -1084,11 +1150,11 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
     // Aguarda as fontes E o logo antes de desenhar, para o card sair completo.
     Promise.all([document.fonts.ready, loadLogo()]).then(([, logo]) => {
       if (cancelled) return;
-      drawCanvas(canvas, data, logo, selectedTemplate, comparisonIndex);
+      drawCanvas(canvas, data, logo, selectedTemplate, comparisonIndex, cardioGroups);
       setCanvasPreviewUrl(canvas.toDataURL("image/png"));
     });
     return () => { cancelled = true; };
-  }, [data, selectedTemplate, comparisonIndex]);
+  }, [data, selectedTemplate, comparisonIndex, cardioGroups]);
 
   // Renderiza o mapa do trajeto em imagem (assíncrono: baixa tiles + desenha).
   // Blob fica no ref para o upload; a object URL alimenta o slide de preview.
@@ -1364,6 +1430,13 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
       emoji: variant === "machine" ? "⚡" : variant === "pr" ? "🏆" : "✅",
       label: t("goals_canvas_tpl_auto"),
     },
+    // Um chip por modalidade de cardio da sessão, logo após o clássico — é o
+    // card com mais informação quando a pessoa correu/pedalou.
+    ...cardioGroups.map((g) => ({
+      id: `cardio:${g.kind}` as CanvasTemplate,
+      emoji: CARDIO_KIND_META[g.kind].emoji,
+      label: t(CARDIO_KIND_META[g.kind].labelKey),
+    })),
     ...(data.totalVolume > 0
       ? [
           { id: "comparison" as const, emoji: "🐘", label: t("goals_canvas_tpl_comparison") },
@@ -1626,7 +1699,7 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
         >
           {templateOptions.map((tp) => {
             const isSelected = selectedTemplate === tp.id;
-            const tplAccent = TEMPLATE_ACCENTS[tp.id] ?? variantAccent;
+            const tplAccent = templateAccent(tp.id) ?? variantAccent;
             const canShuffle = tp.id === "comparison" && comparisonOptionsCount > 1;
             return (
               <button
@@ -1843,7 +1916,11 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
             backdropFilter: GLASS_BLUR, WebkitBackdropFilter: GLASS_BLUR,
             boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06)",
           }}>
-            {displayedExercises.map((ex, idx) => (
+            {displayedExercises.map((ex, idx) => {
+              // Cardio registra MIN × KM, então a linha mostra tempo/distância
+              // no lugar da carga (que é sempre 0 nesses exercícios).
+              const cardio = ex.isCardio ? sumCardioSets(ex.sets) : null;
+              return (
               <div
                 key={ex.name + idx}
                 style={{
@@ -1867,17 +1944,28 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
                   <span style={{ fontSize: 13, fontWeight: 600, color: MUTED }}>
                     {ex.totalSets}×
                   </span>
-                  {ex.bestKg > 0 && (
+                  {cardio && (cardio.minutes > 0 || cardio.km > 0) ? (
+                    <span style={{
+                      background: `${accentHex}22`, color: accentHex,
+                      borderRadius: 20, padding: "2px 10px", fontSize: 13, fontWeight: 700,
+                    }}>
+                      {[
+                        cardio.minutes > 0 ? formatCardioMinutes(cardio.minutes) : null,
+                        cardio.km > 0 ? `${formatCardioKm(cardio.km)}km` : null,
+                      ].filter(Boolean).join(" · ")}
+                    </span>
+                  ) : ex.bestKg > 0 ? (
                     <span style={{
                       background: `${accentHex}22`, color: accentHex,
                       borderRadius: 20, padding: "2px 10px", fontSize: 13, fontWeight: 700,
                     }}>
                       {ex.bestKg}kg
                     </span>
-                  )}
+                  ) : null}
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
           {data.completedExercises.length > 4 && (
             <button

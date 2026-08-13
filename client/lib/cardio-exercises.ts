@@ -26,3 +26,60 @@ export function isCardioExercise(
   if (workoutId && STATIONARY_CARDIO_WORKOUT_IDS.has(workoutId)) return false;
   return true;
 }
+
+// ── Modalidade do cardio ─────────────────────────────────────────────────────
+// O catálogo tem poucos exercícios de cardio, e cada modalidade tem uma leitura
+// própria (correr tem RITMO min/km, pedalar tem VELOCIDADE km/h, corda só tem
+// tempo). Classificar por nome permite que o resumo do treino gere um card
+// compartilhável dedicado a cada uma — ver `cardio-canvas.ts`.
+//
+// A classificação é por NOME porque é o que sobrevive em todos os caminhos:
+// o `workout_id` não vem nos snapshots persistidos e o nome chega localizado
+// (pickLocalized), então casamos palavras-chave em PT e EN.
+export type CardioKind =
+  | "run"
+  | "walk"
+  | "bike"
+  | "elliptical"
+  | "rowing"
+  | "jump_rope"
+  | "stairs"
+  | "swim"
+  | "generic";
+
+function normalizeName(name: string): string {
+  return name
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+// A ORDEM importa: "remo ergometrico" contém "ergometrico", que também é
+// palavra da bicicleta — por isso remo é testado antes.
+const CARDIO_KIND_KEYWORDS: Array<[CardioKind, string[]]> = [
+  ["rowing", ["remo", "row", "remada ergometrica"]],
+  ["jump_rope", ["corda", "rope", "skipping"]],
+  ["swim", ["natacao", "nado", "swim"]],
+  ["elliptical", ["eliptico", "elliptical", "cross trainer", "transport"]],
+  ["bike", ["bicicleta", "bike", "ciclismo", "cycling", "spinning", "ergometrica", "ergometrico"]],
+  ["stairs", ["escada", "stair", "step mill", "degrau"]],
+  ["walk", ["caminhada", "caminhar", "walk", "hiking", "trilha"]],
+  ["run", ["corrida", "correr", "run", "esteira", "treadmill", "trote", "jog", "sprint"]],
+];
+
+/**
+ * Modalidade de um exercício de cardio a partir do nome. Sempre devolve algo —
+ * o que não casar com nenhuma palavra-chave (exercício personalizado com nome
+ * criativo) cai em `generic`, que tem card próprio genérico de cardio.
+ *
+ * Não decide se o exercício É cardio: para isso use `isCardioExercise`.
+ */
+export function getCardioKind(name?: string | null): CardioKind {
+  const n = normalizeName(name ?? "");
+  if (!n) return "generic";
+  for (const [kind, words] of CARDIO_KIND_KEYWORDS) {
+    if (words.some((w) => n.includes(w))) return kind;
+  }
+  return "generic";
+}

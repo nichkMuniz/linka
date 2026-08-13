@@ -1,4 +1,4 @@
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Scale } from "lucide-react";
 import { useLanguage } from "@/lib/language-context";
 
 interface StreakBadgesCardProps {
@@ -12,6 +12,8 @@ interface StreakBadgesCardProps {
   onOpenCalendar: () => void;
   /** opens the badges/insignias drawer — triggered by tapping badge chips */
   onOpenBadges: () => void;
+  /** opens the body-weight history drawer — the ⚖️ icon in the top-right corner */
+  onOpenWeight: () => void;
 }
 
 /**
@@ -19,6 +21,7 @@ interface StreakBadgesCardProps {
  * contagem, título/recorde e mini-fileira de badges.
  * - Tocar no card principal abre o calendário de check-ins.
  * - Tocar nos ícones de badge abre o sheet de insígnias.
+ * - Tocar no ⚖️ do canto superior direito abre o histórico de peso.
  */
 export function StreakBadgesCard({
   streakCount,
@@ -28,6 +31,7 @@ export function StreakBadgesCard({
   lockedCount,
   onOpenCalendar,
   onOpenBadges,
+  onOpenWeight,
 }: StreakBadgesCardProps) {
   const { t } = useLanguage();
 
@@ -125,7 +129,42 @@ export function StreakBadgesCard({
         )}
       </div>
 
-      <ChevronRight className="h-5 w-5 self-start shrink-0" style={{ color: "rgba(255,255,255,.4)" }} />
+      {/* canto superior direito: ⚖️ peso (discreto, de propósito) + chevron do card */}
+      <div className="self-start shrink-0 flex items-center gap-1.5">
+        <div
+          role="button"
+          tabIndex={0}
+          aria-label={t("goals_weight_title")}
+          // Área de toque de ~42px (o quadrado visível tem 30px) sem mexer no
+          // layout: o padding é compensado pela margem negativa.
+          style={{ margin: "-6px", padding: "6px" }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenWeight();
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.stopPropagation();
+              onOpenWeight();
+            }
+          }}
+        >
+          <div
+            className="flex items-center justify-center active:scale-95 transition-transform"
+            style={{
+              width: "30px",
+              height: "30px",
+              borderRadius: "10px",
+              background: "rgba(255,255,255,.07)",
+              border: "1px solid rgba(255,255,255,.1)",
+            }}
+          >
+            <Scale className="h-4 w-4" style={{ color: "rgba(255,255,255,.55)" }} />
+          </div>
+        </div>
+
+        <ChevronRight className="h-5 w-5" style={{ color: "rgba(255,255,255,.4)" }} />
+      </div>
     </button>
   );
 }

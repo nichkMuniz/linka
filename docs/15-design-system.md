@@ -244,6 +244,8 @@ Sem borda:            border-0 ou remover a classe border
 | `destructive` | Ações perigosas | Fundo vermelho |
 | `link` | Navegação em texto | Texto azul sublinhado |
 
+> O `hover:` de cada variante **só existe no navegador de dev** (ver §13.4). No device o feedback vem do `active:scale-[0.98]` que a base do `Button` já aplica — para outra intensidade, passe `active:scale-*` no `className` (o `cn`/tailwind-merge deixa o de fora vencer). A variante `ghost` fica sem estado visual em repouso no device: use-a só onde o próprio ícone já comunica a ação.
+
 ### 6.2 Tamanhos
 
 | Size | Altura | Uso |
@@ -319,6 +321,7 @@ Padrão para deixar o usuário escolher entre **variações visuais do mesmo con
 - `flexShrink: 0` em cada chip — obrigatório, senão o flex container espreme os últimos itens em vez de rolar.
 - Emoji como indicador visual rápido da opção, à esquerda do label.
 - Só liste opções que fazem sentido para os dados disponíveis (ex.: esconder uma opção que precisa de um valor > 0 quando esse valor é zero) em vez de mostrá-la desabilitada.
+- Opções podem ser **geradas a partir dos dados**, não só fixas: no resumo de treino, cada modalidade de cardio feita na sessão (corrida, bike, remo…) vira um chip com emoji e cor próprios (`CARDIO_KIND_META` em `client/components/goals/cardio-canvas.ts`). Quando a opção gerada é claramente a mais relevante para aquela sessão, ela pode vir **pré-selecionada** — mas nunca esconda o padrão fixo ("Clássico") do restante da fileira.
 
 ---
 
@@ -734,6 +737,30 @@ md:classe-desktop
 <div className="grid grid-cols-8 gap-0.5">
 ```
 
+### 12.5 Papel de parede de doodles (2026-08-13)
+
+Fundo ladrilhado de doodles, no espírito do fundo do WhatsApp. Hoje é usado na **conversa privada** da Comunidade.
+
+| Peça | Onde |
+|---|---|
+| Arte original | `public/background-mensagem.png` — fonte, não é a que a tela usa |
+| Asset em uso | `public/chat-wallpaper.webp` — ladrilho 2600×1370 espelhado em 2×2, derivado da arte |
+| Gerador | `scripts/build-chat-wallpaper.cjs` (`node scripts/build-chat-wallpaper.cjs`) |
+| Classe | `.chat-doodle-wallpaper` (`client/global.css`, `@layer utilities`) — `background-size: 1240px auto`, `repeat`, opaca |
+
+```tsx
+// Dentro de um container posicionado (fixed/relative) e com overflow-hidden
+<div aria-hidden="true" className="chat-doodle-wallpaper pointer-events-none absolute inset-0 -z-10" />
+```
+
+**Regras:**
+- `-z-10` deixa a camada acima do `background` do próprio container e abaixo do conteúdo em fluxo; não é preciso dar `z-index` aos irmãos
+- O container precisa de `overflow-hidden` e de posicionamento (`fixed`/`relative`)
+- Decoração de fundo: sempre `aria-hidden` e `pointer-events-none`
+- Ajuste de intensidade é por `filter: brightness()` na classe — **nunca** editando o arquivo de imagem
+- **Não usar `background-size: cover`** em container que muda de altura (a conversa encolhe quando o teclado abre): o fundo re-escala e dá um zoom junto com a animação. Tamanho fixo em px não tem esse problema
+- Ao trazer arte nova, verificar se ela é um **ladrilho contínuo**. Arte de tela (screenshot/wallpaper) quase nunca é — as figuras ficam cortadas nas bordas e o `repeat` cria emenda. A saída é espelhar (é o que o script faz) e dimensionar de modo que o quadrante fique **maior que a largura da tela**, para o eixo do espelho não aparecer
+
 ---
 
 ## 13. Animações e Transições
@@ -758,6 +785,15 @@ md:classe-desktop
 | Dots de carregamento | `animate-bounce` com delays |
 | Micro-interação de reação | `hover:scale-125 transition-transform` |
 | Botão pressionado | `active:scale-95` |
+
+### 13.4 Hover não existe no device (obrigatório)
+
+O alvo é iPhone/iPad: **nenhum feedback pode depender de `:hover`**.
+
+- `tailwind.config.ts` liga `future.hoverOnlyWhenSupported: true` — toda utilitária `hover:`/`group-hover:` é compilada dentro de `@media (hover: hover) and (pointer: fine)`. No navegador de dev continua funcionando; no device simplesmente não existe. Isso mata o `:hover` grudento do WKWebView (elemento fica "aceso" depois do toque, como se um cursor tivesse parado nele) e o toque duplo que ele provoca — o primeiro toque num elemento com estilo de hover é gasto só aplicando o hover.
+- **Todo controle precisa de um `active:`** (`active:scale-95`, `active:scale-[0.985]`, `active:bg-white/[.14]`). Sem isso o toque fica sem resposta nenhuma no device.
+- **Nunca revele um controle só no hover** (`opacity-0 group-hover:opacity-100`): no device ele nunca aparece. Se o elemento existe apenas para ponteiro, tudo bem; se for necessário ao toque, mostre-o sempre ou use o escape hatch `[@media(hover:none)]:opacity-100` (é o que o `ToastClose` faz).
+- `client/global.css` aplica em `button/[role=button]/a/label/summary`: `-webkit-touch-callout: none`, `user-select: none` e `touch-action: manipulation`. Arrastar o dedo sobre um controle não seleciona o rótulo (o que fazia parecer que a linha ficou "marcada" e exigia um toque só para desfazer). **Campos de texto ficam fora dessa regra** — lá a seleção é essencial.
 
 ### 13.3 Performance
 

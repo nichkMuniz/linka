@@ -65,6 +65,7 @@ import { hapticLight, hapticMedium } from "@/lib/haptics";
 import { cn } from "@/lib/utils";
 import { renderWithHashtags } from "@/lib/post-visuals";
 import { UserInsignias } from "@/components/profile/user-insignias";
+import { releaseVideoElement } from "@/lib/media-prefetch";
 
 function formatRelativeTime(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -76,6 +77,100 @@ function formatRelativeTime(dateStr: string): string {
   const days = Math.floor(hours / 24);
   return `${days}d`;
 }
+
+// Quantos shots mantêm um <video> montado em volta do que está na tela.
+// O WKWebView do iOS tem um teto de players simultâneos: manter os 50 shots do
+// feed com elemento de vídeo vivo derruba a faixa de VÍDEO dos players novos —
+// o áudio toca, mas nenhum frame é pintado. Os shots fora da janela viram um
+// bloco preto (o wrapper com `data-shot-id` continua no DOM, então o
+// IntersectionObserver, o scroll-snap e os overlays não mudam em nada).
+const VIDEO_WINDOW = 2;
+
+/**
+ * Quantos frames de vídeo o elemento já decodificou, ou `null` se o WebView não
+ * expõe o contador. É como detectamos o estado "áudio sem imagem": tocando
+ * (currentTime avançando) com zero frames decodificados.
+ */
+function decodedVideoFrames(video: HTMLVideoElement): number | null {
+  const legacy = (video as unknown as { webkitDecodedFrameCount?: number }).webkitDecodedFrameCount;
+  if (typeof legacy === "number") return legacy;
+  const quality = (video as unknown as { getVideoPlaybackQuality?: () => { totalVideoFrames?: number } })
+    .getVideoPlaybackQuality;
+  if (typeof quality === "function") {
+    const total = quality.call(video)?.totalVideoFrames;
+    if (typeof total === "number") return total;
+  }
+  return null;
+}
+
+/**
+ * O <video> de um shot, isolado em componente próprio por causa do DESMONTE.
+ *
+ * Um ref callback inline (`ref={(el) => ...}`) não serve para liberar o player:
+ * o React recria a função a cada render e chamaria `ref(null)` fora de hora, a
+ * cada re-render da lista. Aqui o registro/liberação vive num `useEffect`, que
+ * só roda de verdade no montar e no desmontar.
+ */
+const ShotVideo = React.memo(function ShotVideo({
+  shotId,
+  src,
+  muted,
+  preload,
+  register,
+  unregister,
+  onError,
+}: {
+  shotId: string;
+  src: string;
+  muted: boolean;
+  preload: "auto" | "metadata" | "none";
+  register: (shotId: string, video: HTMLVideoElement) => void;
+  unregister: (shotId: string, video: HTMLVideoElement) => void;
+  onError: (shotId: string) => void;
+}) {
+  const videoRef = React.useRef<HTMLVideoElement | null>(null);
+
+  React.useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    // Se um ciclo anterior deste efeito já liberou o elemento, o `src` foi
+    // removido do DOM — e o React não o reescreve, porque para ele a prop não
+    // mudou. Reatacha antes de registrar.
+    if (video.getAttribute("src") !== src) {
+      video.setAttribute("src", src);
+      try {
+        video.load();
+      } catch {
+        /* ignora */
+      }
+    }
+    register(shotId, video);
+    return () => unregister(shotId, video);
+  }, [shotId, src, register, unregister]);
+
+  // O React nem sempre aplica `muted` no primeiro render — mantém imperativo.
+  React.useEffect(() => {
+    const video = videoRef.current;
+    if (video) video.muted = muted;
+  }, [muted]);
+
+  return (
+    <video
+      ref={videoRef}
+      src={src}
+      muted={muted}
+      loop
+      playsInline
+      // webkit-playsinline garante reprodução inline no WKWebView iOS
+      // x-webkit-airplay="deny" evita que o iOS sequestre o player nativo
+      {...({ "webkit-playsinline": "true", "x-webkit-airplay": "deny" } as React.VideoHTMLAttributes<HTMLVideoElement>)}
+      preload={preload}
+      className="h-full w-full object-cover"
+      style={{ pointerEvents: "none" }}
+      onError={() => onError(shotId)}
+    />
+  );
+});
 
 export default function Shots() {
   const { user } = useAuth();
@@ -236,6 +331,13 @@ export default function Shots() {
   const playVideoSafely = React.useCallback(async (video: HTMLVideoElement) => {
     if (!video.paused) return; // já tocando — idempotente (evita corridas)
 
+    // 0) Recurso ainda não selecionado (shot que renderizou com preload="none" e
+    //    entrou na tela antes do re-render): um play() direto às vezes traz só o
+    //    áudio no WKWebView. load() força a seleção do recurso primeiro.
+    if (video.readyState === 0 && video.networkState !== 2 /* NETWORK_LOADING */) {
+      try { video.load(); } catch { /* ignora */ }
+    }
+
     // 1) Tentativa com som.
     try { await video.play(); } catch { /* pode rejeitar OU no-op silencioso */ }
     if (!video.paused) return; // pegou
@@ -246,6 +348,48 @@ export default function Shots() {
     try { await video.play(); } catch { /* nem mudo — resta o toque do usuário */ }
     if (!video.paused) revealSoundLabel();
   }, [revealSoundLabel]);
+
+  // Registro dos <video> montados. `unregister` LIBERA o player do WKWebView —
+  // sem isso, sair de um shot deixaria o recurso preso até a coleta de lixo e o
+  // próximo vídeo entraria sem faixa de vídeo.
+  const registerVideo = React.useCallback((shotId: string, video: HTMLVideoElement) => {
+    videoRefsMap.current[shotId] = video;
+  }, []);
+
+  const unregisterVideo = React.useCallback((shotId: string, video: HTMLVideoElement) => {
+    if (videoRefsMap.current[shotId] === video) delete videoRefsMap.current[shotId];
+    releaseVideoElement(video);
+  }, []);
+
+  // Vídeo quebrado (404, formato não suportado): tira do map para o autoplay e os
+  // gestos não insistirem num elemento que nunca vai tocar.
+  const handleVideoError = React.useCallback((shotId: string) => {
+    delete videoRefsMap.current[shotId];
+  }, []);
+
+  // Rede de segurança para o estado "toca o áudio, mas a tela fica preta /
+  // congelada no primeiro frame": acontece quando o WebView entrega o player sem
+  // faixa de vídeo (teto de players estourado ou elemento nunca compositado).
+  // O sintoma é objetivo — o vídeo está avançando e o contador de frames
+  // decodificados continua em zero. Nesse caso, refaz o pipeline do elemento
+  // (load + play). Uma tentativa por shot, para nunca virar laço.
+  const repaintAttemptedRef = React.useRef<Set<string>>(new Set());
+
+  const ensureVideoPainted = React.useCallback((shotId: string) => {
+    const video = videoRefsMap.current[shotId];
+    if (!video || repaintAttemptedRef.current.has(shotId)) return;
+    const frames = decodedVideoFrames(video);
+    // frames === null → WebView sem o contador; não dá para afirmar nada.
+    if (frames === null || frames > 0) return;
+    if (video.paused || video.currentTime < 0.25) return; // ainda nem começou
+    repaintAttemptedRef.current.add(shotId);
+    try {
+      video.load();
+    } catch {
+      /* ignora */
+    }
+    void playVideoSafely(video);
+  }, [playVideoSafely]);
 
   const handleVideoTap = React.useCallback((shotId: string) => {
     const now = Date.now();
@@ -609,6 +753,31 @@ export default function Shots() {
     return () => { cancelled = true; };
   }, [shots, playVideoSafely]);
 
+  // Garante o play do shot em foco DEPOIS que o elemento existe.
+  //
+  // O IntersectionObserver já chama play(), mas num scroll rápido o shot que
+  // entra pode estar fora da janela `VIDEO_WINDOW` no momento em que o observer
+  // dispara — o <video> ainda não montou e `videoRefsMap` não tem o ref. Este
+  // efeito roda depois do render que montou o elemento (efeitos de filho vêm
+  // antes dos do pai, então o registro já aconteceu), fechando essa janela.
+  React.useEffect(() => {
+    if (!visibleShotId) return;
+    const video = videoRefsMap.current[visibleShotId];
+    if (video) void playVideoSafely(video);
+  }, [visibleShotId, playVideoSafely]);
+
+  // Confere, pouco depois de o shot entrar em foco, se ele está realmente
+  // PINTANDO frames — e não só tocando o áudio. Duas amostras: a primeira pega o
+  // caso comum, a segunda cobre um buffer lento que ainda não tinha começado.
+  React.useEffect(() => {
+    if (!visibleShotId) return;
+    const timers = [
+      setTimeout(() => ensureVideoPainted(visibleShotId), 900),
+      setTimeout(() => ensureVideoPainted(visibleShotId), 2200),
+    ];
+    return () => timers.forEach(clearTimeout);
+  }, [visibleShotId, ensureVideoPainted]);
+
   const handleIncentiveClick = React.useCallback(
     async (shot: ShotWithUser, type: PostIncentiveType) => {
       if (!user) {
@@ -969,6 +1138,8 @@ export default function Shots() {
         {shots.map((shot, index) => {
           const distance = Math.abs(index - visibleIndex);
           const videoPreload = distance === 0 ? "auto" : distance === 1 ? "metadata" : "none";
+          // Fora da janela nem existe elemento de vídeo — ver VIDEO_WINDOW.
+          const mountVideo = distance <= VIDEO_WINDOW;
           return (
             <div
               key={shot.id}
@@ -1020,25 +1191,19 @@ export default function Shots() {
                     }}
                     onDismiss={() => setQuickOverlayShotId(null)}
                   />
-                  <video
-                    ref={(el) => {
-                      if (el) {
-                        videoRefsMap.current[shot.id] = el;
-                        el.muted = isMuted;
-                      }
-                    }}
-                    src={shot.video_url}
-                    muted={isMuted}
-                    loop
-                    playsInline
-                    // webkit-playsinline garante reprodução inline no WKWebView iOS
-                    // x-webkit-airplay="deny" evita que o iOS sequestre o player nativo
-                    {...({ "webkit-playsinline": "true", "x-webkit-airplay": "deny" } as React.VideoHTMLAttributes<HTMLVideoElement>)}
-                    preload={videoPreload}
-                    className="h-full w-full object-cover"
-                    style={{ pointerEvents: "none" }}
-                    onError={() => { delete videoRefsMap.current[shot.id]; }}
-                  />
+                  {mountVideo ? (
+                    <ShotVideo
+                      shotId={shot.id}
+                      src={shot.video_url}
+                      muted={isMuted}
+                      preload={videoPreload}
+                      register={registerVideo}
+                      unregister={unregisterVideo}
+                      onError={handleVideoError}
+                    />
+                  ) : (
+                    <div className="h-full w-full bg-black" />
+                  )}
                   {/* Pause state indicator — visível enquanto pausado, igual ao FlowViewer */}
                   {isPaused && visibleShotId === shot.id && (
                     <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
