@@ -25,6 +25,21 @@ export type ProgramWorkout = {
 };
 
 /**
+ * Explicação de UMA decisão que o gerador tomou por causa dos dados do usuário
+ * ("como você marcou cuidado com o joelho, tirei os agachamentos profundos").
+ *
+ * Regra: **toda nota corresponde a um ajuste que de fato aconteceu no programa**
+ * — nota sem decisão por trás é teatro de personalização (ver
+ * `skills/personal-trainer-agent.md`, seção 6).
+ */
+export type CoachNote = {
+  /** origem do ajuste — dá o ícone e agrupa no preview */
+  kind: "body" | "age" | "restriction" | "goal" | "level" | "trend";
+  pt: string;
+  en: string;
+};
+
+/**
  * Programa de treino semanal sugerido por nível.
  * `week` tem 7 posições (segunda→domingo); cada posição aponta para a `key`
  * de um treino em `workouts` ou `null` (dia de descanso).
@@ -37,6 +52,11 @@ export type WeeklyProgram = {
   workouts: ProgramWorkout[];
   /** índice 0 = segunda … 6 = domingo */
   week: Array<string | null>;
+  /**
+   * "Por que este plano é seu" — só existe nos programas gerados pelo quiz
+   * (o catálogo estático abaixo não tem dados do usuário para justificar nada).
+   */
+  coachNotes?: CoachNote[];
 };
 
 export const WEEKLY_PROGRAMS: WeeklyProgram[] = [

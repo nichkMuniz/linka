@@ -832,7 +832,7 @@ Perfil público dos usuários da plataforma.
 | `photo` | text | — | — | URL da foto de perfil |
 | `cover_photo` | text | — | — | URL da foto de capa/banner do perfil. Quando preenchida, substitui o gradiente colorido no topo do perfil. `null` = usar gradiente padrão |
 | `objectives` | text[] | — | — | Objetivos fitness selecionados no cadastro (ex: ["fitness", "cardio"]) |
-| `gender` | text[] | — | — | sexo do usuario |
+| `gender` | text[] | — | — | Sexo do usuário — o cadastro grava o **texto** `male` \| `female` \| `other`. Lido por `getUserProfileDb` (normaliza array→texto) e usado pelo gerador de rotina sugerida para calibrar faixa de repetições e descanso (`client/lib/coach-profile.ts`). Escrito também por `updateUserPersonalDataDb` no passo "Sobre você" do quiz |
 | `height` | bigint[] | — | — | altura do usuario |
 | `weight` | float[] | — | — | peso do usuario |
 | `age` | bigint[] | — | — | idade do usuario |
@@ -1269,12 +1269,15 @@ Perfil fitness do usuário — respostas do **quiz de personalização** do flux
 | `session_minutes` | smallint | ✓ | `60` | Tempo por sessão em minutos (30/45/60/75) |
 | `emphasis` | text | ✓ | — | Ênfase muscular: `balanced` \| `lower` \| `upper` (check constraint) |
 | `location` | text | ✓ | — | Local de treino: `gym` \| `home` (check constraint) |
+| `restrictions` | text | — | — | **(13/08/2026)** Articulações em cuidado, CSV: `knee`, `shoulder`, `lower_back`, `wrist`. **Vetam exercícios** no gerador de rotina sugerida (`eligiblePool` em `program-generator.ts`) e alimentam as adaptações de execução na sessão de treino. Mesmo formato CSV de `training_days`. Migration: `docs/migrations/20260813-fitness-profile-restrictions.sql` |
 | `created_at` | timestamptz | — | `now()` | Data de criação |
 | `updated_at` | timestamptz | — | `now()` | Última atualização |
 
 **RLS:** `fitness_profile_manage_own` — usuário só lê/escreve a própria linha (`auth.uid() = user_id`).
 
 > Migration: `docs/migrations/20260708-fitness-profile-and-program-meta.sql`
+>
+> ⚠️ `getFitnessProfileDb`/`upsertFitnessProfileDb` **degradam** enquanto a migração de `restrictions` não roda: detectam `42703` (`undefined_column`) e refazem a consulta/escrita sem a coluna. O resto do perfil continua funcionando; só as restrições não persistem entre criações.
 
 ---
 

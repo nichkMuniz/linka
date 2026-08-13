@@ -323,6 +323,27 @@ Padrão para deixar o usuário escolher entre **variações visuais do mesmo con
 - Só liste opções que fazem sentido para os dados disponíveis (ex.: esconder uma opção que precisa de um valor > 0 quando esse valor é zero) em vez de mostrá-la desabilitada.
 - Opções podem ser **geradas a partir dos dados**, não só fixas: no resumo de treino, cada modalidade de cardio feita na sessão (corrida, bike, remo…) vira um chip com emoji e cor próprios (`CARDIO_KIND_META` em `client/components/goals/cardio-canvas.ts`). Quando a opção gerada é claramente a mais relevante para aquela sessão, ela pode vir **pré-selecionada** — mas nunca esconda o padrão fixo ("Clássico") do restante da fileira.
 
+### 6.6 Chip de filtro (fileira em superfície escura)
+
+Variante do 6.5 para **filtrar uma lista** dentro de um sheet glass escuro — o chip selecionado é **branco sólido**, igual à alternância de abas do wizard, em vez de tingido por acento. Introduzido nos filtros do passo de montagem de rotina (`ChipToggle` em `create-wizard-drawer.tsx`: porção do músculo e Academia/Em casa).
+
+```tsx
+<button
+  className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-semibold transition-all active:scale-95"
+  style={active
+    ? { background: "linear-gradient(rgba(255,255,255,.95),rgba(255,255,255,.84))", color: "#0a0b12" }
+    : { background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.12)", color: "rgba(255,255,255,.65)" }}
+>
+```
+
+- **Selecionado = branco** (mesmo gradiente da aba ativa), texto quase preto; não selecionado = vidro sutil com borda. Mantém a hierarquia com a alternância de abas logo acima: aba escolhe **como navegar**, chip **filtra** o que a navegação mostra.
+- Poucas opções fixas e curtas (2–4, tipo Todos/Academia/Em casa) → `flex-1 justify-center` para dividir a largura em uma linha só. Quantidade variável ou rótulos longos (porções musculares: "Reto abdominal superior") → **rolagem horizontal**: `flex overflow-x-auto no-scrollbar` + `shrink-0` nos chips + `whitespace-nowrap`. Nunca `flex-wrap`: em 2–3 linhas a fileira de filtros empurra o conteúdo filtrado para fora da tela.
+- Fileira rolável **dentro de drawer** precisa de `data-vaul-no-drag` no container, senão o gesto lateral disputa com o arraste do sheet (ver §"Swipe para fechar" dos drawers).
+- Use `-mx-1 px-1` no container rolável para o chip ativo não ficar com a sombra/borda cortada na borda do sheet.
+- Ícone opcional de 14px (`h-3.5 w-3.5`) à esquerda do label quando ele desambigua rápido (🏋️ academia × 🏠 casa).
+- Um chip "Todos/Todas" abre a fileira e representa "sem filtro" — nunca deixe a fileira sem estado neutro.
+- Se um filtro esvazia um agrupamento, **esconda o agrupamento** em vez de mostrá-lo com contagem 0.
+
 ---
 
 ## 7. Componentes — Cards

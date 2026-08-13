@@ -5,7 +5,9 @@ import {
   Check,
   ChevronRight,
   Dumbbell,
+  Home,
   Loader2,
+  Lock,
   Pencil,
   Plus,
   Repeat2,
@@ -49,8 +51,10 @@ import {
   getMusclesDb,
   getWorkoutsByMuscleDb,
   getProgrammedGoalsDb,
+  getUserProfileDb,
   getUserRoutinesDb,
   getUserSelectedGoalIdsDb,
+  getWeightLogsDb,
   getWorkoutNameIdIndexDb,
   getWorkoutsDb,
   matchesCatalogSearch,
@@ -63,6 +67,7 @@ import {
   updateRoutineTechniquesDb,
   updateRoutineTrainingModeDb,
   updateRoutineTrainingModeByNameDb,
+  updateUserPersonalDataDb,
   upsertFitnessProfileDb,
   type Diet,
   type Habit,
@@ -84,6 +89,10 @@ import {
   type SuggestedExercise,
   type WeeklyProgram,
 } from "@/components/goals/suggested-routines-data";
+import {
+  matchesExerciseLocation,
+  type ExerciseLocationFilter,
+} from "@/lib/exercise-location";
 import { HabitTimeRow } from "@/components/goals/habit-time-row";
 import {
   TechniquePlanner,
@@ -104,6 +113,17 @@ import {
   type TrainingGoal,
   type TrainingLocation,
 } from "@/components/goals/program-generator";
+import {
+  buildCoachProfile,
+  formatBmi,
+  JOINT_RESTRICTIONS,
+  parseBodyData,
+  weightTrendFromLogs,
+  type BiologicalSex,
+  type JointRestriction,
+  type WeightTrend,
+} from "@/lib/coach-profile";
+import { getExerciseShortCue } from "@/lib/exercise-coaching";
 
 type WizardStep =
   | "what"
@@ -115,6 +135,7 @@ type WizardStep =
   | "quiz-time"
   | "quiz-location"
   | "quiz-emphasis"
+  | "quiz-body"
   | "suggested-program"
   | "suggested-goal"
   | "build-name"
@@ -127,6 +148,40 @@ type WizardStep =
   | "goal-adjust"
   | "goal-adjust-edit"
   | "goal-custom";
+
+/**
+ * Chip de filtro do passo de montagem (porção muscular, local do exercício).
+ * Mesmo visual da alternância Lista/Músculo, em tamanho de pílula.
+ */
+function ChipToggle({
+  active,
+  onClick,
+  label,
+  icon,
+  className = "",
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+  icon?: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-[12px] font-semibold transition-all active:scale-95 ${className}`}
+      style={
+        active
+          ? { background: "linear-gradient(rgba(255,255,255,.95),rgba(255,255,255,.84))", color: "#0a0b12" }
+          : { background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.12)", color: "rgba(255,255,255,.65)" }
+      }
+    >
+      {icon}
+      {label}
+    </button>
+  );
+}
 
 // Dias da semana (seg→dom), índices 0–6 — convenção Monday-first do app.
 const WEEKDAY_KEYS: TranslationKey[] = [
@@ -234,6 +289,29 @@ const QUIZ_EMPHASES: Array<{
   { value: "upper", emoji: "💪", labelKey: "goals_quiz_emphasis_upper", descKey: "goals_quiz_emphasis_upper_desc" },
 ];
 
+/** Nº total de perguntas do quiz — usado no selo "Pergunta {i} de {n}". */
+const QUIZ_STEP_COUNT = 7;
+
+/** Campos do passo "Sobre você" que podem vir travados do perfil. */
+type BodyField = "sex" | "age" | "height" | "weight";
+
+const QUIZ_SEXES: Array<{ value: BiologicalSex; labelKey: TranslationKey }> = [
+  { value: "female", labelKey: "goals_quiz_body_sex_female" },
+  { value: "male", labelKey: "goals_quiz_body_sex_male" },
+  { value: "other", labelKey: "goals_quiz_body_sex_other" },
+];
+
+const QUIZ_RESTRICTIONS: Array<{
+  value: JointRestriction;
+  emoji: string;
+  labelKey: TranslationKey;
+}> = [
+  { value: "knee", emoji: "🦵", labelKey: "goals_quiz_restriction_knee" },
+  { value: "shoulder", emoji: "💪", labelKey: "goals_quiz_restriction_shoulder" },
+  { value: "lower_back", emoji: "🔙", labelKey: "goals_quiz_restriction_lower_back" },
+  { value: "wrist", emoji: "🤚", labelKey: "goals_quiz_restriction_wrist" },
+];
+
 export function CreateWizardDrawer({
   open,
   onOpenChange,
@@ -290,13 +368,15 @@ export function CreateWizardDrawer({
   const [linkGoalId, setLinkGoalId] = React.useState<string | null>(null);
   const [searchQuery, setSearchQuery] = React.useState("");
   const [muscleFilter, setMuscleFilter] = React.useState<string | null>(null);
-  // "list" = todos os itens; "group" = navegar por músculo/categoria
-  // "list" = todos · "group" = por grupo muscular grosso · "anatomy" = por
-  // PORÇÃO muscular (Peito → Superior/Meio/Inferior), só para treino.
-  const [browseMode, setBrowseMode] = React.useState<"list" | "group" | "anatomy">("list");
-  // Navegação do modo anatomia: grupo escolhido → músculo escolhido.
-  const [anatomyGroup, setAnatomyGroup] = React.useState<string | null>(null);
+  // "list" = todos os itens · "group" = navegar por músculo/categoria.
+  // A aba "Porção" (anatomia) foi absorvida pelo modo "group": era o mesmo
+  // filtro em dois lugares — dentro do grupo escolhido, as porções daquele
+  // músculo viram chips (ver `anatomyMuscleId`).
+  const [browseMode, setBrowseMode] = React.useState<"list" | "group">("list");
+  // Porção muscular escolhida dentro do grupo (Peito → Peitoral superior).
   const [anatomyMuscleId, setAnatomyMuscleId] = React.useState<string | null>(null);
+  // Onde o exercício é feito: academia × casa (só treino). Ver exercise-location.ts.
+  const [locationFilter, setLocationFilter] = React.useState<ExerciseLocationFilter>("all");
   const [muscles, setMuscles] = React.useState<Muscle[]>([]);
   const [muscleWorkouts, setMuscleWorkouts] = React.useState<Workout[]>([]);
   const [muscleWorkoutsLoading, setMuscleWorkoutsLoading] = React.useState(false);
@@ -341,6 +421,21 @@ export function CreateWizardDrawer({
   const [quizEmphasis, setQuizEmphasis] = React.useState<MuscleEmphasis | null>(null);
   // perfil fitness salvo (última criação) carregado uma vez para pré-preencher o quiz
   const [quizProfileLoaded, setQuizProfileLoaded] = React.useState(false);
+  // ── Dados do corpo (passo "Sobre você") ────────────────────────────────────
+  // Vêm do perfil (`profiles.gender/age/height/weight`) e podem ser corrigidos
+  // aqui mesmo — quem corrige, grava de volta no perfil. É o que transforma a
+  // sugestão em prescrição individual (ver client/lib/coach-profile.ts).
+  const [bodySex, setBodySex] = React.useState<BiologicalSex | null>(null);
+  const [bodyAge, setBodyAge] = React.useState("");
+  const [bodyHeight, setBodyHeight] = React.useState("");
+  const [bodyWeight, setBodyWeight] = React.useState("");
+  // Campos que vieram preenchidos do perfil → exibidos como leitura. Editar
+  // altura/peso é assunto do Perfil; aqui o dado só é consultado. Fica editável
+  // apenas o que o perfil não tem (senão não haveria como personalizar).
+  const [lockedBodyFields, setLockedBodyFields] = React.useState<Set<BodyField>>(new Set());
+  const [restrictions, setRestrictions] = React.useState<Set<JointRestriction>>(new Set());
+  // tendência do peso corporal (histórico) — não é editável, só informa o motor
+  const [weightTrend, setWeightTrend] = React.useState<WeightTrend | null>(null);
   const [expandedDay, setExpandedDay] = React.useState<string | null>(null);
   const [addingProgram, setAddingProgram] = React.useState(false);
   // editable copy of the suggested program (exercises + days can be customized before adding)
@@ -403,8 +498,8 @@ export function CreateWizardDrawer({
       setSearchQuery("");
       setMuscleFilter(null);
       setBrowseMode("list");
-      setAnatomyGroup(null);
       setAnatomyMuscleId(null);
+      setLocationFilter("all");
       setShowCustomForm(false);
       setCustomName("");
       setCustomExtra("");
@@ -438,8 +533,8 @@ export function CreateWizardDrawer({
       setSearchQuery("");
       setMuscleFilter(null);
       setBrowseMode("list");
-      setAnatomyGroup(null);
       setAnatomyMuscleId(null);
+      setLocationFilter("all");
       setShowCustomForm(false);
       setCustomName("");
       setCustomExtra("");
@@ -499,12 +594,60 @@ export function CreateWizardDrawer({
 
   // Pré-preenche o quiz com o perfil fitness salvo na última criação de
   // programa (só preenche o que o usuário ainda não respondeu nesta sessão).
+  //
+  // Carrega junto os DADOS DO CORPO (perfil + histórico de peso): eles chegam
+  // no primeiro passo do quiz, muito antes do passo "Sobre você", para o campo
+  // já aparecer preenchido quando o usuário chegar lá.
   React.useEffect(() => {
     if (!open || step !== "quiz-goal" || quizProfileLoaded) return;
     setQuizProfileLoaded(true);
+    getUserProfileDb(userId)
+      .then((profile) => {
+        if (!profile) return;
+        const body = parseBodyData({
+          gender: profile.gender,
+          age: profile.age,
+          height: profile.height,
+          weight: profile.weight,
+        });
+        // Campo que JÁ existe no perfil entra travado (só leitura): o lugar de
+        // corrigir peso/altura é o perfil, não o meio da criação de rotina.
+        // Só o que está vazio vira input — senão o quiz não teria como
+        // personalizar quem nunca preencheu o cadastro físico.
+        const locked = new Set<BodyField>();
+        if (body.sex) {
+          setBodySex((prev) => prev ?? body.sex!);
+          locked.add("sex");
+        }
+        if (body.age != null) {
+          setBodyAge((prev) => prev || String(body.age));
+          locked.add("age");
+        }
+        if (body.heightCm != null) {
+          setBodyHeight((prev) => prev || String(Math.round(body.heightCm!)));
+          locked.add("height");
+        }
+        if (body.weightKg != null) {
+          setBodyWeight((prev) => prev || String(body.weightKg));
+          locked.add("weight");
+        }
+        setLockedBodyFields(locked);
+      })
+      .catch(() => {});
+    // Tendência de peso: melhor sinal que o app tem sobre a direção do corpo.
+    // Best-effort — sem histórico o gerador só não usa esse ajuste.
+    getWeightLogsDb(30)
+      .then((logs) => setWeightTrend(weightTrendFromLogs(logs)))
+      .catch(() => {});
     getFitnessProfileDb(userId)
       .then((p) => {
         if (!p) return;
+        const savedRestrictions = (p.restrictions ?? []).filter((r): r is JointRestriction =>
+          JOINT_RESTRICTIONS.includes(r as JointRestriction),
+        );
+        if (savedRestrictions.length > 0) {
+          setRestrictions((prev) => (prev.size > 0 ? prev : new Set(savedRestrictions)));
+        }
         if (TRAINING_GOALS.includes(p.goal as TrainingGoal)) {
           setQuizGoal((prev) => prev ?? (p.goal as TrainingGoal));
         }
@@ -582,36 +725,43 @@ export function CreateWizardDrawer({
     return () => { alive = false; };
   }, [anatomyMuscleId]);
 
-  /** Grupos do catálogo de músculos, na ordem em que vêm do banco. */
-  const anatomyGroups = React.useMemo(() => {
-    const seen = new Set<string>();
-    const out: string[] = [];
-    for (const m of muscles) {
-      if (m.groupName && !seen.has(m.groupName)) { seen.add(m.groupName); out.push(m.groupName); }
-    }
-    return out;
-  }, [muscles]);
+  /**
+   * Porções do grupo muscular aberto (Peito → Peitoral superior/médio/…), na
+   * ordem do banco. Vazio quando o grupo não tem anatomia semeada (Alongamento,
+   * Core, Gluteos…) ou quando a migração de anatomia não rodou — aí a fileira
+   * de chips simplesmente não aparece.
+   */
+  const groupMuscleParts = React.useMemo(
+    () => (muscleFilter ? muscles.filter((m) => m.groupName === muscleFilter) : []),
+    [muscles, muscleFilter],
+  );
 
   const filteredItems = React.useMemo(() => {
     const q = searchQuery.trim();
     if (routineType === 1) {
-      // Modo anatomia com porção escolhida: a lista JÁ vem do banco ordenada
-      // por ênfase — o mais específico primeiro. Só a busca textual se aplica;
-      // reordenar por nome aqui jogaria fora justamente o que se foi buscar.
-      if (browseMode === "anatomy" && anatomyMuscleId) {
-        return muscleWorkouts.filter((w) => matchesCatalogSearch(w, q));
+      const byLocation = (list: Workout[]) =>
+        list.filter((w) => matchesExerciseLocation(w, locationFilter));
+      // Porção muscular escolhida: a lista JÁ vem do banco ordenada por ênfase
+      // — o mais específico primeiro. Só busca e local se aplicam; reordenar
+      // por nome aqui jogaria fora justamente o que se foi buscar.
+      if (anatomyMuscleId) {
+        return byLocation(muscleWorkouts.filter((w) => matchesCatalogSearch(w, q)));
       }
-      const matches = workouts.filter(
-        (w) =>
-          matchesCatalogSearch(w, q) &&
-          (!muscleFilter || w.muscle_group === muscleFilter),
+      const matches = byLocation(
+        workouts.filter(
+          (w) =>
+            matchesCatalogSearch(w, q) &&
+            (!muscleFilter || w.muscle_group === muscleFilter),
+        ),
       );
       // Variações colapsadas: o catálogo tem 13 supinos, e escolher entre eles
       // ao MONTAR a rotina é uma decisão que o usuário só toma na academia.
       // Aqui ele escolhe o movimento; a variação é escolhida no treino (a rotina
       // nasce com a padrão do grupo). Buscando, não colapsa — quem digitou
-      // "halteres" quer ver justamente a variação com halteres.
-      if (q || workoutGroups.length === 0) return matches;
+      // "halteres" quer ver justamente a variação com halteres. Com filtro de
+      // local, idem: colapsar mostraria a variação padrão do grupo (quase
+      // sempre a de academia) no lugar da que casou com "em casa".
+      if (q || locationFilter !== "all" || workoutGroups.length === 0) return matches;
       const seenGroups = new Set<string>();
       const out: Workout[] = [];
       for (const w of matches) {
@@ -631,7 +781,7 @@ export function CreateWizardDrawer({
       );
     }
     return habits.filter((h) => matchesCatalogSearch(h, q));
-  }, [routineType, workouts, diets, habits, searchQuery, muscleFilter, browseMode, anatomyMuscleId, muscleWorkouts]);
+  }, [routineType, workouts, diets, habits, searchQuery, muscleFilter, anatomyMuscleId, muscleWorkouts, locationFilter, workoutGroups, groupById]);
 
   // TODA rotina de hábito agenda por item — inclusive com um único hábito, que
   // também tem janela início→fim (o input único não comporta o fim).
@@ -907,6 +1057,27 @@ export function CreateWizardDrawer({
     () => Array.from(quizDays).sort((a, b) => a - b).join(","),
     [quizDays],
   );
+  // Corpo do usuário → modificadores de prescrição. É este objeto que faz o
+  // mesmo quiz gerar programas diferentes para pessoas diferentes.
+  const restrictionsKey = React.useMemo(
+    () => Array.from(restrictions).sort().join(","),
+    [restrictions],
+  );
+  const coachProfile = React.useMemo(
+    () =>
+      buildCoachProfile(
+        parseBodyData({
+          gender: bodySex,
+          age: bodyAge,
+          height: bodyHeight,
+          weight: bodyWeight,
+          weightTrend,
+        }),
+        restrictionsKey ? (restrictionsKey.split(",") as JointRestriction[]) : [],
+      ),
+    [bodySex, bodyAge, bodyHeight, bodyWeight, weightTrend, restrictionsKey],
+  );
+
   const selectedProgram = React.useMemo(() => {
     if (!quizGoal || !level || !quizTime || !quizLocation || !quizEmphasis || !quizDaysKey) {
       return null;
@@ -918,8 +1089,9 @@ export function CreateWizardDrawer({
       minutes: quizTime,
       emphasis: quizEmphasis,
       location: quizLocation,
+      coach: coachProfile,
     });
-  }, [quizGoal, level, quizTime, quizLocation, quizEmphasis, quizDaysKey]);
+  }, [quizGoal, level, quizTime, quizLocation, quizEmphasis, quizDaysKey, coachProfile]);
 
   // gera uma cópia editável do programa sugerido sempre que o nível muda
   // (o usuário pode alterar exercícios e dias antes de adicionar)
@@ -1111,7 +1283,22 @@ export function CreateWizardDrawer({
           sessionMinutes: quizTime,
           emphasis: quizEmphasis,
           location: quizLocation,
+          restrictions: Array.from(restrictions).sort(),
         }).catch(() => {});
+      }
+
+      // Dados do corpo INFORMADOS no passo "Sobre você" completam o perfil —
+      // só os campos que estavam vazios (os travados já vieram de `profiles`,
+      // e reescrevê-los abriria caminho para o quiz sobrescrever o perfil sem
+      // o usuário ter pedido).
+      const bodyUpdates = {
+        ...(!lockedBodyFields.has("sex") && bodySex ? { gender: bodySex } : {}),
+        ...(!lockedBodyFields.has("age") && bodyAge ? { age: bodyAge } : {}),
+        ...(!lockedBodyFields.has("height") && bodyHeight ? { height: bodyHeight } : {}),
+        ...(!lockedBodyFields.has("weight") && bodyWeight ? { weight: bodyWeight } : {}),
+      };
+      if (Object.keys(bodyUpdates).length > 0) {
+        await updateUserPersonalDataDb(userId, bodyUpdates).catch(() => {});
       }
 
       // Alguns exercícios ficaram de fora por não existir no catálogo → avisa,
@@ -1224,6 +1411,7 @@ export function CreateWizardDrawer({
     "quiz-time": t("goals_quiz_time_title"),
     "quiz-location": t("goals_quiz_location_title"),
     "quiz-emphasis": t("goals_quiz_emphasis_title"),
+    "quiz-body": t("goals_quiz_body_title"),
     "suggested-program": t("goals_program_your_week"),
     "suggested-goal": t("goals_link_step_title"),
     "build-name": t("goals_wizard_name_title"),
@@ -1357,12 +1545,21 @@ export function CreateWizardDrawer({
     </button>
   );
 
-  // "Pergunta {i} de 6" — progresso do quiz
+  // "Pergunta {i} de 7" — progresso do quiz
   const quizStepBadge = (i: number) => (
     <p className="text-[11px] font-semibold uppercase tracking-wide -mt-1" style={{ color: "rgba(255,255,255,.35)" }}>
-      {t("goals_quiz_step").replace("{i}", String(i)).replace("{n}", "6")}
+      {t("goals_quiz_step").replace("{i}", String(i)).replace("{n}", String(QUIZ_STEP_COUNT))}
     </p>
   );
+
+  const toggleRestriction = (value: JointRestriction) => {
+    setRestrictions((prev) => {
+      const next = new Set(prev);
+      if (next.has(value)) next.delete(value);
+      else next.add(value);
+      return next;
+    });
+  };
 
   // máx. 6 dias de treino — sempre sobra ao menos 1 dia de descanso
   const toggleQuizDay = (idx: number) => {
@@ -1607,7 +1804,7 @@ export function CreateWizardDrawer({
             </>
           )}
 
-          {/* ── Quiz (6/6): ênfase muscular ──────────────────────── */}
+          {/* ── Quiz (6/7): ênfase muscular ──────────────────────── */}
           {step === "quiz-emphasis" && (
             <>
               {quizStepBadge(6)}
@@ -1618,9 +1815,180 @@ export function CreateWizardDrawer({
                 quizOptionCard(o.value, quizEmphasis === o.value, o.emoji, t(o.labelKey), t(o.descKey), () => {
                   setQuizEmphasis(o.value);
                   setExpandedDay(null);
-                  goTo("suggested-program");
+                  goTo("quiz-body");
                 }),
               )}
+            </>
+          )}
+
+          {/* ── Quiz (7/7): corpo e articulações ─────────────────────
+              O passo que transforma sugestão em prescrição: sexo, idade,
+              altura, peso e articulações em cuidado alimentam o
+              `CoachProfile`, que veta exercícios e ajusta séries, repetições
+              e descanso. Vem preenchido do perfil — para a maioria é só
+              conferir e seguir. */}
+          {step === "quiz-body" && (
+            <>
+              {quizStepBadge(7)}
+              <p className="text-sm -mt-1" style={{ color: "rgba(255,255,255,.5)" }}>
+                {t("goals_quiz_body_subtitle")}
+              </p>
+
+              {/* Sexo — travado quando o perfil já tem: aqui é consulta, não
+                  edição (o lugar de corrigir é o Perfil). */}
+              <div className="space-y-2">
+                <Label className="text-sm font-semibold" style={{ color: "#fff" }}>
+                  {t("goals_quiz_body_sex")}
+                </Label>
+                {lockedBodyFields.has("sex") ? (
+                  <div
+                    className="flex items-center gap-2 h-11 rounded-xl px-3.5 text-sm font-semibold"
+                    style={{ background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.08)", color: "rgba(255,255,255,.75)" }}
+                  >
+                    <Lock className="h-3.5 w-3.5 shrink-0" style={{ color: "rgba(255,255,255,.35)" }} />
+                    {t(QUIZ_SEXES.find((o) => o.value === bodySex)?.labelKey ?? "goals_quiz_body_sex_other")}
+                  </div>
+                ) : (
+                  <div className="flex gap-1.5">
+                    {QUIZ_SEXES.map((o) => {
+                      const active = bodySex === o.value;
+                      return (
+                        <button
+                          key={o.value}
+                          type="button"
+                          onClick={() => setBodySex(active ? null : o.value)}
+                          className="flex-1 h-11 rounded-xl text-xs font-semibold transition-all active:scale-95"
+                          style={active
+                            ? { background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff", border: "1px solid transparent" }
+                            : { background: "rgba(255,255,255,.05)", color: "rgba(255,255,255,.6)", border: "1px solid rgba(255,255,255,.1)" }}
+                        >
+                          {t(o.labelKey)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Idade · altura · peso — cada um vira leitura se já existe no
+                  perfil. Nos que sobram como input: type=text + inputMode
+                  decimal (input numérico controlado descarta o separador
+                  decimal no iOS). */}
+              <div className="grid grid-cols-3 gap-2">
+                {([
+                  ["age", "goals_quiz_body_age", bodyAge, setBodyAge, "goals_quiz_body_age_unit"],
+                  ["height", "goals_quiz_body_height", bodyHeight, setBodyHeight, "goals_quiz_body_height_unit"],
+                  ["weight", "goals_quiz_body_weight", bodyWeight, setBodyWeight, "goals_quiz_body_weight_unit"],
+                ] as const).map(([field, labelKey, value, setValue, unitKey]) => {
+                  const locked = lockedBodyFields.has(field);
+                  return (
+                    <div key={field} className="space-y-1.5">
+                      <Label className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: "rgba(255,255,255,.5)" }}>
+                        {t(labelKey)}
+                      </Label>
+                      {locked ? (
+                        <div
+                          className="flex items-center gap-1 h-11 rounded-xl px-3 overflow-hidden"
+                          style={{ background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.08)" }}
+                        >
+                          <span className="text-base font-bold truncate" style={{ color: "rgba(255,255,255,.85)" }}>
+                            {value}
+                          </span>
+                          <span className="text-[11px] font-semibold shrink-0" style={{ color: "rgba(255,255,255,.4)" }}>
+                            {t(unitKey)}
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="relative">
+                          <Input
+                            type="text"
+                            inputMode="decimal"
+                            value={value}
+                            onChange={(e) => setValue(e.target.value.replace(/[^\d.,]/g, ""))}
+                            placeholder="—"
+                            className="h-11 pr-9"
+                            style={{ fontSize: "16px", background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }}
+                          />
+                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-semibold pointer-events-none" style={{ color: "rgba(255,255,255,.4)" }}>
+                            {t(unitKey)}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Explica por que os campos travados não abrem para edição —
+                  sem isso, campo cinza sem justificativa parece bug. */}
+              {lockedBodyFields.size > 0 && (
+                <p className="text-[11px] leading-relaxed -mt-1" style={{ color: "rgba(255,255,255,.4)" }}>
+                  {t("goals_quiz_body_locked_hint")}
+                </p>
+              )}
+
+              {/* IMC calculado — devolve na hora o que o app entendeu do corpo */}
+              {coachProfile.bmi != null && (
+                <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>
+                  {t("goals_quiz_body_bmi").replace("{bmi}", formatBmi(coachProfile.bmi, language === "en" ? "en" : "pt"))}
+                </p>
+              )}
+
+              {/* Articulações em cuidado — vetam exercícios (não é preferência) */}
+              <div className="space-y-2 pt-1">
+                <Label className="text-sm font-semibold" style={{ color: "#fff" }}>
+                  {t("goals_quiz_restrictions_label")}
+                </Label>
+                <p className="text-xs -mt-1" style={{ color: "rgba(255,255,255,.5)" }}>
+                  {t("goals_quiz_restrictions_hint")}
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  {QUIZ_RESTRICTIONS.map((o) => {
+                    const active = restrictions.has(o.value);
+                    return (
+                      <button
+                        key={o.value}
+                        type="button"
+                        onClick={() => toggleRestriction(o.value)}
+                        className="flex items-center gap-2 rounded-xl px-3 h-11 text-xs font-semibold text-left transition-all active:scale-95"
+                        style={active
+                          ? { background: "rgba(251,146,60,.14)", border: "1px solid #fb923c", color: "#fdba74" }
+                          : { background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.1)", color: "rgba(255,255,255,.6)" }}
+                      >
+                        <span className="text-base shrink-0">{o.emoji}</span>
+                        <span className="truncate">{t(o.labelKey)}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {restrictions.size > 0 && (
+                  <p className="text-[11px] leading-relaxed" style={{ color: "rgba(253,186,116,.85)" }}>
+                    {t("goals_quiz_restrictions_disclaimer")}
+                  </p>
+                )}
+              </div>
+
+              <Button
+                className="w-full rounded-full h-12"
+                style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}
+                onClick={() => {
+                  setExpandedDay(null);
+                  goTo("suggested-program");
+                }}
+              >
+                {t("goals_quiz_body_cta")}
+              </Button>
+              <button
+                type="button"
+                onClick={() => {
+                  setExpandedDay(null);
+                  goTo("suggested-program");
+                }}
+                className="w-full text-xs font-semibold py-1"
+                style={{ color: "rgba(255,255,255,.45)" }}
+              >
+                {t("goals_quiz_body_skip")}
+              </button>
             </>
           )}
 
@@ -1713,6 +2081,44 @@ export function CreateWizardDrawer({
                         </div>
                       )}
                     </div>
+
+                    {/* ── "Por que este plano é seu" ──────────────────────
+                        Cada nota corresponde a um ajuste que o gerador de fato
+                        aplicou (ver buildCoachNotes em program-generator.ts).
+                        É o que separa personalização de promessa de marketing. */}
+                    {program.coachNotes && program.coachNotes.length > 0 && (
+                      <div
+                        className="rounded-2xl p-4 space-y-2.5"
+                        style={{ background: "rgba(91,140,255,.08)", border: "1px solid rgba(91,140,255,.28)" }}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="text-base">🎯</span>
+                          <p className="text-sm font-bold tracking-tight" style={{ color: "#fff" }}>
+                            {t("goals_coach_notes_title")}
+                          </p>
+                        </div>
+                        <ul className="space-y-2">
+                          {program.coachNotes.map((note, i) => (
+                            <li key={i} className="flex gap-2 text-xs leading-relaxed">
+                              <span className="shrink-0" style={{ color: "#5b8cff" }}>•</span>
+                              <span style={{ color: "rgba(255,255,255,.72)" }}>
+                                {language === "en" ? note.en : note.pt}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                        {!coachProfile.hasBodyData && (
+                          <button
+                            type="button"
+                            onClick={() => goTo("quiz-body")}
+                            className="text-[11px] font-semibold"
+                            style={{ color: "#5b8cff" }}
+                          >
+                            {t("goals_coach_notes_add_body")}
+                          </button>
+                        )}
+                      </div>
+                    )}
 
                     {/* lista dos treinos distintos do programa */}
                     {program.workouts.map((workout, wIdx) => {
@@ -1812,11 +2218,17 @@ export function CreateWizardDrawer({
                               )}
 
                               <ul className="space-y-1 pt-1">
-                                {workout.exercises.map((ex, i) => (
+                                {workout.exercises.map((ex, i) => {
+                                  // Dica de execução do movimento (base em
+                                  // exercise-coaching.ts). Prescrever sem
+                                  // ensinar a executar é entregar meia ficha.
+                                  const cue = getExerciseShortCue(ex.name, language === "en" ? "en" : "pt");
+                                  return (
                                   <li
                                     key={i}
-                                    className="flex items-center justify-between gap-2 text-xs py-1"
+                                    className="flex flex-col gap-0.5 text-xs py-1"
                                   >
+                                  <div className="flex items-center justify-between gap-2">
                                     <span className="font-medium truncate mr-2 flex items-center gap-1.5" style={{ color: "#fff" }}>
                                       {/* Técnica sugerida pelo gerador. Só no
                                           expert: no simplificado ela não será
@@ -1857,8 +2269,15 @@ export function CreateWizardDrawer({
                                         </button>
                                       )}
                                     </span>
+                                  </div>
+                                  {cue && (
+                                    <p className="text-[11px] leading-snug pr-6" style={{ color: "rgba(255,255,255,.42)" }}>
+                                      {cue}
+                                    </p>
+                                  )}
                                   </li>
-                                ))}
+                                  );
+                                })}
                               </ul>
 
                               {editingThis && (
@@ -2077,16 +2496,13 @@ export function CreateWizardDrawer({
                 {editRoutine ? t("goals_wizard_add_items_hint") : t("goals_select_items_hint")}
               </Label>
 
-              {/* alternância: Lista · Músculo/Categoria · Porção (só treino, e
-                  só quando o catálogo de anatomia já foi semeado) */}
+              {/* alternância: Lista · Músculo/Categoria. A antiga aba "Porção"
+                  virou um nível dentro de "Músculo" — era o mesmo filtro. */}
               {(routineType === 1 ? muscleGroups.length : routineType === 2 ? dietCategories.length : 0) > 0 && (
                 <div className="flex gap-1 p-1 rounded-2xl" style={{ background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.08)" }}>
                   {([
                     ["list", t("goals_browse_list")] as const,
                     ["group", routineType === 1 ? t("goals_browse_muscle") : t("goals_browse_category")] as const,
-                    ...(routineType === 1 && anatomyGroups.length > 0
-                      ? [["anatomy", t("goals_browse_anatomy")] as const]
-                      : []),
                   ]).map(([mode, label]) => (
                     <button
                       key={mode}
@@ -2094,7 +2510,6 @@ export function CreateWizardDrawer({
                       onClick={() => {
                         setBrowseMode(mode);
                         setMuscleFilter(null);
-                        setAnatomyGroup(null);
                         setAnatomyMuscleId(null);
                         setSearchQuery("");
                       }}
@@ -2109,73 +2524,29 @@ export function CreateWizardDrawer({
                 </div>
               )}
 
-              {/* ── Modo anatomia, nível 1: grupos ──────────────────── */}
-              {browseMode === "anatomy" && !anatomyGroup && (
-                <div className="space-y-2">
-                  <p className="text-xs" style={{ color: "rgba(255,255,255,.45)" }}>
-                    {t("goals_browse_anatomy_hint")}
-                  </p>
-                  {anatomyGroups.map((g) => {
-                    const parts = muscles.filter((m) => m.groupName === g).length;
-                    return (
-                      <button
-                        key={g}
-                        onClick={() => setAnatomyGroup(g)}
-                        className="w-full flex items-center gap-3 rounded-2xl p-3 text-left transition-all active:scale-[0.99]"
-                        style={{ border: "1px solid rgba(255,255,255,.1)", background: "rgba(255,255,255,.04)" }}
-                      >
-                        <div
-                          className="h-12 w-12 rounded-xl flex items-center justify-center shrink-0 text-white"
-                          style={{ background: "linear-gradient(135deg,#f97316,#d8567a)" }}
-                        >
-                          <Dumbbell className="h-5 w-5" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-[15px] font-semibold truncate" style={{ color: "#fff" }}>{g}</p>
-                          <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>
-                            {t("goals_browse_anatomy_parts").replace("{n}", String(parts))}
-                          </p>
-                        </div>
-                        <ChevronRight className="h-5 w-5 shrink-0" style={{ color: "rgba(255,255,255,.4)" }} />
-                      </button>
-                    );
-                  })}
+              {/* Onde treinar: academia × em casa (só exercício). Fica acima dos
+                  dois níveis do modo Músculo — o filtro vale para a lista, para
+                  a navegação por grupo e para a contagem de cada grupo. */}
+              {routineType === 1 && (
+                <div className="flex gap-1.5">
+                  {([
+                    ["all", t("goals_browse_location_all")],
+                    ["gym", t("goals_browse_location_gym")],
+                    ["home", t("goals_browse_location_home")],
+                  ] as const).map(([value, label]) => (
+                    <ChipToggle
+                      key={value}
+                      active={locationFilter === value}
+                      onClick={() => setLocationFilter(value)}
+                      label={label}
+                      icon={value === "gym" ? <Dumbbell className="h-3.5 w-3.5" /> : value === "home" ? <Home className="h-3.5 w-3.5" /> : undefined}
+                      className="flex-1 justify-center"
+                    />
+                  ))}
                 </div>
               )}
 
-              {/* ── Modo anatomia, nível 2: porções do grupo ────────── */}
-              {browseMode === "anatomy" && anatomyGroup && !anatomyMuscleId && (
-                <div className="space-y-2">
-                  <button
-                    onClick={() => setAnatomyGroup(null)}
-                    className="flex items-center gap-1.5 text-sm font-semibold"
-                    style={{ color: "#9d6bff" }}
-                  >
-                    <ArrowLeft className="h-4 w-4" />
-                    <span>{anatomyGroup}</span>
-                  </button>
-                  {muscles
-                    .filter((m) => m.groupName === anatomyGroup)
-                    .map((m) => (
-                      <button
-                        key={m.id}
-                        onClick={() => setAnatomyMuscleId(m.id)}
-                        className="w-full flex items-center gap-3 rounded-2xl p-3 text-left transition-all active:scale-[0.99]"
-                        style={{ border: "1px solid rgba(255,255,255,.1)", background: "rgba(255,255,255,.04)" }}
-                      >
-                        <div className="flex-1 min-w-0">
-                          <p className="text-[15px] font-semibold truncate" style={{ color: "#fff" }}>{m.name}</p>
-                        </div>
-                        <ChevronRight className="h-5 w-5 shrink-0" style={{ color: "rgba(255,255,255,.4)" }} />
-                      </button>
-                    ))}
-                </div>
-              )}
-
-              {/* Os dois primeiros níveis do modo anatomia já renderizaram
-                  acima — aqui só entra a lista de exercícios da porção. */}
-              {browseMode === "anatomy" && !anatomyMuscleId ? null
-                : browseMode === "group" && !muscleFilter ? (
+              {browseMode === "group" && !muscleFilter ? (
                 catalogLoading ? (
                   <div className="flex justify-center py-8">
                     <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -2183,9 +2554,13 @@ export function CreateWizardDrawer({
                 ) : (
                   <div className="space-y-2">
                     {(routineType === 1 ? muscleGroups : dietCategories).map((g) => {
+                      // A contagem respeita o filtro de local — senão o card
+                      // diria "31 itens" e a lista abriria com 4. Grupo que zera
+                      // some da navegação.
                       const count = (routineType === 1
-                        ? workouts.filter((w) => w.muscle_group === g)
+                        ? workouts.filter((w) => w.muscle_group === g && matchesExerciseLocation(w, locationFilter))
                         : diets.filter((d) => d.category === g)).length;
+                      if (count === 0) return null;
                       return (
                         <button
                           key={g}
@@ -2215,7 +2590,10 @@ export function CreateWizardDrawer({
                 <>
                   {browseMode === "group" && muscleFilter && (
                     <button
-                      onClick={() => setMuscleFilter(null)}
+                      onClick={() => {
+                        setMuscleFilter(null);
+                        setAnatomyMuscleId(null);
+                      }}
                       className="flex items-center gap-1.5 text-sm font-semibold"
                       style={{ color: "#9d6bff" }}
                     >
@@ -2224,21 +2602,45 @@ export function CreateWizardDrawer({
                     </button>
                   )}
 
-                  {/* Porção escolhida: volta para a lista de porções do grupo e
-                      avisa que a ordem é por ênfase (não alfabética). */}
-                  {browseMode === "anatomy" && anatomyMuscleId && (
-                    <div className="space-y-1">
-                      <button
-                        onClick={() => setAnatomyMuscleId(null)}
-                        className="flex items-center gap-1.5 text-sm font-semibold"
-                        style={{ color: "#9d6bff" }}
-                      >
-                        <ArrowLeft className="h-4 w-4" />
-                        <span>{muscles.find((m) => m.id === anatomyMuscleId)?.name ?? anatomyGroup}</span>
-                      </button>
-                      <p className="text-xs" style={{ color: "rgba(255,255,255,.4)" }}>
-                        {t("goals_browse_anatomy_sorted")}
+                  {/* Porções do grupo aberto (Peito → Peitoral superior/médio…).
+                      Refina o mesmo filtro em vez de virar uma aba paralela:
+                      escolher a porção troca a fonte da lista para a consulta
+                      por ênfase em `workout_muscles`. */}
+                  {browseMode === "group" && muscleFilter && groupMuscleParts.length > 0 && (
+                    <div className="space-y-1.5">
+                      <p className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "rgba(255,255,255,.4)" }}>
+                        {t("goals_browse_parts_label")}
                       </p>
+                      {/* Rolagem horizontal (nunca quebra linha): os nomes de
+                          porção são longos ("Reto abdominal superior") e em 2–3
+                          linhas a fileira empurrava a lista de exercícios para
+                          fora da tela. `data-vaul-no-drag` protege o gesto
+                          lateral do arraste do drawer. */}
+                      <div
+                        data-vaul-no-drag
+                        className="flex gap-1.5 overflow-x-auto no-scrollbar -mx-1 px-1 py-0.5"
+                      >
+                        <ChipToggle
+                          active={!anatomyMuscleId}
+                          onClick={() => setAnatomyMuscleId(null)}
+                          label={t("goals_browse_parts_all")}
+                          className="shrink-0"
+                        />
+                        {groupMuscleParts.map((m) => (
+                          <ChipToggle
+                            key={m.id}
+                            active={anatomyMuscleId === m.id}
+                            onClick={() => setAnatomyMuscleId(anatomyMuscleId === m.id ? null : m.id)}
+                            label={m.name}
+                            className="shrink-0"
+                          />
+                        ))}
+                      </div>
+                      {anatomyMuscleId && (
+                        <p className="text-xs" style={{ color: "rgba(255,255,255,.4)" }}>
+                          {t("goals_browse_anatomy_sorted")}
+                        </p>
+                      )}
                     </div>
                   )}
 

@@ -1,9 +1,15 @@
 import type {
+  CoachNote,
   FitnessLevel,
   ProgramWorkout,
   SuggestedExercise,
   WeeklyProgram,
 } from "@/components/goals/suggested-routines-data";
+import {
+  NEUTRAL_COACH_PROFILE,
+  type CoachProfile,
+  type JointRestriction,
+} from "@/lib/coach-profile";
 
 /**
  * Gerador de programas de treino personalizados (quiz "Sugerido pelo app").
@@ -21,6 +27,23 @@ import type {
  * exercícios). 100% determinístico e client-side: mesmas respostas → mesmo
  * programa. Os nomes dos exercícios são os nomes brutos PT do catálogo
  * `workouts` (confirmados em produção), para preservar fotos e descrições.
+ *
+ * ## O corpo do usuário entra na conta (`CoachProfile`)
+ *
+ * As respostas do quiz dizem o que a pessoa QUER; o `CoachProfile`
+ * (`client/lib/coach-profile.ts`) diz o que o corpo dela SUPORTA — sexo, idade,
+ * IMC, tendência de peso e restrições articulares. Ele age em quatro frentes:
+ *
+ *  1. **Veto** — restrição articular remove o exercício do pool. Veto é
+ *     absoluto: nenhuma pontuação alta reabilita um exercício contraindicado.
+ *  2. **Pontuação** — máquina ganha peso para quem tem muita massa a mover,
+ *     idade avançada ou articulação em cuidado; impacto perde peso.
+ *  3. **Dose** — séries, repetições e descanso saem do esquema do objetivo e
+ *     são ajustados por idade/sexo/IMC.
+ *  4. **Explicação** — cada ajuste que REALMENTE aconteceu vira uma nota em
+ *     `coachNotes`, exibida no preview. Nota sem decisão por trás é proibida.
+ *
+ * A doutrina completa está em `skills/personal-trainer-agent.md`.
  */
 
 export type TrainingGoal = "hypertrophy" | "fat_loss" | "strength" | "conditioning";
@@ -46,6 +69,12 @@ export type QuizAnswers = {
   minutes: SessionMinutes;
   emphasis: MuscleEmphasis;
   location: TrainingLocation;
+  /**
+   * Corpo do usuário traduzido em modificadores de prescrição. Ausente = perfil
+   * neutro (usuário sem dados físicos) — o gerador continua funcionando
+   * exatamente como antes de 13/08/2026.
+   */
+  coach?: CoachProfile;
 };
 
 // ── Pools de exercícios por categoria ────────────────────────────────────────
@@ -82,6 +111,19 @@ type PoolExercise = {
   machine?: boolean;
   /** afinidade 0–3 por objetivo (ausente = 1) */
   goals?: Partial<Record<TrainingGoal, number>>;
+  /**
+   * Articulações que este exercício exige de forma que **contraindica** o
+   * movimento para quem declarou cuidado com elas. Não é "usa o joelho" (todo
+   * agachamento usa) — é "sob dor articular, este é o que sai da ficha".
+   * Quem tem a restrição nunca recebe o exercício: veto, não desconto.
+   */
+  joints?: JointRestriction[];
+  /**
+   * Pliométrico/impacto repetitivo (salto, corrida no lugar, burpee). A força de
+   * reação do solo escala com a massa corporal — é o primeiro item a sair para
+   * IMC alto, 55+ ou joelho/lombar em cuidado.
+   */
+  impact?: boolean;
 };
 
 // `home: true` = pode ser feito EM CASA sem peso/máquina de academia (peso do
@@ -95,63 +137,68 @@ type PoolExercise = {
 const POOLS: Record<SlotCategory, PoolExercise[]> = {
   chest: [
     { name: "Supino com Halteres", muscleGroup: "Peito", minLevel: 1, gym: true, home: false, compound: true, goals: { hypertrophy: 3, strength: 2, fat_loss: 2, conditioning: 2 } },
-    { name: "Supino reto", muscleGroup: "Peito", minLevel: 1, gym: true, home: false, compound: true, goals: { strength: 3, hypertrophy: 2 } },
+    { name: "Supino reto", muscleGroup: "Peito", minLevel: 1, gym: true, home: false, compound: true, goals: { strength: 3, hypertrophy: 2 }, joints: ["shoulder", "wrist"] },
     { name: "Supino inclinado com halteres", muscleGroup: "Peito", minLevel: 2, gym: true, home: false, compound: true, goals: { hypertrophy: 3, strength: 2 } },
-    { name: "Flexão de Braço", muscleGroup: "Peito", minLevel: 1, gym: false, home: true, compound: true, goals: { fat_loss: 3, conditioning: 3, hypertrophy: 2 } },
+    { name: "Flexão de Braço", muscleGroup: "Peito", minLevel: 1, gym: false, home: true, compound: true, goals: { fat_loss: 3, conditioning: 3, hypertrophy: 2 }, joints: ["wrist"] },
     { name: "Supino na Máquina", muscleGroup: "Peito", minLevel: 1, gym: true, home: false, compound: true, machine: true, goals: { hypertrophy: 2, fat_loss: 2, conditioning: 2 } },
-    { name: "Crucifixo com halteres", muscleGroup: "Peito", minLevel: 2, gym: true, home: false, goals: { hypertrophy: 2, strength: 0 } },
-    { name: "Flexão Declinada", muscleGroup: "Peito", minLevel: 2, gym: false, home: true, compound: true, goals: { fat_loss: 2, conditioning: 3, hypertrophy: 2 } },
-    { name: "Flexão Inclinada", muscleGroup: "Peito", minLevel: 1, gym: false, home: true, compound: true, goals: { fat_loss: 2, conditioning: 2, hypertrophy: 1 } },
+    { name: "Crucifixo com halteres", muscleGroup: "Peito", minLevel: 2, gym: true, home: false, goals: { hypertrophy: 2, strength: 0 }, joints: ["shoulder"] },
+    { name: "Flexão Declinada", muscleGroup: "Peito", minLevel: 2, gym: false, home: true, compound: true, goals: { fat_loss: 2, conditioning: 3, hypertrophy: 2 }, joints: ["wrist", "shoulder"] },
+    { name: "Flexão Inclinada", muscleGroup: "Peito", minLevel: 1, gym: false, home: true, compound: true, goals: { fat_loss: 2, conditioning: 2, hypertrophy: 1 }, joints: ["wrist"] },
     { name: "Crucifixo na máquina", muscleGroup: "Peito", minLevel: 2, gym: true, home: false, machine: true, goals: { hypertrophy: 2, fat_loss: 2, strength: 0 } },
-    { name: "Crossover no Cabo", muscleGroup: "Peito", minLevel: 3, gym: true, home: false, goals: { hypertrophy: 3, strength: 0 } },
+    { name: "Crossover no Cabo", muscleGroup: "Peito", minLevel: 3, gym: true, home: false, goals: { hypertrophy: 3, strength: 0 }, joints: ["shoulder"] },
   ],
   back: [
     { name: "Puxada na frente", muscleGroup: "Costas", minLevel: 1, gym: true, home: false, compound: true, machine: true, goals: { hypertrophy: 3, fat_loss: 2, conditioning: 2 } },
     { name: "Remada baixa", muscleGroup: "Costas", minLevel: 1, gym: true, home: false, compound: true, machine: true, goals: { hypertrophy: 2, fat_loss: 2, conditioning: 2 } },
-    { name: "Remada curvada", muscleGroup: "Costas", minLevel: 2, gym: true, home: false, compound: true, goals: { strength: 3, hypertrophy: 2 } },
+    { name: "Remada curvada", muscleGroup: "Costas", minLevel: 2, gym: true, home: false, compound: true, goals: { strength: 3, hypertrophy: 2 }, joints: ["lower_back"] },
     { name: "Remada unilateral com halter", muscleGroup: "Costas", minLevel: 1, gym: true, home: false, compound: true, goals: { hypertrophy: 2, fat_loss: 2, conditioning: 2 } },
-    { name: "Remada Curvada com Halteres", muscleGroup: "Costas", minLevel: 1, gym: false, home: false, compound: true, goals: { strength: 2, hypertrophy: 2, fat_loss: 2, conditioning: 2 } },
+    { name: "Remada Curvada com Halteres", muscleGroup: "Costas", minLevel: 1, gym: false, home: false, compound: true, goals: { strength: 2, hypertrophy: 2, fat_loss: 2, conditioning: 2 }, joints: ["lower_back"] },
     { name: "Puxada no Pulley Pegada Fechada", muscleGroup: "Costas", minLevel: 2, gym: true, home: false, compound: true, machine: true, goals: { hypertrophy: 2 } },
     { name: "Remada na Máquina", muscleGroup: "Costas", minLevel: 1, gym: true, home: false, compound: true, machine: true, goals: { hypertrophy: 2, fat_loss: 2, conditioning: 2 } },
-    { name: "Barra Fixa (Chin-up)", muscleGroup: "Costas", minLevel: 3, gym: true, home: true, compound: true, goals: { strength: 3, hypertrophy: 2, conditioning: 2 } },
+    { name: "Barra Fixa (Chin-up)", muscleGroup: "Costas", minLevel: 3, gym: true, home: true, compound: true, goals: { strength: 3, hypertrophy: 2, conditioning: 2 }, joints: ["shoulder"] },
     { name: "Remada Sentada no Cabo", muscleGroup: "Costas", minLevel: 2, gym: true, home: false, compound: true, machine: true, goals: { hypertrophy: 2 } },
     // Caseiros (peso do corpo / barra ou TRX de casa):
     { name: "Remada Invertida", muscleGroup: "Costas", minLevel: 1, gym: false, home: true, compound: true, goals: { strength: 2, hypertrophy: 2, fat_loss: 2, conditioning: 2 } },
-    { name: "Superman", muscleGroup: "Costas", minLevel: 1, gym: false, home: true, goals: { conditioning: 2, fat_loss: 1 } },
+    { name: "Superman", muscleGroup: "Costas", minLevel: 1, gym: false, home: true, goals: { conditioning: 2, fat_loss: 1 }, joints: ["lower_back"] },
   ],
   quads: [
-    { name: "Agachamento livre", muscleGroup: "Pernas", minLevel: 1, gym: true, home: true, compound: true, goals: { strength: 3, hypertrophy: 2, fat_loss: 3, conditioning: 3 } },
+    { name: "Agachamento livre", muscleGroup: "Pernas", minLevel: 1, gym: true, home: true, compound: true, goals: { strength: 3, hypertrophy: 2, fat_loss: 3, conditioning: 3 }, joints: ["knee", "lower_back"] },
     { name: "Leg press", muscleGroup: "Pernas", minLevel: 1, gym: true, home: false, compound: true, machine: true, goals: { hypertrophy: 3, fat_loss: 2, conditioning: 2 } },
-    { name: "Cadeira extensora", muscleGroup: "Pernas", minLevel: 1, gym: true, home: false, machine: true, goals: { hypertrophy: 2, strength: 0 } },
+    { name: "Cadeira extensora", muscleGroup: "Pernas", minLevel: 1, gym: true, home: false, machine: true, goals: { hypertrophy: 2, strength: 0 }, joints: ["knee"] },
     { name: "Agachamento Goblet", muscleGroup: "Pernas", minLevel: 1, gym: true, home: false, compound: true, goals: { hypertrophy: 2, fat_loss: 2, conditioning: 2 } },
-    { name: "Avanço com Halteres", muscleGroup: "Pernas", minLevel: 1, gym: true, home: false, compound: true, goals: { hypertrophy: 2, fat_loss: 2, conditioning: 2 } },
-    { name: "Agachamento com Barra", muscleGroup: "Pernas", minLevel: 2, gym: true, home: false, compound: true, goals: { strength: 3, hypertrophy: 3 } },
-    { name: "Agachamento Búlgaro", muscleGroup: "Pernas", minLevel: 2, gym: true, home: true, compound: true, goals: { hypertrophy: 3, fat_loss: 2, conditioning: 2 } },
-    { name: "Agachamento Sumô", muscleGroup: "Pernas", minLevel: 1, gym: false, home: true, compound: true, goals: { fat_loss: 2, conditioning: 2 } },
-    { name: "Avanço", muscleGroup: "Pernas", minLevel: 1, gym: false, home: true, compound: true, goals: { fat_loss: 2, conditioning: 2, hypertrophy: 1 } },
-    { name: "Agachamento Split na Máquina Smith", muscleGroup: "Pernas", minLevel: 3, gym: true, home: false, compound: true, machine: true, goals: { hypertrophy: 3 } },
+    { name: "Avanço com Halteres", muscleGroup: "Pernas", minLevel: 1, gym: true, home: false, compound: true, goals: { hypertrophy: 2, fat_loss: 2, conditioning: 2 }, joints: ["knee"] },
+    { name: "Agachamento com Barra", muscleGroup: "Pernas", minLevel: 2, gym: true, home: false, compound: true, goals: { strength: 3, hypertrophy: 3 }, joints: ["knee", "lower_back"] },
+    { name: "Agachamento Búlgaro", muscleGroup: "Pernas", minLevel: 2, gym: true, home: true, compound: true, goals: { hypertrophy: 3, fat_loss: 2, conditioning: 2 }, joints: ["knee"] },
+    { name: "Agachamento Sumô", muscleGroup: "Pernas", minLevel: 1, gym: false, home: true, compound: true, goals: { fat_loss: 2, conditioning: 2 }, joints: ["knee"] },
+    { name: "Avanço", muscleGroup: "Pernas", minLevel: 1, gym: false, home: true, compound: true, goals: { fat_loss: 2, conditioning: 2, hypertrophy: 1 }, joints: ["knee"] },
+    { name: "Agachamento Split na Máquina Smith", muscleGroup: "Pernas", minLevel: 3, gym: true, home: false, compound: true, machine: true, goals: { hypertrophy: 3 }, joints: ["knee"] },
+    // Isométrico: a opção que SOBREVIVE ao veto de joelho (academia e casa).
+    // Sem ele, quem marca cuidado com o joelho fica sem nenhum estímulo de
+    // quadríceps em casa — isometria de meio agachamento é justamente o que se
+    // usa quando a articulação não tolera amplitude sob carga.
+    { name: "Agachamento Isométrico", muscleGroup: "Pernas", minLevel: 1, gym: true, home: true, goals: { conditioning: 2, fat_loss: 2, hypertrophy: 1 } },
   ],
   posterior: [
     { name: "Mesa flexora", muscleGroup: "Pernas", minLevel: 1, gym: true, home: false, machine: true, goals: { hypertrophy: 2 } },
     { name: "Elevação de Quadril com Halter", muscleGroup: "Pernas", minLevel: 1, gym: true, home: false, compound: true, goals: { hypertrophy: 2, strength: 2, fat_loss: 2, conditioning: 2 } },
-    { name: "Levantamento terra romeno", muscleGroup: "Pernas", minLevel: 2, gym: true, home: false, compound: true, goals: { strength: 3, hypertrophy: 2 } },
-    { name: "Levantamento Terra Romeno com Halteres", muscleGroup: "Pernas", minLevel: 1, gym: false, home: false, compound: true, goals: { strength: 2, hypertrophy: 2, fat_loss: 2, conditioning: 2 } },
+    { name: "Levantamento terra romeno", muscleGroup: "Pernas", minLevel: 2, gym: true, home: false, compound: true, goals: { strength: 3, hypertrophy: 2 }, joints: ["lower_back"] },
+    { name: "Levantamento Terra Romeno com Halteres", muscleGroup: "Pernas", minLevel: 1, gym: false, home: false, compound: true, goals: { strength: 2, hypertrophy: 2, fat_loss: 2, conditioning: 2 }, joints: ["lower_back"] },
     { name: "Ponte de Glúteo", muscleGroup: "Pernas", minLevel: 1, gym: false, home: true, compound: true, goals: { fat_loss: 2, conditioning: 2, hypertrophy: 1 } },
-    { name: "Avanço Reverso", muscleGroup: "Pernas", minLevel: 1, gym: false, home: true, compound: true, goals: { fat_loss: 2, conditioning: 2, hypertrophy: 1 } },
+    { name: "Avanço Reverso", muscleGroup: "Pernas", minLevel: 1, gym: false, home: true, compound: true, goals: { fat_loss: 2, conditioning: 2, hypertrophy: 1 }, joints: ["knee"] },
   ],
   shoulders: [
     { name: "Desenvolvimento com halteres", muscleGroup: "Ombros", minLevel: 1, gym: true, home: false, compound: true, goals: { hypertrophy: 2, strength: 2, fat_loss: 2, conditioning: 2 } },
     { name: "Elevação lateral", muscleGroup: "Ombros", minLevel: 1, gym: true, home: false, goals: { hypertrophy: 3, strength: 0 } },
-    { name: "Desenvolvimento militar", muscleGroup: "Ombros", minLevel: 2, gym: true, home: false, compound: true, goals: { strength: 3, hypertrophy: 2 } },
+    { name: "Desenvolvimento militar", muscleGroup: "Ombros", minLevel: 2, gym: true, home: false, compound: true, goals: { strength: 3, hypertrophy: 2 }, joints: ["shoulder", "lower_back"] },
     { name: "Elevação lateral na máquina", muscleGroup: "Ombros", minLevel: 2, gym: true, home: false, machine: true, goals: { hypertrophy: 2, strength: 0 } },
-    { name: "Remada Alta com Halteres", muscleGroup: "Ombros", minLevel: 2, gym: true, home: false, compound: true, goals: { conditioning: 2, fat_loss: 2 } },
+    { name: "Remada Alta com Halteres", muscleGroup: "Ombros", minLevel: 2, gym: true, home: false, compound: true, goals: { conditioning: 2, fat_loss: 2 }, joints: ["shoulder"] },
     { name: "Encolhimento com Halteres", muscleGroup: "Ombros", minLevel: 3, gym: true, home: false, goals: { hypertrophy: 2 } },
     // Caseiros (peso do corpo):
-    { name: "Flexão Hindu", muscleGroup: "Ombros", minLevel: 1, gym: false, home: true, compound: true, goals: { conditioning: 2, fat_loss: 2, hypertrophy: 1 } },
-    { name: "Tuck Planche", muscleGroup: "Ombros", minLevel: 3, gym: false, home: true, goals: { conditioning: 2, hypertrophy: 1 } },
+    { name: "Flexão Hindu", muscleGroup: "Ombros", minLevel: 1, gym: false, home: true, compound: true, goals: { conditioning: 2, fat_loss: 2, hypertrophy: 1 }, joints: ["shoulder", "wrist"] },
+    { name: "Tuck Planche", muscleGroup: "Ombros", minLevel: 3, gym: false, home: true, goals: { conditioning: 2, hypertrophy: 1 }, joints: ["shoulder", "wrist"] },
   ],
   biceps: [
-    { name: "Rosca Direta com Barra Reta", muscleGroup: "Bíceps", minLevel: 1, gym: true, home: false, goals: { strength: 2, hypertrophy: 2 } },
+    { name: "Rosca Direta com Barra Reta", muscleGroup: "Bíceps", minLevel: 1, gym: true, home: false, goals: { strength: 2, hypertrophy: 2 }, joints: ["wrist"] },
     { name: "Rosca martelo", muscleGroup: "Bíceps", minLevel: 1, gym: true, home: false, goals: { hypertrophy: 2, fat_loss: 2, conditioning: 2 } },
     { name: "Rosca Martelo no Cabo", muscleGroup: "Bíceps", minLevel: 2, gym: true, home: false, machine: true, goals: { hypertrophy: 2 } },
     // Caseiro (TRX/elástico de casa):
@@ -159,21 +206,24 @@ const POOLS: Record<SlotCategory, PoolExercise[]> = {
   ],
   triceps: [
     { name: "Tríceps na Polia com Corda", muscleGroup: "Tríceps", minLevel: 1, gym: true, home: false, machine: true, goals: { hypertrophy: 2, fat_loss: 2, conditioning: 2 } },
-    { name: "Tríceps francês", muscleGroup: "Tríceps", minLevel: 1, gym: true, home: false, goals: { hypertrophy: 2 } },
+    { name: "Tríceps francês", muscleGroup: "Tríceps", minLevel: 1, gym: true, home: false, goals: { hypertrophy: 2 }, joints: ["shoulder"] },
     { name: "Tríceps testa", muscleGroup: "Tríceps", minLevel: 2, gym: true, home: false, goals: { hypertrophy: 2 } },
-    { name: "Flexão Diamante", muscleGroup: "Tríceps", minLevel: 1, gym: false, home: true, compound: true, goals: { fat_loss: 2, conditioning: 3, hypertrophy: 2 } },
-    { name: "Tríceps no Banco", muscleGroup: "Tríceps", minLevel: 1, gym: false, home: true, goals: { fat_loss: 2, conditioning: 2, hypertrophy: 1 } },
-    { name: "Supino Pegada Fechada", muscleGroup: "Tríceps", minLevel: 3, gym: true, home: false, compound: true, goals: { strength: 3, hypertrophy: 2 } },
+    { name: "Flexão Diamante", muscleGroup: "Tríceps", minLevel: 1, gym: false, home: true, compound: true, goals: { fat_loss: 2, conditioning: 3, hypertrophy: 2 }, joints: ["wrist"] },
+    { name: "Tríceps no Banco", muscleGroup: "Tríceps", minLevel: 1, gym: false, home: true, goals: { fat_loss: 2, conditioning: 2, hypertrophy: 1 }, joints: ["wrist", "shoulder"] },
+    { name: "Supino Pegada Fechada", muscleGroup: "Tríceps", minLevel: 3, gym: true, home: false, compound: true, goals: { strength: 3, hypertrophy: 2 }, joints: ["wrist"] },
   ],
   calves: [
     { name: "Elevação de Panturrilha em Pé", muscleGroup: "Panturrilha", minLevel: 1, gym: true, home: true, goals: { conditioning: 2 } },
   ],
   core: [
+    // Prancha e prancha lateral são as sobreviventes do veto de lombar de
+    // propósito: sob cuidado lombar, isometria antissegmentar é exatamente o
+    // que substitui a flexão repetida de coluna.
     { name: "Prancha", muscleGroup: "Abdômen", minLevel: 1, gym: true, home: true, goals: { conditioning: 3, fat_loss: 2 } },
-    { name: "Abdominal Tradicional", muscleGroup: "Abdômen", minLevel: 1, gym: true, home: true, goals: { fat_loss: 2, conditioning: 2 } },
+    { name: "Abdominal Tradicional", muscleGroup: "Abdômen", minLevel: 1, gym: true, home: true, goals: { fat_loss: 2, conditioning: 2 }, joints: ["lower_back"] },
     { name: "Prancha Lateral", muscleGroup: "Abdômen", minLevel: 1, gym: false, home: true, goals: { conditioning: 2 } },
-    { name: "Abdominal Bicicleta", muscleGroup: "Abdômen", minLevel: 1, gym: false, home: true, goals: { fat_loss: 2, conditioning: 2 } },
-    { name: "Encolhimento Abdominal Sentado", muscleGroup: "Abdômen", minLevel: 2, gym: true, home: false, machine: true, goals: { hypertrophy: 2 } },
+    { name: "Abdominal Bicicleta", muscleGroup: "Abdômen", minLevel: 1, gym: false, home: true, goals: { fat_loss: 2, conditioning: 2 }, joints: ["lower_back"] },
+    { name: "Encolhimento Abdominal Sentado", muscleGroup: "Abdômen", minLevel: 2, gym: true, home: false, machine: true, goals: { hypertrophy: 2 }, joints: ["lower_back"] },
   ],
   // Cardio: usado APENAS como finalizador nos objetivos de queima de gordura e
   // condicionamento (último exercício de cada treino, alvo por tempo). O grupo
@@ -183,11 +233,15 @@ const POOLS: Record<SlotCategory, PoolExercise[]> = {
     { name: "Esteira", muscleGroup: "Cardio", minLevel: 1, gym: true, home: false, machine: true, goals: { fat_loss: 3, conditioning: 3 } },
     { name: "Bicicleta Ergométrica", muscleGroup: "Cardio", minLevel: 1, gym: true, home: false, machine: true, goals: { fat_loss: 3, conditioning: 2 } },
     { name: "Elíptico", muscleGroup: "Cardio", minLevel: 1, gym: true, home: false, machine: true, goals: { fat_loss: 2, conditioning: 2 } },
-    { name: "Remo Ergométrico", muscleGroup: "Cardio", minLevel: 2, gym: true, home: false, machine: true, goals: { fat_loss: 2, conditioning: 3 } },
-    { name: "Corda", muscleGroup: "Cardio", minLevel: 2, gym: true, home: true, goals: { fat_loss: 2, conditioning: 3 } },
-    { name: "Polichinelo", muscleGroup: "Cardio", minLevel: 1, gym: false, home: true, goals: { fat_loss: 3, conditioning: 2 } },
-    { name: "Corrida com Joelhos Altos", muscleGroup: "Cardio", minLevel: 1, gym: false, home: true, goals: { fat_loss: 2, conditioning: 3 } },
-    { name: "Burpee", muscleGroup: "Cardio", minLevel: 2, gym: true, home: true, goals: { fat_loss: 2, conditioning: 3 } },
+    { name: "Remo Ergométrico", muscleGroup: "Cardio", minLevel: 2, gym: true, home: false, machine: true, goals: { fat_loss: 2, conditioning: 3 }, joints: ["lower_back"] },
+    { name: "Corda", muscleGroup: "Cardio", minLevel: 2, gym: true, home: true, goals: { fat_loss: 2, conditioning: 3 }, impact: true },
+    { name: "Polichinelo", muscleGroup: "Cardio", minLevel: 1, gym: false, home: true, goals: { fat_loss: 3, conditioning: 2 }, impact: true },
+    { name: "Corrida com Joelhos Altos", muscleGroup: "Cardio", minLevel: 1, gym: false, home: true, goals: { fat_loss: 2, conditioning: 3 }, impact: true },
+    { name: "Burpee", muscleGroup: "Cardio", minLevel: 2, gym: true, home: true, goals: { fat_loss: 2, conditioning: 3 }, impact: true },
+    // Cardio caseiro SEM impacto: é a única opção que sobra em casa quando o
+    // corpo não tolera salto (IMC alto, 55+, joelho/lombar em cuidado) — sem
+    // ela, justamente quem mais precisa do finalizador ficaria sem nenhum.
+    { name: "Dança", muscleGroup: "Cardio", minLevel: 1, gym: false, home: true, goals: { fat_loss: 2, conditioning: 2 } },
   ],
 };
 
@@ -204,7 +258,15 @@ type Scheme = {
   cardioReps: string;
   /** true = todo treino termina com um exercício de cardio */
   cardioFinisher: boolean;
-  rest: { pt: string; en: string };
+  /** descanso entre séries em segundos [mínimo, máximo] — formatado ao exibir */
+  restSeconds: [number, number];
+  /**
+   * Janela de repetições que ainda serve ao objetivo. O ajuste individual
+   * (sexo/IMC/idade) desloca as reps DENTRO desta janela — nunca para fora:
+   * somar reps num treino de força até virar série de 9 destruiria o objetivo
+   * que o usuário escolheu.
+   */
+  repWindow: [number, number];
 };
 
 const SCHEMES: Record<TrainingGoal, Scheme> = {
@@ -215,7 +277,8 @@ const SCHEMES: Record<TrainingGoal, Scheme> = {
     coreReps: "15",
     cardioReps: "10min",
     cardioFinisher: false,
-    rest: { pt: "60–90s", en: "60–90s" },
+    restSeconds: [60, 90],
+    repWindow: [8, 15],
   },
   strength: {
     series: { 1: 3, 2: 4, 3: 5 },
@@ -224,7 +287,8 @@ const SCHEMES: Record<TrainingGoal, Scheme> = {
     coreReps: "15",
     cardioReps: "10min",
     cardioFinisher: false,
-    rest: { pt: "2–3 min", en: "2–3 min" },
+    restSeconds: [120, 180],
+    repWindow: [4, 8],
   },
   fat_loss: {
     series: { 1: 3, 2: 3, 3: 4 },
@@ -233,7 +297,8 @@ const SCHEMES: Record<TrainingGoal, Scheme> = {
     coreReps: "20",
     cardioReps: "15min",
     cardioFinisher: true,
-    rest: { pt: "30–60s", en: "30–60s" },
+    restSeconds: [30, 60],
+    repWindow: [12, 25],
   },
   conditioning: {
     series: { 1: 3, 2: 3, 3: 4 },
@@ -242,9 +307,32 @@ const SCHEMES: Record<TrainingGoal, Scheme> = {
     coreReps: "20",
     cardioReps: "12min",
     cardioFinisher: true,
-    rest: { pt: "45–60s", en: "45–60s" },
+    restSeconds: [45, 60],
+    repWindow: [12, 20],
   },
 };
+
+/**
+ * Descanso do objetivo ajustado pelo corpo do usuário (`restFactor`) e
+ * formatado para leitura. Segundos até 90s; acima disso, minutos — ninguém
+ * pensa "descanse 162 segundos".
+ */
+function formatRest(
+  scheme: Scheme,
+  coach: CoachProfile,
+  language: "pt" | "en",
+): string {
+  // Piso de 30s: abaixo disso não é descanso, é a pausa de trocar de posição.
+  const round5 = (n: number) => Math.max(30, Math.round(n / 5) * 5);
+  const min = round5(scheme.restSeconds[0] * coach.restFactor);
+  const max = round5(scheme.restSeconds[1] * coach.restFactor);
+  if (max <= 90) return `${min}–${max}s`;
+  const toMin = (s: number) => {
+    const halves = Math.round((s / 60) * 2) / 2;
+    return language === "en" ? String(halves) : String(halves).replace(".", ",");
+  };
+  return `${toMin(min)}–${toMin(max)} min`;
+}
 
 const LEVEL_NUM: Record<FitnessLevel, 1 | 2 | 3> = {
   beginner: 1,
@@ -399,6 +487,7 @@ function scoreExercise(
   ex: PoolExercise,
   answers: QuizAnswers,
   programUseCount: number,
+  coach: CoachProfile,
 ): number {
   let score = (ex.goals?.[answers.goal] ?? 1) * 3;
   // compostos valem mais — especialmente para força (base do treino) e para
@@ -409,7 +498,13 @@ function scoreExercise(
   // máquinas: mais seguras/simples para iniciantes; avançados preferem pesos livres
   if (ex.machine) {
     score += answers.level === "beginner" ? 1.5 : answers.level === "advanced" ? -1 : 0;
+    // …e ganham peso extra para quem tem muita massa a mover, idade avançada ou
+    // articulação em cuidado: a máquina estabiliza a trajetória
+    score += coach.machineBias;
   }
+  // impacto tolerado só parcialmente → o exercício continua elegível, mas perde
+  // para qualquer alternativa de baixo impacto (o veto total vem em `poolFor`)
+  if (ex.impact && coach.impact === "reduced") score -= 4;
   // diversidade dentro do programa: já usado em outro treino → escolhe o próximo
   // melhor (os levantamentos-base de força ainda repetem entre A/B, como nos
   // programas clássicos de progressão linear — a afinidade 3 supera a penalidade)
@@ -423,6 +518,7 @@ function pickBest(
   answers: QuizAnswers,
   usedInWorkout: Set<string>,
   programUse: Map<string, number>,
+  coach: CoachProfile,
 ): PoolExercise | null {
   let best: PoolExercise | null = null;
   let bestScore = -Infinity;
@@ -431,7 +527,8 @@ function pickBest(
     if (usedInWorkout.has(ex.name)) continue;
     // desempate estável: posição no pool (curadoria) vale uma fração mínima
     const score =
-      scoreExercise(ex, answers, programUse.get(ex.name) ?? 0) + (pool.length - i) * 0.01;
+      scoreExercise(ex, answers, programUse.get(ex.name) ?? 0, coach) +
+      (pool.length - i) * 0.01;
     if (score > bestScore) {
       bestScore = score;
       best = ex;
@@ -440,11 +537,76 @@ function pickBest(
   return best;
 }
 
-function repsFor(ex: PoolExercise, cat: SlotCategory, scheme: Scheme, level: FitnessLevel): string {
-  if (cat === "cardio") return scheme.cardioReps;
-  if (ex.name === "Prancha") return level === "beginner" ? "30s" : "45s";
-  if (cat === "core") return scheme.coreReps;
-  return ex.compound ? scheme.compoundReps : scheme.isolationReps;
+/**
+ * Repetições do exercício: a base do objetivo deslocada pelo `repsDelta` do
+ * usuário, sempre presa à janela do objetivo (`repWindow`).
+ *
+ * Alvos por tempo (prancha, cardio) ficam de fora — somar "2 repetições" a uma
+ * isometria não significa nada.
+ */
+function repsFor(
+  ex: PoolExercise,
+  cat: SlotCategory,
+  scheme: Scheme,
+  level: FitnessLevel,
+  coach: CoachProfile,
+): string {
+  if (cat === "cardio") {
+    const base = parseInt(scheme.cardioReps, 10);
+    const minutes = Math.max(5, base + coach.cardioMinutesDelta);
+    return `${minutes}min`;
+  }
+  if (ex.name === "Prancha") {
+    const base = level === "beginner" ? 30 : 45;
+    // 55+ e IMC alto sustentam menos tempo de prancha com a lombar protegida
+    const seconds = coach.ageBand === "senior" || coach.bmiBand === "obese" ? base - 10 : base;
+    return `${seconds}s`;
+  }
+  const baseText = cat === "core"
+    ? scheme.coreReps
+    : ex.compound
+      ? scheme.compoundReps
+      : scheme.isolationReps;
+  const base = parseInt(baseText, 10);
+  if (!Number.isFinite(base)) return baseText;
+  // core tem janela própria (mais alta) — a do objetivo travaria as 20 reps
+  const [lo, hi] = cat === "core"
+    ? [Math.max(10, scheme.repWindow[0]), Math.max(25, scheme.repWindow[1])]
+    : scheme.repWindow;
+  // Anda pela escala de repetições em vez de somar reps cruas: ninguém
+  // prescreve "3×17". Cada +2 de `repsDelta` vale um degrau da escala.
+  const steps = REP_STEPS.filter((n) => n >= lo && n <= hi);
+  if (steps.length === 0) return String(Math.min(hi, Math.max(lo, base)));
+  const nearest = steps.reduce((best, n) =>
+    Math.abs(n - base) < Math.abs(best - base) ? n : best,
+  );
+  const index = steps.indexOf(nearest) + Math.round(coach.repsDelta / 2);
+  return String(steps[Math.min(steps.length - 1, Math.max(0, index))]);
+}
+
+/** Escala de repetições usada na prescrição — os números que se escreve numa ficha. */
+const REP_STEPS = [4, 5, 6, 8, 10, 12, 15, 18, 20, 25];
+
+/**
+ * Pool elegível para a resposta do usuário: filtra por local e nível como
+ * sempre, e aplica os **vetos** do corpo — restrição articular e impacto.
+ *
+ * Veto é absoluto por decisão de prescrição: um exercício contraindicado não
+ * volta por ter pontuação alta (ver `skills/personal-trainer-agent.md`, §2.6).
+ */
+function eligiblePool(
+  cat: SlotCategory,
+  answers: QuizAnswers,
+  levelNum: 1 | 2 | 3,
+  coach: CoachProfile,
+): PoolExercise[] {
+  return POOLS[cat].filter((e) => {
+    if (answers.location === "gym" ? !e.gym : !e.home) return false;
+    if (e.minLevel > levelNum) return false;
+    if (e.joints?.some((j) => coach.restrictions.includes(j))) return false;
+    if (e.impact && coach.impact === "none") return false;
+    return true;
+  });
 }
 
 // ── Técnicas de treino sugeridas (bi-set, drop-set) ──────────────────────────
@@ -485,8 +647,16 @@ const ANTAGONIST: Partial<Record<SlotCategory, SlotCategory>> = {
  *    não falha muscular.
  *  - **Hipertrofia** ganha os dois.
  */
-function techniqueBudget(answers: QuizAnswers): { biset: number; drop: number } {
+function techniqueBudget(
+  answers: QuizAnswers,
+  coach: CoachProfile,
+): { biset: number; drop: number } {
   if (answers.level === "beginner" || answers.goal === "strength") {
+    return { biset: 0, drop: 0 };
+  }
+  // 55+ e adolescente não recebem intensificação: no primeiro caso a
+  // recuperação articular é o gargalo, no segundo a prioridade é técnica.
+  if (coach.ageBand === "senior" || coach.ageBand === "teen") {
     return { biset: 0, drop: 0 };
   }
   const advanced = answers.level === "advanced";
@@ -506,8 +676,13 @@ type PickedExercise = {
  * Distribui as técnicas sobre os exercícios já escolhidos do treino. Muta os
  * `SuggestedExercise` no lugar (acrescenta `technique`/`techniqueGroup`).
  */
-function assignTechniques(picked: PickedExercise[], answers: QuizAnswers, workoutKey: string) {
-  const budget = techniqueBudget(answers);
+function assignTechniques(
+  picked: PickedExercise[],
+  answers: QuizAnswers,
+  workoutKey: string,
+  coach: CoachProfile,
+) {
+  const budget = techniqueBudget(answers, coach);
   if (budget.biset === 0 && budget.drop === 0) return;
 
   const taken = new Set<number>();
@@ -603,6 +778,7 @@ function buildExercises(
   tpl: DayTemplate,
   answers: QuizAnswers,
   programUse: Map<string, number>,
+  coach: CoachProfile,
 ): SuggestedExercise[] {
   const levelNum = LEVEL_NUM[answers.level];
   const target = EXERCISES_BY_MINUTES[answers.minutes];
@@ -615,10 +791,11 @@ function buildExercises(
   // executável (máquina × barra livre).
   const picked: PickedExercise[] = [];
 
-  const poolFor = (cat: SlotCategory) =>
-    POOLS[cat].filter(
-      (e) => (answers.location === "gym" ? e.gym : e.home) && e.minLevel <= levelNum,
-    );
+  const poolFor = (cat: SlotCategory) => eligiblePool(cat, answers, levelNum, coach);
+
+  // séries do objetivo ajustadas pelo corpo (55+ e adolescente perdem uma;
+  // nunca menos de 2, senão a sessão deixa de gerar estímulo)
+  const seriesCount = Math.max(2, scheme.series[levelNum] + coach.setsDelta);
 
   // queima de gordura/condicionamento: a última vaga do treino é RESERVADA
   // para um finalizador de cardio (alvo por tempo, série única)
@@ -626,14 +803,14 @@ function buildExercises(
 
   for (const cat of slots) {
     if (out.length >= strengthTarget) break;
-    const pick = pickBest(poolFor(cat), answers, usedInWorkout, programUse);
+    const pick = pickBest(poolFor(cat), answers, usedInWorkout, programUse, coach);
     if (!pick) continue;
     usedInWorkout.add(pick.name);
     const exercise: SuggestedExercise = {
       name: pick.name,
       muscleGroup: pick.muscleGroup,
-      series: scheme.series[levelNum],
-      reps: repsFor(pick, cat, scheme, answers.level),
+      series: seriesCount,
+      reps: repsFor(pick, cat, scheme, answers.level, coach),
     };
     out.push(exercise);
     picked.push({ exercise, category: cat, pool: pick });
@@ -642,17 +819,17 @@ function buildExercises(
   // Técnicas entram DEPOIS da escolha: elas dependem de quais exercícios o
   // treino acabou tendo (não dá para saber o antagonista antes de escolher).
   // O finalizador de cardio abaixo fica de fora de propósito.
-  assignTechniques(picked, answers, tpl.key);
+  assignTechniques(picked, answers, tpl.key, coach);
 
   if (scheme.cardioFinisher) {
-    const pick = pickBest(poolFor("cardio"), answers, usedInWorkout, programUse);
+    const pick = pickBest(poolFor("cardio"), answers, usedInWorkout, programUse, coach);
     if (pick) {
       usedInWorkout.add(pick.name);
       out.push({
         name: pick.name,
         muscleGroup: pick.muscleGroup,
         series: 1,
-        reps: repsFor(pick, "cardio", scheme, answers.level),
+        reps: repsFor(pick, "cardio", scheme, answers.level, coach),
       });
     }
   }
@@ -707,8 +884,132 @@ const EMPHASIS_NOTE: Record<Exclude<MuscleEmphasis, "balanced">, { pt: string; e
   upper: { pt: " Ênfase em membros superiores.", en: " Upper-body emphasis." },
 };
 
+// ── "Por que este plano é seu" ───────────────────────────────────────────────
+
+const RESTRICTION_LABEL: Record<JointRestriction, { pt: string; en: string }> = {
+  knee: { pt: "joelho", en: "knee" },
+  shoulder: { pt: "ombro", en: "shoulder" },
+  lower_back: { pt: "lombar", en: "lower back" },
+  wrist: { pt: "punho", en: "wrist" },
+};
+
+/**
+ * Monta as notas exibidas no preview. **Cada nota só entra se o ajuste
+ * correspondente realmente aconteceu** neste programa — é a regra de
+ * rastreabilidade do `personal-trainer-agent`: explicação sem decisão por trás
+ * é teatro de personalização.
+ */
+function buildCoachNotes(
+  answers: QuizAnswers,
+  coach: CoachProfile,
+  scheme: Scheme,
+): CoachNote[] {
+  const notes: CoachNote[] = [];
+  const restPt = formatRest(scheme, coach, "pt");
+  const restEn = formatRest(scheme, coach, "en");
+
+  // 1. Restrições — o ajuste mais forte, então vem primeiro
+  if (coach.restrictions.length > 0) {
+    const pt = coach.restrictions.map((r) => RESTRICTION_LABEL[r].pt).join(", ");
+    const en = coach.restrictions.map((r) => RESTRICTION_LABEL[r].en).join(", ");
+    notes.push({
+      kind: "restriction",
+      pt: `Você marcou cuidado com ${pt}: os exercícios contraindicados para essa articulação ficaram de fora e foram substituídos por opções que poupam a região.`,
+      en: `You flagged ${en} care: exercises contraindicated for that joint were left out and replaced with options that spare the area.`,
+    });
+  }
+
+  // 2. Composição corporal — só quando há IMC calculado E ele mudou algo
+  if (coach.bmi != null && coach.bmiBand) {
+    const bmiPt = coach.bmi.toFixed(1).replace(".", ",");
+    const bmiEn = coach.bmi.toFixed(1);
+    if (coach.bmiBand === "obese") {
+      notes.push({
+        kind: "body",
+        pt: `Com ${coach.weightKg} kg e ${coach.heightCm} cm (IMC ${bmiPt}), tirei os exercícios de salto e impacto — a carga sobre joelho e tornozelo em cada aterrissagem seria alta demais. O cardio ficou de baixo impacto e mais longo.`,
+        en: `At ${coach.weightKg} kg and ${coach.heightCm} cm (BMI ${bmiEn}), jumping and high-impact work is out — the load on knees and ankles on each landing would be too high. Cardio is low-impact and longer instead.`,
+      });
+    } else if (coach.bmiBand === "over") {
+      notes.push({
+        kind: "body",
+        pt: `Seu IMC é ${bmiPt}: preferi exercícios guiados e reduzi o impacto repetitivo, mantendo o gasto calórico pela duração e não pelo salto.`,
+        en: `Your BMI is ${bmiEn}: I favoured guided exercises and cut repetitive impact, keeping the calorie burn in the duration rather than in jumping.`,
+      });
+    } else if (coach.bmiBand === "under" && answers.goal !== "hypertrophy") {
+      notes.push({
+        kind: "body",
+        pt: `Seu IMC é ${bmiPt}, abaixo da faixa de referência: mantive o volume de musculação alto e o cardio contido, para você não gastar o que precisa construir.`,
+        en: `Your BMI is ${bmiEn}, below the reference range: I kept resistance volume high and cardio contained, so you don't spend what you need to build.`,
+      });
+    }
+  }
+
+  // 3. Idade — só quando ela mexeu em descanso, série ou técnica
+  if (coach.ageBand === "senior") {
+    notes.push({
+      kind: "age",
+      pt: `Aos ${coach.age} anos, o gargalo é a recuperação: uma série a menos por exercício, descanso de ${restPt} e nenhuma técnica de intensificação. Progresso vem da constância, não da exaustão.`,
+      en: `At ${coach.age}, recovery is the bottleneck: one set fewer per exercise, ${restEn} of rest and no intensification techniques. Progress comes from consistency, not exhaustion.`,
+    });
+  } else if (coach.ageBand === "mature") {
+    notes.push({
+      kind: "age",
+      pt: `Aos ${coach.age} anos, aumentei o descanso entre séries para ${restPt} e priorizei exercícios guiados — a articulação pede mais preparo do que aos 20.`,
+      en: `At ${coach.age}, I extended rest between sets to ${restEn} and prioritised guided exercises — joints ask for more preparation than at 20.`,
+    });
+  } else if (coach.ageBand === "teen") {
+    notes.push({
+      kind: "age",
+      pt: `Como você ainda está em fase de crescimento, o foco é técnica: uma série a menos, sem técnicas avançadas e sem treinar até a falha.`,
+      en: `Since you're still growing, the focus is technique: one set fewer, no advanced techniques and no training to failure.`,
+    });
+  }
+
+  // 4. Sexo — só quando os modificadores de fato mudaram reps/descanso
+  if (coach.sex === "female") {
+    notes.push({
+      kind: "body",
+      pt: `Ajustei a faixa de repetições para cima e o descanso para ${restPt}: mulheres sustentam mais repetições na mesma intensidade relativa e recuperam mais rápido entre séries.`,
+      en: `I nudged the rep range up and set rest at ${restEn}: women sustain more reps at the same relative intensity and recover faster between sets.`,
+    });
+  }
+
+  // 5. Tendência de peso — só quando há histórico suficiente
+  if (coach.weightTrend === "losing" && answers.goal === "hypertrophy") {
+    notes.push({
+      kind: "trend",
+      pt: `Seu peso vem caindo nas últimas semanas. Para ganhar massa isso joga contra: mantenha o treino, mas confira se a alimentação acompanha o objetivo.`,
+      en: `Your weight has been dropping over the past weeks. That works against muscle gain: keep the training, but check that your eating matches the goal.`,
+    });
+  } else if (coach.weightTrend === "gaining" && answers.goal === "fat_loss") {
+    notes.push({
+      kind: "trend",
+      pt: `Seu peso vem subindo: aumentei a duração do cardio final e mantive o descanso curto, para elevar o gasto sem estender a sessão.`,
+      en: `Your weight has been trending up: I extended the final cardio and kept rest short, raising the burn without stretching the session.`,
+    });
+  }
+
+  // 6. Nível e objetivo — a base da prescrição, sempre verdadeira
+  notes.push({
+    kind: "goal",
+    pt: `Objetivo ${GOAL_LABELS[answers.goal].pt.toLowerCase()}: ${scheme.series[LEVEL_NUM[answers.level]] + coach.setsDelta} séries por exercício, descanso de ${restPt} e seleção puxada para os exercícios que mais rendem nesse objetivo.`,
+    en: `${GOAL_LABELS[answers.goal].en} goal: ${scheme.series[LEVEL_NUM[answers.level]] + coach.setsDelta} sets per exercise, ${restEn} of rest and a selection pulled toward what pays off most for it.`,
+  });
+
+  if (answers.level === "beginner") {
+    notes.push({
+      kind: "level",
+      pt: `Como iniciante, você recebe exercícios guiados e nenhuma técnica avançada: primeiro o movimento, depois a intensidade.`,
+      en: `As a beginner you get guided exercises and no advanced techniques: movement first, intensity later.`,
+    });
+  }
+
+  return notes;
+}
+
 /** Gera o programa semanal personalizado a partir das respostas do quiz. */
 export function generateProgram(answers: QuizAnswers): WeeklyProgram {
+  const coach = answers.coach ?? NEUTRAL_COACH_PROFILE;
   const days = Array.from(new Set(answers.days))
     .filter((day) => day >= 0 && day <= 6)
     .sort((a, b) => a - b)
@@ -727,7 +1028,7 @@ export function generateProgram(answers: QuizAnswers): WeeklyProgram {
   const workouts: ProgramWorkout[] = Array.from(distinct.values()).map((tpl) => ({
     key: tpl.key,
     name: tpl.name,
-    exercises: buildExercises(tpl, answers, programUse),
+    exercises: buildExercises(tpl, answers, programUse, coach),
   }));
 
   const week: Array<string | null> = Array(7).fill(null);
@@ -737,7 +1038,8 @@ export function generateProgram(answers: QuizAnswers): WeeklyProgram {
 
   const goalLabel = GOAL_LABELS[answers.goal];
   const split = splitLabel(dayCount, answers.level, answers.emphasis);
-  const rest = SCHEMES[answers.goal].rest;
+  const scheme = SCHEMES[answers.goal];
+  const rest = { pt: formatRest(scheme, coach, "pt"), en: formatRest(scheme, coach, "en") };
   const emphasisNote =
     answers.emphasis === "balanced" ? { pt: "", en: "" } : EMPHASIS_NOTE[answers.emphasis];
   const locationNote =
@@ -758,5 +1060,6 @@ export function generateProgram(answers: QuizAnswers): WeeklyProgram {
     },
     workouts,
     week,
+    coachNotes: buildCoachNotes(answers, coach, scheme),
   };
 }

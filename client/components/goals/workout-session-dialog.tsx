@@ -12,6 +12,14 @@ import { RouteMap } from "@/components/shared/route-map";
 import { ExerciseImage } from "@/components/shared/exercise-image";
 import { ExerciseAnatomy } from "@/components/shared/exercise-anatomy";
 import { TechniqueInfoOverlay } from "@/components/goals/technique-info-overlay";
+import { getCoachingAdaptations, getExerciseCoaching } from "@/lib/exercise-coaching";
+import {
+  buildCoachProfile,
+  parseBodyData,
+  JOINT_RESTRICTIONS,
+  type CoachProfile,
+  type JointRestriction,
+} from "@/lib/coach-profile";
 import { getNetworkStatus } from "@/lib/network-status";
 import { subscribeKeyboardHeight, getKeyboardHeight } from "@/lib/keyboard";
 import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
@@ -20,7 +28,9 @@ import { beatsE1rm, estimateOneRepMax, roundE1rm } from "@/lib/one-rep-max";
 import { toast } from "@/components/ui/use-toast";
 import {
   saveWorkoutHistoryDb,
+  getFitnessProfileDb,
   getPreviousBestKgDb,
+  getUserProfileDb,
   getWorkoutsDb,
   getWorkoutGroupsDb,
   updateUserWorkoutExerciseDb,
@@ -494,7 +504,7 @@ function RunTrackerPanel({
 // pelo picker (catálogo) e pelo botão ⓘ da sessão — fonte única de verdade.
 function ExerciseDetailOverlay({
   photo, name, muscleGroup, description, zIndex, onClose,
-  workoutId, canEdit, onSaved, onDeleted,
+  workoutId, canEdit, onSaved, onDeleted, coach,
 }: {
   photo: string | null;
   name: string;
@@ -502,6 +512,12 @@ function ExerciseDetailOverlay({
   description: string;
   zIndex: number;
   onClose: () => void;
+  /**
+   * Corpo do usuário — só serve às adaptações ("como você marcou cuidado com o
+   * joelho…"). `null` = ainda carregando ou sem dados: a ficha técnica genérica
+   * aparece do mesmo jeito.
+   */
+  coach?: CoachProfile | null;
   /** id do exercício no catálogo — necessário para editar */
   workoutId?: string;
   /** true = exercício criado pelo próprio usuário → mostra a ação "Editar" */
@@ -510,7 +526,7 @@ function ExerciseDetailOverlay({
   /** Chamado após apagar o exercício custom — remove das listas e fecha. */
   onDeleted?: (id: string) => void;
 }) {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
 
   // ── Edição (só para exercícios criados pelo usuário) ────────────────────
   const [editing, setEditing] = React.useState(false);
@@ -948,6 +964,111 @@ function ExerciseDetailOverlay({
           </p>
         </div>
 
+        {/* ── Técnica do treinador ──────────────────────────────────────
+            A descrição do catálogo diz o que o exercício é; esta ficha diz
+            COMO executar — setup, passos, respiração, cadência e os erros que
+            realmente acontecem. Base em client/lib/exercise-coaching.ts,
+            casada por padrão de movimento (cobre também exercícios custom).
+            Quando o usuário tem dados de corpo/restrição, ganha ainda as
+            adaptações do caso dele. */}
+        {(() => {
+          const lang = language === "en" ? "en" : "pt";
+          const cues = getExerciseCoaching(name, lang);
+          const adaptations = coach ? getCoachingAdaptations(name, coach, lang) : [];
+          if (!cues && adaptations.length === 0) return null;
+
+          const block = (label: string, body: React.ReactNode) => (
+            <div style={{ marginBottom: 14 }}>
+              <div style={{
+                fontSize: 10, fontWeight: 700, letterSpacing: 0.6,
+                textTransform: "uppercase", color: "rgba(255,255,255,0.42)", marginBottom: 6,
+              }}>
+                {label}
+              </div>
+              {body}
+            </div>
+          );
+          const line = (text: string) => (
+            <p style={{ fontSize: 13.5, lineHeight: 1.55, margin: 0, color: "rgba(255,255,255,0.8)" }}>
+              {text}
+            </p>
+          );
+
+          return (
+            <div style={{ width: "100%", padding: "4px 0 8px" }}>
+              <div style={{
+                borderRadius: 16, padding: "14px 16px 2px",
+                background: "rgba(91,140,255,0.08)",
+                border: "1px solid rgba(91,140,255,0.26)",
+              }}>
+                <div style={{
+                  fontSize: 12, fontWeight: 800, letterSpacing: 0.5,
+                  textTransform: "uppercase", color: "#8fb0ff", marginBottom: 12,
+                }}>
+                  {t("goals_coach_cue_title")}
+                </div>
+
+                {cues && (
+                  <>
+                    {block(t("goals_coach_cue_setup"), line(cues.setup))}
+                    {block(
+                      t("goals_coach_cue_execution"),
+                      <ol style={{ margin: 0, padding: 0, listStyle: "none" }}>
+                        {cues.execution.map((stepText, i) => (
+                          <li key={i} style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "flex-start" }}>
+                            <span style={{
+                              flexShrink: 0, width: 20, height: 20, borderRadius: "50%",
+                              background: "rgba(91,140,255,0.16)", border: "1px solid rgba(91,140,255,0.4)",
+                              color: "#8fb0ff", fontSize: 10, fontWeight: 800,
+                              display: "flex", alignItems: "center", justifyContent: "center", marginTop: 1,
+                            }}>
+                              {i + 1}
+                            </span>
+                            <span style={{ fontSize: 13.5, lineHeight: 1.5, color: "rgba(255,255,255,0.8)" }}>
+                              {stepText}
+                            </span>
+                          </li>
+                        ))}
+                      </ol>,
+                    )}
+                    {block(t("goals_coach_cue_breathing"), line(cues.breathing))}
+                    {block(t("goals_coach_cue_tempo"), line(cues.tempo))}
+                    {block(
+                      t("goals_coach_cue_mistakes"),
+                      <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
+                        {cues.mistakes.map((m, i) => (
+                          <li key={i} style={{
+                            display: "flex", gap: 8, marginBottom: 6,
+                            fontSize: 13, lineHeight: 1.5, color: "rgba(255,255,255,0.7)",
+                          }}>
+                            <span style={{ color: "#f87171", flexShrink: 0 }}>✕</span>
+                            <span>{m}</span>
+                          </li>
+                        ))}
+                      </ul>,
+                    )}
+                  </>
+                )}
+
+                {adaptations.length > 0 && block(
+                  t("goals_coach_cue_for_you"),
+                  <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
+                    {adaptations.map((a, i) => (
+                      <li key={i} style={{
+                        display: "flex", gap: 8, marginBottom: 6,
+                        fontSize: 13, lineHeight: 1.5, color: "rgba(253,186,116,0.92)",
+                      }}>
+                        <span style={{ flexShrink: 0 }}>→</span>
+                        <span>{a}</span>
+                      </li>
+                    ))}
+                  </ul>,
+                )}
+              </div>
+            </div>
+          );
+        })()}
+
         {/* Anatomia — mesma ficha do catálogo. É AQUI que o usuário olha o
             exercício com mais frequência (o "i" no card, durante o treino),
             então deixá-la só no wizard escondia a feature. */}
@@ -987,6 +1108,36 @@ export function WorkoutSessionDialog({
     globalRestTimerKey, setGlobalRestTimerKey,
     resetWorkoutState,
   } = useWorkout();
+
+  // Corpo do usuário — alimenta as adaptações da ficha técnica ("como você
+  // marcou cuidado com o joelho…"). Best-effort e uma vez por sessão: sem ele,
+  // a ficha genérica continua aparecendo.
+  const [coachProfile, setCoachProfile] = React.useState<CoachProfile | null>(null);
+  React.useEffect(() => {
+    if (!open || !userId || coachProfile) return;
+    let cancelled = false;
+    Promise.all([
+      getUserProfileDb(userId).catch(() => null),
+      getFitnessProfileDb(userId).catch(() => null),
+    ]).then(([profile, fitness]) => {
+      if (cancelled || !profile) return;
+      const restrictions = (fitness?.restrictions ?? []).filter(
+        (r): r is JointRestriction => JOINT_RESTRICTIONS.includes(r as JointRestriction),
+      );
+      setCoachProfile(
+        buildCoachProfile(
+          parseBodyData({
+            gender: profile.gender,
+            age: profile.age,
+            height: profile.height,
+            weight: profile.weight,
+          }),
+          restrictions,
+        ),
+      );
+    });
+    return () => { cancelled = true; };
+  }, [open, userId, coachProfile]);
 
   const [confirmOpen, setConfirmOpen] = React.useState(false);
   const [isSaving, setIsSaving] = React.useState(false);
@@ -4665,6 +4816,7 @@ export function WorkoutSessionDialog({
           onClose={() => setPickerInfo(null)}
           workoutId={pickerInfo.id}
           canEdit={!!pickerInfo.isCustom}
+          coach={coachProfile}
           onSaved={(u) => {
             setCatalog((prev) =>
               prev.map((w) =>
@@ -4696,6 +4848,7 @@ export function WorkoutSessionDialog({
             onClose={() => setInfoExerciseId(null)}
             workoutId={infoItem.workout_id}
             canEdit={!!infoItem.isCustom}
+            coach={coachProfile}
             onSaved={applyExerciseEdit}
             onDeleted={(id) => { applyExerciseDelete(id); setInfoExerciseId(null); }}
           />

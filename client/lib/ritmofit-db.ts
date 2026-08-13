@@ -1572,6 +1572,12 @@ export type UserProfile = {
   height?: string | null;
   weight?: string | null;
   age?: string | null;
+  /**
+   * Sexo biológico informado no cadastro ("male" | "female" | "other").
+   * Usado pelo gerador de rotina sugerida para ajustar faixa de repetições e
+   * descanso (ver `client/lib/coach-profile.ts`).
+   */
+  gender?: string | null;
   is_verified?: boolean;
   /** Oculta listas de seguidores/seguindo de outros usuários */
   hide_follow_lists?: boolean;
@@ -1588,7 +1594,7 @@ export async function getUserProfileDb(
   return cached(`userProfile:${userId}`, CACHE_TTL_LONG, async () => {
     const { data, error } = await supabase!
       .from("profiles")
-      .select("id, nickname, bio, photo, cover_photo, objectives, height, weight, age, handle, is_verified, hide_follow_lists, hide_posts_from_non_followers")
+      .select("id, nickname, bio, photo, cover_photo, objectives, height, weight, age, gender, handle, is_verified, hide_follow_lists, hide_posts_from_non_followers")
       .eq("user_id", userId)
       .maybeSingle();
 
@@ -1612,6 +1618,10 @@ export async function getUserProfileDb(
       height: data.height != null ? String(data.height) : null,
       weight: data.weight != null ? String(data.weight) : null,
       age: data.age != null ? String(data.age) : null,
+      // A coluna aceita texto ou array (o cadastro grava texto) — normaliza.
+      gender: data.gender != null
+        ? String(Array.isArray(data.gender) ? data.gender[0] ?? "" : data.gender)
+        : null,
       is_verified: data.is_verified === true,
       hide_follow_lists: data.hide_follow_lists === true,
       hide_posts_from_non_followers: data.hide_posts_from_non_followers === true,
@@ -1757,7 +1767,7 @@ export async function updateUserProfileDb(
 
 export async function updateUserPersonalDataDb(
   userId: string,
-  data: { height?: string; weight?: string; age?: string },
+  data: { height?: string; weight?: string; age?: string; gender?: string },
 ): Promise<void> {
   if (!hasSupabaseConfig || !supabase) return;
 
@@ -1765,6 +1775,7 @@ export async function updateUserPersonalDataDb(
   if (data.height !== undefined) updates.height = data.height ? parseInt(data.height, 10) : null;
   if (data.weight !== undefined) updates.weight = data.weight ? parseFloat(data.weight) : null;
   if (data.age !== undefined) updates.age = data.age ? parseInt(data.age, 10) : null;
+  if (data.gender !== undefined) updates.gender = data.gender || null;
 
   const { error } = await supabase
     .from("profiles")
@@ -3013,26 +3024,54 @@ export type FitnessProfile = {
   sessionMinutes: number;
   emphasis: string;
   location: string;
+  /**
+   * Articulações em cuidado ("knee" | "shoulder" | "lower_back" | "wrist"),
+   * guardadas como CSV na coluna `restrictions`. Vetam exercícios no gerador
+   * (ver `client/lib/coach-profile.ts`). Coluna criada em
+   * `docs/migrations/20260813-fitness-profile-restrictions.sql` — enquanto a
+   * migração não roda, leitura e escrita degradam para o comportamento antigo.
+   */
+  restrictions?: string[];
 };
+
+/** `42703 = undefined_column` — a migração das restrições ainda não rodou. */
+const UNDEFINED_COLUMN = "42703";
 
 export async function getFitnessProfileDb(userId: string): Promise<FitnessProfile | null> {
   if (!hasSupabaseConfig || !supabase) return null;
-  const { data, error } = await supabase
+  // Duas consultas escritas por extenso de propósito: o supabase-js infere o
+  // tipo da linha a partir do LITERAL do `select`, então parametrizar a lista
+  // de colunas (template string ou ternário) quebra a inferência.
+  let { data, error } = (await supabase
     .from("user_fitness_profile")
-    .select("goal, level, training_days, session_minutes, emphasis, location")
+    .select("goal, level, training_days, session_minutes, emphasis, location, restrictions")
     .eq("user_id", userId)
-    .maybeSingle();
+    .maybeSingle()) as { data: unknown; error: { code?: string } | null };
+
+  if (error?.code === UNDEFINED_COLUMN) {
+    ({ data, error } = (await supabase
+      .from("user_fitness_profile")
+      .select("goal, level, training_days, session_minutes, emphasis, location")
+      .eq("user_id", userId)
+      .maybeSingle()) as { data: unknown; error: { code?: string } | null });
+  }
   if (error || !data) return null;
+
+  const row = data as Record<string, unknown>;
   return {
-    goal: String(data.goal ?? ""),
-    level: String(data.level ?? ""),
-    trainingDays: String(data.training_days ?? "")
+    goal: String(row.goal ?? ""),
+    level: String(row.level ?? ""),
+    trainingDays: String(row.training_days ?? "")
       .split(",")
       .map(Number)
       .filter((n) => Number.isInteger(n) && n >= 0 && n <= 6),
-    sessionMinutes: Number(data.session_minutes ?? 0),
-    emphasis: String(data.emphasis ?? ""),
-    location: String(data.location ?? ""),
+    sessionMinutes: Number(row.session_minutes ?? 0),
+    emphasis: String(row.emphasis ?? ""),
+    location: String(row.location ?? ""),
+    restrictions: String(row.restrictions ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
   };
 }
 
@@ -3041,19 +3080,24 @@ export async function upsertFitnessProfileDb(
   profile: FitnessProfile,
 ): Promise<void> {
   if (!hasSupabaseConfig || !supabase) return;
-  const { error } = await supabase.from("user_fitness_profile").upsert(
-    {
-      user_id: userId,
-      goal: profile.goal,
-      level: profile.level,
-      training_days: profile.trainingDays.join(","),
-      session_minutes: profile.sessionMinutes,
-      emphasis: profile.emphasis,
-      location: profile.location,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "user_id" },
-  );
+  const base = {
+    user_id: userId,
+    goal: profile.goal,
+    level: profile.level,
+    training_days: profile.trainingDays.join(","),
+    session_minutes: profile.sessionMinutes,
+    emphasis: profile.emphasis,
+    location: profile.location,
+    updated_at: new Date().toISOString(),
+  };
+
+  const save = async (payload: Record<string, unknown>) =>
+    supabase!.from("user_fitness_profile").upsert(payload, { onConflict: "user_id" });
+
+  let { error } = await save({ ...base, restrictions: (profile.restrictions ?? []).join(",") });
+  // Sem a migração das restrições, grava o resto — perder o perfil inteiro por
+  // causa de uma coluna nova seria pior do que perder só as restrições.
+  if (error?.code === UNDEFINED_COLUMN) ({ error } = await save(base));
   if (error) {
     console.error("Error saving fitness profile:", error?.message || error);
   }
