@@ -15,6 +15,8 @@ import {
 } from "@/lib/ritmofit-db";
 import { PromotionCommentsDrawer, PromotionCommentsSection } from "@/components/modals/promotion-comments-drawer";
 import { useAuth } from "@/hooks/useAuth";
+import { useLanguage } from "@/lib/language-context";
+import type { TranslationKey } from "@/lib/i18n";
 import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
 import { toast } from "@/components/ui/use-toast";
 import { Button } from "@/components/ui/button";
@@ -179,8 +181,27 @@ const CATEGORY_COLORS: Record<string, string> = {
   outro: "bg-muted text-muted-foreground",
 };
 
-function categoryLabel(cat: string) {
-  return PROMOTION_CATEGORIES.find((c) => c.value === cat)?.label ?? cat;
+/** Rótulo traduzido de cada categoria — os `label` de PROMOTION_CATEGORIES são
+ * apenas PT, então a tela resolve o texto pela chave de i18n. */
+const CATEGORY_LABEL_KEYS: Record<string, TranslationKey> = {
+  equipamento: "store_cat_equipamento",
+  suplemento: "store_cat_suplemento",
+  alimento: "store_cat_alimento",
+  vestuario: "store_cat_vestuario",
+  servico: "store_cat_servico",
+  outro: "store_cat_outro",
+};
+
+type Translate = (key: TranslationKey) => string;
+
+function categoryLabel(cat: string, t: Translate) {
+  const key = CATEGORY_LABEL_KEYS[cat];
+  return key ? t(key) : cat;
+}
+
+/** Formata uma data no idioma ativo da interface. */
+function formatDate(value: string, language: string) {
+  return new Date(value).toLocaleDateString(language === "en" ? "en-US" : "pt-BR");
 }
 
 /** Mantém apenas dígitos e uma única vírgula (separador decimal PT-BR) num input de preço. */
@@ -243,6 +264,7 @@ function PromotionDetailDrawer({
   onInactivate,
   onDelete,
 }: PromotionDetailDrawerProps) {
+  const { t, language } = useLanguage();
   const [couponCopied, setCouponCopied] = React.useState(false);
 
   if (!promo) return null;
@@ -284,7 +306,7 @@ function PromotionDetailDrawer({
                   <button
                     type="button"
                     className="flex-shrink-0 h-8 w-8 -mt-1 -mr-1 flex items-center justify-center rounded-full text-white/60 hover:text-white hover:bg-white/10 transition-colors"
-                    aria-label="Mais opções"
+                    aria-label={t("store_more_options")}
                   >
                     <MoreVertical className="h-4 w-4" />
                   </button>
@@ -292,18 +314,18 @@ function PromotionDetailDrawer({
                 <DropdownMenuContent align="end" className="z-[9999]">
                   <DropdownMenuItem onClick={() => { onClose(); onEdit(promo); }}>
                     <Pencil className="h-4 w-4 mr-2" />
-                    Editar
+                    {t("edit")}
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => { onClose(); onInactivate(promo.id); }}>
                     <Ban className="h-4 w-4 mr-2" />
-                    Inativar
+                    {t("store_deactivate")}
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     className="text-destructive"
                     onClick={() => { onClose(); onDelete(promo.id); }}
                   >
                     <Trash2 className="h-4 w-4 mr-2" />
-                    Remover
+                    {t("remove")}
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -330,7 +352,7 @@ function PromotionDetailDrawer({
                 <div className="absolute inset-0 flex items-center justify-center">
                   <span className="text-destructive text-sm font-bold px-3 py-1.5 rounded-full flex items-center gap-1.5 border border-destructive/30" style={{ background: "rgba(14,13,20,.8)" }}>
                     <AlertTriangle className="h-4 w-4" />
-                    Pode ter expirado
+                    {t("store_maybe_expired")}
                   </span>
                 </div>
               )}
@@ -342,7 +364,7 @@ function PromotionDetailDrawer({
             className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full ${CATEGORY_COLORS[promo.category] ?? CATEGORY_COLORS.outro}`}
           >
             {CATEGORY_ICONS[promo.category] ?? CATEGORY_ICONS.outro}
-            {categoryLabel(promo.category)}
+            {categoryLabel(promo.category, t)}
           </span>
 
           {/* Preço */}
@@ -374,7 +396,7 @@ function PromotionDetailDrawer({
           {/* Validade */}
           {promo.expires_at && (
             <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>
-              Válido até {new Date(promo.expires_at).toLocaleDateString("pt-BR")}
+              {t("store_valid_until").replace("{date}", formatDate(promo.expires_at, language))}
             </p>
           )}
 
@@ -383,7 +405,7 @@ function PromotionDetailDrawer({
             <button
               onClick={() => {
                 copyToClipboard(promo.coupon_code!);
-                toast({ title: "Cupom copiado!", description: promo.coupon_code });
+                toast({ title: t("store_coupon_copied"), description: promo.coupon_code });
                 setCouponCopied(true);
                 setTimeout(() => setCouponCopied(false), 2000);
               }}
@@ -405,10 +427,10 @@ function PromotionDetailDrawer({
           {/* Votos de status */}
           {!isOwner && isLoggedIn && (
             <div className="flex items-center gap-2 pt-3" style={{ borderTop: "1px solid rgba(255,255,255,.1)" }}>
-              <span className="text-xs flex-shrink-0" style={{ color: "rgba(255,255,255,.5)" }}>Ainda ativo?</span>
+              <span className="text-xs flex-shrink-0" style={{ color: "rgba(255,255,255,.5)" }}>{t("store_still_active")}</span>
               <button
                 onClick={() => onStatusVote(promo.id, "active")}
-                aria-label="Marcar como ativo"
+                aria-label={t("store_mark_active")}
                 className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
                   promo.user_status_vote === "active"
                     ? "bg-green-500/20 text-green-500"
@@ -416,11 +438,11 @@ function PromotionDetailDrawer({
                 }`}
               >
                 <ThumbsUp className="h-3.5 w-3.5" />
-                Sim {(promo.active_reports ?? 0) > 0 && `(${promo.active_reports})`}
+                {t("store_yes")} {(promo.active_reports ?? 0) > 0 && `(${promo.active_reports})`}
               </button>
               <button
                 onClick={() => onStatusVote(promo.id, "expired")}
-                aria-label="Marcar como expirada"
+                aria-label={t("store_mark_expired")}
                 className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
                   promo.user_status_vote === "expired"
                     ? "bg-destructive/20 text-destructive"
@@ -428,7 +450,7 @@ function PromotionDetailDrawer({
                 }`}
               >
                 <ThumbsDown className="h-3.5 w-3.5" />
-                Expirou {(promo.expired_reports ?? 0) > 0 && `(${promo.expired_reports})`}
+                {t("store_expired_vote")} {(promo.expired_reports ?? 0) > 0 && `(${promo.expired_reports})`}
               </button>
             </div>
           )}
@@ -441,7 +463,7 @@ function PromotionDetailDrawer({
               onClick={() => openExternalUrl(promo.external_link, Browser.open)}
             >
               <ExternalLink className="h-5 w-5" />
-              Ir para a promoção
+              {t("store_go_to_promo")}
             </Button>
           )}
 
@@ -455,7 +477,7 @@ function PromotionDetailDrawer({
             }`}
           >
             <Heart className={`h-4 w-4 ${promo.user_liked ? "fill-red-500" : ""}`} />
-            {promo.user_liked ? "Curtido" : "Curtir"}
+            {promo.user_liked ? t("store_liked") : t("store_like")}
             {(promo.likes_count ?? 0) > 0 && (
               <span className="text-xs">· {promo.likes_count}</span>
             )}
@@ -465,7 +487,7 @@ function PromotionDetailDrawer({
           <div className="pt-3 space-y-3" style={{ borderTop: "1px solid rgba(255,255,255,.1)" }}>
             <div className="flex items-center gap-1.5 text-sm font-medium text-white/85">
               <MessageCircle className="h-4 w-4 text-brand" />
-              Comentários
+              {t("comments_title")}
               {(promo.comments_count ?? 0) > 0 && (
                 <span className="text-xs font-normal text-white/40">({promo.comments_count})</span>
               )}
@@ -505,6 +527,7 @@ function PromotionCard({
   onUserClick,
   onOpenDetail,
 }: PromotionCardProps) {
+  const { t } = useLanguage();
   const isOwner = !viewerLoading && viewerUserId === promo.user_id;
 
   const expiredReports = promo.expired_reports ?? 0;
@@ -533,7 +556,7 @@ function PromotionCard({
       <button
         className="flex flex-col flex-1 text-left w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50"
         onClick={() => onOpenDetail(promo)}
-        aria-label={`Ver detalhes de ${promo.title}`}
+        aria-label={t("store_view_details").replace("{title}", promo.title)}
       >
         {/* Image */}
         <div className="relative w-full aspect-[4/3] bg-muted overflow-hidden flex-shrink-0">
@@ -558,7 +581,7 @@ function PromotionCard({
             <div className="absolute inset-0 flex items-center justify-center">
               <span className="bg-background/80 text-destructive text-xs font-bold px-2.5 py-1 rounded-full flex items-center gap-1 border border-destructive/30">
                 <AlertTriangle className="h-3 w-3" />
-                {dateExpired ? "Expirada" : "Expirada?"}
+                {dateExpired ? t("store_expired_badge") : t("store_expired_badge_maybe")}
               </span>
             </div>
           )}
@@ -570,7 +593,7 @@ function PromotionCard({
             className={`self-start inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full ${CATEGORY_COLORS[promo.category] ?? CATEGORY_COLORS.outro}`}
           >
             {CATEGORY_ICONS[promo.category] ?? CATEGORY_ICONS.outro}
-            {categoryLabel(promo.category)}
+            {categoryLabel(promo.category, t)}
           </span>
 
           {/* Título */}
@@ -637,18 +660,18 @@ function PromotionCard({
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onClick={() => onEdit(promo)}>
                   <Pencil className="h-4 w-4 mr-2" />
-                  Editar
+                  {t("edit")}
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => onInactivate(promo.id)}>
                   <Ban className="h-4 w-4 mr-2" />
-                  Inativar
+                  {t("store_deactivate")}
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   className="text-destructive"
                   onClick={() => onDelete(promo.id)}
                 >
                   <Trash2 className="h-4 w-4 mr-2" />
-                  Remover
+                  {t("remove")}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -699,6 +722,7 @@ type NewPromoFormProps = {
 };
 
 function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
+  const { t } = useLanguage();
   const [linkInput, setLinkInput] = React.useState("");
   const [fetching, setFetching] = React.useState(false);
   const [prefilled, setPrefilled] = React.useState(false);
@@ -745,11 +769,11 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
     e.target.value = "";
     if (!file) return;
     if (!file.type.startsWith("image/")) {
-      toast({ title: "Selecione uma imagem válida.", variant: "destructive" });
+      toast({ title: t("store_invalid_image"), variant: "destructive" });
       return;
     }
     if (file.size > 10 * 1024 * 1024) {
-      toast({ title: "Imagem deve ter no máximo 10MB.", variant: "destructive" });
+      toast({ title: t("store_image_too_large"), variant: "destructive" });
       return;
     }
     pendingStoreFileRef.current = file;
@@ -763,7 +787,7 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
     setUploading(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Não autenticado");
+      if (!user) throw new Error(t("store_not_authenticated"));
       const ext = uploadFile.name.split(".").pop() ?? "jpg";
       const path = `${user.id}/${Date.now()}.${ext}`;
       const { error } = await supabase.storage
@@ -783,7 +807,7 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
 
     // Basic URL validation
     try { new URL(url); } catch {
-      toast({ title: "URL inválida. Inclua https://", variant: "destructive" });
+      toast({ title: t("store_invalid_url"), variant: "destructive" });
       return;
     }
 
@@ -800,18 +824,18 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
       setPrefilled(true);
 
       if (anyFilled) {
-        toast({ title: "Informações importadas!", description: "Revise e ajuste antes de publicar." });
+        toast({ title: t("store_import_success"), description: t("store_import_success_desc") });
       } else {
         toast({
-          title: "Link salvo, mas sem dados automáticos",
-          description: "Este site não expõe meta tags. Preencha manualmente.",
+          title: t("store_import_partial"),
+          description: t("store_import_partial_desc"),
           variant: "destructive",
         });
       }
     } catch (err: any) {
       toast({
-        title: "Importação automática indisponível",
-        description: "Preencha os dados da promoção manualmente nos campos abaixo.",
+        title: t("store_import_unavailable"),
+        description: t("store_import_unavailable_desc"),
       });
       setExternalLink(url);
       setTitle("");
@@ -824,19 +848,19 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
 
   async function handleSubmit() {
     if (!title.trim()) {
-      toast({ title: "Preencha o título da promoção.", variant: "destructive" });
+      toast({ title: t("store_title_required"), variant: "destructive" });
       return;
     }
     if (originalPrice && parsePriceInput(originalPrice) < 0) {
-      toast({ title: "Preço original não pode ser negativo.", variant: "destructive" });
+      toast({ title: t("store_price_negative_original"), variant: "destructive" });
       return;
     }
     if (promoPrice && parsePriceInput(promoPrice) < 0) {
-      toast({ title: "Preço promocional não pode ser negativo.", variant: "destructive" });
+      toast({ title: t("store_price_negative_promo"), variant: "destructive" });
       return;
     }
     if (promoPrice && originalPrice && parsePriceInput(promoPrice) > parsePriceInput(originalPrice)) {
-      toast({ title: "Preço promocional não pode ser maior que o original.", variant: "destructive" });
+      toast({ title: t("store_price_promo_gt_original"), variant: "destructive" });
       return;
     }
     setSaving(true);
@@ -856,14 +880,14 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
         coupon_code: couponCode || undefined,
         expires_at: expiresAt || undefined,
       });
-      toast({ title: "Promoção publicada!" });
+      toast({ title: t("store_published") });
       reset();
       onCreated();
       onClose();
     } catch (err: any) {
       toast({
-        title: "Erro ao publicar",
-        description: err?.message ?? "Tente novamente.",
+        title: t("store_publish_error"),
+        description: err?.message ?? t("retry"),
         variant: "destructive",
       });
     } finally {
@@ -882,7 +906,7 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
         <DrawerHeader>
           <DrawerTitle className="flex items-center gap-2 text-white">
             <Tag className="h-5 w-5 text-brand" />
-            Nova Promoção
+            {t("store_new_promo_title")}
           </DrawerTitle>
         </DrawerHeader>
 
@@ -901,11 +925,11 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
               <span className={`h-5 w-5 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 text-white ${prefilled ? "bg-green-500" : "bg-brand"}`}>
                 {prefilled ? "✓" : "1"}
               </span>
-              <span className="text-sm font-medium text-white/90">Cole o link do produto</span>
+              <span className="text-sm font-medium text-white/90">{t("store_step1_title")}</span>
             </div>
             <div className="flex gap-2">
               <Input
-                placeholder="https://www.amazon.com.br/..."
+                placeholder={t("store_link_placeholder")}
                 value={linkInput}
                 onChange={(e) => { setLinkInput(e.target.value); if (prefilled) setPrefilled(false); }}
                 onKeyDown={(e) => e.key === "Enter" && !fetching && handleFetchPreview()}
@@ -924,19 +948,19 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
                 ) : (
                   <>
                     <Search className="h-4 w-4" />
-                    Buscar
+                    {t("store_fetch")}
                   </>
                 )}
               </Button>
             </div>
             {!prefilled && (
               <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>
-                Funciona com Amazon, Mercado Livre, iHerb e outros.
+                {t("store_link_hint")}
               </p>
             )}
             {prefilled && (
               <p className="text-xs text-green-400">
-                Informações importadas — revise abaixo antes de publicar.
+                {t("store_link_imported")}
               </p>
             )}
           </div>
@@ -946,14 +970,14 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
             <>
               <div className="flex items-center gap-2">
                 <span className="h-5 w-5 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 bg-brand text-white">2</span>
-                <span className="text-sm font-medium text-white/90">Revise e complete</span>
+                <span className="text-sm font-medium text-white/90">{t("store_step2_title")}</span>
               </div>
 
               {/* Title */}
               <div className="space-y-1.5">
-                <label className={GLASS_LABEL_CLASS}>Título *</label>
+                <label className={GLASS_LABEL_CLASS}>{t("store_field_title")}</label>
                 <Input
-                  placeholder="Ex: Whey Protein 25% OFF"
+                  placeholder={t("store_title_placeholder")}
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   maxLength={120}
@@ -964,9 +988,9 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
 
               {/* Description */}
               <div className="space-y-1.5">
-                <label className={GLASS_LABEL_CLASS}>Descrição</label>
+                <label className={GLASS_LABEL_CLASS}>{t("store_field_description")}</label>
                 <Textarea
-                  placeholder="Descreva a promoção, condições, detalhes..."
+                  placeholder={t("store_desc_placeholder")}
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   rows={3}
@@ -978,7 +1002,7 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
 
               {/* Category */}
               <div className="space-y-1.5">
-                <label className={GLASS_LABEL_CLASS}>Categoria *</label>
+                <label className={GLASS_LABEL_CLASS}>{t("store_field_category")}</label>
                 <Select value={category} onValueChange={(v) => setCategory(v as PromotionCategory)}>
                   <SelectTrigger className={GLASS_FIELD_CLASS} style={GLASS_FIELD_STYLE}>
                     <SelectValue />
@@ -986,7 +1010,7 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
                   <SelectContent className="z-[9999]">
                     {PROMOTION_CATEGORIES.map((c) => (
                       <SelectItem key={c.value} value={c.value}>
-                        {c.label}
+                        {categoryLabel(c.value, t)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -996,7 +1020,7 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
               {/* Prices */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5 min-w-0">
-                  <label className={GLASS_LABEL_CLASS}>Preço original (R$)</label>
+                  <label className={GLASS_LABEL_CLASS}>{t("store_field_original_price")}</label>
                   <Input
                     type="text"
                     inputMode="decimal"
@@ -1008,7 +1032,7 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
                   />
                 </div>
                 <div className="space-y-1.5 min-w-0">
-                  <label className={GLASS_LABEL_CLASS}>Preço promo (R$)</label>
+                  <label className={GLASS_LABEL_CLASS}>{t("store_field_promo_price")}</label>
                   <Input
                     type="text"
                     inputMode="decimal"
@@ -1024,7 +1048,7 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
               {/* Photo — URL or upload */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <label className={GLASS_LABEL_CLASS}>Imagem do produto</label>
+                  <label className={GLASS_LABEL_CLASS}>{t("store_field_image")}</label>
                   <div className="flex rounded-lg overflow-hidden text-xs" style={{ border: "1px solid rgba(255,255,255,.12)" }}>
                     <button
                       type="button"
@@ -1038,7 +1062,7 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
                       onClick={() => setImageMode("upload")}
                       className={`flex items-center gap-1 px-2.5 py-1 transition-colors ${imageMode === "upload" ? "bg-brand text-white" : "text-white/50 hover:text-white"}`}
                     >
-                      <ImageIcon className="h-3 w-3" /> Galeria
+                      <ImageIcon className="h-3 w-3" /> {t("store_image_gallery")}
                     </button>
                   </div>
                 </div>
@@ -1071,7 +1095,7 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
                       ) : (
                         <>
                           <Upload className="h-5 w-5 text-white/50" />
-                          <span className="text-xs text-white/50">Toque para escolher da galeria</span>
+                          <span className="text-xs text-white/50">{t("store_pick_from_gallery")}</span>
                         </>
                       )}
                     </button>
@@ -1095,11 +1119,11 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
               <div className="space-y-1.5">
                 <label className={`${GLASS_LABEL_CLASS} flex items-center gap-1.5`}>
                   <Ticket className="h-3.5 w-3.5 text-brand" />
-                  Cupom de desconto
-                  <span className="text-xs font-normal" style={{ color: "rgba(255,255,255,.5)" }}>(opcional)</span>
+                  {t("store_field_coupon")}
+                  <span className="text-xs font-normal" style={{ color: "rgba(255,255,255,.5)" }}>{t("store_optional")}</span>
                 </label>
                 <Input
-                  placeholder="Ex: PROMO10"
+                  placeholder={t("store_coupon_placeholder")}
                   value={couponCode}
                   onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
                   maxLength={30}
@@ -1111,7 +1135,7 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
               {/* Expires at */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <label className={GLASS_LABEL_CLASS}>Válido até</label>
+                  <label className={GLASS_LABEL_CLASS}>{t("store_field_expires")}</label>
                   {expiresAt && (
                     <button
                       type="button"
@@ -1119,7 +1143,7 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
                       className="flex items-center gap-1 text-xs text-white/50 hover:text-white transition-colors"
                     >
                       <X className="h-3 w-3" />
-                      Limpar
+                      {t("store_clear")}
                     </button>
                   )}
                 </div>
@@ -1150,14 +1174,14 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
           {prefilled && (
             <Button onClick={handleSubmit} disabled={saving || uploading} className="w-full border-0" style={GLASS_PRIMARY_BTN_STYLE}>
               {uploading ? (
-                <><LoadingSpinner className="h-4 w-4" /><span className="ml-2">Enviando imagem...</span></>
+                <><LoadingSpinner className="h-4 w-4" /><span className="ml-2">{t("store_uploading_image")}</span></>
               ) : saving ? (
-                <><LoadingSpinner className="h-4 w-4" /><span className="ml-2">Publicando...</span></>
-              ) : "Publicar Promoção"}
+                <><LoadingSpinner className="h-4 w-4" /><span className="ml-2">{t("store_publishing")}</span></>
+              ) : t("store_publish_promo")}
             </Button>
           )}
           <Button variant="ghost" onClick={() => { reset(); onClose(); }} disabled={saving} className="text-white/70 hover:text-white hover:bg-white/10">
-            Cancelar
+            {t("cancel")}
           </Button>
         </DrawerFooter>
       </DrawerContent>
@@ -1190,6 +1214,7 @@ type EditPromoDrawerProps = {
 };
 
 function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerProps) {
+  const { t } = useLanguage();
   const [title, setTitle] = React.useState("");
   const [description, setDescription] = React.useState("");
   const [couponCode, setCouponCode] = React.useState("");
@@ -1229,11 +1254,11 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
     e.target.value = "";
     if (!file) return;
     if (!file.type.startsWith("image/")) {
-      toast({ title: "Selecione uma imagem válida.", variant: "destructive" });
+      toast({ title: t("store_invalid_image"), variant: "destructive" });
       return;
     }
     if (file.size > 10 * 1024 * 1024) {
-      toast({ title: "Imagem deve ter no máximo 10MB.", variant: "destructive" });
+      toast({ title: t("store_image_too_large"), variant: "destructive" });
       return;
     }
     pendingFileRef.current = file;
@@ -1247,7 +1272,7 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
     setUploading(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Não autenticado");
+      if (!user) throw new Error(t("store_not_authenticated"));
       const ext = uploadFile.name.split(".").pop() ?? "jpg";
       const path = `${user.id}/${Date.now()}.${ext}`;
       const { error } = await supabase.storage
@@ -1264,19 +1289,19 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
   async function handleSubmit() {
     if (!promo) return;
     if (!title.trim()) {
-      toast({ title: "O título não pode estar vazio.", variant: "destructive" });
+      toast({ title: t("store_title_empty"), variant: "destructive" });
       return;
     }
     if (originalPrice && parsePriceInput(originalPrice) < 0) {
-      toast({ title: "Preço original não pode ser negativo.", variant: "destructive" });
+      toast({ title: t("store_price_negative_original"), variant: "destructive" });
       return;
     }
     if (promoPrice && parsePriceInput(promoPrice) < 0) {
-      toast({ title: "Preço promocional não pode ser negativo.", variant: "destructive" });
+      toast({ title: t("store_price_negative_promo"), variant: "destructive" });
       return;
     }
     if (promoPrice && originalPrice && parsePriceInput(promoPrice) > parsePriceInput(originalPrice)) {
-      toast({ title: "Preço promocional não pode ser maior que o original.", variant: "destructive" });
+      toast({ title: t("store_price_promo_gt_original"), variant: "destructive" });
       return;
     }
     setSaving(true);
@@ -1295,13 +1320,13 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
         category,
         photo_url: finalPhotoUrl,
       });
-      toast({ title: "Promoção atualizada!" });
+      toast({ title: t("store_updated") });
       onUpdated();
       onClose();
     } catch (err: any) {
       toast({
-        title: "Erro ao atualizar",
-        description: err?.message ?? "Tente novamente.",
+        title: t("store_update_error"),
+        description: err?.message ?? t("retry"),
         variant: "destructive",
       });
     } finally {
@@ -1320,7 +1345,7 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
         <DrawerHeader>
           <DrawerTitle className="flex items-center gap-2 text-white">
             <Pencil className="h-5 w-5 text-brand" />
-            Editar Promoção
+            {t("store_edit_promo_title")}
           </DrawerTitle>
         </DrawerHeader>
 
@@ -1330,9 +1355,9 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
         >
           {/* Title */}
           <div className="space-y-1.5">
-            <label className={GLASS_LABEL_CLASS}>Título *</label>
+            <label className={GLASS_LABEL_CLASS}>{t("store_field_title")}</label>
             <Input
-              placeholder="Ex: Whey Protein 25% OFF"
+              placeholder={t("store_title_placeholder")}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               maxLength={120}
@@ -1343,9 +1368,9 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
 
           {/* Description */}
           <div className="space-y-1.5">
-            <label className={GLASS_LABEL_CLASS}>Descrição</label>
+            <label className={GLASS_LABEL_CLASS}>{t("store_field_description")}</label>
             <Textarea
-              placeholder="Descreva a promoção..."
+              placeholder={t("store_desc_placeholder_short")}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={3}
@@ -1357,7 +1382,7 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
 
           {/* Category */}
           <div className="space-y-1.5">
-            <label className={GLASS_LABEL_CLASS}>Categoria *</label>
+            <label className={GLASS_LABEL_CLASS}>{t("store_field_category")}</label>
             <Select value={category} onValueChange={(v) => setCategory(v as PromotionCategory)}>
               <SelectTrigger className={GLASS_FIELD_CLASS} style={GLASS_FIELD_STYLE}>
                 <SelectValue />
@@ -1365,7 +1390,7 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
               <SelectContent className="z-[9999]">
                 {PROMOTION_CATEGORIES.map((c) => (
                   <SelectItem key={c.value} value={c.value}>
-                    {c.label}
+                    {categoryLabel(c.value, t)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -1375,7 +1400,7 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
           {/* Prices */}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5 min-w-0">
-              <label className={GLASS_LABEL_CLASS}>Preço original (R$)</label>
+              <label className={GLASS_LABEL_CLASS}>{t("store_field_original_price")}</label>
               <Input
                 type="text"
                 inputMode="decimal"
@@ -1387,7 +1412,7 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
               />
             </div>
             <div className="space-y-1.5 min-w-0">
-              <label className={GLASS_LABEL_CLASS}>Preço promo (R$)</label>
+              <label className={GLASS_LABEL_CLASS}>{t("store_field_promo_price")}</label>
               <Input
                 type="text"
                 inputMode="decimal"
@@ -1403,7 +1428,7 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
           {/* Photo — URL or upload */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <label className={GLASS_LABEL_CLASS}>Imagem do produto</label>
+              <label className={GLASS_LABEL_CLASS}>{t("store_field_image")}</label>
               <div className="flex rounded-lg overflow-hidden text-xs" style={{ border: "1px solid rgba(255,255,255,.12)" }}>
                 <button
                   type="button"
@@ -1417,7 +1442,7 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
                   onClick={() => setImageMode("upload")}
                   className={`flex items-center gap-1 px-2.5 py-1 transition-colors ${imageMode === "upload" ? "bg-brand text-white" : "text-white/50 hover:text-white"}`}
                 >
-                  <ImageIcon className="h-3 w-3" /> Galeria
+                  <ImageIcon className="h-3 w-3" /> {t("store_image_gallery")}
                 </button>
               </div>
             </div>
@@ -1450,7 +1475,7 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
                   ) : (
                     <>
                       <Upload className="h-5 w-5 text-white/50" />
-                      <span className="text-xs text-white/50">Toque para escolher da galeria</span>
+                      <span className="text-xs text-white/50">{t("store_pick_from_gallery")}</span>
                     </>
                   )}
                 </button>
@@ -1473,11 +1498,11 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
           <div className="space-y-1.5">
             <label className={`${GLASS_LABEL_CLASS} flex items-center gap-1.5`}>
               <Ticket className="h-3.5 w-3.5 text-brand" />
-              Cupom de desconto
-              <span className="text-xs font-normal" style={{ color: "rgba(255,255,255,.5)" }}>(opcional)</span>
+              {t("store_field_coupon")}
+              <span className="text-xs font-normal" style={{ color: "rgba(255,255,255,.5)" }}>{t("store_optional")}</span>
             </label>
             <Input
-              placeholder="Ex: NOVO10"
+              placeholder={t("store_coupon_placeholder")}
               value={couponCode}
               onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
               maxLength={30}
@@ -1489,7 +1514,7 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
           {/* Expires at */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <label className={GLASS_LABEL_CLASS}>Válido até</label>
+              <label className={GLASS_LABEL_CLASS}>{t("store_field_expires")}</label>
               {expiresAt && (
                 <button
                   type="button"
@@ -1497,7 +1522,7 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
                   className="flex items-center gap-1 text-xs text-white/50 hover:text-white transition-colors"
                 >
                   <X className="h-3 w-3" />
-                  Limpar
+                  {t("store_clear")}
                 </button>
               )}
             </div>
@@ -1525,13 +1550,13 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
         <DrawerFooter className="pt-2">
           <Button onClick={handleSubmit} disabled={saving || uploading} className="w-full border-0" style={GLASS_PRIMARY_BTN_STYLE}>
             {uploading ? (
-              <><LoadingSpinner className="h-4 w-4" /><span className="ml-2">Enviando imagem...</span></>
+              <><LoadingSpinner className="h-4 w-4" /><span className="ml-2">{t("store_uploading_image")}</span></>
             ) : saving ? (
-              <><LoadingSpinner className="h-4 w-4" /><span className="ml-2">Salvando...</span></>
-            ) : "Salvar Alterações"}
+              <><LoadingSpinner className="h-4 w-4" /><span className="ml-2">{t("saving")}</span></>
+            ) : t("store_save_changes")}
           </Button>
           <Button variant="ghost" onClick={onClose} disabled={saving || uploading} className="text-white/70 hover:text-white hover:bg-white/10">
-            Cancelar
+            {t("cancel")}
           </Button>
         </DrawerFooter>
       </DrawerContent>
@@ -1556,26 +1581,31 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
 
 // ─── Segment labels ──────────────────────────────────────────────────────────
 
-const SEGMENT_LABELS: Record<string, string> = {
-  personal_trainer: "Personal Trainer",
-  nutricionista: "Nutricionista",
-  fisioterapeuta: "Fisioterapeuta",
-  coach: "Coach",
-  medico: "Médico / Dr.",
-  outro: "Outro",
+/** Mesmos valores gravados em `commercial_profiles.business_segment` pelo
+ * cadastro (Login) e pelo settings-drawer — reusa as chaves `seg_*` do i18n. */
+const SEGMENT_LABEL_KEYS: Record<string, TranslationKey> = {
+  academia: "seg_academia",
+  personal_trainer: "seg_personal_trainer",
+  nutricionista: "seg_nutricionista",
+  psicologo: "seg_psicologo",
+  fisioterapeuta: "seg_fisioterapeuta",
+  coach: "seg_coach",
+  outros: "seg_outros",
 };
 
 const SEGMENT_COLORS: Record<string, string> = {
+  academia: "bg-orange-500/15 text-orange-400",
   personal_trainer: "bg-brand/15 text-brand",
   nutricionista: "bg-green-500/15 text-green-400",
+  psicologo: "bg-red-500/15 text-red-400",
   fisioterapeuta: "bg-blue-500/15 text-blue-400",
   coach: "bg-purple-500/15 text-purple-400",
-  medico: "bg-red-500/15 text-red-400",
-  outro: "bg-muted text-muted-foreground",
+  outros: "bg-muted text-muted-foreground",
 };
 
-function segmentLabel(seg: string) {
-  return SEGMENT_LABELS[seg] ?? seg;
+function segmentLabel(seg: string, t: Translate) {
+  const key = SEGMENT_LABEL_KEYS[seg];
+  return key ? t(key) : seg;
 }
 
 // ─── Professional Card ───────────────────────────────────────────────────────
@@ -1589,6 +1619,7 @@ type ProfessionalCardProps = {
 };
 
 function ProfessionalCard({ professional: pro, onViewProfile, onMessage, onViewPlans, onEmailClick }: ProfessionalCardProps) {
+  const { t } = useLanguage();
   const logoSrc = pro.business_logo_url || pro.photo;
   const [planIndex, setPlanIndex] = React.useState(0);
   const plans = pro.service_plans ?? [];
@@ -1618,10 +1649,10 @@ function ProfessionalCard({ professional: pro, onViewProfile, onMessage, onViewP
       <div className="p-3 flex flex-col flex-1 gap-2">
         {/* Segment badge */}
         <span
-          className={`self-start inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full ${SEGMENT_COLORS[pro.business_segment] ?? SEGMENT_COLORS.outro}`}
+          className={`self-start inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full ${SEGMENT_COLORS[pro.business_segment] ?? SEGMENT_COLORS.outros}`}
         >
           <Briefcase className="h-3 w-3" />
-          {segmentLabel(pro.business_segment)}
+          {segmentLabel(pro.business_segment, t)}
         </span>
 
         {/* Name */}
@@ -1682,7 +1713,7 @@ function ProfessionalCard({ professional: pro, onViewProfile, onMessage, onViewP
                   <button
                     onClick={() => setPlanIndex((i) => (i - 1 + Math.ceil(plans.length / 3)) % Math.ceil(plans.length / 3))}
                     className="p-0.5 rounded hover:bg-muted/50 text-muted-foreground hover:text-foreground transition-colors"
-                    aria-label="Planos anteriores"
+                    aria-label={t("store_prev_plans")}
                   >
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
                   </button>
@@ -1692,7 +1723,7 @@ function ProfessionalCard({ professional: pro, onViewProfile, onMessage, onViewP
                   <button
                     onClick={() => setPlanIndex((i) => (i + 1) % Math.ceil(plans.length / 3))}
                     className="p-0.5 rounded hover:bg-muted/50 text-muted-foreground hover:text-foreground transition-colors"
-                    aria-label="Próximos planos"
+                    aria-label={t("store_next_plans")}
                   >
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
                   </button>
@@ -1733,7 +1764,7 @@ function ProfessionalCard({ professional: pro, onViewProfile, onMessage, onViewP
               className="flex items-center gap-1 hover:text-brand transition-colors"
             >
               <Globe className="h-3 w-3" />
-              Site
+              {t("store_website")}
             </button>
           )}
         </div>
@@ -1746,7 +1777,7 @@ function ProfessionalCard({ professional: pro, onViewProfile, onMessage, onViewP
             className="flex-1 text-xs h-7"
             onClick={() => onViewProfile(pro.user_id)}
           >
-            Ver perfil
+            {t("store_view_profile")}
           </Button>
           <Button
             size="sm"
@@ -1754,7 +1785,7 @@ function ProfessionalCard({ professional: pro, onViewProfile, onMessage, onViewP
             onClick={() => onMessage(pro.user_id)}
           >
             <MessageCircle className="h-3 w-3" />
-            Contatar
+            {t("store_contact")}
           </Button>
         </div>
       </div>
@@ -1766,6 +1797,7 @@ function ProfessionalCard({ professional: pro, onViewProfile, onMessage, onViewP
 
 export default function Store() {
   const { user } = useAuth();
+  const { t } = useLanguage();
   const navigate = useNavigate();
   // Drawers de criar/editar promoção têm formulários longos — mantém o campo em
   // foco acima do teclado iOS (ref-less: rola o container ativo detectado).
@@ -1813,7 +1845,7 @@ export default function Store() {
       const data = await getPromotionsDb(activeCategory);
       setPromotions(data);
     } catch {
-      toast({ title: "Erro ao carregar promoções.", variant: "destructive" });
+      toast({ title: t("store_load_error"), variant: "destructive" });
     } finally {
       setLoading(false);
     }
@@ -1825,7 +1857,7 @@ export default function Store() {
       const data = await getProfessionalsDb(proSegment === "todos" ? undefined : proSegment);
       setProfessionals(data);
     } catch {
-      toast({ title: "Erro ao carregar profissionais.", variant: "destructive" });
+      toast({ title: t("store_pro_load_error"), variant: "destructive" });
     } finally {
       setProLoading(false);
     }
@@ -1843,7 +1875,7 @@ export default function Store() {
 
   async function handleStatusVote(id: string, status: "active" | "expired") {
     if (!user) {
-      toast({ title: "Faça login para votar.", variant: "destructive" });
+      toast({ title: t("store_login_to_vote"), variant: "destructive" });
       return;
     }
     const voteKey = `${id}-${status}`;
@@ -1875,7 +1907,7 @@ export default function Store() {
         }),
       );
     } catch (err: any) {
-      toast({ title: "Erro ao votar", description: err?.message, variant: "destructive" });
+      toast({ title: t("store_vote_error"), description: err?.message, variant: "destructive" });
     } finally {
       votingRef.current.delete(voteKey);
     }
@@ -1883,7 +1915,7 @@ export default function Store() {
 
   async function handleLike(id: string) {
     if (!user) {
-      toast({ title: "Faça login para curtir.", variant: "destructive" });
+      toast({ title: t("store_login_to_like"), variant: "destructive" });
       return;
     }
     if (likingRef.current.has(id)) return;
@@ -1922,7 +1954,7 @@ export default function Store() {
       setPromotions(previousPromotions);
       const msg = err?.message ?? err?.error_description ?? JSON.stringify(err);
       console.error("[handleLike]", err);
-      toast({ title: "Erro ao curtir", description: msg, variant: "destructive" });
+      toast({ title: t("store_like_error"), description: msg, variant: "destructive" });
     } finally {
       likingRef.current.delete(id);
     }
@@ -1933,11 +1965,11 @@ export default function Store() {
       await updatePromotionDb(id, { is_active: false });
       setPromotions((prev) => prev.filter((p) => p.id !== id));
       setInactivateTargetId(null);
-      toast({ title: "Promoção inativada." });
+      toast({ title: t("store_deactivated") });
     } catch (err: any) {
       const msg = err?.message ?? err?.error_description ?? JSON.stringify(err);
       console.error("[handleInactivate]", err);
-      toast({ title: "Erro ao inativar", description: msg, variant: "destructive" });
+      toast({ title: t("store_deactivate_error"), description: msg, variant: "destructive" });
     }
   }
 
@@ -1946,11 +1978,11 @@ export default function Store() {
       await deletePromotionDb(id);
       setPromotions((prev) => prev.filter((p) => p.id !== id));
       setDeleteTargetId(null);
-      toast({ title: "Promoção removida." });
+      toast({ title: t("store_removed") });
     } catch (err: any) {
       const msg = err?.message ?? err?.error_description ?? JSON.stringify(err);
       console.error("[handleDelete]", err);
-      toast({ title: "Erro ao remover", description: msg, variant: "destructive" });
+      toast({ title: t("store_remove_error"), description: msg, variant: "destructive" });
     }
   }
 
@@ -1993,12 +2025,12 @@ export default function Store() {
         <div className="max-w-2xl mx-auto px-4 py-1 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <Tag className="h-5 w-5 text-brand" />
-            <h1 className="font-bold text-lg">Vitrine</h1>
+            <h1 className="font-bold text-lg">{t("store_title")}</h1>
           </div>
           {activeTab === "promocoes" && user && (
             <Button size="sm" onClick={() => setNewPromoOpen(true)} className="gap-1.5">
               <Plus className="h-4 w-4" />
-              <span className="hidden sm:inline">Publicar</span>
+              <span className="hidden sm:inline">{t("store_publish")}</span>
             </Button>
           )}
         </div>
@@ -2021,14 +2053,14 @@ export default function Store() {
             className={`flex-1 flex items-center justify-center gap-1.5 text-sm font-medium py-2.5 transition-colors ${activeTab === "promocoes" ? "bg-brand text-white" : "text-white/50 hover:text-white/80"}`}
           >
             <Tag className="h-4 w-4" />
-            Promoções
+            {t("store_tab_promotions")}
           </button>
           <button
             onClick={() => setActiveTab("profissionais")}
             className={`flex-1 flex items-center justify-center gap-1.5 text-sm font-medium py-2.5 transition-colors ${activeTab === "profissionais" ? "bg-brand text-white" : "text-white/50 hover:text-white/80"}`}
           >
             <Users className="h-4 w-4" />
-            Profissionais
+            {t("store_tab_professionals")}
           </button>
         </div>
 
@@ -2039,7 +2071,7 @@ export default function Store() {
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
                 <Input
-                  placeholder="Buscar promoções..."
+                  placeholder={t("store_search_promos_placeholder")}
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   className="pl-9 h-9"
@@ -2055,8 +2087,8 @@ export default function Store() {
                     )}
                     <span>
                       {activeCategory === "todos"
-                        ? "Todos"
-                        : PROMOTION_CATEGORIES.find((c) => c.value === activeCategory)?.label}
+                        ? t("store_category_all")
+                        : categoryLabel(activeCategory, t)}
                     </span>
                     <svg className="h-3.5 w-3.5 ml-0.5 opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
                   </button>
@@ -2067,7 +2099,7 @@ export default function Store() {
                     className={`flex items-center gap-2 text-xs ${activeCategory === "todos" ? "font-semibold text-brand" : ""}`}
                   >
                     <PackageOpen className="h-4 w-4" />
-                    Todos
+                    {t("store_category_all")}
                   </DropdownMenuItem>
                   {PROMOTION_CATEGORIES.map((c) => (
                     <DropdownMenuItem
@@ -2076,7 +2108,7 @@ export default function Store() {
                       className={`flex items-center gap-2 text-xs ${activeCategory === c.value ? "font-semibold text-brand" : ""}`}
                     >
                       {CATEGORY_ICONS[c.value]}
-                      {c.label}
+                      {categoryLabel(c.value, t)}
                     </DropdownMenuItem>
                   ))}
                 </DropdownMenuContent>
@@ -2091,7 +2123,7 @@ export default function Store() {
                 }`}
               >
                 <History className="h-4 w-4" />
-                <span className="hidden sm:inline">Expirados</span>
+                <span className="hidden sm:inline">{t("store_filter_expired")}</span>
               </button>
             </div>
           </>
@@ -2104,7 +2136,7 @@ export default function Store() {
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
                 <Input
-                  placeholder="Buscar profissionais..."
+                  placeholder={t("store_search_pros_placeholder")}
                   value={proSearch}
                   onChange={(e) => setProSearch(e.target.value)}
                   className="pl-9 h-9"
@@ -2114,23 +2146,23 @@ export default function Store() {
                 <DropdownMenuTrigger asChild>
                   <button className="flex items-center gap-2 text-xs font-medium px-3 h-9 rounded-lg border border-border text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap flex-shrink-0">
                     <Briefcase className="h-4 w-4" />
-                    <span>{proSegment === "todos" ? "Todos os segmentos" : SEGMENT_LABELS[proSegment] ?? proSegment}</span>
+                    <span>{proSegment === "todos" ? t("store_segment_all") : segmentLabel(proSegment, t)}</span>
                     <svg className="h-3.5 w-3.5 ml-0.5 opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="min-w-[180px]">
                   <DropdownMenuItem onClick={() => setProSegment("todos")} className={`flex items-center gap-2 text-xs ${proSegment === "todos" ? "font-semibold text-brand" : ""}`}>
                     <Users className="h-4 w-4" />
-                    Todos os segmentos
+                    {t("store_segment_all")}
                   </DropdownMenuItem>
-                  {Object.entries(SEGMENT_LABELS).map(([value, label]) => (
+                  {Object.keys(SEGMENT_LABEL_KEYS).map((value) => (
                     <DropdownMenuItem
                       key={value}
                       onClick={() => setProSegment(value)}
                       className={`flex items-center gap-2 text-xs ${proSegment === value ? "font-semibold text-brand" : ""}`}
                     >
                       <Briefcase className="h-4 w-4" />
-                      {label}
+                      {segmentLabel(value, t)}
                     </DropdownMenuItem>
                   ))}
                 </DropdownMenuContent>
@@ -2160,30 +2192,30 @@ export default function Store() {
               </div>
               <p className="font-semibold text-muted-foreground">
                 {showExpired
-                  ? "Nenhuma promoção expirada"
+                  ? t("store_empty_expired_title")
                   : search || activeCategory !== "todos"
-                  ? "Nenhuma promoção encontrada"
-                  : "Ainda não há promoções"}
+                  ? t("store_empty_search_title")
+                  : t("store_empty_title")}
               </p>
               <p className="text-sm text-muted-foreground max-w-xs">
                 {showExpired
-                  ? "Ainda não há promoções expiradas por aqui."
+                  ? t("store_empty_expired_desc")
                   : search
-                  ? `Nenhum resultado para "${search}"${activeCategory !== "todos" ? ` na categoria selecionada` : ""}.`
+                  ? t(activeCategory !== "todos" ? "store_empty_search_desc_cat" : "store_empty_search_desc").replace("{q}", search)
                   : activeCategory !== "todos"
-                  ? `Nenhuma promoção na categoria "${PROMOTION_CATEGORIES.find((c) => c.value === activeCategory)?.label}".`
-                  : "Seja o primeiro a divulgar uma promoção de equipamento, suplemento ou produto fitness!"}
+                  ? t("store_empty_category_desc").replace("{cat}", categoryLabel(activeCategory, t))
+                  : t("store_empty_cta_desc")}
               </p>
               {activeCategory !== "todos" && (
                 <Button variant="outline" onClick={() => setActiveCategory("todos")} className="mt-1 gap-2">
                   <PackageOpen className="h-4 w-4" />
-                  Ver todas as categorias
+                  {t("store_see_all_categories")}
                 </Button>
               )}
               {!search && !showExpired && activeCategory === "todos" && user && (
                 <Button onClick={() => setNewPromoOpen(true)} className="mt-2 gap-2">
                   <Plus className="h-4 w-4" />
-                  Publicar Promoção
+                  {t("store_publish_promo")}
                 </Button>
               )}
             </div>
@@ -2217,25 +2249,25 @@ export default function Store() {
                 <Users className="h-7 w-7 text-muted-foreground" />
               </div>
               <p className="font-semibold text-muted-foreground">
-                {proSearch || proSegment !== "todos" ? "Nenhum profissional encontrado" : "Ainda não há profissionais cadastrados"}
+                {proSearch || proSegment !== "todos" ? t("store_pro_empty_search_title") : t("store_pro_empty_title")}
               </p>
               <p className="text-sm text-muted-foreground max-w-xs">
                 {proSearch
-                  ? "Tente buscar por outro termo."
+                  ? t("store_pro_empty_search_desc")
                   : proSegment !== "todos"
-                  ? `Nenhum profissional cadastrado no segmento "${SEGMENT_LABELS[proSegment] ?? proSegment}".`
-                  : "Você é personal trainer, nutricionista ou outro profissional fitness? Ative o perfil comercial no seu perfil para aparecer aqui."}
+                  ? t("store_pro_empty_segment_desc").replace("{seg}", segmentLabel(proSegment, t))
+                  : t("store_pro_empty_desc")}
               </p>
               {proSegment !== "todos" && (
                 <Button variant="outline" onClick={() => setProSegment("todos")} className="mt-1 gap-2">
                   <Users className="h-4 w-4" />
-                  Ver todos os segmentos
+                  {t("store_see_all_segments")}
                 </Button>
               )}
               {!proSearch && proSegment === "todos" && user && (
                 <Button variant="outline" onClick={() => navigate("/perfil")} className="mt-1 gap-2">
                   <Briefcase className="h-4 w-4" />
-                  Ativar perfil comercial
+                  {t("store_activate_commercial")}
                 </Button>
               )}
             </div>
@@ -2290,17 +2322,17 @@ export default function Store() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Inativar promoção?</AlertDialogTitle>
+            <AlertDialogTitle>{t("store_deactivate_confirm_title")}</AlertDialogTitle>
             <AlertDialogDescription>
-              Ela deixará de aparecer na vitrine para outros usuários.
+              {t("store_deactivate_confirm_desc")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Não, voltar</AlertDialogCancel>
+            <AlertDialogCancel>{t("store_no_back")}</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => inactivateTargetId && handleInactivate(inactivateTargetId)}
             >
-              Sim, inativar
+              {t("store_yes_deactivate")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -2312,7 +2344,7 @@ export default function Store() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <ListChecks className="h-5 w-5 text-brand" />
-              Planos e Preços
+              {t("store_plans_title")}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-3 pt-1">
@@ -2335,7 +2367,7 @@ export default function Store() {
               </div>
             ))}
             {(plansModalPro?.service_plans ?? []).length === 0 && (
-              <p className="text-sm text-muted-foreground text-center py-4">Nenhum plano cadastrado.</p>
+              <p className="text-sm text-muted-foreground text-center py-4">{t("store_plans_empty")}</p>
             )}
           </div>
         </DialogContent>
@@ -2347,7 +2379,7 @@ export default function Store() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Mail className="h-5 w-5 text-brand" />
-              E-mail de contato
+              {t("store_email_title")}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 pt-1">
@@ -2364,19 +2396,19 @@ export default function Store() {
                 if (!emailModal) return;
                 copyToClipboard(emailModal);
                 setEmailCopied(true);
-                toast({ title: "E-mail copiado!", description: emailModal });
+                toast({ title: t("store_email_copied"), description: emailModal });
                 setTimeout(() => setEmailCopied(false), 2000);
               }}
             >
               {emailCopied ? (
                 <>
                   <Check className="h-4 w-4" />
-                  Copiado!
+                  {t("store_copied")}
                 </>
               ) : (
                 <>
                   <Copy className="h-4 w-4" />
-                  Copiar e-mail
+                  {t("store_copy_email")}
                 </>
               )}
             </Button>
@@ -2391,18 +2423,18 @@ export default function Store() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Remover promoção?</AlertDialogTitle>
+            <AlertDialogTitle>{t("store_remove_confirm_title")}</AlertDialogTitle>
             <AlertDialogDescription>
-              Esta ação não pode ser desfeita. A promoção será removida do hub.
+              {t("store_remove_confirm_desc")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive hover:bg-destructive/90"
               onClick={() => deleteTargetId && handleDelete(deleteTargetId)}
             >
-              Remover
+              {t("remove")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

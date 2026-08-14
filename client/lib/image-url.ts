@@ -7,7 +7,36 @@
  * instead of multi-megabyte originals.
  *
  * Non-Supabase URLs and SVG/data/blob URLs are returned unchanged.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * DESLIGADO (2026-08-14) — ver `STORAGE_TRANSFORMS_ENABLED` abaixo.
+ * ─────────────────────────────────────────────────────────────────────────────
  */
+
+/**
+ * A Supabase cobra Image Transformations por **origin image distinta
+ * transformada no mês** — não por requisição. Cache de CDN, dedup de request ou
+ * menos acessos não movem o contador: o que conta é quantos ARQUIVOS diferentes
+ * passaram pelo `/render/image/`. Como o app mandava por ali todo avatar, toda
+ * foto de post e todo flow, a métrica crescia linear com a base de usuários e
+ * estourou a cota (113/100).
+ *
+ * A troca: as imagens agora sobem já redimensionadas (ver `MAX_EXPORT`/qualidade
+ * em `inline-crop-preview.tsx`, `image-cropper-drawer.tsx` e
+ * `flow-creation-dialog.tsx`), então servir o objeto original direto do
+ * `/object/public/` custa a mesma banda que a versão transformada custava — com
+ * zero transformações faturadas.
+ *
+ * Os call sites continuam chamando `cdnImg()` de propósito: se um dia a cota
+ * deixar de ser problema (ou aparecer um caso que realmente precise de variantes
+ * por tamanho), basta voltar esta flag para `true`.
+ *
+ * ATENÇÃO: imagens publicadas ANTES desta data seguem grandes no bucket. Elas
+ * não quebram nada — só gastam mais banda até serem substituídas.
+ */
+// Tipado como `boolean` (e não inferido como `false`) para o TS não marcar o
+// resto da função como código morto enquanto a flag estiver desligada.
+const STORAGE_TRANSFORMS_ENABLED: boolean = false;
 
 export type CdnImgOptions = {
   width?: number;
@@ -30,6 +59,9 @@ export function cdnImg(
   opts: CdnImgOptions = {},
 ): string | undefined {
   if (!src) return src ?? undefined;
+
+  // Transformações desligadas: devolve a URL do objeto original.
+  if (!STORAGE_TRANSFORMS_ENABLED) return src;
 
   // Skip non-http URLs (data:, blob:, relative assets, etc.)
   if (!/^https?:\/\//i.test(src)) return src;

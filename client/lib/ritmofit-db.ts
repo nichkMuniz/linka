@@ -2,6 +2,7 @@ import { getUserSafe, hasSupabaseConfig, supabase, registerViewerCacheInvalidato
 import type { PostWorkoutSummary } from "@/lib/workout-summary-types";
 import { SHARE_BASE_URL } from "@/lib/share-url";
 import { estimateOneRepMax } from "@/lib/one-rep-max";
+import { compressImageFile } from "@/lib/image-compress";
 import {
   getNetworkStatus,
   isTransientNetworkError,
@@ -1725,6 +1726,23 @@ export async function updateUserProfileDb(
   // Invalidate cache for this user so next read gets fresh data
   invalidateProfileCache(userId);
 
+  // Avatar/capa antigos, para apagar do Storage depois da troca. Cada upload
+  // grava um caminho novo (`profile-{ts}.jpg`, `covers/{uid}-{ts}.jpg`) para o
+  // CDN não servir a versão velha na mesma URL — sem esta limpeza, toda edição
+  // de foto deixava um arquivo para trás. Só lê quando a chave veio no update:
+  // `undefined` = campo não tocado, `null` = usuário removeu a foto.
+  const touchesPhoto = "photo" in updates;
+  const touchesCover = "cover_photo" in updates;
+  let previous: { photo: string | null; cover_photo: string | null } | null = null;
+  if (touchesPhoto || touchesCover) {
+    const { data: prev } = await supabase
+      .from("profiles")
+      .select("photo, cover_photo")
+      .eq("user_id", userId)
+      .maybeSingle();
+    previous = (prev as any) ?? null;
+  }
+
   const { data, error } = await supabase
     .from("profiles")
     .update(updates)
@@ -1744,6 +1762,10 @@ export async function updateUserProfileDb(
   }
 
   if (!data) return null;
+
+  // Update confirmado — agora é seguro apagar o arquivo substituído.
+  if (touchesPhoto) await removeReplacedMedia(previous?.photo, data.photo as string | null);
+  if (touchesCover) await removeReplacedMedia(previous?.cover_photo, data.cover_photo as string | null);
 
   invalidateQueryCache("userStats");
   invalidateQueryCache("allUsers");
@@ -2343,6 +2365,17 @@ export async function updateCustomWorkoutDb(
   if (updates.photo !== undefined) payload.photo = updates.photo;
   if (Object.keys(payload).length === 0) return;
 
+  // Foto anterior, para limpar o Storage depois da troca.
+  let previousPhoto: string | null = null;
+  if (updates.photo !== undefined) {
+    const { data: prev } = await supabase
+      .from("workouts")
+      .select("photo")
+      .eq("id", workoutId)
+      .maybeSingle();
+    previousPhoto = ((prev as any)?.photo as string | null) ?? null;
+  }
+
   const { data, error } = await supabase
     .from("workouts")
     .update(payload)
@@ -2356,6 +2389,14 @@ export async function updateCustomWorkoutDb(
   }
   if (!data || data.length === 0) {
     throw new Error("Não foi possível editar este exercício (ele não é seu ou foi removido).");
+  }
+
+  // Foto de exercício pode ser COMPARTILHADA entre linhas do catálogo (imagens
+  // por nome, `manual/shared/{slug}`), então só apaga o que mais ninguém usa.
+  if (previousPhoto && previousPhoto !== updates.photo) {
+    await removeStorageObjects(
+      await filterUnreferencedUrls([previousPhoto], "workouts", ["photo"]),
+    );
   }
 
   // O nome/foto aparecem tanto no catálogo quanto nos itens de rotina (join).
@@ -2380,6 +2421,13 @@ export async function deleteCustomWorkoutDb(workoutId: string): Promise<void> {
   if (!hasSupabaseConfig || !supabase) throw new Error("Supabase não configurado");
   const viewer = await getViewer();
   if (!viewer) throw new Error("Usuário não autenticado");
+
+  // 0. Foto, lida antes de qualquer delete (depois a linha some).
+  const { data: prevWorkout } = await supabase
+    .from("workouts")
+    .select("photo")
+    .eq("id", workoutId)
+    .maybeSingle();
 
   // 1. Histórico deste exercício (antes dos vínculos, para não violar FK).
   const { error: histError } = await supabase
@@ -2412,6 +2460,15 @@ export async function deleteCustomWorkoutDb(workoutId: string): Promise<void> {
     throw new Error("Não foi possível apagar este exercício (ele não é seu ou foi removido).");
   }
 
+  // Imagem de exercício pode ser compartilhada por nome entre linhas do
+  // catálogo (`manual/shared/{slug}`) — só apaga a que ficou sem dono.
+  const workoutPhoto = (prevWorkout as any)?.photo as string | null;
+  if (workoutPhoto) {
+    await removeStorageObjects(
+      await filterUnreferencedUrls([workoutPhoto], "workouts", ["photo"]),
+    );
+  }
+
   invalidateQueryCache("workouts:");
   invalidateQueryCache("catalogWorkouts:");
   invalidateQueryCache("userWorkouts:");
@@ -2420,10 +2477,12 @@ export async function deleteCustomWorkoutDb(workoutId: string): Promise<void> {
 }
 
 // Upload da foto de um exercício criado pelo usuário → retorna URL pública.
-export async function uploadCustomExercisePhotoDb(file: File): Promise<string> {
+export async function uploadCustomExercisePhotoDb(rawFile: File): Promise<string> {
   if (!supabase) throw new Error("Supabase não configurado");
   const viewer = await getViewer();
   if (!viewer) throw new Error("Usuário não autenticado");
+  // Vem crua do seletor (sem cropper) — encolhe antes de subir. Ver image-compress.ts.
+  const file = await compressImageFile(rawFile);
   const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
   const path = `exercise-photos/${viewer.id}/${Date.now()}.${ext}`;
   const { error } = await supabase.storage
@@ -5462,6 +5521,14 @@ export async function deleteStoryDb(storyId: string): Promise<boolean> {
     const numericId = Number(storyId);
     const idValue = Number.isFinite(numericId) ? numericId : storyId;
 
+    // Mídia lida antes do delete (depois a linha some). `poster_url` é a capa
+    // do vídeo, um segundo arquivo no bucket.
+    const { data: flowData } = await supabase
+      .from("flow")
+      .select("media_url, poster_url")
+      .eq("id", idValue)
+      .maybeSingle();
+
     // Delete dependencies first to avoid FK violations
     // Try both numeric and string forms to handle bigint vs text FK columns
     const { error: e1 } = await supabase.from("flow_likes").delete().eq("flow_id", idValue);
@@ -5481,6 +5548,16 @@ export async function deleteStoryDb(storyId: string): Promise<boolean> {
     if (error) {
       console.error("Error deleting story:", error);
       return false;
+    }
+
+    // Um repost aponta para o MESMO arquivo do original (`repostStoryDb` não
+    // copia a mídia). Apagar direto quebraria o flow de outra pessoa — por isso
+    // só sai do bucket o que nenhuma linha de `flow` referencia mais.
+    const media = collectMediaUrls(flowData, ["media_url", "poster_url"]);
+    if (media.length > 0) {
+      await removeStorageObjects(
+        await filterUnreferencedUrls(media, "flow", ["media_url", "poster_url"]),
+      );
     }
 
     invalidateQueryCache("activeStories");
@@ -6114,9 +6191,11 @@ export async function uploadMessageAudioDb(blob: Blob, recipientId: string): Pro
   return `${CHAT_MEDIA_PREFIX}${path}`;
 }
 
-export async function uploadMessageImageDb(file: File, recipientId: string): Promise<string> {
+export async function uploadMessageImageDb(rawFile: File, recipientId: string): Promise<string> {
   if (!supabase) throw new Error("Supabase not configured");
   assertUUID(recipientId, "ID do destinatário");
+  // Vem crua do seletor (sem cropper) — encolhe antes de subir. Ver image-compress.ts.
+  const file = await compressImageFile(rawFile);
   const viewer = await getViewer();
   if (!viewer) throw new Error("Usuário não autenticado");
 
@@ -7020,6 +7099,13 @@ export async function deleteShotDb(shotId: string): Promise<boolean> {
   if (!viewer) return false;
 
   try {
+    // Lê a mídia ANTES do delete — depois a linha já não está lá.
+    const { data: shotData } = await supabase
+      .from("shots")
+      .select("video_url")
+      .eq("id", shotId)
+      .maybeSingle();
+
     // Delete dependencies first (likes, comments and view records)
     await supabase.from("shots_likes").delete().eq("shots_id", shotId);
     await supabase.from("shots_comments").delete().eq("shots_id", shotId);
@@ -7035,6 +7121,10 @@ export async function deleteShotDb(shotId: string): Promise<boolean> {
       console.error("Error deleting shot:", error);
       return false;
     }
+
+    // Só depois do delete confirmado: shot é vídeo, o arquivo mais pesado que o
+    // app publica. Sem isso cada shot excluído ficava no bucket para sempre.
+    await removeStorageObjects(collectMediaUrls(shotData, ["video_url"]));
 
     invalidateQueryCache("shots"); invalidateQueryCache("userShots");
     return true;
@@ -8177,10 +8267,13 @@ export async function deletePostDb(postId: string): Promise<boolean> {
     const viewer = await getViewer();
     if (!viewer) throw new Error("Usuário não autenticado");
 
-    // Get the post first to verify ownership and get photo URL
+    // Get the post first to verify ownership and get media URLs.
+    // `photos` é o array do carrossel — sem ele, todas as fotos exceto a
+    // primeira (e o card de resumo de treino, que entra como último slide)
+    // ficavam órfãs no bucket para sempre.
     const { data: postData, error: fetchError } = await supabase
       .from("posts")
-      .select("user_id, photo")
+      .select("user_id, photo, photos")
       .eq("id", postId)
       .single();
 
@@ -8225,21 +8318,9 @@ export async function deletePostDb(postId: string): Promise<boolean> {
     }
 
 
-    // Delete image from storage if it exists
-    if (postData.photo) {
-      try {
-        // Extract the file path from the public URL
-        // URL format: https://xxxxx.supabase.co/storage/v1/object/public/posts/user_id/timestamp.jpg
-        const pathMatch = postData.photo.match(/\/posts\/(.+)$/);
-        if (pathMatch && pathMatch[1]) {
-          const filePath = pathMatch[1];
-          await supabase.storage.from("posts").remove([filePath]);
-        }
-      } catch (err) {
-        console.error("Error deleting image from storage:", err);
-        // Don't fail the operation if image deletion fails
-      }
-    }
+    // Apaga TODA a mídia do post do storage — foto principal + carrossel.
+    // Best-effort: o post já saiu do banco, falhar aqui só deixa lixo.
+    await removeStorageObjects(collectMediaUrls(postData, ["photo"], ["photos"]));
 
     // Invalidar ANTES do return — o post excluído não pode continuar sendo
     // servido pelo cache (memória/localStorage) na grade do perfil, e o
@@ -10396,6 +10477,12 @@ export async function updateGroupInfoDb(
 export async function updateGroupPhotoDb(groupId: string, file: File): Promise<string> {
   if (!supabase) throw new Error("Supabase not configured");
   const ext = file.name.split(".").pop() ?? "jpg";
+  // Capa antiga, para apagar depois que a nova estiver gravada.
+  const { data: prevGroup } = await supabase
+    .from("duel_groups")
+    .select("photo")
+    .eq("id", groupId)
+    .maybeSingle();
   // Caminho único por upload: reusar `cover.{ext}` fazia o CDN e o WebView
   // continuarem servindo a capa antiga na mesma URL por até 1h.
   const path = `group-covers/${groupId}/${Date.now()}.${ext}`;
@@ -10410,6 +10497,11 @@ export async function updateGroupPhotoDb(groupId: string, file: File): Promise<s
     .update({ photo: photoUrl })
     .eq("id", groupId);
   if (updateError) throw updateError;
+
+  // NOTA: `group-covers/{groupId}/…` não tem uid no caminho, então a policy
+  // `posts_delete_own_media` só libera pelo critério `owner = auth.uid()` —
+  // funciona para quem subiu a capa (o dono do grupo, na prática).
+  await removeReplacedMedia((prevGroup as any)?.photo, photoUrl);
 
   invalidateQueryCache("enrichedDuelGroups"); invalidateQueryCache("followingGroups"); invalidateQueryCache("userDuelGroups");
   return photoUrl;
@@ -10772,12 +10864,22 @@ export async function deleteGroupCheckInDb(checkInId: string): Promise<void> {
   if (!supabase) throw new Error("Supabase not configured");
 
   try {
+    // Mídia antes do delete. `photos` é o carrossel do check-in; a foto padrão
+    // do mascote (asset do app, não do Storage) é ignorada por removeStorageObjects.
+    const { data: checkInData } = await supabase
+      .from("duel_check_ins")
+      .select("photo, photos")
+      .eq("id", checkInId)
+      .maybeSingle();
+
     const { error } = await supabase
       .from("duel_check_ins")
       .delete()
       .eq("id", checkInId);
 
     if (error) throw error;
+
+    await removeStorageObjects(collectMediaUrls(checkInData, ["photo"], ["photos"]));
   } catch (error) {
     console.error("Error deleting check-in:", error);
     throw error;
@@ -11256,6 +11358,12 @@ export async function deleteAllUserDataDb(userId: string): Promise<void> {
     del("duel_groups", "created_by", userId),
     del("commercial_profiles", "user_id", userId),
   ]);
+
+  // ── Batch 4.5: mídia no Storage ──────────────────────────────────────────
+  // Antes do Batch 6 obrigatoriamente: a policy de DELETE do Storage depende de
+  // `auth.uid()`, e depois que a conta sai de `auth.users` não há mais sessão
+  // para provar posse — a mídia ficaria órfã para sempre.
+  await purgeUserStorageDb(userId);
 
   // ── Batch 5: profile (last — other tables may reference it) ──────────────
   await del("profiles", "user_id", userId);
@@ -13835,10 +13943,18 @@ export async function adminDismissComplaintDb(
  * Apaga do storage os arquivos que sobraram de um conteúdo removido.
  *
  * Best-effort por definição: mídia órfã é desperdício de cota, não um bug
- * visível — falhar aqui não pode desfazer uma remoção de moderação que já
- * aconteceu no banco.
+ * visível — falhar aqui não pode desfazer uma remoção que já aconteceu no
+ * banco. Por isso nunca lança; quem chama segue em frente.
+ *
+ * URLs que não são do Storage público (asset estático do app, URL externa,
+ * signed URL) são ignoradas em silêncio — a checagem do marcador cuida disso.
+ *
+ * **Cuidado com arquivo compartilhado:** um repost de flow aponta para a MESMA
+ * `media_url` do original (`repostStoryDb` não copia o arquivo). Antes de
+ * chamar aqui, garanta que nenhuma outra linha referencia a URL — ver
+ * `filterUnreferencedUrls`.
  */
-async function removeStorageObjects(urls: string[]): Promise<void> {
+export async function removeStorageObjects(urls: string[]): Promise<void> {
   if (!supabase || urls.length === 0) return;
 
   const MARKER = "/storage/v1/object/public/";
@@ -13854,17 +13970,193 @@ async function removeStorageObjects(urls: string[]): Promise<void> {
     const bucket = rest.slice(0, slash);
     const path = decodeURIComponent(rest.slice(slash + 1));
     if (!path) continue;
-    byBucket.set(bucket, [...(byBucket.get(bucket) ?? []), path]);
+    const current = byBucket.get(bucket) ?? [];
+    // Dedup: `posts.photo` costuma repetir o primeiro item de `posts.photos`.
+    if (!current.includes(path)) byBucket.set(bucket, [...current, path]);
   }
 
   await Promise.all(
-    Array.from(byBucket.entries()).map(([bucket, paths]) =>
-      supabase!.storage
-        .from(bucket)
-        .remove(paths)
-        .catch(() => undefined),
-    ),
+    Array.from(byBucket.entries()).map(async ([bucket, paths]) => {
+      try {
+        const { data, error } = await supabase!.storage.from(bucket).remove(paths);
+        if (error) {
+          console.error(`[removeStorageObjects] ${bucket}:`, error.message);
+          return;
+        }
+        // A RLS do Storage barra DELETE **em silêncio**: sem policy de delete
+        // para o dono, `remove` volta 200 com lista vazia e o arquivo continua
+        // lá. Sem este aviso, a limpeza parece funcionar e a cota segue subindo.
+        // Ver docs/migrations/20260814-storage-delete-policies.sql.
+        if ((data?.length ?? 0) < paths.length) {
+          console.warn(
+            `[removeStorageObjects] ${bucket}: pedido ${paths.length}, removido ${data?.length ?? 0} — ` +
+              `provável falta de policy de DELETE em storage.objects`,
+          );
+        }
+      } catch (err: any) {
+        console.error(`[removeStorageObjects] ${bucket}:`, err?.message ?? err);
+      }
+    }),
   );
+}
+
+/**
+ * Lista recursivamente os caminhos de um prefixo do Storage.
+ *
+ * `storage.list()` não é recursivo e mistura arquivos com "pastas" (que vêm com
+ * `id: null`), então a recursão é manual. Pagina de 100 em 100 — sem isso um
+ * usuário com muitas fotos teria só as primeiras apagadas.
+ */
+async function listStoragePaths(bucket: string, prefix: string): Promise<string[]> {
+  if (!supabase) return [];
+  const found: string[] = [];
+  const PAGE = 100;
+  let offset = 0;
+  for (;;) {
+    const { data, error } = await supabase.storage
+      .from(bucket)
+      .list(prefix, { limit: PAGE, offset });
+    if (error || !data || data.length === 0) break;
+    for (const entry of data) {
+      const full = prefix ? `${prefix}/${entry.name}` : entry.name;
+      // `id: null` = prefixo (pasta), não objeto — desce nele.
+      if ((entry as any).id === null) {
+        found.push(...(await listStoragePaths(bucket, full)));
+      } else {
+        found.push(full);
+      }
+    }
+    if (data.length < PAGE) break;
+    offset += PAGE;
+  }
+  return found;
+}
+
+/**
+ * Apaga TODA a mídia de um usuário — usado na exclusão de conta.
+ *
+ * Precisa rodar **antes** de a conta sair de `auth.users`: a policy de DELETE do
+ * Storage depende de `auth.uid()`, e depois da exclusão não há mais sessão.
+ *
+ * Best-effort: nenhuma falha aqui pode impedir a exclusão da conta, que é
+ * direito do usuário e requisito da App Store. O que sobrar vira mídia órfã,
+ * que o script `scripts/sweep-orphan-media.mjs` recolhe depois.
+ */
+async function purgeUserStorageDb(userId: string): Promise<void> {
+  if (!supabase) return;
+  try {
+    // Pastas cujo caminho já isola o usuário.
+    const ownedPrefixes = [
+      userId, // {uid}/… → post, avatar, shot (shots/), flow (stories/)
+      `checkins/${userId}`,
+      `workout-summary/${userId}`,
+      `exercise-photos/${userId}`,
+    ];
+
+    const paths: string[] = [];
+    for (const prefix of ownedPrefixes) {
+      paths.push(...(await listStoragePaths("posts", prefix)));
+    }
+
+    // `covers/` é uma pasta comum a todo mundo: o uid está no NOME do arquivo
+    // (`covers/{uid}-{ts}.jpg`), então filtra em vez de varrer a pasta.
+    const covers = await listStoragePaths("posts", "covers");
+    paths.push(...covers.filter((p) => p.startsWith(`covers/${userId}-`)));
+
+    if (paths.length > 0) {
+      const { error } = await supabase.storage.from("posts").remove(paths);
+      if (error) console.error("[purgeUserStorageDb] posts:", error.message);
+    }
+
+    // Conversas privadas: a pasta é `{uidA}_{uidB}` (ordenados), então basta
+    // achar as que têm este uid numa das pontas.
+    const chatFolders = await supabase.storage.from(CHAT_MEDIA_BUCKET).list("", { limit: 1000 });
+    const mine = (chatFolders.data ?? [])
+      .filter((e: any) => e.id === null && String(e.name).split("_").includes(userId))
+      .map((e: any) => String(e.name));
+    for (const folder of mine) {
+      const chatPaths = await listStoragePaths(CHAT_MEDIA_BUCKET, folder);
+      if (chatPaths.length > 0) {
+        await supabase.storage.from(CHAT_MEDIA_BUCKET).remove(chatPaths);
+      }
+    }
+  } catch (err: any) {
+    console.error("[purgeUserStorageDb]", err?.message ?? err);
+  }
+}
+
+/**
+ * Filtra as URLs que ainda são usadas por outra linha da tabela.
+ *
+ * Existe por causa do repost de flow: `repostStoryDb` reaproveita a `media_url`
+ * e a `poster_url` do original em vez de copiar o arquivo. Apagar o storage ao
+ * excluir um dos dois quebraria o outro — que é de outra pessoa.
+ *
+ * Chamar **depois** do DELETE da linha, para que ela não conte a si mesma.
+ * Em qualquer falha devolve lista vazia: preferimos deixar mídia órfã a apagar
+ * um arquivo que ainda está no ar.
+ */
+async function filterUnreferencedUrls(
+  urls: string[],
+  table: string,
+  columns: string[],
+): Promise<string[]> {
+  if (!supabase || urls.length === 0) return [];
+  const unreferenced: string[] = [];
+  for (const url of urls) {
+    try {
+      const orFilter = columns.map((c) => `${c}.eq.${url}`).join(",");
+      const { count, error } = await (supabase as any)
+        .from(table)
+        .select("*", { count: "exact", head: true })
+        .or(orFilter);
+      if (error) continue;
+      if ((count ?? 0) === 0) unreferenced.push(url);
+    } catch {
+      // Silêncio proposital: mídia órfã é barata, arquivo apagado à toa não é.
+    }
+  }
+  return unreferenced;
+}
+
+/**
+ * Apaga o arquivo ANTIGO depois de uma troca (avatar, capa, logo, foto de item).
+ *
+ * Cada upload novo grava um caminho único (`profile-{ts}.jpg`, `covers/{uid}-{ts}.jpg`
+ * …) para o CDN não continuar servindo a versão velha na mesma URL. O efeito
+ * colateral é que, sem esta limpeza, TODA edição de perfil deixava um arquivo
+ * para trás — vazamento lento e proporcional ao engajamento.
+ *
+ * Chamar só **depois** de a gravação da URL nova ter dado certo: se o update
+ * falhar, o registro ainda aponta para o arquivo antigo.
+ *
+ * Nenhuma tabela guarda cópia histórica de avatar (`duel_check_ins.user_photo`
+ * existe mas é morta — as telas re-buscam `profiles.photo`), então apagar o
+ * antigo não deixa foto quebrada em conteúdo passado.
+ */
+async function removeReplacedMedia(
+  oldUrl: string | null | undefined,
+  newUrl: string | null | undefined,
+): Promise<void> {
+  if (!oldUrl) return;
+  if (oldUrl === newUrl) return; // nada mudou — não é troca
+  await removeStorageObjects([oldUrl]);
+}
+
+/** Junta colunas de mídia de uma linha (texto solto + array jsonb) numa lista limpa. */
+function collectMediaUrls(row: any, textCols: string[], arrayCols: string[] = []): string[] {
+  const out: string[] = [];
+  for (const col of textCols) {
+    const v = row?.[col];
+    if (typeof v === "string" && v) out.push(v);
+  }
+  for (const col of arrayCols) {
+    const v = row?.[col];
+    if (Array.isArray(v)) {
+      for (const item of v) if (typeof item === "string" && item) out.push(item);
+    }
+  }
+  return Array.from(new Set(out));
 }
 
 /**
@@ -13898,7 +14190,15 @@ export async function adminDeleteContentDb(
 
   const result = (data ?? {}) as { deleted?: boolean; media?: string[] };
 
-  await removeStorageObjects(result.media ?? []);
+  // Flow: a mídia pode estar compartilhada com um repost (`repostStoryDb` não
+  // copia o arquivo). Remover a lista crua apagaria o flow de outra pessoa —
+  // que sequer foi denunciada. Post e shot não têm esse compartilhamento.
+  const media = result.media ?? [];
+  await removeStorageObjects(
+    tipo === "flow"
+      ? await filterUnreferencedUrls(media, "flow", ["media_url", "poster_url"])
+      : media,
+  );
 
   invalidateQueryCache("userPosts");
   invalidateQueryCache("post:");

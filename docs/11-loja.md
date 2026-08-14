@@ -165,7 +165,7 @@ Diretório de profissionais fitness com perfil comercial ativo.
 
 **Busca:** filtra client-side por nome do negócio, nickname, descrição e segmento.
 
-**Filtro por segmento:** dropdown com os segmentos de `SEGMENT_LABELS`.
+**Filtro por segmento:** dropdown com os segmentos de `SEGMENT_LABEL_KEYS` + "Todos os segmentos".
 
 #### Card de Profissional (`ProfessionalCard`)
 
@@ -196,25 +196,32 @@ Diretório de profissionais fitness com perfil comercial ativo.
 
 ## Categorias de Promoção
 
-| Valor | Label | Ícone | Cor |
-|---|---|---|---|
-| `equipamento` | Equipamento | Dumbbell | Azul |
-| `suplemento` | Suplemento | ShoppingBag | Roxo |
-| `alimento` | Alimento | Apple | Verde |
-| `vestuario` | Vestuário | Shirt | Rosa |
-| `servico` | Serviço | Briefcase | Laranja |
-| `outro` | Outro | PackageOpen | Muted |
+O `label` de `PROMOTION_CATEGORIES` (em `ritmofit-db.ts`) é só PT e **não é exibido** — a tela resolve o texto pelo mapa `CATEGORY_LABEL_KEYS`, que aponta cada valor para uma chave de i18n (`categoryLabel(cat, t)`).
+
+| Valor | Chave i18n | PT | EN | Ícone | Cor |
+|---|---|---|---|---|---|
+| `equipamento` | `store_cat_equipamento` | Equipamento | Equipment | Dumbbell | Azul |
+| `suplemento` | `store_cat_suplemento` | Suplemento | Supplement | ShoppingBag | Roxo |
+| `alimento` | `store_cat_alimento` | Alimento | Food | Apple | Verde |
+| `vestuario` | `store_cat_vestuario` | Vestuário | Apparel | Shirt | Rosa |
+| `servico` | `store_cat_servico` | Serviço | Service | Briefcase | Laranja |
+| `outro` | `store_cat_outro` | Outro | Other | PackageOpen | Muted |
 
 ## Segmentos de Profissional
 
-| Valor | Label | Cor |
-|---|---|---|
-| `personal_trainer` | Personal Trainer | Brand |
-| `nutricionista` | Nutricionista | Verde |
-| `fisioterapeuta` | Fisioterapeuta | Azul |
-| `coach` | Coach | Roxo |
-| `medico` | Médico / Dr. | Vermelho |
-| `outro` | Outro | Muted |
+Os valores abaixo são exatamente os que o cadastro (`Login.tsx`) e o `settings-drawer` gravam em `commercial_profiles.business_segment`. O mapa `SEGMENT_LABEL_KEYS` reaproveita as chaves `seg_*` já usadas no Perfil, então o mesmo segmento aparece com o mesmo nome nas duas telas.
+
+> **Correção 2026-08-14:** a lista antiga da Vitrine tinha `medico` e `outro` (valores que nunca são gravados) e não tinha `academia` nem `psicologo` — o filtro oferecia segmentos inexistentes e mostrava o valor cru (`outros`) para quem se cadastrava como "Outros".
+
+| Valor | Chave i18n | PT | EN | Cor |
+|---|---|---|---|---|
+| `academia` | `seg_academia` | Academia / Fitness | Gym / Fitness | Laranja |
+| `personal_trainer` | `seg_personal_trainer` | Personal Trainer | Personal Trainer | Brand |
+| `nutricionista` | `seg_nutricionista` | Nutricionista | Nutritionist | Verde |
+| `psicologo` | `seg_psicologo` | Psicólogo | Psychologist | Vermelho |
+| `fisioterapeuta` | `seg_fisioterapeuta` | Fisioterapeuta | Physical Therapist | Azul |
+| `coach` | `seg_coach` | Coach | Coach | Roxo |
+| `outros` | `seg_outros` | Outros | Others | Muted |
 
 ---
 
@@ -299,6 +306,32 @@ Diretório de profissionais fitness com perfil comercial ativo.
 | `LoadingSpinner` | `components/shared/animated-loading` |
 | `toast` | `components/ui/use-toast` |
 | `Browser` | `@capacitor/browser` — para abrir links externos e contatos |
+
+---
+
+## Internacionalização (PT / EN)
+
+Desde 2026-08-14 a tela **não tem mais nenhuma string em português no JSX**. Tudo passa por `useLanguage()` → `t("chave")`, com as chaves declaradas nas duas línguas em `client/lib/i18n.ts` sob o prefixo `store_`.
+
+| Área | Chaves |
+|---|---|
+| Cabeçalho, abas e filtros | `store_title`, `store_publish`, `store_tab_promotions`, `store_tab_professionals`, `store_search_promos_placeholder`, `store_search_pros_placeholder`, `store_category_all`, `store_filter_expired`, `store_segment_all` |
+| Categorias | `store_cat_*` (ver tabela de categorias) |
+| Card e drawer de detalhe | `store_view_details`, `store_more_options`, `store_deactivate`, `store_expired_badge`, `store_expired_badge_maybe`, `store_maybe_expired`, `store_valid_until`, `store_coupon_copied`, `store_still_active`, `store_mark_active`, `store_mark_expired`, `store_yes`, `store_expired_vote`, `store_go_to_promo`, `store_like`, `store_liked` |
+| Estados vazios (promoções) | `store_empty_title`, `store_empty_search_title`, `store_empty_expired_title`, `store_empty_expired_desc`, `store_empty_search_desc`, `store_empty_search_desc_cat`, `store_empty_category_desc`, `store_empty_cta_desc`, `store_see_all_categories`, `store_publish_promo` |
+| Toasts da tela | `store_load_error`, `store_pro_load_error`, `store_login_to_vote`, `store_vote_error`, `store_login_to_like`, `store_like_error`, `store_deactivated`, `store_deactivate_error`, `store_removed`, `store_remove_error` |
+| Publicar / editar | `store_new_promo_title`, `store_edit_promo_title`, `store_step1_title`, `store_link_placeholder`, `store_fetch`, `store_link_hint`, `store_link_imported`, `store_step2_title`, `store_field_*`, `store_title_placeholder`, `store_desc_placeholder`, `store_desc_placeholder_short`, `store_image_gallery`, `store_pick_from_gallery`, `store_optional`, `store_coupon_placeholder`, `store_clear`, `store_uploading_image`, `store_publishing`, `store_save_changes`, validações (`store_title_required`, `store_title_empty`, `store_price_*`), importação (`store_import_*`), `store_published`, `store_publish_error`, `store_updated`, `store_update_error` |
+| Confirmações | `store_deactivate_confirm_title`, `store_deactivate_confirm_desc`, `store_no_back`, `store_yes_deactivate`, `store_remove_confirm_title`, `store_remove_confirm_desc` |
+| Profissionais | `store_pro_empty_*`, `store_see_all_segments`, `store_activate_commercial`, `store_prev_plans`, `store_next_plans`, `store_website`, `store_view_profile`, `store_contact`, `store_plans_title`, `store_plans_empty`, `store_email_title`, `store_email_copied`, `store_copied`, `store_copy_email` |
+| Comentários da promoção | `store_comments_drawer_title`, `store_comments_drawer_desc`, `store_comments_aria`, `store_comments_empty`, `store_comments_empty_desc`, `store_comments_login_hint`, `store_comment_placeholder`, `store_comment_btn`, `store_comment_edit_aria`, `store_comment_delete_aria`, `store_comments_load_error`, `store_comment_empty`, `store_comment_empty_desc`, `store_comment_login`, `store_comment_login_desc`, `store_comment_sent`, `store_comment_send_error`, `store_comment_edited`, `store_comment_edit_error`, `store_comment_delete_confirm`, `store_comment_deleted`, `store_comment_delete_error` |
+
+**Reaproveitadas do bloco geral:** `edit`, `remove`, `cancel`, `save`, `saving`, `sending`, `retry`, `comments_title` — e os `seg_*` do Perfil para os segmentos.
+
+**Strings com variável:** `store_view_details` (`{title}`), `store_valid_until` (`{date}`), `store_empty_search_desc` / `_cat` (`{q}`), `store_empty_category_desc` (`{cat}`), `store_pro_empty_segment_desc` (`{seg}`) — resolvidas com `.replace("{x}", valor)`.
+
+**Datas:** o helper `formatDate(value, language)` e o `toLocaleString` dos comentários usam `en-US` quando o idioma ativo é EN, e `pt-BR` caso contrário.
+
+**Não traduzido de propósito:** "WhatsApp", "URL" e "Email" (rótulo do link de contato) — idênticos nas duas línguas. Os preços seguem em **R$** por serem valores reais em reais.
 
 ---
 

@@ -119,6 +119,14 @@ type SentryEvent = Parameters<NonNullable<SentryOptions["beforeSend"]> & object>
 type SentryHint = Parameters<NonNullable<SentryOptions["beforeSend"]> & object>[1];
 
 function beforeSend(event: SentryEvent, hint: SentryHint): SentryEvent | null {
+  // Em `pnpm dev` o hot reload executa estados INTERMEDIÁRIOS de edição: a
+  // declaração já foi cortada, a referência ainda está no JSX, e o painel
+  // recebe um `ReferenceError` que parece bug de produção até alguém conferir
+  // o `environment`. Os sete primeiros issues do projeto foram exatamente
+  // isso. O relato MANUAL continua saindo — é como se testa o drawer
+  // "Relatar um problema" sem ter que buildar.
+  if (import.meta.env.DEV && event.tags?.report_source !== "in_app") return null;
+
   const original = hint?.originalException as { message?: string } | string | undefined;
   const message =
     (typeof original === "string" ? original : original?.message) ??

@@ -20,6 +20,7 @@ import {
   type PromotionComment,
 } from "@/lib/ritmofit-db";
 import { useAuth } from "@/hooks/useAuth";
+import { useLanguage } from "@/lib/language-context";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
 import { cn } from "@/lib/utils";
@@ -28,6 +29,7 @@ import { cn } from "@/lib/utils";
  * dedicado (grid) e a seção embutida no drawer de detalhe. */
 function usePromotionComments(promotionId: string, active: boolean) {
   const { user } = useAuth();
+  const { t } = useLanguage();
   const [comments, setComments] = React.useState<PromotionComment[]>([]);
   const [loading, setLoading] = React.useState(false);
   const [draft, setDraft] = React.useState("");
@@ -44,9 +46,10 @@ function usePromotionComments(promotionId: string, active: boolean) {
       .then((data) => setComments(data))
       .catch((err) => {
         console.error("Error loading promotion comments:", err);
-        toast({ title: "Erro ao carregar comentários", description: "Tente novamente." });
+        toast({ title: t("store_comments_load_error"), description: t("retry") });
       })
       .finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, promotionId]);
 
   const reset = React.useCallback(() => {
@@ -57,11 +60,11 @@ function usePromotionComments(promotionId: string, active: boolean) {
 
   const handleSubmit = React.useCallback(async () => {
     if (!draft.trim()) {
-      toast({ title: "Comentário vazio", description: "Escreva algo antes de enviar." });
+      toast({ title: t("store_comment_empty"), description: t("store_comment_empty_desc") });
       return;
     }
     if (!user) {
-      toast({ title: "Entre para comentar", description: "Você precisa estar logado." });
+      toast({ title: t("store_comment_login"), description: t("store_comment_login_desc") });
       return;
     }
     try {
@@ -74,13 +77,13 @@ function usePromotionComments(promotionId: string, active: boolean) {
       setDraft("");
       const updated = await getPromotionCommentsDb(promotionId);
       setComments(updated);
-      toast({ title: "Comentário enviado!" });
+      toast({ title: t("store_comment_sent") });
     } catch (err: any) {
-      toast({ title: "Erro ao enviar", description: err?.message || "Tente novamente." });
+      toast({ title: t("store_comment_send_error"), description: err?.message || t("retry") });
     } finally {
       setSubmitting(false);
     }
-  }, [draft, promotionId, user]);
+  }, [draft, promotionId, user, t]);
 
   const handleStartEdit = React.useCallback((comment: PromotionComment) => {
     setEditingId(comment.id);
@@ -103,29 +106,29 @@ function usePromotionComments(promotionId: string, active: boolean) {
         );
         setEditingId(null);
         setEditDraft("");
-        toast({ title: "Comentário editado." });
+        toast({ title: t("store_comment_edited") });
       } catch (err: any) {
-        toast({ title: "Erro ao editar", description: err?.message || "Tente novamente." });
+        toast({ title: t("store_comment_edit_error"), description: err?.message || t("retry") });
       } finally {
         setSavingEditId(null);
       }
     },
-    [editDraft],
+    [editDraft, t],
   );
 
   const handleDelete = React.useCallback(async (commentId: string) => {
-    if (!confirm("Excluir este comentário?")) return;
+    if (!confirm(t("store_comment_delete_confirm"))) return;
     try {
       setDeletingId(commentId);
       await deletePromotionCommentDb(commentId);
       setComments((prev) => prev.filter((c) => c.id !== commentId));
-      toast({ title: "Comentário excluído." });
+      toast({ title: t("store_comment_deleted") });
     } catch (err: any) {
-      toast({ title: "Erro ao excluir", description: err?.message || "Tente novamente." });
+      toast({ title: t("store_comment_delete_error"), description: err?.message || t("retry") });
     } finally {
       setDeletingId(null);
     }
-  }, []);
+  }, [t]);
 
   return {
     user,
@@ -160,6 +163,7 @@ function PromotionCommentsList({
   state: CommentsState;
   className?: string;
 }) {
+  const { t, language } = useLanguage();
   const {
     comments,
     loading,
@@ -251,7 +255,7 @@ function PromotionCommentsList({
                           style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}
                         >
                           <Check className="h-3 w-3" />
-                          Salvar
+                          {t("save")}
                         </button>
                         <button
                           type="button"
@@ -261,7 +265,7 @@ function PromotionCommentsList({
                           style={{ background: "rgba(255,255,255,.08)", color: "rgba(255,255,255,.7)" }}
                         >
                           <X className="h-3 w-3" />
-                          Cancelar
+                          {t("cancel")}
                         </button>
                       </div>
                     </div>
@@ -272,7 +276,7 @@ function PromotionCommentsList({
                   )}
 
                   <div className="mt-1 text-xs" style={{ color: "rgba(255,255,255,.4)" }}>
-                    {new Date(comment.createdAt).toLocaleString("pt-BR")}
+                    {new Date(comment.createdAt).toLocaleString(language === "en" ? "en-US" : "pt-BR")}
                   </div>
                 </div>
               </div>
@@ -286,7 +290,7 @@ function PromotionCommentsList({
                     onClick={() => handleStartEdit(comment)}
                     className="rounded-lg p-1.5 transition-colors"
                     style={{ color: "rgba(255,255,255,.5)" }}
-                    aria-label="Editar comentário"
+                    aria-label={t("store_comment_edit_aria")}
                   >
                     <Pencil className="h-4 w-4" />
                   </motion.button>
@@ -298,7 +302,7 @@ function PromotionCommentsList({
                     disabled={deletingId === comment.id}
                     className="rounded-lg p-1.5 transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-50 disabled:cursor-not-allowed"
                     style={{ color: "rgba(255,255,255,.5)" }}
-                    aria-label="Excluir comentário"
+                    aria-label={t("store_comment_delete_aria")}
                   >
                     <Trash2 className="h-4 w-4" />
                   </motion.button>
@@ -310,9 +314,9 @@ function PromotionCommentsList({
       ) : (
         <div className="py-8 text-center">
           <MessageCircle className="mx-auto h-8 w-8 mb-2" style={{ color: "rgba(255,255,255,.2)" }} />
-          <p className="text-sm font-medium" style={{ color: "rgba(255,255,255,.5)" }}>Nenhum comentário ainda</p>
+          <p className="text-sm font-medium" style={{ color: "rgba(255,255,255,.5)" }}>{t("store_comments_empty")}</p>
           <p className="text-xs mt-1" style={{ color: "rgba(255,255,255,.3)" }}>
-            Seja o primeiro a opinar sobre essa promoção!
+            {t("store_comments_empty_desc")}
           </p>
         </div>
       )}
@@ -322,12 +326,13 @@ function PromotionCommentsList({
 
 /** Composer (textarea + enviar) ou aviso de login. */
 function PromotionCommentComposer({ state }: { state: CommentsState }) {
+  const { t } = useLanguage();
   const { user, draft, setDraft, submitting, handleSubmit } = state;
 
   if (!user) {
     return (
       <div className="rounded-2xl p-3 text-center text-sm shrink-0" style={{ border: "1px solid rgba(255,255,255,.08)", background: "rgba(255,255,255,.04)", color: "rgba(255,255,255,.5)" }}>
-        Entre para comentar e ajudar a comunidade
+        {t("store_comments_login_hint")}
       </div>
     );
   }
@@ -335,7 +340,7 @@ function PromotionCommentComposer({ state }: { state: CommentsState }) {
   return (
     <div className="space-y-2 shrink-0">
       <Textarea
-        placeholder="A promoção tá boa? Já expirou? Compartilhe com a galera..."
+        placeholder={t("store_comment_placeholder")}
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         onKeyDown={(e) => {
@@ -358,7 +363,7 @@ function PromotionCommentComposer({ state }: { state: CommentsState }) {
         className="w-full rounded-lg border-0"
         style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}
       >
-        {submitting ? "Enviando..." : "Comentar"}
+        {submitting ? t("sending") : t("store_comment_btn")}
       </Button>
     </div>
   );
@@ -384,6 +389,7 @@ export function PromotionCommentsDrawer({
   promotionId: string;
   commentsCount: number;
 }) {
+  const { t } = useLanguage();
   const [open, setOpen] = React.useState(false);
   const viewportHeight = useKeyboardAwareHeight();
   const state = usePromotionComments(promotionId, open);
@@ -404,7 +410,7 @@ export function PromotionCommentsDrawer({
       whileHover={{ scale: 1.08 }}
       whileTap={{ scale: 0.92 }}
       className="flex items-center gap-1 px-1.5 py-1 text-xs text-muted-foreground hover:text-brand transition-colors"
-      aria-label="Ver comentários da promoção"
+      aria-label={t("store_comments_aria")}
     >
       <MessageCircle className="h-3.5 w-3.5" />
       {commentsCount > 0 && <span>{commentsCount}</span>}
@@ -429,9 +435,9 @@ export function PromotionCommentsDrawer({
         }}
       >
         <DrawerHeader className="shrink-0 pb-2">
-          <DrawerTitle className="text-base" style={{ color: "#fff" }}>Comentários da promoção</DrawerTitle>
+          <DrawerTitle className="text-base" style={{ color: "#fff" }}>{t("store_comments_drawer_title")}</DrawerTitle>
           <DrawerDescription className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>
-            Compartilhe sua opinião — a promoção vale? Expirou? Já aproveite e ajude a comunidade!
+            {t("store_comments_drawer_desc")}
           </DrawerDescription>
         </DrawerHeader>
 

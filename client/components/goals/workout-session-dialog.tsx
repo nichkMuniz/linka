@@ -252,6 +252,9 @@ const SET_KIND_STYLE: Record<SetKind, { label: string; fg: string; bg: string; b
   drop: { label: "D", fg: "#c084fc", bg: "rgba(192,132,252,0.14)", border: "rgba(192,132,252,0.42)" },
 };
 
+// "Já sei que o nº da série é tocável" — dispensa a dica do modo expert.
+const SET_KIND_HINT_KEY = "lk:setKindHintSeen";
+
 /** Tipo efetivo de uma série (ausente = 'normal'). */
 function setKindOf(row: { kind?: SetKind } | undefined | null): SetKind {
   return row?.kind ?? "normal";
@@ -1150,6 +1153,8 @@ export function WorkoutSessionDialog({
   const [techniqueInfo, setTechniqueInfo] = React.useState<
     { technique: WorkoutTechnique; members: string[] } | null
   >(null);
+  // Verbete do modo Expert (selo do cabeçalho). Mesmo overlay das técnicas.
+  const [expertInfoOpen, setExpertInfoOpen] = React.useState(false);
 
   // Corrida GPS (Corrida ao Ar Livre) — o rastreador é um singleton em
   // run-tracker.ts, então a corrida continua com o treino minimizado; aqui
@@ -1265,6 +1270,15 @@ export function WorkoutSessionDialog({
   const allItems = React.useMemo(() => {
     const seen = new Set<string>();
     return [...items, ...workoutExtraItems]
+      // A troca de variação entra ANTES do dedup: o item da rotina ainda chega
+      // no prop com o workout_id ANTIGO, então dedupar por ele deixaria a lista
+      // reagindo a um exercício que não está mais na sessão (e derrubaria como
+      // "duplicado" um avulso que por acaso use o id antigo).
+      .map((i) => {
+        // Variação trocada nesta sessão manda sobre o que veio no prop.
+        const swapped = swappedVariations[i.id];
+        return swapped ? { ...i, ...swapped } : i;
+      })
       .filter((i) => {
         if (workoutRemovedIds.includes(i.workout_id)) return false;
         if (seen.has(i.workout_id)) return false;
@@ -1272,18 +1286,15 @@ export function WorkoutSessionDialog({
         return true;
       })
       .map((i) => {
-        // Variação trocada nesta sessão manda sobre o que veio no prop.
-        const swapped = swappedVariations[i.id];
-        const base = swapped ? { ...i, ...swapped } : i;
-        const edited = editedExercises[base.workout_id];
+        const edited = editedExercises[i.workout_id];
         return edited
           ? {
-              ...base,
+              ...i,
               workoutName: edited.name,
               workoutDescription: edited.description,
               workoutPhoto: edited.photo,
             }
-          : base;
+          : i;
       })
       // Ordem explícita da rotina (definida ao montar blocos de bi-set) tem
       // prioridade; sem ela, mantém a ordem de chegada de sempre. Sem isto os
@@ -1468,6 +1479,12 @@ export function WorkoutSessionDialog({
   const [groups, setGroups] = React.useState<WorkoutGroup[]>([]);
   // Exercício com o seletor de variação aberto (workout_id) — `null` = fechado.
   const [variationPickerId, setVariationPickerId] = React.useState<string | null>(null);
+  // Troca de variação esperando confirmação. Com série já concluída, trocar
+  // reorganiza o que foi registrado (o feito fica no exercício antigo, o novo
+  // começa do zero) — um toque de curiosidade no chip não pode fazer isso calado.
+  const [pendingVariationSwap, setPendingVariationSwap] = React.useState<
+    { item: UserWorkoutWithDetails; target: Workout; doneCount: number } | null
+  >(null);
 
   React.useEffect(() => {
     if (!open) return;
@@ -1503,21 +1520,46 @@ export function WorkoutSessionDialog({
   );
 
   /**
+   * A variação alvo já está na sessão como OUTRO card? Trocar deixaria dois
+   * cards do mesmo exercício, e o dedup de `allItems` esconderia um deles —
+   * some um card sem explicação. Melhor avisar e não trocar.
+   */
+  const variationAlreadyInSession = React.useCallback(
+    (item: UserWorkoutWithDetails, target: Workout) =>
+      target.id !== item.workout_id &&
+      allItems.some((i) => i.id !== item.id && i.workout_id === target.id),
+    [allItems],
+  );
+
+  /**
    * Troca a variação de um exercício no meio do treino ("o supino de hoje é com
    * halteres").
    *
-   * O que acontece com o que já foi registrado: as séries **concluídas ficam na
-   * variação em que foram feitas** — elas aconteceram, e o histórico tem que ser
-   * fiel. Só as séries pendentes (e o descanso, a nota e o estado da rampa)
-   * migram para a variação nova. Se sobrar alguma série concluída, o exercício
-   * antigo continua na sessão como um card próprio, com o que foi feito nele.
+   * A troca **substitui** o exercício: o card vira a variação nova e o antigo
+   * sai da sessão. As séries já concluídas nele são **descartadas** (não vão
+   * para o histórico) — migrá-las mentiria sobre o que foi feito, e mantê-las
+   * como um segundo card fazia a troca parecer "adicionou um exercício". Por
+   * isso a troca com série concluída passa antes pela confirmação
+   * (`pendingVariationSwap`), que avisa da perda.
+   *
+   * Só as séries pendentes (e o descanso, a nota e o estado da rampa) seguem
+   * para a variação nova.
    */
   const swapVariation = async (item: UserWorkoutWithDetails, target: Workout) => {
     const oldId = item.workout_id;
     if (oldId === target.id) { setVariationPickerId(null); return; }
     setVariationPickerId(null);
+    if (variationAlreadyInSession(item, target)) {
+      showNotice({ kind: "warn", title: t("goals_variation_already_in_session"), desc: "" });
+      return;
+    }
 
-    const doneSets = (workoutSeries[oldId] ?? []).filter((s) => s.completed);
+    // A variação escolhida volta a fazer parte da sessão. Se ela já tinha sido
+    // REMOVIDA antes ("remover do treino" marca o workout_id em
+    // `workoutRemovedIds`, e a marca dura a sessão inteira), o card recém-trocado
+    // nasceria escondido — trocar para ela esvaziava a tela.
+    setWorkoutRemovedIds((p) => (p.includes(target.id) ? p.filter((id) => id !== target.id) : p));
+
     const pendingSets = (workoutSeries[oldId] ?? []).filter((s) => !s.completed);
 
     // A coluna ANTERIOR tem que passar a falar da variação nova — o peso do
@@ -1545,8 +1587,10 @@ export function WorkoutSessionDialog({
         prevReps: prev[i]?.reps ?? 0,
       })) as typeof pendingSets;
       next[target.id] = seeded;
-      if (doneSets.length > 0) next[oldId] = doneSets.map((s, i) => ({ ...s, series: i + 1 }));
-      else delete next[oldId];
+      // O exercício antigo sai inteiro — inclusive as séries concluídas, que o
+      // usuário aceitou perder na confirmação. Deixá-las aqui as gravaria no
+      // histórico ao finalizar, para um exercício que sumiu da tela.
+      delete next[oldId];
       return next;
     });
 
@@ -1556,31 +1600,38 @@ export function WorkoutSessionDialog({
     setDismissedWarmupIds((p) => (p.includes(oldId) ? [...p, target.id] : p));
     prevBestRef.current.delete(oldId);
 
-    // Card mostra a variação nova na hora…
-    setSwappedVariations((p) => ({
-      ...p,
-      [item.id]: {
-        workout_id: target.id,
-        workoutName: target.name,
-        workoutPhoto: target.photo,
-        workoutDescription: target.description,
-        muscle_group: target.muscle_group,
-      },
-    }));
-    if (expandedId === oldId) setExpandedId(target.id);
-    // …e o exercício antigo, se ainda tem série concluída, continua na lista
-    // como um item extra (senão o trabalho feito sumiria da tela).
-    if (doneSets.length > 0) {
+    const swapFields = {
+      workout_id: target.id,
+      workoutName: target.name,
+      workoutPhoto: target.photo,
+      workoutDescription: target.description,
+      muscle_group: target.muscle_group,
+    };
+    // Exercício AVULSO (adicionado durante a sessão): não tem linha em
+    // user_workouts e mora só em `workoutExtraItems`, então a troca é feita
+    // nele mesmo. `swappedVariations` não serve aqui — a chave seria o id
+    // sintético `session_<workout_id>`, que volta a existir se o usuário
+    // readicionar o exercício antigo pelo picker, aplicando a troca a ele.
+    const isExtraItem = workoutExtraItems.some((e) => e.id === item.id);
+    if (isExtraItem) {
       setWorkoutExtraItems((p) =>
-        p.some((e) => e.workout_id === oldId) ? p : [...p, { ...item, id: `swapped:${item.id}:${oldId}` }],
+        p.map((e) => (e.id === item.id ? { ...e, ...swapFields } : e)),
       );
+    } else {
+      // Item da rotina: `items` é prop e só muda num loadData() do Goals, então
+      // a troca aparece no ato por aqui.
+      setSwappedVariations((p) => ({ ...p, [item.id]: swapFields }));
     }
+    if (expandedId === oldId) setExpandedId(target.id);
 
-    // Persiste a escolha: a próxima sessão abre já com esta variação.
-    try {
-      await updateUserWorkoutExerciseDb(userId, item.id, target.id);
-    } catch {
-      showNotice({ kind: "warn", title: t("goals_variation_saved_error"), desc: "" });
+    // Persiste a escolha: a próxima sessão abre já com esta variação. Só o item
+    // da rotina tem o que persistir — o avulso não existe em user_workouts.
+    if (!isExtraItem) {
+      try {
+        await updateUserWorkoutExerciseDb(userId, item.id, target.id);
+      } catch {
+        showNotice({ kind: "warn", title: t("goals_variation_saved_error"), desc: "" });
+      }
     }
   };
 
@@ -1713,6 +1764,24 @@ export function WorkoutSessionDialog({
   // Modo expert: linha cujo seletor de tipo de série está aberto (a folha de
   // vidro com Aquecimento / Válida / Falha). `null` = fechado.
   const [kindPickerKey, setKindPickerKey] = React.useState<string | null>(null);
+  /**
+   * Dica "toque no nº da série" — mostrada acima da tabela até o usuário abrir
+   * o seletor pela primeira vez (aí ele já sabe, e a dica vira ruído em todo
+   * treino). A seta no badge sinaliza que dá para tocar; a dica diz PARA QUE
+   * serve, que é o que ninguém adivinha só pela seta.
+   */
+  const [setKindHintSeen, setSetKindHintSeen] = React.useState(() => {
+    try { return localStorage.getItem(SET_KIND_HINT_KEY) === "1"; } catch { return false; }
+  });
+  const dismissSetKindHint = React.useCallback(() => {
+    setSetKindHintSeen(true);
+    try { localStorage.setItem(SET_KIND_HINT_KEY, "1"); } catch {}
+  }, []);
+  /** Abre/fecha o seletor de tipo de série e aposenta a dica. */
+  const openKindPicker = (key: string, isOpen: boolean) => {
+    setKindPickerKey(isOpen ? null : key);
+    if (!isOpen && !setKindHintSeen) dismissSetKindHint();
+  };
 
   /**
    * Emenda um drop-set logo abaixo da série `index`: mesma repetição-alvo, carga
@@ -2370,7 +2439,11 @@ export function WorkoutSessionDialog({
     try {
       let totalSeries = 0;
       let totalVolume = 0;
-      const allItemsForSave = [...items, ...workoutExtraItems];
+      // `allItems` (e não `items` cru) porque é a lista COM as trocas de
+      // variação aplicadas: sem isso, o exercício trocado nesta sessão não é
+      // encontrado aqui e o resumo mostraria o UUID no lugar do nome, com a
+      // série gravada sem vínculo com a rotina.
+      const allItemsForSave = allItems;
       // Rotina desta sessão. Exercícios AVULSOS (adicionados durante o treino)
       // não têm linha em user_workouts, então gravam `user_workout_id` nulo —
       // sem este fallback o `routine_id` também ficaria nulo e a série viraria
@@ -3158,17 +3231,24 @@ export function WorkoutSessionDialog({
           </div>
           {/* Selo do modo: a rotina expert se comporta de forma diferente
               (séries tipadas, aquecimento fora do PR/progressão), então o
-              usuário precisa saber em qual tela está. */}
+              usuário precisa saber em qual tela está. Tocável: o selo sozinho
+              nomeia o modo mas não explica o que ele muda — abre o verbete. */}
           {isExpert && (
-            <span style={{
-              fontSize: 9, fontWeight: 800, letterSpacing: 0.8,
-              textTransform: "uppercase",
-              color: "#9dbaff", background: "rgba(91,140,255,0.16)",
-              border: "1px solid rgba(91,140,255,0.4)",
-              borderRadius: 20, padding: "1px 8px", lineHeight: 1.6,
-            }}>
+            <button
+              onClick={() => setExpertInfoOpen(true)}
+              aria-label={t("goals_expert_info_title")}
+              style={{
+                fontSize: 9, fontWeight: 800, letterSpacing: 0.8,
+                textTransform: "uppercase", fontFamily: "'Inter', system-ui",
+                color: "#9dbaff", background: "rgba(91,140,255,0.16)",
+                border: "1px solid rgba(91,140,255,0.4)",
+                borderRadius: 20, padding: "1px 8px", lineHeight: 1.6,
+                cursor: "pointer", display: "flex", alignItems: "center", gap: 3,
+              }}
+            >
               {t("goals_mode_expert")}
-            </span>
+              <span style={{ opacity: 0.75 }}>?</span>
+            </button>
           )}
         </div>
 
@@ -3484,7 +3564,30 @@ export function WorkoutSessionDialog({
                     return (
                       <button
                         key={v.id}
-                        onClick={() => { void swapVariation(item, v); }}
+                        onClick={() => {
+                          // Variação repetida na sessão é barrada aqui também:
+                          // confirmar a perda das séries para depois nada
+                          // acontecer seria pior que o aviso direto.
+                          if (variationAlreadyInSession(item, v)) {
+                            setVariationPickerId(null);
+                            showNotice({
+                              kind: "warn",
+                              title: t("goals_variation_already_in_session"),
+                              desc: "",
+                            });
+                            return;
+                          }
+                          // Série concluída em jogo → confirma antes (ver
+                          // pendingVariationSwap). Sem nada feito, troca direto.
+                          const done = (workoutSeries[item.workout_id] ?? [])
+                            .filter((s) => s.completed).length;
+                          if (done > 0 && v.id !== item.workout_id) {
+                            setVariationPickerId(null);
+                            setPendingVariationSwap({ item, target: v, doneCount: done });
+                            return;
+                          }
+                          void swapVariation(item, v);
+                        }}
                         style={{
                           background: active ? "rgba(91,140,255,0.16)" : SURFACE,
                           border: `1px solid ${active ? PRIMARY : BORDER}`,
@@ -3615,35 +3718,52 @@ export function WorkoutSessionDialog({
                   }}>
                     {/* Indicador de progressão de carga — verde (progrediu) /
                         vermelho seta p/ baixo (regrediu) / cinza (igual ou sem
-                        base). Atualiza a cada série concluída. */}
+                        base). Atualiza a cada série concluída.
+                        MÁQUINA ZERADA manda sobre tudo: o indicador vira
+                        dourado com o selo "MAX". Nesse exercício não existe mais
+                        progressão a mostrar — o usuário chegou no teto do
+                        aparelho, e a seta verde/vermelha compararia séries
+                        dentro de um limite que ele já bateu. */}
                     {(() => {
                       const trendColor =
-                        weightTrend === "up" ? "#22c55e"
+                        isMaxed ? "#eab308"
+                        : weightTrend === "up" ? "#22c55e"
                         : weightTrend === "down" ? "#ef4444"
                         : MUTED_FG;
                       const trendTitle =
-                        weightTrend === "up" ? t("goals_weight_trend_up")
+                        isMaxed ? t("goals_weight_trend_max")
+                        : weightTrend === "up" ? t("goals_weight_trend_up")
                         : weightTrend === "down" ? t("goals_weight_trend_down")
                         : t("goals_weight_trend_same");
                       return (
-                        <svg
-                          width="18" height="14" viewBox="0 0 18 14" fill="none"
-                          opacity={weightTrend === "neutral" ? 0.45 : 1}
-                          aria-label={trendTitle}
-                        >
-                          <title>{trendTitle}</title>
-                          {weightTrend === "down" ? (
-                            <>
-                              <path d="M1 3L5.5 7.5l3.5-2.5L15 12" stroke={trendColor} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                              <path d="M12 12h3v-3" stroke={trendColor} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                            </>
-                          ) : (
-                            <>
-                              <path d="M1 11L5.5 6.5l3.5 2.5L15 2" stroke={trendColor} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                              <path d="M12 2h3v3" stroke={trendColor} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                            </>
+                        <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                          <svg
+                            width="18" height="14" viewBox="0 0 18 14" fill="none"
+                            opacity={!isMaxed && weightTrend === "neutral" ? 0.45 : 1}
+                            aria-label={trendTitle}
+                          >
+                            <title>{trendTitle}</title>
+                            {!isMaxed && weightTrend === "down" ? (
+                              <>
+                                <path d="M1 3L5.5 7.5l3.5-2.5L15 12" stroke={trendColor} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                                <path d="M12 12h3v-3" stroke={trendColor} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                              </>
+                            ) : (
+                              <>
+                                <path d="M1 11L5.5 6.5l3.5 2.5L15 2" stroke={trendColor} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                                <path d="M12 2h3v3" stroke={trendColor} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                              </>
+                            )}
+                          </svg>
+                          {isMaxed && (
+                            <span style={{
+                              fontSize: 10, fontWeight: 800, letterSpacing: 0.6,
+                              color: "#eab308", lineHeight: 1,
+                            }}>
+                              {t("goals_weight_trend_max_label")}
+                            </span>
                           )}
-                        </svg>
+                        </span>
                       );
                     })()}
 
@@ -3809,6 +3929,60 @@ export function WorkoutSessionDialog({
 
                   {!isRunExercise && (
                   <>
+                  {/* Dica de descoberta do seletor de tipo de série. Só no modo
+                      expert (no simplificado o número é inerte mesmo) e só até
+                      o primeiro toque no badge — depois disso o usuário já sabe
+                      e repetir a dica todo treino vira ruído. */}
+                  {isExpert && !setKindHintSeen && (
+                    <div style={{
+                      display: "flex", alignItems: "center", gap: 8,
+                      margin: "8px 12px 0", padding: "8px 10px",
+                      borderRadius: 12,
+                      background: "rgba(91,140,255,0.10)",
+                      border: "1px solid rgba(91,140,255,0.28)",
+                    }}>
+                      {/* Miniatura do próprio badge — liga a frase ao elemento
+                          da tela sem precisar dizer "aquele círculo ali". */}
+                      <span style={{
+                        position: "relative", flexShrink: 0,
+                        width: 22, height: 22, borderRadius: "50%",
+                        background: SURFACE, border: `1px solid ${BORDER}`,
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        fontSize: 10, fontWeight: 800, color: MUTED_FG,
+                      }}>
+                        1
+                        <span style={{
+                          position: "absolute", right: -3, bottom: -2,
+                          width: 11, height: 11, borderRadius: "50%",
+                          background: "#1a1826", border: `1px solid ${BORDER}`,
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                        }}>
+                          <svg width="6" height="6" viewBox="0 0 14 14" fill="none">
+                            <path d="M3 5l4 4 4-4" stroke={MUTED_FG} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
+                        </span>
+                      </span>
+                      <span style={{
+                        flex: 1, fontSize: 11.5, lineHeight: 1.4, color: "rgba(255,255,255,0.78)",
+                      }}>
+                        {t("goals_set_kind_hint")}
+                      </span>
+                      <button
+                        onClick={dismissSetKindHint}
+                        aria-label={t("goals_cancel")}
+                        style={{
+                          flexShrink: 0, width: 22, height: 22, borderRadius: "50%",
+                          background: "none", border: "none", cursor: "pointer",
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                        }}
+                      >
+                        <svg width="9" height="9" viewBox="0 0 14 14" fill="none">
+                          <path d="M2 2l10 10M12 2L2 12" stroke={MUTED_FG} strokeWidth="2" strokeLinecap="round"/>
+                        </svg>
+                      </button>
+                    </div>
+                  )}
+
                   {/* Column headers */}
                   <div style={{
                     display: "grid",
@@ -3923,14 +4097,39 @@ export function WorkoutSessionDialog({
                               if (!isExpert) return badge;
                               return (
                                 <button
-                                  onClick={() => setKindPickerKey(isKindPickerOpen ? null : sKey)}
+                                  onClick={() => openKindPicker(sKey, isKindPickerOpen)}
                                   aria-label={t("goals_set_kind_change")}
                                   style={{
                                     background: "none", border: "none", padding: 0,
                                     cursor: "pointer", display: "flex",
+                                    position: "relative",
                                   }}
                                 >
                                   {badge}
+                                  {/* Seta de menu grudada no número: sem ela o
+                                      badge é idêntico ao do modo simplificado
+                                      (inerte) e ninguém descobre que dá para
+                                      tocar. Some enquanto o seletor está aberto
+                                      — ali o menu já está à vista. */}
+                                  {!isKindPickerOpen && (
+                                    <span style={{
+                                      position: "absolute", right: -3, bottom: -2,
+                                      width: 13, height: 13, borderRadius: "50%",
+                                      // Opaco de propósito: o disco tem que
+                                      // cobrir a borda do badge por baixo dele.
+                                      background: "#1a1826",
+                                      border: `1px solid ${BORDER}`,
+                                      display: "flex", alignItems: "center", justifyContent: "center",
+                                    }}>
+                                      <svg width="7" height="7" viewBox="0 0 14 14" fill="none">
+                                        <path
+                                          d="M3 5l4 4 4-4"
+                                          stroke={isTyped ? style.fg : MUTED_FG}
+                                          strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"
+                                        />
+                                      </svg>
+                                    </span>
+                                  )}
                                 </button>
                               );
                             })()}
@@ -4859,10 +5058,20 @@ export function WorkoutSessionDialog({
           pode ser aberto por cima dele no futuro e nunca deve ficar atrás. */}
       {techniqueInfo && (
         <TechniqueInfoOverlay
-          technique={techniqueInfo.technique}
+          topic={techniqueInfo.technique}
           blockMembers={techniqueInfo.members}
           zIndex={75}
           onClose={() => setTechniqueInfo(null)}
+        />
+      )}
+
+      {/* Verbete do modo Expert — mesmo z do verbete de técnica (são
+          mutuamente exclusivos: um abre pelo cabeçalho, o outro pelo card). */}
+      {expertInfoOpen && (
+        <TechniqueInfoOverlay
+          topic="expert"
+          zIndex={75}
+          onClose={() => setExpertInfoOpen(false)}
         />
       )}
 
@@ -5099,6 +5308,71 @@ export function WorkoutSessionDialog({
           </div>
         );
       })()}
+
+      {/* ── CONFIRM TROCA DE VARIAÇÃO ────────────────────────── */}
+      {/* Mesmo overlay inline do confirm de finalizar (Radix ficaria atrás
+          deste portal). Só aparece quando há série concluída em risco. */}
+      {pendingVariationSwap && (
+        <div
+          style={{
+            position: "absolute", inset: 0, zIndex: 80,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)",
+            paddingTop: "max(1rem, env(safe-area-inset-top))",
+            paddingBottom: "max(1rem, env(safe-area-inset-bottom))",
+            paddingLeft: "max(1rem, env(safe-area-inset-left))",
+            paddingRight: "max(1rem, env(safe-area-inset-right))",
+          }}
+        >
+          <div style={{
+            width: "100%", maxWidth: 320,
+            background: "linear-gradient(rgba(40,38,54,0.92),rgba(18,16,28,0.96))",
+            backdropFilter: GLASS_BLUR, WebkitBackdropFilter: GLASS_BLUR,
+            border: `1px solid ${BORDER}`,
+            borderRadius: 24,
+            padding: "24px 20px 20px",
+            boxShadow: "0 24px 64px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.1)",
+          }}>
+            <div style={{ fontSize: 17, fontWeight: 800, color: FG, marginBottom: 8 }}>
+              {t("goals_variation_swap_title")}
+            </div>
+            <div style={{ fontSize: 14, color: MUTED_FG, marginBottom: 20, lineHeight: 1.5 }}>
+              {t(pendingVariationSwap.doneCount === 1
+                ? "goals_variation_swap_desc_one"
+                : "goals_variation_swap_desc")
+                .replace("{n}", String(pendingVariationSwap.doneCount))
+                .replace(/\{name\}/g, pendingVariationSwap.item.workoutName ?? "")
+                .replace("{target}", pendingVariationSwap.target.name)}
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button
+                onClick={() => setPendingVariationSwap(null)}
+                style={{
+                  flex: 1, height: 46, borderRadius: 12,
+                  background: SURFACE, border: "none",
+                  fontSize: 14, fontWeight: 700, color: FG, cursor: "pointer",
+                }}
+              >
+                {t("goals_cancel")}
+              </button>
+              <button
+                onClick={() => {
+                  const { item, target } = pendingVariationSwap;
+                  setPendingVariationSwap(null);
+                  void swapVariation(item, target);
+                }}
+                style={{
+                  flex: 1, height: 46, borderRadius: 12,
+                  background: ORANGE, border: "none",
+                  fontSize: 14, fontWeight: 700, color: "#fff", cursor: "pointer",
+                }}
+              >
+                {t("goals_variation_swap_confirm")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── CONFIRM FINISH ───────────────────────────────────── */}
       {/* Overlay inline (z-index acima do dialog) porque AlertDialog/Radix

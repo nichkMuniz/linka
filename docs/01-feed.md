@@ -61,7 +61,7 @@ Componente: `FlowCarousel`
 | Upload (`handleCreateStory` no `Index.tsx`) | `contentType` explícito + `cacheControl: "86400"` — o flow vive 24h, então o arquivo fica na borda do CDN durante toda a vida útil e o 2º espectador em diante nem vai à origem. |
 | Upload | Capa (JPEG do 1º frame) sobe **em paralelo** com o clipe; falha na capa nunca impede a publicação. |
 | Gravação no limite | Ao completar 1 min o clipe é **finalizado e segue para a postagem** — nunca descartado (nem por duração, nem por tamanho) |
-| Vídeo da galeria | **Não é recomprimido** (limite de 100MB / 60s). Transcodificar no WebView seria em tempo real (1 min de vídeo = 1 min de espera); a solução real é um plugin nativo com `AVAssetExportSession` (`shouldOptimizeForNetworkUse`), ainda não implementado. |
+| Vídeo da galeria | **Reencodado para 720p (2026-08-14)** via `compressVideoBlob` (`client/lib/native-media.ts` → `compressMediaWrite` no `EditedMediaPlugin`), usando `AVAssetExportSession` + `shouldOptimizeForNetworkUse` — a solução nativa que esta linha previa. Antes subia **cru**: com o acervo de órfãos limpo, `stories/` era 879MB em 54 arquivos (~16MB cada), o maior consumidor de Storage do app. Acontece na **seleção**, não no upload, então o preview já é o arquivo que será publicado. Como o transcode processa o clipe inteiro, o timeout de segurança do indicador "preparando" sobe para 180s no caminho de vídeo (foto segue em 25s). Degrada para o original se o codec recusar o preset ou o build for antigo — nunca bloqueia a publicação. |
 
 **FlowCreationDialog:**
 - Upload de imagem para o story: vai direto para a etapa de compartilhar (sem tela de crop intermediária) — o enquadramento é feito ali mesmo, via pinça/arraste, para não duplicar a mesma ação em duas telas

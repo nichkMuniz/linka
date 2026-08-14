@@ -26,7 +26,7 @@ import {
 import { getKeyboardHeight, subscribeKeyboardHeight } from "@/lib/keyboard";
 import { Upload, X, Check, ArrowLeft, Eye, EyeOff, Plus, Trash2, ScanFace } from "lucide-react";
 import { createOrUpdateCommercialProfileDb, saveCommercialPlansDb, type ServicePlan, checkEmailExistsDb, checkHandleExistsDb, invalidateProfileCache } from "@/lib/ritmofit-db";
-import { ImageCropperDrawer } from "@/components/shared/image-cropper-drawer";
+import { ImageCropperDrawer, AVATAR_MAX_EXPORT } from "@/components/shared/image-cropper-drawer";
 import { LoginSplashOriginal } from "@/components/shared/login-splash-original";
 import {
   isBiometricSupported,
@@ -2299,6 +2299,7 @@ export default function Login() {
       <ImageCropperDrawer
         imageSrc={pendingLoginPhotoCropSrc}
         aspectRatio={1}
+        maxExport={AVATAR_MAX_EXPORT}
         onConfirm={(dataUrl, blob) => {
           const file = pendingLoginPhotoFileRef.current;
           if (!file) return;
@@ -2312,6 +2313,7 @@ export default function Login() {
       <ImageCropperDrawer
         imageSrc={pendingLoginLogoCropSrc}
         aspectRatio={1}
+        maxExport={AVATAR_MAX_EXPORT}
         onConfirm={(dataUrl, blob) => {
           const file = pendingLoginLogoFileRef.current;
           if (!file) return;

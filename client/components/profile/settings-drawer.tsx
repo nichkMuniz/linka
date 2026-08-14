@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
 import { LoadingSpinner } from "@/components/shared/animated-loading";
-import { ImageCropperDrawer } from "@/components/shared/image-cropper-drawer";
+import { ImageCropperDrawer, AVATAR_MAX_EXPORT } from "@/components/shared/image-cropper-drawer";
 import {
   updateUserProfileDb,
   createOrUpdateCommercialProfileDb,
@@ -2114,6 +2114,7 @@ export function SettingsDrawer({
       <ImageCropperDrawer
         imageSrc={pendingPhotoCropSrc}
         aspectRatio={1}
+        maxExport={AVATAR_MAX_EXPORT}
         onConfirm={(dataUrl, blob) => {
           if (pendingPhotoCropSrc) URL.revokeObjectURL(pendingPhotoCropSrc);
           const original = pendingPhotoFileRef.current;
@@ -2141,6 +2142,7 @@ export function SettingsDrawer({
       <ImageCropperDrawer
         imageSrc={pendingLogoCropSrc}
         aspectRatio={1}
+        maxExport={AVATAR_MAX_EXPORT}
         onConfirm={(dataUrl, blob) => {
           if (pendingLogoCropSrc) URL.revokeObjectURL(pendingLogoCropSrc);
           const original = pendingLogoFileRef.current;

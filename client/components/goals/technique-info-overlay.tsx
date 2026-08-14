@@ -4,12 +4,14 @@ import type { TranslationKey } from "@/lib/i18n";
 import type { WorkoutTechnique } from "@/lib/ritmofit-db";
 
 /**
- * Explicação de uma técnica de treino — abre ao tocar no selo (Bi-set, A1/A2,
- * Drop-set…) dentro da sessão de treino.
+ * Verbete de um assunto da sessão de treino — abre ao tocar no selo
+ * correspondente: as **técnicas** (Bi-set, A1/A2, Drop-set…) e o **modo
+ * Expert** do cabeçalho.
  *
- * Sugerir uma técnica sem explicá-la só transfere a dúvida: quem não sabe o que
- * é rest-pause vê um selo roxo e ignora. O modal responde as três perguntas que
- * importam na hora — **o que é**, **como faço** e **quando usar**.
+ * Mostrar um selo sem explicá-lo só transfere a dúvida: quem não sabe o que é
+ * rest-pause vê um selo roxo e ignora, e quem entrou numa rotina Expert não
+ * sabe por que a tela tem coisas a mais. O modal responde as três perguntas que
+ * importam na hora — **o que é**, **como funciona** e **quando/para quem**.
  *
  * **Por que não é um `Drawer` do projeto:** a sessão de treino é um portal
  * `position: fixed` com `z-index: 9999`; um drawer da lib (z-50) renderizaria
@@ -17,50 +19,82 @@ import type { WorkoutTechnique } from "@/lib/ritmofit-db";
  * com `zIndex` recebido por prop — mesmo padrão do `ExerciseDetailOverlay`.
  */
 
+/** Assuntos com verbete: as técnicas de treino + o modo Expert. */
+export type InfoTopic = WorkoutTechnique | "expert";
+
 type InfoKeys = {
   title: TranslationKey;
   what: TranslationKey;
-  /** passos separados por "\n" numa única chave — evita 4 chaves por técnica */
-  steps: TranslationKey;
+  /**
+   * Passos/itens da seção do meio: uma chave com linhas separadas por "\n"
+   * (o caso das técnicas, evita 4 chaves cada) ou uma lista de chaves, para
+   * reaproveitar copy que já existe solta (o caso do Expert, que usa os mesmos
+   * bullets do card de escolha do wizard).
+   */
+  steps: TranslationKey | TranslationKey[];
   when: TranslationKey;
+  /** Cor do selo que abriu o verbete, para o modal continuar a mesma coisa. */
+  accent: { fg: string; rgb: string };
+  /** Rótulo da seção do meio (default: "Como fazer"). */
+  howLabel?: TranslationKey;
 };
 
-const TECHNIQUE_INFO: Partial<Record<WorkoutTechnique, InfoKeys>> = {
+const TECHNIQUE_ACCENT = { fg: "#c084fc", rgb: "192,132,252" };
+
+const TOPIC_INFO: Partial<Record<InfoTopic, InfoKeys>> = {
   biset: {
     title: "goals_technique_biset",
     what: "goals_tech_biset_what",
     steps: "goals_tech_biset_steps",
     when: "goals_tech_biset_when",
+    accent: TECHNIQUE_ACCENT,
   },
   triset: {
     title: "goals_technique_triset",
     what: "goals_tech_triset_what",
     steps: "goals_tech_triset_steps",
     when: "goals_tech_triset_when",
+    accent: TECHNIQUE_ACCENT,
   },
   drop: {
     title: "goals_technique_drop",
     what: "goals_tech_drop_what",
     steps: "goals_tech_drop_steps",
     when: "goals_tech_drop_when",
+    accent: TECHNIQUE_ACCENT,
   },
   rest_pause: {
     title: "goals_technique_rest_pause",
     what: "goals_tech_rest_pause_what",
     steps: "goals_tech_rest_pause_steps",
     when: "goals_tech_rest_pause_when",
+    accent: TECHNIQUE_ACCENT,
+  },
+  // Modo Expert: azul do selo do cabeçalho. Os itens são os MESMOS bullets do
+  // card de escolha do wizard — a promessa feita ao criar a rotina é a que o
+  // usuário confere durante o treino.
+  expert: {
+    title: "goals_expert_info_title",
+    what: "goals_expert_info_what",
+    steps: [
+      "goals_mode_expert_f1",
+      "goals_mode_expert_f2",
+      "goals_mode_expert_f3",
+      "goals_mode_expert_f5",
+    ],
+    when: "goals_expert_info_when",
+    accent: { fg: "#9dbaff", rgb: "91,140,255" },
+    howLabel: "goals_expert_info_includes",
   },
 };
 
 /** true = a técnica tem verbete. Gateia o selo virar botão. */
 export function hasTechniqueInfo(t: WorkoutTechnique | null | undefined): boolean {
-  return !!t && !!TECHNIQUE_INFO[t];
+  return !!t && !!TOPIC_INFO[t];
 }
 
-const ACCENT = "#c084fc";
-
 interface TechniqueInfoOverlayProps {
-  technique: WorkoutTechnique;
+  topic: InfoTopic;
   /** nomes dos exercícios do bloco — só para bi-set/tri-set */
   blockMembers?: string[];
   zIndex: number;
@@ -68,13 +102,17 @@ interface TechniqueInfoOverlayProps {
 }
 
 export function TechniqueInfoOverlay({
-  technique, blockMembers, zIndex, onClose,
+  topic, blockMembers, zIndex, onClose,
 }: TechniqueInfoOverlayProps) {
   const { t } = useLanguage();
-  const info = TECHNIQUE_INFO[technique];
+  const info = TOPIC_INFO[topic];
   if (!info) return null;
 
-  const steps = t(info.steps).split("\n").filter(Boolean);
+  const ACCENT = info.accent.fg;
+  const ACCENT_RGB = info.accent.rgb;
+  const steps = Array.isArray(info.steps)
+    ? info.steps.map((k) => t(k))
+    : t(info.steps).split("\n").filter(Boolean);
 
   const section = (label: string, body: React.ReactNode) => (
     <div style={{ width: "100%", marginBottom: 18 }}>
@@ -147,8 +185,8 @@ export function TechniqueInfoOverlay({
                 )}
                 <span style={{
                   fontSize: 12, fontWeight: 700, color: ACCENT,
-                  background: "rgba(192,132,252,0.14)",
-                  border: "1px solid rgba(192,132,252,0.4)",
+                  background: `rgba(${ACCENT_RGB},0.14)`,
+                  border: `1px solid rgba(${ACCENT_RGB},0.4)`,
                   borderRadius: 20, padding: "4px 12px",
                 }}>
                   {name}
@@ -170,7 +208,7 @@ export function TechniqueInfoOverlay({
         )}
 
         {section(
-          t("goals_tech_info_how"),
+          t(info.howLabel ?? "goals_tech_info_how"),
           <ol style={{ margin: 0, padding: 0, listStyle: "none" }}>
             {steps.map((step, i) => (
               <li key={i} style={{
@@ -178,8 +216,8 @@ export function TechniqueInfoOverlay({
               }}>
                 <span style={{
                   flexShrink: 0, width: 22, height: 22, borderRadius: "50%",
-                  background: "rgba(192,132,252,0.16)",
-                  border: `1px solid rgba(192,132,252,0.4)`,
+                  background: `rgba(${ACCENT_RGB},0.16)`,
+                  border: `1px solid rgba(${ACCENT_RGB},0.4)`,
                   color: ACCENT, fontSize: 11, fontWeight: 800,
                   display: "flex", alignItems: "center", justifyContent: "center",
                   marginTop: 1,
@@ -201,8 +239,8 @@ export function TechniqueInfoOverlay({
           t("goals_tech_info_when"),
           <div style={{
             borderRadius: 14, padding: "12px 14px",
-            background: "rgba(192,132,252,0.08)",
-            border: "1px solid rgba(192,132,252,0.28)",
+            background: `rgba(${ACCENT_RGB},0.08)`,
+            border: `1px solid rgba(${ACCENT_RGB},0.28)`,
           }}>
             <p style={{
               fontSize: 14, lineHeight: 1.55, margin: 0,

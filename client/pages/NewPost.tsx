@@ -45,7 +45,7 @@ import {
 } from "lucide-react";
 import { useLanguage } from "@/lib/language-context";
 import { PhotoLibrary, type PhotoLibraryAsset, type PhotoLibraryAlbum } from "@capgo/capacitor-photo-library";
-import { getNativeMediaUrl, purgeStaleMediaCache } from "@/lib/native-media";
+import { getNativeMediaUrl, getCompressedVideoUrl, compressVideoBlob, purgeStaleMediaCache } from "@/lib/native-media";
 import { Geolocation } from "@capacitor/geolocation";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { EmojiPickerDrawer } from "@/components/shared/emoji-picker-drawer";
@@ -163,6 +163,8 @@ export default function NewPost() {
   const [userGoals, setUserGoals] = React.useState<UserGoal[]>([]);
   const [isLoadingGoals, setIsLoadingGoals] = React.useState(false);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
+  // Reencodificação do vídeo do shot para 720p (nativo, leva segundos).
+  const [isPreparingVideo, setIsPreparingVideo] = React.useState(false);
   const [profile, setProfile] = React.useState<UserProfile | null>(null);
   const [imagePreviewOpen, setImagePreviewOpen] = React.useState(false);
 
@@ -444,8 +446,12 @@ export default function NewPost() {
     // deixa de valer a pré-seleção automática do primeiro item.
     autoSelectedActiveRef.current = false;
     if (mediaType === "shot" && asset.type === "video") {
+      // Reencodar para 720p leva segundos (o vídeo inteiro é reprocessado pelo
+      // AVFoundation), então a tela precisa dizer que está trabalhando — sem
+      // isso o toque na galeria parece não ter feito nada.
+      setIsPreparingVideo(true);
       try {
-        const { webPath, mimeType } = await getNativeMediaUrl(asset);
+        const { webPath, mimeType } = await getCompressedVideoUrl(asset);
         const response = await fetch(webPath);
         const blob = await response.blob();
         const file = new File([blob], asset.fileName, { type: mimeType || blob.type || "video/mp4" });
@@ -453,6 +459,8 @@ export default function NewPost() {
         setVideoPreview(URL.createObjectURL(file));
       } catch {
         videoInputRef.current?.click();
+      } finally {
+        setIsPreparingVideo(false);
       }
       return;
     }
@@ -594,7 +602,7 @@ export default function NewPost() {
     }
   };
 
-  const handleVideoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleVideoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
@@ -616,8 +624,23 @@ export default function NewPost() {
       });
       return;
     }
-    setSelectedVideoFile(file);
-    setVideoPreview(URL.createObjectURL(file));
+    // Este caminho entrega um `File` do WebView, sem `PHAsset` — então a
+    // compressão vai pelo `compressVideoBlob` (remonta o arquivo no nativo),
+    // não pelo `getCompressedVideoUrl` usado na galeria in-app.
+    setIsPreparingVideo(true);
+    try {
+      const compressed = await compressVideoBlob(file);
+      const finalFile =
+        compressed === file
+          ? file
+          : new File([compressed], `${file.name.replace(/\.[^.]+$/, "")}.mp4`, {
+              type: compressed.type || "video/mp4",
+            });
+      setSelectedVideoFile(finalFile);
+      setVideoPreview(URL.createObjectURL(finalFile));
+    } finally {
+      setIsPreparingVideo(false);
+    }
   };
 
   const removePhoto = (index: number) => {
@@ -1251,6 +1274,26 @@ export default function NewPost() {
               </div>
             )}
           </div>
+
+          {/* Reencodificação do vídeo para 720p (nativo). Bloqueia a tela de
+              propósito: um segundo toque na galeria durante o export dispararia
+              outra exportação e a última a terminar venceria. */}
+          {isPreparingVideo && (
+            <div
+              className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3"
+              style={{
+                background: "rgba(0,0,0,.72)",
+                backdropFilter: "blur(4px)",
+                paddingTop: "env(safe-area-inset-top)",
+                paddingBottom: "env(safe-area-inset-bottom)",
+              }}
+            >
+              <Loader2 className="h-7 w-7 animate-spin" style={{ color: "#fff" }} />
+              <p style={{ fontSize: 13, color: "rgba(255,255,255,.85)" }}>
+                {t("newpost_preparing_video")}
+              </p>
+            </div>
+          )}
 
           {/* ── Floating media type selector ── */}
           <div style={{

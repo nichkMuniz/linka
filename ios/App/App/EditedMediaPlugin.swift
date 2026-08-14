@@ -33,10 +33,12 @@ public class EditedMediaPlugin: CAPPlugin, CAPBridgedPlugin {
     public let jsName = "EditedMedia"
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "getMediaUrl", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "compressVideo", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "purgeStaleCache", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "startMediaWrite", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "appendMediaWrite", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "saveMediaWrite", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "compressMediaWrite", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "cancelMediaWrite", returnType: CAPPluginReturnPromise)
     ]
 
@@ -102,6 +104,51 @@ public class EditedMediaPlugin: CAPPlugin, CAPBridgedPlugin {
             default:
                 call.reject("Unsupported media type")
             }
+        }
+    }
+
+    /// Exporta um vídeo da galeria **reduzido para 720p**, para publicação.
+    ///
+    /// Por que existe, separado do `getMediaUrl`: aquele exporta com
+    /// `AVAssetExportPresetHighestQuality`, ou seja, mantém 4K/60fps do sensor.
+    /// Um shot publicado assim chegava a ~66MB — 200× uma foto do feed, e o
+    /// maior custo isolado de Storage do app. Aqui o preset encaixa o vídeo na
+    /// caixa 1280x720, que é de sobra para um vídeo vertical curto visto no
+    /// celular.
+    ///
+    /// O preset **não amplia**: fonte menor que 720p sai do mesmo tamanho, então
+    /// chamar isto nunca piora o arquivo.
+    ///
+    /// Cache próprio (prefixo `c720_`), porque o mesmo asset pode ter as duas
+    /// cópias em disco — a original exportada e a comprimida.
+    @objc public func compressVideo(_ call: CAPPluginCall) {
+        guard let id = call.getString("id"), !id.isEmpty else {
+            call.reject("Parameter 'id' is required")
+            return
+        }
+
+        queue.async {
+            guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject else {
+                call.reject("Asset not found")
+                return
+            }
+            guard asset.mediaType == .video else {
+                call.reject("Asset is not a video")
+                return
+            }
+
+            if let cached = self.cachedCompressedFile(for: asset) {
+                self.resolveCompressed(call, with: cached)
+                return
+            }
+
+            guard let file = self.exportCompressedVideo(asset) else {
+                // Quem chama cai no caminho normal (sem compressão) — publicar
+                // grande é melhor que não publicar.
+                call.reject("Could not compress this video")
+                return
+            }
+            self.resolveCompressed(call, with: file)
         }
     }
 
@@ -205,6 +252,73 @@ public class EditedMediaPlugin: CAPPlugin, CAPBridgedPlugin {
                     }
                 })
             }
+        }
+    }
+
+    /// Fecha a sessão e devolve o vídeo **reencodado em 720p**, sem passar pela
+    /// galeria.
+    ///
+    /// É o caminho do vídeo escolhido por `<input type="file">`: ali o JS recebe
+    /// um `File` do WebView, **sem `PHAsset`** — o `compressVideo` acima não tem
+    /// o que buscar na fototeca. Aqui o arquivo é remontado em disco pelos
+    /// `appendMediaWrite` e o AVFoundation trabalha em cima desse arquivo.
+    ///
+    /// Terceiro final possível de uma sessão de escrita, ao lado de
+    /// `saveMediaWrite` (vai para a galeria) e `cancelMediaWrite` (descarta).
+    @objc public func compressMediaWrite(_ call: CAPPluginCall) {
+        guard let token = call.getString("token") else {
+            call.reject("Parâmetro 'token' é obrigatório")
+            return
+        }
+
+        queue.async {
+            guard let source = self.writeSessions.removeValue(forKey: token) else {
+                call.reject("Sessão de escrita inválida", "WRITE_FAILED")
+                return
+            }
+            // O arquivo remontado só serve de entrada — sai daqui de qualquer jeito.
+            defer { try? self.fileManager.removeItem(at: source) }
+
+            self.purgeOutgoingLeftovers()
+
+            let asset = AVURLAsset(url: source)
+            let presetName = AVAssetExportPreset1280x720
+            guard AVAssetExportSession.exportPresets(compatibleWith: asset).contains(presetName),
+                  let session = AVAssetExportSession(asset: asset, presetName: presetName) else {
+                call.reject("Formato de vídeo não suportado para compressão", "UNSUPPORTED_MEDIA")
+                return
+            }
+
+            let fileType: AVFileType = session.supportedFileTypes.contains(.mp4) ? .mp4 : .mov
+            let ext = fileType == .mp4 ? "mp4" : "mov"
+            let output = self.outgoingDirectory.appendingPathComponent("\(token)-720.\(ext)")
+            // O AVAssetExportSession falha se o destino já existir.
+            try? self.fileManager.removeItem(at: output)
+
+            session.outputURL = output
+            session.outputFileType = fileType
+            session.shouldOptimizeForNetworkUse = true
+
+            let semaphore = DispatchSemaphore(value: 0)
+            session.exportAsynchronously { semaphore.signal() }
+            semaphore.wait()
+
+            guard session.status == .completed else {
+                try? self.fileManager.removeItem(at: output)
+                call.reject(
+                    session.error?.localizedDescription ?? "Falha ao comprimir o vídeo",
+                    "COMPRESS_FAILED"
+                )
+                return
+            }
+
+            let webPath = self.bridge?.portablePath(fromLocalURL: output)?.absoluteString ?? output.absoluteString
+            call.resolve([
+                "path": output.path,
+                "webPath": webPath,
+                "mimeType": self.mimeType(forExtension: ext),
+                "size": self.fileSize(at: output)
+            ])
         }
     }
 
@@ -316,6 +430,78 @@ public class EditedMediaPlugin: CAPPlugin, CAPBridgedPlugin {
         return exported
     }
 
+    /// Reexporta o vídeo na caixa 1280x720 (H.264). Mesmo desenho do
+    /// `exportVideo` acima — inclusive os dois semáforos, porque tanto o
+    /// `requestAVAsset` quanto o `exportAsynchronously` respondem em outra fila
+    /// e esta função é chamada de dentro de `queue`, que é serial.
+    private func exportCompressedVideo(_ asset: PHAsset) -> ExportedFile? {
+        let options = PHVideoRequestOptions()
+        options.version = .current
+        options.deliveryMode = .highQualityFormat
+        options.isNetworkAccessAllowed = true
+
+        let semaphore = DispatchSemaphore(value: 0)
+        var exported: ExportedFile?
+
+        PHImageManager.default().requestAVAsset(forVideo: asset, options: options) { avAsset, _, _ in
+            defer { semaphore.signal() }
+            guard let avAsset = avAsset else { return }
+
+            let presetName = AVAssetExportPreset1280x720
+            // Nem todo asset aceita todo preset (áudio exótico, codec sem
+            // suporte). Sem esta checagem o init devolveria nil e a compressão
+            // falharia silenciosamente.
+            guard AVAssetExportSession.exportPresets(compatibleWith: avAsset).contains(presetName),
+                  let session = AVAssetExportSession(asset: avAsset, presetName: presetName) else {
+                CAPLog.print("EditedMedia: 720p preset unavailable for this asset")
+                return
+            }
+
+            let fileType: AVFileType = session.supportedFileTypes.contains(.mp4) ? .mp4 : .mov
+            let ext = fileType == .mp4 ? "mp4" : "mov"
+            let url = self.compressedCacheURL(for: asset, ext: ext)
+
+            if self.fileManager.fileExists(atPath: url.path) {
+                exported = ExportedFile(url: url, mimeType: self.mimeType(forExtension: ext))
+                return
+            }
+
+            session.outputURL = url
+            session.outputFileType = fileType
+            // Move o `moov` para o início do arquivo. Sem isso o player só
+            // descobre a duração depois de baixar tudo — a mesma dor que o
+            // `duration_ms` do flow resolve no lado do banco.
+            session.shouldOptimizeForNetworkUse = true
+
+            let exportSemaphore = DispatchSemaphore(value: 0)
+            session.exportAsynchronously { exportSemaphore.signal() }
+            exportSemaphore.wait()
+
+            if session.status == .completed {
+                exported = ExportedFile(url: url, mimeType: self.mimeType(forExtension: ext))
+            } else {
+                try? self.fileManager.removeItem(at: url)
+                CAPLog.print("EditedMedia: video compression failed: \(session.error?.localizedDescription ?? "unknown error")")
+            }
+        }
+
+        semaphore.wait()
+        return exported
+    }
+
+    private func resolveCompressed(_ call: CAPPluginCall, with file: ExportedFile) {
+        let webPath = bridge?.portablePath(fromLocalURL: file.url)?.absoluteString ?? file.url.absoluteString
+
+        // Sem `width`/`height` de propósito: os de `PHAsset` são os do ORIGINAL
+        // e mentiriam sobre o arquivo devolvido. Quem chama não precisa deles.
+        call.resolve([
+            "path": file.url.path,
+            "webPath": webPath,
+            "mimeType": file.mimeType,
+            "size": fileSize(at: file.url)
+        ])
+    }
+
     private func resolve(_ call: CAPPluginCall, with file: ExportedFile?, asset: PHAsset) {
         guard let file = file else {
             call.reject("Could not export the current version of this asset")
@@ -401,10 +587,61 @@ public class EditedMediaPlugin: CAPPlugin, CAPBridgedPlugin {
         return ExportedFile(url: match, mimeType: mimeType(forExtension: match.pathExtension))
     }
 
+    /// Recolhe restos de compressões anteriores no diretório de staging.
+    ///
+    /// O `compressMediaWrite` deixa o arquivo de saída em disco para o WebView
+    /// buscar por `fetch` — ninguém avisa quando essa leitura termina, então a
+    /// limpeza é preguiçosa: na próxima compressão, apaga o que tem mais de 1h.
+    /// Nunca toca em arquivo de sessão aberta (`queue` é serial, então
+    /// `writeSessions` está estável aqui).
+    private func purgeOutgoingLeftovers() {
+        let active = Set(writeSessions.values.map { $0.path })
+        let cutoff = Date().addingTimeInterval(-3600)
+
+        guard let items = try? fileManager.contentsOfDirectory(
+            at: outgoingDirectory,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        ) else { return }
+
+        for item in items where !active.contains(item.path) {
+            let values = try? item.resourceValues(forKeys: [.contentModificationDateKey])
+            guard let date = values?.contentModificationDate, date < cutoff else { continue }
+            try? fileManager.removeItem(at: item)
+        }
+    }
+
     private func cachePrefix(for asset: PHAsset) -> String {
         let reference = asset.modificationDate ?? asset.creationDate ?? Date(timeIntervalSince1970: 0)
         let stamp = Int(reference.timeIntervalSince1970 * 1000)
         return "\(sha256(asset.localIdentifier))_\(stamp)."
+    }
+
+    // MARK: - Cache do vídeo comprimido
+    //
+    // Mesmo diretório do cache de leitura, de propósito: assim o
+    // `purgeStaleEntries` também recolhe estes arquivos. O prefixo `c720_` vem
+    // ANTES do hash, então a busca do cache normal (`hasPrefix("<hash>_…")`)
+    // nunca casa com um comprimido, e vice-versa.
+
+    private func compressedCachePrefix(for asset: PHAsset) -> String {
+        return "c720_\(cachePrefix(for: asset))"
+    }
+
+    private func compressedCacheURL(for asset: PHAsset, ext: String) -> URL {
+        return cacheDirectory.appendingPathComponent("\(compressedCachePrefix(for: asset))\(ext)")
+    }
+
+    private func cachedCompressedFile(for asset: PHAsset) -> ExportedFile? {
+        let prefix = compressedCachePrefix(for: asset)
+        guard let items = try? fileManager.contentsOfDirectory(
+            at: cacheDirectory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) else { return nil }
+
+        guard let match = items.first(where: { $0.lastPathComponent.hasPrefix(prefix) }) else { return nil }
+        return ExportedFile(url: match, mimeType: mimeType(forExtension: match.pathExtension))
     }
 
     // MARK: - Helpers

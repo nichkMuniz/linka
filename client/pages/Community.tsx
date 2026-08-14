@@ -85,6 +85,7 @@ import {
 } from "@/components/shared/inline-crop-preview";
 import { PostCarousel, POST_PHOTO_WIDTH, POST_PHOTO_QUALITY } from "@/components/post/post-carousel";
 import { cdnImg } from "@/lib/image-url";
+import { compressImageFile } from "@/lib/image-compress";
 import {
   Drawer,
   DrawerContent,
@@ -3775,7 +3776,9 @@ export default function Community() {
                                   "cover.jpg",
                                   { type: "image/jpeg" },
                                 )
-                              : groupPhotoFile;
+                              // Sem medida do frame não há recorte: o arquivo é o
+                              // original do seletor, então encolhe antes de subir.
+                              : await compressImageFile(groupPhotoFile);
                             photoUrl = await updateGroupPhotoDb(savedGroup.id, toUpload);
                           } catch (photoErr) {
                             console.error("Error uploading group photo:", photoErr);

@@ -10,10 +10,54 @@ import { SHARE_DOMAIN } from "@shared/share-config";
 
 export const CANVAS_W = 540;
 export const CANVAS_H = 540;
-// Backing store em 3x a resolução lógica para não pixelar quando o feed pede a
-// imagem em 900px (post-carousel POST_PHOTO_WIDTH) ou em telas Retina/@3x.
+// Backing store em 3x a resolução lógica (1620px) para não pixelar em telas
+// @3x: o card ocupa ~430px CSS no card do feed, ou ~1290px de device pixel num
+// iPhone Retina @3x. 2x (1080px) ficaria ABAIXO disso e amaciaria o texto —
+// por isso a escala não desceu quando as transformações do Storage saíram
+// (2026-08-14). O que mudou foi só o formato do arquivo, ver `cardCanvasToBlob`.
 export const CANVAS_SCALE = 3;
 export const FONT = `"Inter", -apple-system, system-ui, sans-serif`;
+
+/**
+ * Qualidade JPEG dos cards. Mais alta que a das fotos (0.82) de propósito: o
+ * card é texto de alto contraste sobre fundo chapado, que é justamente onde o
+ * JPEG produz ringing. Em 0.92, num desenho já supersampleado em 3x e exibido
+ * reduzido, o artefato fica abaixo de um pixel de tela.
+ */
+export const CARD_JPEG_QUALITY = 0.92;
+
+/**
+ * Serializa um card para upload.
+ *
+ * **JPEG, não PNG.** O card é majoritariamente gradiente, e gradiente é o pior
+ * caso do PNG: o DEFLATE não acha repetição em 1620px de cor mudando devagar,
+ * então o arquivo ia a vários MB. É exatamente o caso ótimo do JPEG. Como os
+ * cards de resumo são as imagens mais publicadas do app, o formato errado aqui
+ * custava mais banda que todo o resto somado.
+ *
+ * O texto — a parte em que o JPEG é fraco — é desenhado em 3x e exibido
+ * reduzido, então o ringing some na reamostragem. Mesmo raciocínio (e mesma
+ * conclusão) do mapa de trajeto em `route-map.tsx`, que já sobe JPEG.
+ */
+export function cardCanvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => (blob ? resolve(blob) : reject(new Error("Falha ao gerar imagem"))),
+      "image/jpeg",
+      CARD_JPEG_QUALITY,
+    );
+  });
+}
+
+/**
+ * Data URL do card para a pré-visualização na tela. Também JPEG: em PNG, a
+ * string base64 de um canvas 1620x1620 passa de vários MB presos no state do
+ * React enquanto o drawer está aberto — custo de memória real no WebView do
+ * iOS, por uma imagem que o usuário vê reduzida.
+ */
+export function cardCanvasPreviewUrl(canvas: HTMLCanvasElement): string {
+  return canvas.toDataURL("image/jpeg", CARD_JPEG_QUALITY);
+}
 
 export function roundRectPath(
   ctx: CanvasRenderingContext2D,

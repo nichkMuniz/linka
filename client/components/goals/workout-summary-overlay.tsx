@@ -38,6 +38,8 @@ import {
   fitFontSize,
   loadLogo,
   createCardCanvas,
+  cardCanvasToBlob,
+  cardCanvasPreviewUrl,
   canvasSetup,
   drawCanvasHeader,
   drawCanvasDivider,
@@ -1143,7 +1145,7 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
   // não acumular clip/scale do desenho anterior (a criação é barata e rara).
   React.useEffect(() => {
     // Backing store 3x maior que o layout lógico (540x540) para não pixelar
-    // ao ser exibido em telas Retina ou redimensionado pelo CDN do feed.
+    // ao ser exibido em telas Retina.
     const canvas = createCardCanvas();
     canvasRef.current = canvas;
     let cancelled = false;
@@ -1151,7 +1153,7 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
     Promise.all([document.fonts.ready, loadLogo()]).then(([, logo]) => {
       if (cancelled) return;
       drawCanvas(canvas, data, logo, selectedTemplate, comparisonIndex, cardioGroups);
-      setCanvasPreviewUrl(canvas.toDataURL("image/png"));
+      setCanvasPreviewUrl(cardCanvasPreviewUrl(canvas));
     });
     return () => { cancelled = true; };
   }, [data, selectedTemplate, comparisonIndex, cardioGroups]);
@@ -1267,15 +1269,11 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
     setCurrentSlide((prev) => (prev > index ? prev - 1 : prev));
   };
 
-  const getCanvasBlob = (): Promise<Blob> =>
-    new Promise((resolve, reject) => {
-      const canvas = canvasRef.current;
-      if (!canvas) return reject(new Error("Canvas não pronto"));
-      canvas.toBlob(
-        (blob) => (blob ? resolve(blob) : reject(new Error("Falha ao gerar imagem"))),
-        "image/png",
-      );
-    });
+  const getCanvasBlob = (): Promise<Blob> => {
+    const canvas = canvasRef.current;
+    if (!canvas) return Promise.reject(new Error("Canvas não pronto"));
+    return cardCanvasToBlob(canvas);
+  };
 
   // Aplica o zoom/pan (cropTransforms) escolhido pelo usuário em cada foto antes
   // do upload — mesma lógica de recorte do NewPost (applyTransformToBlob).

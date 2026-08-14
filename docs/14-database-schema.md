@@ -393,7 +393,8 @@ Check-ins realizados dentro de um grupo de duelo.
 | `user_id` | uuid | FK → `auth.users` | — | Usuário que fez check-in |
 | `user_name` | text | ✓ | — | Nome do usuário (denormalizado) |
 | `user_photo` | text | — | — | URL da foto de perfil do usuário (denormalizada) |
-| `photo` | text | — | — | URL da foto do check-in |
+| `photo` | text | — | — | URL da foto do check-in (a primeira; o mascote padrão do app quando não há foto) |
+| `photos` | jsonb | — | — | Array JSON com todas as fotos do check-in (carrossel, até 4). `photo` repete a primeira. Ambas são lidas por `deleteGroupCheckInDb` para limpar o Storage. |
 | `description` | text | — | — | Descrição do check-in |
 | `workout_info` | text | — | — | Informações do treino realizado |
 | `series` | bigint | — | `0` | Número de séries |
@@ -1619,6 +1620,87 @@ Migration: `docs/migrations/20260713-security-hardening.sql`. **As migrações v
 ### Bucket `chat-media`
 
 Privado, 25 MB por arquivo, mime types de imagem/áudio. Policies em `storage.objects` validam que `auth.uid()` é uma das duas pontas do primeiro segmento do caminho (`{uuidA}_{uuidB}`).
+
+### Bucket `posts` — remoção de mídia (migração `20260814-storage-delete-policies.sql`)
+
+Público para leitura. A policy **`posts_delete_own_media`** (só `DELETE`, só bucket `posts`) deixa o usuário apagar a própria mídia quando o conteúdo é excluído.
+
+> ⚠️ **Sem policy de DELETE, `storage.remove()` responde 200 com lista vazia** — nenhum erro, nenhum arquivo apagado. É o mesmo no-op silencioso de RLS do histórico de rotina (`20260716-hist-delete-rls`) e do painel de moderação (`20260811-admin-moderation`). Por isso `removeStorageObjects` compara o número de caminhos pedidos com o de removidos e avisa no console quando não bate.
+
+O bucket acumulou vários formatos de caminho, e a posse é resolvida por quatro critérios em `OR`:
+
+| Caminho | Conteúdo | Como a posse é provada |
+|---|---|---|
+| `{uid}/{ts}-{i}.jpg` | Foto de post | 1º segmento = `auth.uid()` |
+| `{uid}/profile-{ts}.jpg` | Avatar | idem |
+| `{uid}/shots/{ts}.mp4` | Vídeo de shot | idem |
+| `{uid}/stories/{ts}-story.*` | Mídia de flow (+ `-poster.jpg`) | idem |
+| `checkins/{uid}/…` | Foto de check-in de duelo | 2º segmento = `auth.uid()` |
+| `workout-summary/{uid}/…` | Card de resumo de treino | idem |
+| `exercise-photos/{uid}/…` | Foto de exercício custom | idem |
+| `covers/{uid}-{ts}.jpg` | Capa de perfil | uid no **nome do arquivo** |
+| `group-covers/{groupId}/…` | Capa de duelo | **fora da policy** — o caminho traz o id do grupo, não do usuário |
+
+Há ainda o critério `owner = auth.uid()`, preenchido pelo próprio Storage no upload, que cobre qualquer formato novo sem precisar editar a policy.
+
+**Quem limpa o quê (em `ritmofit-db.ts`):**
+
+| Função | Momento | Mídia tratada |
+|---|---|---|
+| `deletePostDb` | exclusão | `photo` + `photos` (carrossel; o card de resumo entra como último slide) |
+| `deleteShotDb` | exclusão | `video_url` |
+| `deleteStoryDb` | exclusão | `media_url` + `poster_url`, filtrados por `filterUnreferencedUrls` |
+| `deleteGroupCheckInDb` | exclusão | `photo` + `photos` |
+| `deleteCustomWorkoutDb` | exclusão | `photo`, filtrada por `filterUnreferencedUrls` (imagem por nome é compartilhada) |
+| `adminDeleteContentDb` | moderação | o que a RPC `admin_delete_content` devolve em `media`; em `flow`, filtrado |
+| `updateUserProfileDb` | **troca** | avatar e capa anteriores (`removeReplacedMedia`) |
+| `updateGroupPhotoDb` | **troca** | capa de grupo anterior |
+| `updateCustomWorkoutDb` | **troca** | foto anterior do exercício, filtrada |
+| `deleteAllUserDataDb` | exclusão de conta | varre as pastas do usuário nos buckets `posts` e `chat-media` (`purgeUserStorageDb`) |
+
+> **Troca também vazava.** Cada upload grava um caminho novo (`profile-{ts}.jpg`, `covers/{uid}-{ts}.jpg`) para o CDN não servir a versão velha na mesma URL — então, sem `removeReplacedMedia`, toda edição de foto de perfil deixava um arquivo para trás. Apagar o antigo é seguro porque nenhuma tabela guarda cópia histórica de avatar: `duel_check_ins.user_photo` existe mas é coluna morta (nunca lida nem escrita — `getGroupCheckInsDb` re-busca `profiles.photo` de propósito).
+
+> ⚠️ **`purgeUserStorageDb` roda ANTES do Batch 6** de `deleteAllUserDataDb`. A policy de DELETE depende de `auth.uid()`: depois que a conta sai de `auth.users` não há sessão para provar posse, e a mídia ficaria órfã para sempre.
+
+> ⚠️ **Repost de flow compartilha o arquivo.** `repostStoryDb` reaproveita `media_url`/`poster_url` do original em vez de copiar. Apagar o storage ao excluir um dos dois quebraria o outro — por isso `deleteStoryDb` passa por `filterUnreferencedUrls`, que só libera a URL quando nenhuma linha de `flow` a referencia mais. Qualquer conteúdo novo que reaproveite mídia precisa do mesmo cuidado.
+
+> `deletePromotionDb` é **soft delete** (`is_active = false`): a linha continua existindo, então a imagem **não** deve ser apagada.
+
+#### Acervo já órfão — `scripts/sweep-orphan-media.mjs`
+
+As correções acima só valem daqui pra frente. Para o que ficou para trás existe uma varredura que cruza o bucket com todas as colunas de mídia do banco:
+
+```bash
+node scripts/sweep-orphan-media.mjs                  # dry-run (padrão, não apaga)
+node scripts/sweep-orphan-media.mjs --report=out.txt # salva a lista completa
+node scripts/sweep-orphan-media.mjs --only=checkins  # limita a uma pasta
+node scripts/sweep-orphan-media.mjs --apply          # apaga
+```
+
+Medição de 2026-08-14: **504 objetos no bucket, 270 órfãos, 1,19 GB** — a maior parte em pastas `{uid}/` de mídia de post/shot/flow excluídos antes da correção, mais 18 arquivos (43,5 MB) em `custom-workouts/`, um caminho legado que nenhuma coluna referencia mais.
+
+Três travas de segurança, todas por causa de armadilhas reais:
+
+1. **`MEDIA_SOURCES` precisa ficar completa.** Coluna esquecida vira "ninguém referencia" e o arquivo é apagado. Ao criar feature que sobe arquivo, acrescente a coluna na mesma entrega.
+2. **`messages.text` é varrido com regex, não lido como coluna de URL.** Mídia de DM antiga guarda a URL pública completa **dentro do texto**, atrás do prefixo `[image]:`/`[audio]:` (ver protocolo em `docs/07-comunidade.md`). O primeiro dry-run marcou 16 arquivos de DM em uso como órfãos justamente por isso.
+3. **Arquivo com menos de 24 h é ignorado.** O app sobe o arquivo antes de gravar a linha; uma varredura no meio dessa janela veria um órfão que não é.
+
+Se uma tabela da lista não existir neste banco, ela é pulada com aviso; qualquer **outra** falha de leitura **aborta** a varredura, em vez de tratar o conteúdo dela como órfão.
+
+#### O inverso — `scripts/fix-broken-media-messages.mjs`
+
+A varredura acima acha **arquivo sem linha**. Este acha **linha sem arquivo**: mensagens de conversa privada cujo áudio/imagem sumiu do Storage.
+
+```bash
+node scripts/fix-broken-media-messages.mjs           # dry-run
+node scripts/fix-broken-media-messages.mjs --apply   # apaga as linhas
+```
+
+Entende os dois formatos do ponteiro (ver protocolo em `docs/07-comunidade.md`): `[audio]:chat:{idA}_{idB}/{uuid}.webm` (bucket privado `chat-media`) e `[audio]:https://…/public/posts/…` (legado, anterior à `20260713`). `[post]:`/`[shot]:` carregam ID e são ignorados; ponteiro em formato desconhecido também é ignorado — nunca se apaga o que não se entendeu.
+
+**Apagar é a única correção possível:** o texto da mensagem é só o ponteiro, então sem o arquivo não há conteúdo a restaurar — fica um player que nunca toca.
+
+Execução de 2026-08-14: **9 mensagens** removidas, todas áudios de abril em `posts/message-audio/`. Verificado antes de apagar que os arquivos não haviam migrado para `chat-media` (que tinha só 13 objetos, todos imagem). Essas referências já estavam quebradas antes da varredura de órfãos: a aritmética fecha (491 − 257 órfãos = 234 objetos), e o único `message-audio` na lista de órfãos era um arquivo de **0 B**, upload que falhou.
 
 ---
 

@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
 import { X, Plus, ChevronLeft, ChevronRight, Image } from "lucide-react";
 import { updateGroupCheckInDb, uploadCheckInPhotoDb, type GroupCheckIn } from "@/lib/ritmofit-db";
+import { compressImageFile } from "@/lib/image-compress";
 import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
 import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
 
@@ -98,7 +99,10 @@ export function EditCheckInDrawer({
     try {
       const uploadedUrls: string[] = [];
       for (let i = 0; i < newPhotoFiles.length; i++) {
-        const url = await uploadCheckInPhotoDb(checkIn.userId, newPhotoFiles[i], i);
+        // Este fluxo é o único de check-in que não passa pelo ImageCropperDrawer:
+        // a foto vem crua do seletor, então encolhe aqui antes de subir.
+        const compressed = await compressImageFile(newPhotoFiles[i]);
+        const url = await uploadCheckInPhotoDb(checkIn.userId, compressed, i);
         uploadedUrls.push(url);
       }
       const finalPhotos = [...existingPhotos, ...uploadedUrls];

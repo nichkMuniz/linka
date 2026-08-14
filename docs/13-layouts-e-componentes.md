@@ -143,7 +143,7 @@ Carrossel de imagens de um post:
 - Quando `tall`, a foto usa fit adaptativo: `cover` (preenche cortando) por padrão, mas troca para `contain` + fundo desfocado quando a proporção da foto destoa muito da do frame (ex.: canvas quadrado de resumo de treino), para não cortar informação do conteúdo
 - **Prop `priority` (2026-07-02):** força `loading="eager"` na primeira/única foto em vez de `"lazy"` — usar quando o carrossel já monta visível dentro de um modal/drawer (ex: detalhe do check-in de duelo), onde "lazy" só atrasa o fetch sem nenhum ganho (não há scroll para "chegar" até a imagem). Não usar em contextos de lista/feed, onde "lazy" evita baixar fotos fora da viewport.
 - **Fade-in ao carregar (2026-07-02):** a imagem interna (`ZoomableImage`) começa em `opacity: 0` e transiciona para `1` no `onLoad`, em vez de aparecer abruptamente — o fundo do frame já preenche o espaço, então não há flash de conteúdo vazio.
-- **Constantes exportadas `POST_PHOTO_WIDTH`/`POST_PHOTO_QUALITY`:** usadas por quem quiser pré-aquecer (`new Image().src = cdnImg(url, { width: POST_PHOTO_WIDTH, quality: POST_PHOTO_QUALITY })`) a mesma URL transformada que o carrossel vai pedir — ver o prefetch de fotos de check-in em `Community.tsx`, que evita o usuário sentir a latência de cache-frio do endpoint de transform do Supabase Storage ao abrir o modal de detalhe.
+- **Constantes exportadas `POST_PHOTO_WIDTH`/`POST_PHOTO_QUALITY`:** usadas por quem quiser pré-aquecer (`new Image().src = cdnImg(url, { width: POST_PHOTO_WIDTH, quality: POST_PHOTO_QUALITY })`) a mesma URL que o carrossel vai pedir — ver o prefetch de fotos de check-in em `Community.tsx`, que evita o usuário sentir a latência do primeiro fetch ao abrir o modal de detalhe. Desde 2026-08-14 `cdnImg` devolve a URL original (ver *Pipeline de imagens* abaixo), então o prefetch aquece o próprio objeto no CDN — o padrão de uso não muda.
 
 ---
 
@@ -242,6 +242,30 @@ Wrapper de imagem com tratamento de erro:
 - Exibe imagem original se disponível
 - Exibe imagem fallback se a original falhar
 - Props: `src`, `alt`, `fallback`, `className`
+- Props `cdnWidth`/`cdnHeight`/`cdnQuality`/`cdnResize`: repassadas a `cdnImg()`. **Inertes desde 2026-08-14** — ver *Pipeline de imagens* abaixo. Mantidas porque descrevem o tamanho real de exibição de cada uso e voltam a valer se a flag for religada.
+
+---
+
+### Pipeline de imagens (`client/lib/image-url.ts` + `image-compress.ts`) — 2026-08-14
+
+**A regra:** a imagem sobe do tamanho em que vai ser exibida. Nada é redimensionado na entrega.
+
+Antes, o app subia o original grande (2160px q0.92) e pedia miniaturas ao endpoint `/storage/v1/render/image/public/` da Supabase via `cdnImg()`. A Supabase cobra **Image Transformations por imagem de origem distinta transformada no mês** — não por requisição. Como todo avatar, toda foto de post e todo flow passavam por lá, o contador crescia linear com a base de usuários e estourou a cota (113/100). Cache de CDN e dedup de request não movem esse número: só reduzir **quantos arquivos diferentes** passam pelo endpoint.
+
+| Origem | Onde o tamanho é definido | Teto | Qualidade |
+|---|---|---|---|
+| Foto de post, check-in de duelo, capa de grupo, foto do resumo de treino | `inline-crop-preview.tsx` → `applyTransformToBlob` | 1440px | 0.82 |
+| Capa de perfil, foto de promoção | `image-cropper-drawer.tsx` (padrão) | 1440px | 0.82 |
+| Avatar e logo comercial | `image-cropper-drawer.tsx` via `maxExport={AVATAR_MAX_EXPORT}` | 512px | 0.82 |
+| Foto de flow (câmera e galeria) | `flow-creation-dialog.tsx` → `PHOTO_MAX_DIM`/`PHOTO_JPEG_QUALITY` | 1280px | 0.85 |
+| Card de resumo de treino e de meta concluída | `canvas-card.ts` → `cardCanvasToBlob()` | 1620px (`CANVAS_SCALE` 3) | 0.92 |
+| Arquivo cru do seletor: foto de exercício custom, imagem de conversa privada, foto adicionada no `EditCheckInDrawer` | `image-compress.ts` → `compressImageFile()` | 1440px | 0.82 |
+
+- **`cdnImg()` virou pass-through** — a flag `STORAGE_TRANSFORMS_ENABLED` (em `image-url.ts`) está `false` e a função devolve a URL do objeto. Os call sites (`ImageWithFallback`, `PostCarousel`, `FlowViewer`, `today-dashboard`, `Community`) continuam chamando de propósito: religar a flag restaura o comportamento antigo sem tocar em tela nenhuma.
+- **`compressImageFile(file, maxDim?, quality?)`** é a rede de segurança para os fluxos que sobem o arquivo direto do seletor, sem cropper: adicionar foto no `EditCheckInDrawer`, o fallback da capa de grupo no wizard de duelo (quando o frame nunca foi medido), a foto de exercício custom (`uploadCustomExercisePhotoDb`) e a imagem de conversa privada (`uploadMessageImageDb`). Nunca lança — se o WebView não decodificar (HEIC exótico, arquivo corrompido), devolve o arquivo original: melhor subir grande do que impedir o usuário de publicar.
+- **Ao criar um upload novo:** passe pelo cropper, por `applyTransformToBlob`, por `compressImageFile` ou — se for um card em canvas — por `cardCanvasToBlob`. Subir um `File` cru do `<input type="file">` (ou um `toBlob("image/png")`) é o antipadrão: sem o transform na entrega, o app baixa o arquivo inteiro para desenhar uma miniatura.
+- **Imagens publicadas antes de 2026-08-14** continuam grandes no bucket. Não quebram nada, só gastam mais banda até serem substituídas.
+- **Ciclo de vida — excluir conteúdo apaga o arquivo (2026-08-14):** `deletePostDb`, `deleteShotDb`, `deleteStoryDb` e `deleteGroupCheckInDb` leem as colunas de mídia **antes** do DELETE e chamam `removeStorageObjects()`. Exige a migração `20260814-storage-delete-policies.sql` — sem a policy, `storage.remove()` volta 200 com lista vazia e não apaga nada. Detalhes (formatos de caminho, quem limpa o quê, a armadilha do repost) em `docs/14-database-schema.md`, seção *Bucket `posts` — remoção de mídia*.
 
 ---
 
@@ -256,7 +280,9 @@ Wrapper de imagem com tratamento de erro:
 > - `applyTransformToBlob(dataUrl, transform, frameW, frameH?)` — `frameH` **omitido = quadrado**, mantendo as chamadas existentes intactas.
 > - Prop nova `containerHeightRef`: obrigatória em frame não-quadrado, para repassar a altura ao `applyTransformToBlob`. Sem ela, o recorte exportado não bate com o preview.
 >
-> **Bug corrigido junto:** o teto de export (`MAX_EXPORT = 2160`) clampava largura e altura **independentemente** (`Math.min` em cada), o que **achata** a imagem quando só um lado passa do limite. Invisível em 1:1 (os dois lados são iguais e clampam junto). Agora é um fator único aplicado aos dois eixos.
+> **Bug corrigido junto:** o teto de export clampava largura e altura **independentemente** (`Math.min` em cada), o que **achata** a imagem quando só um lado passa do limite. Invisível em 1:1 (os dois lados são iguais e clampam junto). Agora é um fator único aplicado aos dois eixos. O mesmo tratamento foi aplicado ao `ImageCropperDrawer` em 2026-08-14.
+
+> **Teto de export (2026-08-14):** `MAX_EXPORT` caiu de 2160 → **1440px** e a qualidade JPEG de 0.92 → **0.82** (`JPEG_QUALITY`). O card do feed tem ~430px CSS no iPhone (~900px depois do DPR), então 1440 sobra; o que existia acima disso só servia para o endpoint de transform da Supabase encolher de novo na entrega. Ver *Pipeline de imagens*.
 
 Zoom/pan direto no frame quadrado da foto (pinch-to-zoom + arraste), **sem** passar por uma tela de crop separada (2026-07-02, extraído do `NewPost.tsx` para reuso). Exporta:
 - `InlineCropPreview` — componente (canvas) que desenha a foto com o `CropTransform` atual e captura gestos de pointer/touch (drag = pan, pinch = zoom, `MIN_SCALE`–`MAX_SCALE` = 1–5)
@@ -592,6 +618,8 @@ Monitora conectividade:
 | `flushMonitoring()` | Garante que o evento saiu antes de fechar a tela |
 
 **Filtro de ruído (`ignoreErrors` + `beforeSend`):** rede indisponível (`Failed to fetch`, `Load failed`, …) **não é bug** — o app tem modo offline e já trata isso com a fila `lk:outbox`. Também são descartados aborts intencionais, `ResizeObserver loop`, `play() request was interrupted` (Shots/flows) e erros de sessão expirada que o app já resolve redirecionando ao login. Sem esse filtro a cota gratuita do Sentry queima em dias.
+
+**Eventos automáticos de `pnpm dev` são descartados (2026-08-14):** a primeira coisa que o `beforeSend` faz é devolver `null` quando `import.meta.env.DEV` é true, **exceto** para o relato manual (tag `report_source: in_app`, que continua saindo para dar como testar o drawer sem buildar). Motivo: o hot reload executa estados **intermediários de edição** — declaração já cortada, referência ainda no JSX — e o painel enchia de `ReferenceError` que parece bug de produção. Os sete primeiros issues não resolvidos do projeto eram exatamente isso. Ao triar um issue antigo, o critério manual continua valendo: **nome de variável legível na mensagem = ruído de dev**, porque o build de produção é minificado (`ReferenceError: Ce is not defined`).
 
 **Privacidade (relevante para a nutrition label da App Store):** nenhum evento automático carrega e-mail, nome ou IP — `beforeSend` apaga esses campos e `sendDefaultPii: false`. O e-mail só sai do app quando a própria pessoa o digita no `ReportProblemDrawer`, que exibe a lista do que será enviado junto antes do envio.
 

@@ -20,11 +20,23 @@ interface EditedMediaPlugin {
     width: number;
     height: number;
   }>;
+  compressVideo(options: { id: string }): Promise<{
+    path: string;
+    webPath: string;
+    mimeType: string;
+    size: number;
+  }>;
   purgeStaleCache(options?: { limit?: number }): Promise<{ removed: number }>;
   // Escrita fatiada na galeria (ver `saveMediaToPhotos` no fim do arquivo)
   startMediaWrite(options: { ext: string }): Promise<{ token: string }>;
   appendMediaWrite(options: { token: string; data: string }): Promise<void>;
   saveMediaWrite(options: { token: string; isVideo: boolean }): Promise<{ saved: boolean }>;
+  compressMediaWrite(options: { token: string }): Promise<{
+    path: string;
+    webPath: string;
+    mimeType: string;
+    size: number;
+  }>;
   cancelMediaWrite(options: { token: string }): Promise<void>;
 }
 
@@ -90,6 +102,37 @@ export async function getNativeMediaUrl(asset: PhotoLibraryAsset): Promise<Nativ
 
   const { webPath, mimeType } = await PhotoLibrary.getPhotoUrl({ id: asset.id });
   return { webPath, mimeType };
+}
+
+/**
+ * Vídeo da galeria já **reduzido para 720p**, para publicar como shot.
+ *
+ * O caminho normal (`getNativeMediaUrl`) exporta com
+ * `AVAssetExportPresetHighestQuality`: mantém o 4K do sensor e produzia shots de
+ * ~66MB — 200× uma foto do feed, e o maior custo isolado de Storage do app.
+ * 720p é de sobra para vídeo vertical curto visto no celular, e o preset **não
+ * amplia** (fonte menor sai igual), então chamar isto nunca piora o arquivo.
+ *
+ * Degrada em silêncio para o vídeo sem compressão quando:
+ *   - a plataforma não é iOS;
+ *   - o build instalado é anterior a este método (usuário em versão antiga);
+ *   - o codec do asset não aceita o preset, ou a exportação falha.
+ *
+ * Publicar grande é melhor do que não publicar — por isso nunca lança.
+ *
+ * ⚠️ É **demorado** (reencoda o vídeo inteiro): quem chama precisa mostrar
+ * estado de carregamento, senão a tela parece travada.
+ */
+export async function getCompressedVideoUrl(asset: PhotoLibraryAsset): Promise<NativeMediaFile> {
+  if (isIOS()) {
+    try {
+      const result = await EditedMedia.compressVideo({ id: asset.id });
+      if (result?.webPath) return { webPath: result.webPath, mimeType: result.mimeType };
+    } catch {
+      // sem o método no build, ou export falhou — segue sem compressão
+    }
+  }
+  return getNativeMediaUrl(asset);
 }
 
 /**
@@ -218,5 +261,54 @@ export async function saveMediaToPhotos(
       err?.code === "PERMISSION_DENIED" ? "permission" : "unknown",
       err?.message || "Não foi possível salvar",
     );
+  }
+}
+
+/**
+ * Reencoda um vídeo já em memória para **720p**, antes do upload.
+ *
+ * Complemento do `getCompressedVideoUrl`: aquele parte do `PHAsset` da galeria
+ * in-app, este parte de um `Blob`/`File`. É o caminho do vídeo escolhido por
+ * `<input type="file">` (shot pelo seletor de arquivos, flow importado da
+ * galeria) — ali o WebView entrega os bytes sem nenhuma referência à fototeca,
+ * então o AVFoundation não tem em que se apoiar.
+ *
+ * A solução reaproveita a escrita fatiada que já existia para salvar na
+ * galeria: o blob é remontado num arquivo nativo em pedaços de 3MB e o
+ * `compressMediaWrite` reencoda esse arquivo. Chunking porque um vídeo de
+ * dezenas de MB viraria uma string base64 ~33% maior atravessando a ponte de
+ * uma vez — memória que o WKWebView não tem.
+ *
+ * **Nunca lança e nunca piora**: devolve o blob original se a plataforma não é
+ * iOS, se o build não tem o método, se o codec não aceita o preset, ou se o
+ * resultado não ficou menor que a entrada.
+ *
+ * ⚠️ Demorado (reencoda o vídeo inteiro): quem chama precisa de indicador.
+ */
+export async function compressVideoBlob(blob: Blob): Promise<Blob> {
+  if (!isIOS() || blob.size === 0) return blob;
+
+  let token: string;
+  try {
+    ({ token } = await EditedMedia.startMediaWrite({ ext: extensionFor(blob, "video") }));
+  } catch {
+    return blob; // plugin ausente no build instalado
+  }
+
+  try {
+    for (let offset = 0; offset < blob.size; offset += SAVE_CHUNK_BYTES) {
+      const data = await chunkToBase64(blob.slice(offset, offset + SAVE_CHUNK_BYTES));
+      await EditedMedia.appendMediaWrite({ token, data });
+    }
+    const { webPath } = await EditedMedia.compressMediaWrite({ token });
+    const response = await fetch(webPath);
+    const compressed = await response.blob();
+    // Vídeo já pequeno/baixa resolução pode sair MAIOR — nesse caso o original vence.
+    return compressed.size > 0 && compressed.size < blob.size ? compressed : blob;
+  } catch {
+    // `compressMediaWrite` já consome a sessão; o cancel só vale quando a
+    // falha foi antes dele, e falhar aqui não muda nada.
+    await EditedMedia.cancelMediaWrite({ token }).catch(() => {});
+    return blob;
   }
 }

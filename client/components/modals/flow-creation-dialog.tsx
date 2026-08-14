@@ -6,7 +6,7 @@ import { toast } from "@/components/ui/use-toast";
 import { TagPeopleDrawer } from "@/components/shared/tag-people-drawer";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { useLanguage } from "@/lib/language-context";
-import { saveMediaToPhotos, SaveMediaError } from "@/lib/native-media";
+import { saveMediaToPhotos, SaveMediaError, compressVideoBlob } from "@/lib/native-media";
 import { hapticLight } from "@/lib/haptics";
 import { motion } from "framer-motion";
 import type { SearchUser } from "@/lib/ritmofit-db";
@@ -125,6 +125,16 @@ const RECORDER_BITRATE = {
   audioBitsPerSecond: 96_000,
 };
 
+// Teto do maior lado da FOTO de flow, em px, e qualidade JPEG do upload. Casa com
+// o `maxDim` de `bakeTransformedCanvas`: sem isso a foto da câmera (o único
+// caminho que não passa pela composição) subia na resolução crua do sensor.
+// O flow é visto em tela cheia num celular — 1280 no maior lado já satura o
+// display, e servir esse arquivo direto do Storage evita mandar a imagem pelo
+// endpoint de transform da Supabase, que é cobrado por imagem de origem
+// distinta por mês. Ver `client/lib/image-url.ts`.
+const PHOTO_MAX_DIM = 1280;
+const PHOTO_JPEG_QUALITY = 0.85;
+
 function pickVideoMimeType(): string {
   if (typeof MediaRecorder === "undefined" || !MediaRecorder.isTypeSupported) return "";
   const candidates = [
@@ -206,7 +216,7 @@ async function bakeTransformedCanvas(
     if (frameW <= 0 || frameH <= 0) return null;
     const img = await loadImageEl(src);
     const fr = frameW / frameH;
-    const maxDim = 1280;
+    const maxDim = PHOTO_MAX_DIM;
     let outW: number, outH: number;
     if (frameW >= frameH) {
       outW = maxDim;
@@ -268,7 +278,7 @@ async function bakeTransformedImage(
   fit: "cover" | "contain" = "cover",
 ): Promise<string | null> {
   const canvas = await bakeTransformedCanvas(src, frameW, frameH, t, fit);
-  return canvas ? canvas.toDataURL("image/jpeg", 0.92) : null;
+  return canvas ? canvas.toDataURL("image/jpeg", PHOTO_JPEG_QUALITY) : null;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -821,8 +831,15 @@ export function FlowCreationDialog({
     const video = videoRef.current;
     if (!video || !cameraReady) return;
     const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
+    // Reduz o frame do sensor para o teto de exibição já na captura: sem isso a
+    // foto sem pinça/arraste (única que não passa por `bakeTransformedImage`)
+    // subiria na resolução crua.
+    const captureRatio = Math.min(
+      1,
+      PHOTO_MAX_DIM / Math.max(video.videoWidth, video.videoHeight),
+    );
+    canvas.width = Math.round(video.videoWidth * captureRatio);
+    canvas.height = Math.round(video.videoHeight * captureRatio);
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     if (facingMode === "user") {
@@ -841,7 +858,7 @@ export function FlowCreationDialog({
     } else {
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     }
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
+    const dataUrl = canvas.toDataURL("image/jpeg", PHOTO_JPEG_QUALITY);
     setMediaIsVideo(false);
     setMediaFromGallery(false);
     setMediaPreview(dataUrl);
@@ -1135,10 +1152,17 @@ export function FlowCreationDialog({
     // dá erro. Para vídeo, quem o encerra é o `onLoadedData` do <video> do preview.
     setIsPreparingMedia(true);
     if (prepareSafetyRef.current) clearTimeout(prepareSafetyRef.current);
-    prepareSafetyRef.current = setTimeout(() => {
-      prepareSafetyRef.current = null;
-      setIsPreparingMedia(false);
-    }, 25000);
+    // Vídeo tem prazo bem maior: além de ler metadata, ele é reencodado para
+    // 720p (`compressVideoBlob`), o que processa o clipe inteiro e pode passar
+    // de um minuto. Com os 25s da foto, o indicador sumia no meio da conversão
+    // e a tela parecia travada.
+    prepareSafetyRef.current = setTimeout(
+      () => {
+        prepareSafetyRef.current = null;
+        setIsPreparingMedia(false);
+      },
+      file.type.startsWith("video/") ? 180000 : 25000,
+    );
 
     if (file.type.startsWith("video/")) {
       // Vídeo → Blob URL (não data URL): data URL de um vídeo grande vira uma string
@@ -1149,15 +1173,24 @@ export function FlowCreationDialog({
       const probe = document.createElement("video");
       probe.preload = "metadata";
       let settled = false;
-      const accept = () => {
+      const accept = async () => {
         if (settled) return;
         settled = true;
         clearTimeout(safety);
+        // Reencoda para 720p ANTES de virar preview: o vídeo GRAVADO no app já
+        // sai capado em `RECORDER_BITRATE` (2 Mbps), mas o importado da galeria
+        // subia cru — e virou o maior consumidor de Storage do app. Comprimir
+        // aqui, e não no upload, também deixa o preview ser exatamente o
+        // arquivo que será publicado. Devolve o original se não der para
+        // comprimir, então nunca bloqueia a publicação.
+        const compressed = await compressVideoBlob(file);
+        const previewUrl = compressed === file ? blobUrl : URL.createObjectURL(compressed);
+        if (previewUrl !== blobUrl) URL.revokeObjectURL(blobUrl);
         // NÃO encerra o indicador aqui: mantém até o <video> do preview decodificar o
         // 1º frame (onLoadedData → finishPreparing), senão pisca um frame preto.
         setMediaIsVideo(true);
         setMediaFromGallery(true);
-        setMediaPreview(blobUrl);
+        setMediaPreview(previewUrl);
         setStep("caption");
       };
       const reject = (title: string, description: string) => {

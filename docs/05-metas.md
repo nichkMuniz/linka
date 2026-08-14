@@ -174,7 +174,7 @@ A experiência de treino tem **duas visões**, escolhidas pelo usuário no passo
 
 | | Simplificado (default) | Expert |
 |---|---|---|
-| Tabela de séries | `# · ANTERIOR · KG · REPS · ✓` (inalterada) | mesma grid, com a coluna `#` tocável |
+| Tabela de séries | `# · ANTERIOR · KG · REPS · ✓` (inalterada) | mesma grid, com a coluna `#` tocável (ver afordância abaixo) |
 | Tipo de série | não existe | **Aquecimento (âmbar) · Válida · Falha (vermelho)** |
 | Volume / contagem de séries | toda série concluída conta | toda série concluída conta, **aquecimento incluído** (só o drop não soma no contador) |
 | PR e "máquina zerada" | qualquer série dispara | só séries de trabalho disparam |
@@ -183,6 +183,11 @@ A experiência de treino tem **duas visões**, escolhidas pelo usuário no passo
 | Numeração | `1,2,3,4,5` | `1,2,3,4,5` contínuo (o drop vira `D`) |
 
 **Copy do card de escolha (13/08/2026):** a descrição do Expert no passo `routine-mode` lista 5 diferenciais (`goals_mode_expert_f1..f5`), porque com 3 bullets o usuário achava que o modo era só "marcar tipo de série" e escolhia o Simplificado sem saber que perdia as técnicas. Ordem intencional: técnicas → tipos de série → tela de registro mais completa → aba de porções → três recordes. **Ressalva:** o filtro por **porção** do seletor de exercícios (desde 13/08/2026 são os chips dentro do modo Músculo, não mais uma aba própria) aparece nos **dois** modos — o bullet `f4` o apresenta como parte da experiência Expert (é o caminho onde faz mais sentido, junto das técnicas), não como exclusividade técnica. Se for gated para `expert` no futuro, o texto continua válido.
+
+**Afordância da coluna `#` (14/08/2026).** O badge do número era **visualmente idêntico** ao do modo simplificado, onde ele é inerte — quem adicionava uma série não tinha como saber que dali sai o tipo (aquecimento / válida / falha / + queda). Duas sinalizações, uma permanente e uma de aprendizado:
+
+- **Seta de menu** grudada no canto inferior direito do badge (disco opaco `#1a1826` para cobrir a borda), na cor do tipo quando a série já está tipada. Some enquanto o seletor daquela linha está aberto — ali o menu já está à vista. É permanente porque o alvo não deixa de ser tocável depois de descoberto.
+- **Dica acima do cabeçalho da tabela** (`goals_set_kind_hint`), com uma miniatura do próprio badge, texto e `×` para dispensar. Só no modo expert, e **até o primeiro toque no badge**: `openKindPicker` marca `lk:setKindHintSeen` no `localStorage`, então quem já aprendeu não vê a dica em nenhum treino seguinte. A seta diz *que dá para tocar*; a dica diz *para quê* — que é a parte que ninguém adivinha sozinho.
 
 **Como o modo chega na tela:** `routines.training_mode` → `getUserRoutinesDb` → `buildRoutineCards` (`RoutineCard.trainingMode`, via `toTrainingMode`) → prop `trainingMode` do `WorkoutSessionDialog` → const `isExpert`. Card sem linha resolvida em `routines` (`routineId === null`) cai em `simple`.
 
@@ -326,12 +331,26 @@ O catálogo tem **13 supinos, 23 remadas, 18 agachamentos**. Até aqui o usuári
 3. **No treino**, o card mostra o movimento como título e a variação atual como um chip azul tocável. O chip abre a lista dos irmãos.
 4. A escolha é **gravada** em `user_workouts.workout_id` (`updateUserWorkoutExerciseDb`): o próximo treino já abre nela. O app aprende o hábito em vez de perguntar toda vez — quem faz sempre supino reto nunca é interrompido.
 
-**O que acontece com o que já foi registrado ao trocar no meio do treino** (`swapVariation`):
+**O que acontece com o que já foi registrado ao trocar no meio do treino** (`swapVariation`) — revisado em 14/08/2026:
 
-- As séries **concluídas ficam na variação em que foram feitas** — elas aconteceram, e o histórico tem que ser fiel. Se sobrar alguma, o exercício antigo continua na sessão como card próprio, com o trabalho feito nele.
-- Só as séries **pendentes** migram, junto com descanso, nota e o estado da rampa de aquecimento.
+- A troca **substitui** o exercício: o card vira a variação nova e a antiga sai da sessão. **Um exercício, um card** — a versão anterior deixava o antigo como um segundo card com as séries feitas, e a troca parecia "adicionou um exercício na lista".
+- As séries **concluídas na variação antiga são descartadas** e não vão para o histórico. Migrá-las mentiria sobre o que foi feito (o peso do skull crusher com barra não é o do com halteres), e mantê-las escondidas gravaria histórico de um exercício que sumiu da tela.
+- Só as séries **pendentes** seguem, junto com descanso, nota e o estado da rampa de aquecimento.
 - A carga vai **zerada** na variação nova: repetir o peso da barra num halter sugere um número errado, e errado para mais.
 - A coluna ANTERIOR é recarregada para a variação nova (`getLastWorkoutSessionSeriesDb`). Sem rede, a troca acontece do mesmo jeito — só sem a referência.
+- **Item da rotina vs. avulso:** o da rotina troca via `swappedVariations` (`items` é prop) e persiste em `user_workouts.workout_id`; o **avulso** (adicionado durante a sessão, id sintético `session_<workout_id>`) é reescrito direto em `workoutExtraItems` e não persiste nada — não existe em `user_workouts`.
+
+**Confirmação antes de trocar com série concluída (14/08/2026).** Se o exercício já tem **alguma série concluída**, tocar numa variação não troca na hora: abre um overlay de confirmação (`pendingVariationSwap`, mesmo padrão visual do "finalizar treino" — overlay inline, pois Radix ficaria atrás do portal) dizendo quantas séries já foram feitas e que elas **serão perdidas**. Botões: **Cancelar** e **Trocar mesmo assim**. Sem série concluída, a troca segue instantânea — confirmar aí seria atrito à toa. Motivo: mexer no chip por curiosidade no meio do treino apagava o trabalho feito sem aviso.
+
+**Duas travas para o card não sumir da tela:**
+
+- **Variação removida antes.** "Remover do treino" marca o `workout_id` em `workoutRemovedIds`, e a marca dura a sessão inteira. Trocar PARA uma variação marcada fazia o card nascer escondido — com um exercício só, a sessão inteira ficava "Nenhum exercício adicionado". `swapVariation` agora limpa a marca do alvo (mesmo cuidado do picker ao readicionar).
+- **Variação já presente em outro card.** A troca é barrada com aviso (`goals_variation_already_in_session`) — dois cards do mesmo `workout_id` fariam o dedup de `allItems` esconder um deles. Barrado no toque do chip, antes da confirmação.
+
+**Bugs corrigidos junto (14/08/2026):**
+
+- O dedup por `workout_id` em `allItems` rodava **antes** de aplicar a troca, deduplicando por um id que não estava mais na sessão. A troca agora entra no `map` antes do `filter` — o que também fez `workoutRemovedIds` passar a valer para o id novo (ver trava acima).
+- Ao finalizar, o lookup do exercício usava `items` cru (`workout_id` pré-troca), então o exercício trocado não era encontrado: o resumo mostraria o **UUID no lugar do nome** e a série iria para o histórico **sem vínculo** com a rotina (`user_workout_id` nulo). `handleConfirmFinish` passou a usar `allItems`.
 
 **Degrada sozinho:** sem a migração, `getWorkoutGroupsDb` devolve `[]`, nenhum exercício tem grupo e tudo volta a ser exatamente como era. Por isso `workouts.group_id` **não entrou no join de `getUserWorkoutsDb`** — uma coluna inexistente ali derrubaria a lista de rotinas inteira. O grupo é resolvido pelo catálogo (`getWorkoutsDb`), que já é cacheado e tem fallback próprio.
 
@@ -437,7 +456,11 @@ Botão "⚡ Aquecer: 40×8 · 60×5 · 70×3" acima de "Adicionar série", **só
 
 Não é prescrição: toda linha continua editável ou apagável. O valor está em não fazer a conta de cabeça na academia.
 
-### Verbete da técnica (toque no selo)
+### Verbete da técnica e do modo (toque no selo)
+
+O `TechniqueInfoOverlay` virou um verbete **por assunto** (`InfoTopic = WorkoutTechnique | "expert"`, prop `topic`), com **accent por tópico**: roxo nas técnicas, azul do selo no modo Expert. O esqueleto é o mesmo — título · o que é · lista do meio · caixa final.
+
+**Modo Expert (14/08/2026).** O selo `EXPERT` do cabeçalho da sessão é **botão** (ganhou um `?`) e abre o verbete: **o que é** (versão completa da tela, escolhida por rotina na criação — as outras rotinas seguem no Simplificado), **o que ele te dá** e **para quem vale**. A lista do meio reaproveita `goals_mode_expert_f1/f2/f3/f5` — os mesmos bullets do card de escolha do wizard, para a promessa da criação ser exatamente a que o usuário confere durante o treino. O `f4` (porções) fica de fora aqui: o filtro por porção existe nos dois modos e não é diferença da tela de treino. Copy própria: `goals_expert_info_title/_what/_includes/_when`.
 
 Os selos de técnica no card do exercício (`A1`/`A2`, `Drop-set`, `Rest-pause`) são **botões** — trazem um `?` e abrem o `TechniqueInfoOverlay` com **o que é · como fazer · quando usar**. Sugerir um bi-set sem explicá-lo só transfere a dúvida: quem não sabe o que é rest-pause vê um selo roxo e ignora.
 
@@ -511,6 +534,7 @@ Conteúdo em `client/lib/i18n.ts` (`goals_tech_*`), PT e EN. Os passos vão numa
   - **PR all-time em tempo real** (`prExercises` + aviso ⚡) — ao concluir uma série de força acima do melhor peso **anterior** do exercício, mostra o banner de recorde. A gravação no resumo (`prExercises`) **exige rede** (`canDetectAllTimePR` = online + Supabase alcançável): offline a comparação com o histórico do banco é pulada para não gerar falso PR.
   - **Máquina zerada — flag interativa (17/07/2026):** ao concluir uma série (não-cardio) **acima de `MACHINE_MAXED_KG` (120 kg)**, aparece um **prompt dourado** perguntando "⚡ Zerou a máquina?" (`goals_machine_prompt_*`) com **[Zerei!]** / **[Agora não]**. É uma conquista **confirmada pelo usuário**, não automática — carga pesada nem sempre é "zerar a máquina". Se confirmar:
     - O **card inteiro do exercício ganha borda/realce dourado** (`isMaxed`) + um **selo "⚡ Máquina zerada"** no cabeçalho. O selo é **apenas indicador — não é tocável** (clicar não faz nada). Para removê-lo, o usuário **desmarca o exercício como concluído**: quando o exercício fica **sem nenhuma série concluída** (`toggleCompleted` ao desmarcar a última série), a marca é removida de `maxedExerciseIds` e o selo/borda somem.
+    - O **indicador de progressão de carga** (a seta na linha de ícones do card expandido) vira **dourado (`#eab308`) com o selo "MAX"** (`goals_weight_trend_max_label`) e o título "Máquina zerada — carga máxima do aparelho" (14/08/2026). Máquina zerada **manda sobre o verde/vermelho**: nesse exercício não há mais progressão a mostrar — comparar séries dentro de um teto que o usuário já bateu diria menos do que "chegou no máximo". A seta desenhada é sempre a de subida.
     - O exercício entra em `machinedExercises` ao finalizar (com a maior carga registrada), então o resumo usa a variante dourada `machine` (`getCanvasVariant`: prioridade máquina > PR > padrão), header "Máquina zerada! 🔥" e o bloco `🔥 MÁQUINA ZERADA!` na legenda automática.
     - A marcação vive no **`workout-context`** (`maxedExerciseIds: string[]`, persistido no `localStorage` junto do resto do treino), então **sobrevive a minimizar/reload** e é limpa por `resetWorkoutState`. O prompt tem prioridade sobre o aviso de PR quando ambos disparariam (>120 kg e PR ao mesmo tempo) e **não reaparece** depois do exercício já marcado (mas re-pergunta a cada série pesada enquanto não for marcado, para dispensar sem querer não travar a conquista).
 
@@ -633,6 +657,8 @@ Ao publicar com sucesso, o drawer de compartilhamento fecha e chama `onShared` �
 **Card gerado (canvas):** acento verde `#22c55e` (mesmo do card de treino concluído e do estado concluído da strip do perfil), fundo `#0d1f14`→`#070d09`, troféu 🏆 com halo, rótulo "META CONCLUIDA", descrição da meta em destaque (1 linha grande ou 2 linhas com quebra por palavra + reticências), e 3 painéis de stat: dias cumpridos, duração e 100%. Textos do card vêm por props de `labels` (i18n) — as funções de desenho vivem fora do componente, mesmo padrão de `renderRouteMapImage({ labels })`.
 
 > **Primitivas compartilhadas de canvas:** o shell dos cards (constantes `CANVAS_W/H/SCALE`, `FONT`, `roundRectPath`, `hexToRgb`, `fitFontSize`, `truncateToWidth`, `loadLogo`, `createCardCanvas`, `canvasSetup`, `drawCanvasHeader`, `drawCanvasDivider`, `drawCanvasFooter`, `drawCanvasStatPanels`) foi extraído de `workout-summary-overlay.tsx` para **`client/lib/canvas-card.ts`** e é usado pelos dois cards. Qualquer card novo publicável no feed deve partir daí em vez de redesenhar o shell.
+
+> **Serialização do card — JPEG, nunca PNG (2026-08-14):** use `cardCanvasToBlob(canvas)` para o upload e `cardCanvasPreviewUrl(canvas)` para a pré-visualização; ambos em `canvas-card.ts`, ambos JPEG em `CARD_JPEG_QUALITY` (0.92). O card é majoritariamente **gradiente**, que é o pior caso do PNG — o DEFLATE não acha repetição em 1620px de cor mudando devagar e o arquivo ia a vários MB. Como os cards de resumo são as imagens mais publicadas do app, o formato errado aqui custava mais banda que todo o resto somado. O texto (ponto fraco do JPEG) é desenhado em 3x e exibido reduzido, então o ringing some na reamostragem — mesma conclusão do mapa de trajeto em `route-map.tsx`, que já subia JPEG. **`CANVAS_SCALE` continua 3**: 1620px cobre os ~1290px de device pixel de um iPhone @3x; 2x (1080px) ficaria abaixo disso e amaciaria o texto.
 
 ## Dados carregados
 
@@ -767,7 +793,7 @@ A tela de Metas concentra 4 dos gates do plano **LinKa Premium** (ver `docs/17-p
 | Ficha de anatomia do exercício | `client/components/shared/exercise-anatomy.tsx` |
 | Cobertura muscular da semana | `client/components/goals/muscle-coverage-card.tsx` |
 | Planejador de técnicas (bi-set/drop-set) | `client/components/goals/technique-planner.tsx` |
-| Verbete da técnica (o que é / como fazer) | `client/components/goals/technique-info-overlay.tsx` |
+| Verbete da técnica e do modo Expert (o que é / como fazer) | `client/components/goals/technique-info-overlay.tsx` |
 | Helpers (cards, streak, concluído hoje, séries sugeridas) | `client/components/goals/goals-helpers.ts` |
 | Catálogo de sugestões por nível (legado — rotinas antigas) | `client/components/goals/suggested-routines-data.ts` |
 | Gerador de programas do quiz de personalização | `client/components/goals/program-generator.ts` |

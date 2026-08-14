@@ -51,6 +51,13 @@ export function clampedOffset(
   return { offsetX: clampVal(ox, -maxX, maxX), offsetY: clampVal(oy, -maxY, maxY) };
 }
 
+/**
+ * Qualidade JPEG do upload. 0.82 é o joelho da curva para foto de treino: acima
+ * disso o arquivo cresce rápido sem ganho visível numa tela de celular. Junto
+ * com o teto de 1440px, derruba a foto de ~2MB para ~250KB.
+ */
+const JPEG_QUALITY = 0.82;
+
 export function applyTransformToBlob(
   dataUrl: string,
   transform: CropTransform,
@@ -75,7 +82,13 @@ export function applyTransformToBlob(
       // um por si achataria a imagem quando só um lado passa do limite. Em
       // frame quadrado cropNatW === cropNatH, então isto dá no mesmo — o bug
       // só existia para frames não-quadrados.
-      const MAX_EXPORT = 2160;
+      // 1440px cobre com folga o maior box em que a foto é renderizada (o card
+      // do feed tem ~430px CSS no iPhone → ~900px depois do DPR). Guardar o
+      // dobro disso só servia para o endpoint de transform da Supabase encolher
+      // de novo na entrega — e cada foto que passava por lá contava na cota de
+      // Image Transformations. Subindo já no tamanho de exibição, servimos o
+      // objeto original direto e a cota vai a zero. Ver `image-url.ts`.
+      const MAX_EXPORT = 1440;
       const exportRatio = Math.min(1, MAX_EXPORT / Math.max(cropNatW, cropNatH));
       const exportW = Math.round(cropNatW * exportRatio);
       const exportH = Math.round(cropNatH * exportRatio);
@@ -88,7 +101,7 @@ export function applyTransformToBlob(
       canvas.toBlob(
         (b) => (b ? resolve(b) : reject(new Error("toBlob failed"))),
         "image/jpeg",
-        0.92
+        JPEG_QUALITY
       );
     };
     img.onerror = reject;

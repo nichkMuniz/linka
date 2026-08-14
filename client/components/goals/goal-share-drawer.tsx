@@ -21,6 +21,8 @@ import {
   FONT,
   loadLogo,
   createCardCanvas,
+  cardCanvasToBlob,
+  cardCanvasPreviewUrl,
   canvasSetup,
   drawCanvasHeader,
   drawCanvasDivider,
@@ -232,20 +234,16 @@ export function GoalShareDrawer({ goal, onClose, onShared }: GoalShareDrawerProp
         },
         language === "en" ? "en-US" : "pt-BR",
       );
-      setPreviewUrl(canvas.toDataURL("image/png"));
+      setPreviewUrl(cardCanvasPreviewUrl(canvas));
     });
     return () => { cancelled = true; };
   }, [goal?.id, language]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const getCanvasBlob = (): Promise<Blob> =>
-    new Promise((resolve, reject) => {
-      const canvas = canvasRef.current;
-      if (!canvas) return reject(new Error("Canvas não pronto"));
-      canvas.toBlob(
-        (blob) => (blob ? resolve(blob) : reject(new Error("Falha ao gerar imagem"))),
-        "image/png",
-      );
-    });
+  const getCanvasBlob = (): Promise<Blob> => {
+    const canvas = canvasRef.current;
+    if (!canvas) return Promise.reject(new Error("Canvas não pronto"));
+    return cardCanvasToBlob(canvas);
+  };
 
   const handleShare = async () => {
     if (!goal || !user) return;

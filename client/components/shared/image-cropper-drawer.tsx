@@ -12,9 +12,29 @@ interface ImageCropperDrawerProps {
   imageSrc: string | null;
   /** Razão de aspecto do crop (ex: 1 = quadrado, 4/5 = retrato, 16/9 = paisagem). Padrão: 1 */
   aspectRatio?: number;
+  /**
+   * Maior lado do arquivo exportado, em px. Padrão 1440 (foto de conteúdo:
+   * check-in, capa de perfil, promoção). Avatares e logos devem passar
+   * `AVATAR_MAX_EXPORT` — nunca são exibidos acima de ~96px CSS.
+   */
+  maxExport?: number;
+  /** Qualidade JPEG do export (0..1). Padrão 0.82. */
+  quality?: number;
   onConfirm: (croppedDataUrl: string, croppedBlob: Blob) => void;
   onCancel: () => void;
 }
+
+/**
+ * O arquivo sobe já no tamanho de exibição em vez de subir grande e ser
+ * encolhido na entrega pelo endpoint de transform da Supabase — cada imagem que
+ * passava por lá consumia a cota de Image Transformations, que é contada por
+ * imagem de origem distinta por mês. Ver `client/lib/image-url.ts`.
+ */
+const DEFAULT_MAX_EXPORT = 1440;
+const DEFAULT_QUALITY = 0.82;
+
+/** Avatar/logo: 512px cobre o maior uso (96px CSS × DPR 3) com folga para zoom. */
+export const AVATAR_MAX_EXPORT = 512;
 
 interface Transform {
   scale: number;
@@ -32,6 +52,8 @@ function clamp(value: number, min: number, max: number) {
 export function ImageCropperDrawer({
   imageSrc,
   aspectRatio = 1,
+  maxExport = DEFAULT_MAX_EXPORT,
+  quality = DEFAULT_QUALITY,
   onConfirm,
   onCancel,
 }: ImageCropperDrawerProps) {
@@ -341,10 +363,13 @@ export function ImageCropperDrawer({
       const cropNatW = frameW / cssPerNaturalX;
       const cropNatH = frameH / cssPerNaturalY;
 
-      // Export canvas size: up to 2160px but never larger than the natural crop region
-      const MAX_EXPORT = 2160;
-      const exportW = Math.round(Math.min(cropNatW, MAX_EXPORT));
-      const exportH = Math.round(Math.min(cropNatH, MAX_EXPORT / aspectRatio));
+      // Export canvas size: até `maxExport` no maior lado, nunca maior que a
+      // região natural do crop. O teto entra como fator ÚNICO nos dois eixos —
+      // clampar cada um por si achataria a imagem quando só um lado passa do
+      // limite (mesmo cuidado de `applyTransformToBlob` em inline-crop-preview).
+      const exportRatio = Math.min(1, maxExport / Math.max(cropNatW, cropNatH));
+      const exportW = Math.round(cropNatW * exportRatio);
+      const exportH = Math.round(cropNatH * exportRatio);
 
       const exportCanvas = document.createElement("canvas");
       exportCanvas.width = exportW;
@@ -360,13 +385,13 @@ export function ImageCropperDrawer({
         0, 0, exportW, exportH,                         // dest: export canvas
       );
 
-      const dataUrl = exportCanvas.toDataURL("image/jpeg", 0.92);
+      const dataUrl = exportCanvas.toDataURL("image/jpeg", quality);
       exportCanvas.toBlob(
         (blob) => {
           if (blob) onConfirm(dataUrl, blob);
         },
         "image/jpeg",
-        0.92
+        quality
       );
     } finally {
       setIsProcessing(false);
