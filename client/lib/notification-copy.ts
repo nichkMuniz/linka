@@ -47,6 +47,7 @@ const TITLE_KEY_BY_TYPE: Record<number, TranslationKey> = {
   14: "notif_title_14",
   15: "notif_title_15",
   16: "notif_title_16",
+  17: "notif_title_17",
 };
 
 const INCENTIVE_KEY_BY_TYPE: Record<number, TranslationKey> = {
@@ -180,6 +181,8 @@ export function notificationBody(
       return t("notif_desc_checkin_disqualified").replace("{name}", name);
     case 16:
       return t("notif_desc_flow_tag").replace("{name}", name);
+    case 17:
+      return t("notif_desc_flow_reply").replace("{name}", name);
     default:
       return t("notif_body_default");
   }
@@ -202,7 +205,9 @@ export function notificationDeepLink(row: NotificationRow): string {
     return `/comunidade?checkin=${row.duel_check_in_id}`;
   }
   switch (type) {
+    // 10 = mensagem privada, 17 = resposta a um flow — as duas vivem no chat.
     case 10:
+    case 17:
       return row.follower_id ? `/comunidade?user=${row.follower_id}` : "/comunidade";
     case 11:
       return row.post_id ? `/comunidade?group=${row.post_id}` : "/comunidade?tab=duels";

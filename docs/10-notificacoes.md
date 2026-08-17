@@ -62,6 +62,7 @@ Cada item exibe:
 | 14 `checkin_classified` | `CheckCircle2` | Esmeralda | Um participante **classificou** (aprovou) seu check-in num duelo do modo memes (trigger `trg_notify_check_in_vote`) |
 | 15 `checkin_disqualified` | `XCircle` | Vermelho | Um participante **desclassificou** (reprovou) seu check-in num duelo do modo memes (trigger `trg_notify_check_in_vote`) |
 | 16 `flow_tag` | `AtSign` | Ciano | Alguém marcou você em um **flow** (tabela `flow_tags`, trigger `trg_notify_flow_tag`). Ao tocar, abre o flow (`openFlow`); a pessoa marcada pode repostá-lo |
+| 17 `flow_reply` | — | — | Alguém **respondeu ao seu flow** em privado (botão de mensagem na doca do viewer). É uma **mensagem privada** com texto de push próprio — **só push, nunca aparece nesta lista**, igual ao tipo 10 |
 
 ### Tipos de Incentivo (subtipo)
 Quando o tipo é incentivo, o ícone exibido é o do incentivo específico (não um ícone genérico):
@@ -107,7 +108,7 @@ Quando o tipo é incentivo, o ícone exibido é o do incentivo específico (não
   - Notificação de duelo (tipo 4 ou 5) → `/comunidade?tab=requests` (abre aba "Solicitações")
   - Notificação de reação em check-in de duelo (tipo 7) → `/comunidade` com `state.openCheckIn = checkInId` (abre drawer do check-in)
   - Notificação de marcação em post (tipo 9, `postId`) → `/post/:postId` (fallback genérico por `postId` no `handleNotificationClick`); o card mostra a thumbnail do post quando disponível
-  - Notificação de mensagem privada (tipo 10) → `/comunidade?user=:senderId` (abre a conversa com o remetente — mesmo deep link usado pelo botão "Mensagem" do perfil)
+  - Notificação de mensagem privada (tipos 10 e 17) → `/comunidade?user=:senderId` (abre a conversa com o remetente — mesmo deep link usado pelo botão "Mensagem" do perfil)
   - Notificação de check-in em duelo (tipo 11, `checkInId`) → `/comunidade` com `state.openCheckIn = checkInId` (abre o drawer do check-in); sem `checkInId`, cai em `/comunidade?tab=duels`
   - Notificação de curtida (tipo 12) ou expiração (tipo 13) de promoção → `/vitrine` (mesmo destino do tipo 8)
   - Notificação de check-in classificado (tipo 14) ou desclassificado (tipo 15) → `/comunidade` com `state.openCheckIn = checkInId` (abre o check-in avaliado)
@@ -198,10 +199,11 @@ O corpo do push é montado em runtime por `buildBody()`, com os dados reais da n
 | 14 | "{nome} classificou seu check-in no duelo." | `profiles` |
 | 15 | "{nome} desclassificou seu check-in no duelo." | `profiles` |
 | 16 | "{nome} marcou você em um flow." | `profiles` |
+| 17 | "{nome} respondeu ao seu flow." | `profiles` |
 
 - Cada nome livre (apelido, grupo, título) passa por `short()` para o push não virar um parágrafo; quando o lookup não encontra o registro, o texto cai numa variante sem o nome ("{nome} curtiu sua promoção.") em vez de ficar vazio.
 - Falha em qualquer lookup **não derruba o push**: `buildBody` é chamada com `.catch()` e volta ao texto genérico.
-- **Deep link:** `deepLinkFor` monta a URL por tipo — tipos 3/6/7/11/14/15 **com `duel_check_in_id`** → `/comunidade?checkin=<id>`, tipo 10 → `/comunidade?user=<remetente>`, tipo 11 sem check-in → `/comunidade?group=<grupo>`, tipos 8/12/13 → `/vitrine`, demais → `/notificacoes`.
+- **Deep link:** `deepLinkFor` monta a URL por tipo — tipos 3/6/7/11/14/15 **com `duel_check_in_id`** → `/comunidade?checkin=<id>`, tipos 10 e 17 → `/comunidade?user=<remetente>`, tipo 11 sem check-in → `/comunidade?group=<grupo>`, tipos 8/12/13 → `/vitrine`, demais → `/notificacoes`.
 - ⚠️ **A edge function só muda em produção com redeploy.** Editar o arquivo no repo não basta: enquanto a versão publicada for antiga, o push continua com o texto genérico dela (`supabase functions deploy send-push-notification`).
 
 ---
@@ -292,7 +294,7 @@ Em grupos de duelo do modo **memes**, cada check-in passa pela aprovação dos o
 
 ---
 
-## Mensagem privada é push-only (type 10, 2026-07-21)
+## Mensagem privada é push-only (types 10 e 17, 2026-07-21)
 
 O card "{nome} te enviou {n} mensagens" **saiu da tela**. Uma conversa em ritmo de bate-papo enchia a lista de notificações de mensagem e empurrava para baixo justamente o que o usuário abre a tela para ver. A mensagem continua avisando — **no push do iPhone**, que é onde ela faz sentido.
 
@@ -303,7 +305,16 @@ O card "{nome} te enviou {n} mensagens" **saiu da tela**. Uma conversa em ritmo 
 | Badge do sino | contava | **não conta** |
 | Badge da Comunidade | contava | conta (inalterado — lê a tabela `messages`) |
 
-**Como:** a linha `type: 10` **continua sendo gravada** — é ela que dispara o webhook `notify-push-on-notification` → edge function → APNs, e não há como pedir o push sem gravá-la (o segredo do webhook não pode viver no cliente). O que mudou é a **leitura**: `getNotificationsDb()` e `getUnreadNotificationsCountDb()` filtram com `.neq("type", NOTIF_TYPE_PUSH_ONLY)`.
+**Como:** a linha `type: 10` **continua sendo gravada** — é ela que dispara o webhook `notify-push-on-notification` → edge function → APNs, e não há como pedir o push sem gravá-la (o segredo do webhook não pode viver no cliente). O que mudou é a **leitura**: `getNotificationsDb()` e `getUnreadNotificationsCountDb()` filtram com `.not("type", "in", NOTIF_TYPES_PUSH_ONLY_FILTER)`.
+
+### Type 17 — resposta a um flow (2026-08-17)
+
+O **tipo 17 é irmão do 10**, não um tipo de card novo: mesma tabela `messages`, mesmo destino no toque (`/comunidade?user=<remetente>`), mesma exclusão da lista e do badge do sino. A **única** diferença é o texto do push — "{nome} respondeu ao seu flow" em vez de "{nome} te enviou uma mensagem" —, para o autor saber de onde veio a resposta sem abrir o app. Origem: o botão de mensagem na doca do viewer de flow (ver `docs/01-feed.md`).
+
+- Quem escolhe o tipo é o 3º parâmetro de `sendMessageDb` (`SendMessageContext`: `notificationType` + `flowId`); o padrão continua 10. A linha grava `flow_id` para ficar auto-explicativa no banco.
+- `NOTIF_TYPE_PUSH_ONLY` (número) virou `NOTIF_TYPES_PUSH_ONLY` (lista `[10, 17]`) — daí a troca de `.neq()` por `.not("type", "in", "(10,17)")`. **Adicionar um tipo push-only novo é só entrar nessa lista**; esquecer disso faz a mensagem virar card na tela de Notificações.
+- O `AppLayout` ignora **10 e 17** no canal de `notifications` em primeiro plano: quem avisa ali é o canal de `messages` (único com o texto para o preview do pop up). Sem isso a mesma resposta avisaria duas vezes.
+- **Sem migração:** `notifications.type` é um bigint sem check constraint, e a policy de INSERT só exige `auth.uid() = follower_id`. **Mas exige redeploy** da `send-push-notification` — sem ele o push cai no texto genérico.
 
 - **Consequência a conhecer:** as linhas tipo 10 seguem acumulando na tabela, invisíveis. São apagadas junto com o resto no botão "Limpar" (`clearNotificationsDb` não filtra por tipo). Se um dia isso incomodar, o lugar de podar é um job/cron, não a leitura.
 - **Um push por mensagem, de propósito:** a janela de dedup de 60s foi **removida** de `sendMessageNotificationDb`. Ela nunca funcionou (o `SELECT` sob RLS volta vazio — ver seção anterior) e o que ela protegia era justamente a lista, que não mostra mais esses cards. Um push por mensagem é o comportamento normal de um mensageiro, e o iOS agrupa os banners por remetente.

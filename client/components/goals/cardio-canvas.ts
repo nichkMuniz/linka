@@ -25,7 +25,13 @@ import {
   truncateToWidth,
 } from "@/lib/canvas-card";
 import type { CardioKind } from "@/lib/cardio-exercises";
-import { getCardioKind } from "@/lib/cardio-exercises";
+import {
+  cardioMinutesFromInput,
+  formatCardioKm,
+  formatCardioMinutes,
+  formatElevationPct,
+  getCardioKind,
+} from "@/lib/cardio-exercises";
 import type { TranslationKey } from "@/lib/i18n";
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
@@ -36,8 +42,10 @@ export type CardioExerciseInput = {
   name: string;
   totalSets: number;
   /** Para cardio, cada série traz kg = MINUTOS e reps = KM. */
-  sets?: Array<{ kg: number; reps: number }>;
+  sets?: Array<{ kg: number; reps: number; elev?: number }>;
   isCardio?: boolean;
+  /** MAIOR inclinação (%) entre as séries da esteira. Ausente/null = nenhuma. */
+  elevationPct?: number | null;
 };
 
 export type CardioSessionInfo = {
@@ -55,6 +63,13 @@ export type CardioGroup = {
   sets: number;
   /** Nomes dos exercícios que compõem o grupo (ex.: Esteira + Corrida ao Ar Livre). */
   names: string[];
+  /**
+   * Maior inclinação (%) informada nas esteiras do grupo, ou `null` quando
+   * ninguém anotou. É o MAIOR (e não a média) porque o grupo pode juntar uma
+   * esteira inclinada com uma corrida ao ar livre, que não tem o campo — a
+   * média diluiria o esforço declarado num número que não aconteceu.
+   */
+  elevationPct: number | null;
 };
 
 // ─── Metadados por modalidade ────────────────────────────────────────────────
@@ -188,7 +203,14 @@ export const CARDIO_KIND_META: Record<CardioKind, CardioKindMeta> = {
 
 // ─── Agregação ───────────────────────────────────────────────────────────────
 
-/** Soma minutos (kg) e km (reps) das séries de um exercício de cardio. */
+/**
+ * Soma minutos (kg) e km (reps) das séries de um exercício de cardio.
+ *
+ * O minuto de cada série passa por `cardioMinutesFromInput` **antes** da soma:
+ * a pessoa pode ter escrito "1,30" (= 1h30) numa série e "20" na outra, e somar
+ * os números crus daria 21,3 em vez de 110 minutos. Daqui para cima (cards,
+ * listas, ritmo, velocidade) tudo já trabalha com minutos reais.
+ */
 export function sumCardioSets(sets?: Array<{ kg: number; reps: number }>): {
   minutes: number;
   km: number;
@@ -196,7 +218,7 @@ export function sumCardioSets(sets?: Array<{ kg: number; reps: number }>): {
   let minutes = 0;
   let km = 0;
   (sets ?? []).forEach((s) => {
-    minutes += s.kg || 0;
+    minutes += cardioMinutesFromInput(s.kg || 0);
     km += s.reps || 0;
   });
   return { minutes, km };
@@ -215,10 +237,14 @@ export function getCardioBreakdown(exercises: CardioExerciseInput[]): CardioGrou
     if (!ex.isCardio) return;
     const kind = getCardioKind(ex.name);
     const { minutes, km } = sumCardioSets(ex.sets);
-    const group = byKind.get(kind) ?? { kind, minutes: 0, km: 0, sets: 0, names: [] };
+    const group = byKind.get(kind)
+      ?? { kind, minutes: 0, km: 0, sets: 0, names: [], elevationPct: null };
     group.minutes += minutes;
     group.km += km;
     group.sets += ex.sets?.length ?? ex.totalSets;
+    if (ex.elevationPct && ex.elevationPct > (group.elevationPct ?? 0)) {
+      group.elevationPct = ex.elevationPct;
+    }
     if (!group.names.includes(ex.name)) group.names.push(ex.name);
     byKind.set(kind, group);
   });
@@ -228,21 +254,9 @@ export function getCardioBreakdown(exercises: CardioExerciseInput[]): CardioGrou
 }
 
 // ─── Formatação ──────────────────────────────────────────────────────────────
-
-export function formatCardioMinutes(minutes: number): string {
-  const total = Math.round(minutes);
-  if (total >= 60) {
-    const h = Math.floor(total / 60);
-    const m = total % 60;
-    return m > 0 ? `${h}h ${m}min` : `${h}h`;
-  }
-  return `${total}min`;
-}
-
-export function formatCardioKm(km: number): string {
-  if (km >= 100) return String(Math.round(km));
-  return km.toFixed(2).replace(/\.?0+$/, "").replace(".", ",");
-}
+// `formatCardioMinutes`/`formatCardioKm` vivem em @/lib/cardio-exercises (junto
+// da leitura do campo MIN) para telas comuns poderem usá-los sem importar este
+// módulo de desenho.
 
 /** Ritmo médio em min/km ("5:30"), ou null quando não dá para calcular. */
 function formatPace(minutes: number, km: number): string | null {
@@ -272,6 +286,7 @@ export function formatCardioLine(group: CardioGroup): string {
   const speed = meta.speedMetric === "speed" ? formatSpeed(group.minutes, group.km) : null;
   if (pace) parts.push(`${pace}/km`);
   else if (speed) parts.push(`${speed} km/h`);
+  if (group.elevationPct) parts.push(`⛰ ${formatElevationPct(group.elevationPct)}`);
   return `${meta.emoji} ${parts.join(" • ")}`;
 }
 
@@ -378,7 +393,14 @@ export function drawCardioCanvas(
   } else {
     panels.push({ l: "SERIES", v: String(group.sets) });
   }
-  panels.push({ l: "SESSAO", v: formatCardioMinutes(info.durationSecs / 60) });
+  // Elevação da esteira: só aparece quando a pessoa informou. Toma o lugar do
+  // painel da SESSAO (o cronômetro já é o número menos específico do card) para
+  // a fileira não passar de três painéis e espremer os valores.
+  if (group.elevationPct) {
+    panels.push({ l: "ELEVACAO", v: formatElevationPct(group.elevationPct) });
+  } else {
+    panels.push({ l: "SESSAO", v: formatCardioMinutes(info.durationSecs / 60) });
+  }
   drawCanvasStatPanels(ctx, W, 332, panels, ACCENT);
 
   // Frase de conquista conforme a marca atingida

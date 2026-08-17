@@ -24,6 +24,12 @@ interface TagPeopleDrawerProps {
   /** Pessoas já marcadas (controlado pelo pai) */
   selected: SearchUser[];
   onChange: (users: SearchUser[]) => void;
+  /**
+   * Classes do lift wrapper do portal — repassadas ao `DrawerContent`. Só
+   * necessário quando o drawer é aberto de dentro de um overlay de z alto
+   * (ex.: `z-[9600]` no resumo do treino, que é `zIndex 9500`).
+   */
+  wrapperClassName?: string;
 }
 
 /**
@@ -31,7 +37,9 @@ interface TagPeopleDrawerProps {
  * Lista quem o usuário segue e permite buscar qualquer pessoa do app;
  * a seleção é controlada pelo pai via `selected`/`onChange`.
  */
-export function TagPeopleDrawer({ open, onOpenChange, selected, onChange }: TagPeopleDrawerProps) {
+export function TagPeopleDrawer({
+  open, onOpenChange, selected, onChange, wrapperClassName,
+}: TagPeopleDrawerProps) {
   const { user } = useAuth();
   const { t } = useLanguage();
   const viewportHeight = useKeyboardAwareHeight();
@@ -111,6 +119,7 @@ export function TagPeopleDrawer({ open, onOpenChange, selected, onChange }: TagP
     <Drawer open={open} onOpenChange={onOpenChange}>
       <DrawerContent
         handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
+        wrapperClassName={wrapperClassName}
         className="flex flex-col !rounded-t-[32px] !border-0"
         style={{
           maxHeight: `min(80dvh, ${viewportHeight - 8}px)`,

@@ -175,6 +175,7 @@ import { useLayoutMode } from "@/hooks/useLayoutMode";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
 import { initKeyboardTracker } from "@/lib/keyboard";
 import { APP_STORE_URL, parseDeepLinkUrl } from "@/lib/share-url";
+import { ADMIN_USER_IDS } from "@/lib/admin";
 
 // Teclado iOS (Keyboard resize:'none'): publica --keyboard-height/kb-open no
 // <html> a partir dos eventos nativos. Singleton de app — inicia no bootstrap.
@@ -285,12 +286,6 @@ import NotFound from "@/pages/NotFound";
 function AppShellFallback() {
   return <div className="min-h-dvh bg-background" />;
 }
-
-const ADMIN_USER_IDS = [
-  "c954d5ab-9d72-4785-bc21-bf469a5e8052",
-  "67e0640a-4762-4758-bb0f-449be951cc6a",
-  "94548d81-76be-4c8b-9ff7-ccb946cd4e69",
-];
 
 /**
  * Quando o link é aberto no browser (app não instalado), redireciona para a

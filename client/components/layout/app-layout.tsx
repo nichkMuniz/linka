@@ -393,11 +393,11 @@ export function AppLayout() {
           const row = payload.new as NotificationRow | undefined;
           if (!row) return;
           const type = Number(row.type ?? 0);
-          // Mensagem privada (type 10) em primeiro plano é responsabilidade do
-          // canal de `messages` logo abaixo — só ele tem o TEXTO para montar o
-          // pop up com preview real. Sair aqui (antes da vibração) é o que
-          // impede a mesma mensagem avisar duas vezes.
-          if (type === 10) return;
+          // Mensagem privada (type 10, ou 17 quando é resposta a um flow) em
+          // primeiro plano é responsabilidade do canal de `messages` logo abaixo —
+          // só ele tem o TEXTO para montar o pop up com preview real. Sair aqui
+          // (antes da vibração) é o que impede a mesma mensagem avisar duas vezes.
+          if (type === 10 || type === 17) return;
           // Vibrate for every incoming notification, regardless of which screen the user is on
           hapticSuccess();
           // Don't fire the visual/local notification if user is already on the notifications page

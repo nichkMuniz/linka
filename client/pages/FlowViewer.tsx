@@ -51,6 +51,7 @@ import {
   Loader2,
   AtSign,
   Repeat2,
+  MessageCircle,
 } from "lucide-react";
 import {
   renderIncentiveIcon,
@@ -68,6 +69,8 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { cdnImg } from "@/lib/image-url";
 import { prefetchFlowMedia } from "@/lib/media-prefetch";
+import { useLanguage } from "@/lib/language-context";
+import { useFlowPrivateReply } from "@/hooks/use-flow-private-reply";
 
 function sortStoriesInstagram(storiesList: StoryWithUser[], currentUserId?: string): StoryWithUser[] {
   const groups: Record<string, StoryWithUser[]> = {};
@@ -115,6 +118,7 @@ export default function FlowViewer() {
   const { storyId } = useParams<{ storyId: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { t } = useLanguage();
 
   const [allStories, setAllStories] = React.useState<StoryWithUser[]>([]);
   const [loadingStories, setLoadingStories] = React.useState(true);
@@ -224,6 +228,8 @@ export default function FlowViewer() {
 
   const currentIndex = story ? sortedStories.findIndex((s) => s.id === story.id) : -1;
   const isOwner = story ? user?.id === story.user_id : false;
+  // Responder o flow como mensagem privada para o autor (mesma doca do modal do perfil)
+  const { isSendingPrivateReply, sendPrivateReply } = useFlowPrivateReply(story, isOwner);
   const viewingOwnStories = story ? story.user_id === user?.id : false;
   const userStories = story ? sortedStories.filter((s) => s.user_id === story.user_id) : [];
   const storyIndexInUser = story ? userStories.findIndex((s) => s.id === story.id) : -1;
@@ -767,6 +773,10 @@ export default function FlowViewer() {
       setIsAddingComment(false);
     }
   }, [story, user, newComment]);
+
+  const handleSendPrivateReply = React.useCallback(async () => {
+    if (await sendPrivateReply(newComment)) setNewComment("");
+  }, [sendPrivateReply, newComment]);
 
   const handleDeleteComment = React.useCallback(async (commentId: string) => {
     try {
@@ -1405,18 +1415,43 @@ export default function FlowViewer() {
                   }}
                 >
                   <Input
-                    placeholder={isOwner ? "Seu flow..." : `Responder a ${story.userNickname}...`}
+                    placeholder={
+                      isOwner
+                        ? t("flow_reply_placeholder_own")
+                        : t("flow_reply_placeholder").replace("{name}", story.userNickname)
+                    }
                     value={newComment}
                     onChange={(e) => setNewComment(e.target.value)}
                     onFocus={() => setIsTyping(true)}
                     onBlur={() => setIsTyping(false)}
                     onKeyPress={(e) => e.key === "Enter" && newComment.trim() && handleAddComment()}
                     className="flex-1 bg-transparent border-0 text-[13.5px] text-white placeholder:text-white/55 focus-visible:ring-0 h-auto p-0"
-                    disabled={isAddingComment}
+                    disabled={isAddingComment || isSendingPrivateReply}
                   />
+                  {/* Enviar em privado — só faz sentido no flow de outra pessoa */}
+                  {!isOwner && (
+                    <motion.button
+                      onClick={handleSendPrivateReply}
+                      disabled={!newComment.trim() || isSendingPrivateReply || isAddingComment}
+                      aria-label={t("flow_reply_private_aria")}
+                      whileTap={{ scale: 0.9 }}
+                      className="shrink-0 h-[34px] w-[34px] rounded-full flex items-center justify-center text-white disabled:opacity-40 transition-opacity"
+                      style={{
+                        background: "rgba(255,255,255,.14)",
+                        border: "1px solid rgba(255,255,255,.2)",
+                      }}
+                    >
+                      {isSendingPrivateReply ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <MessageCircle className="h-4 w-4" />
+                      )}
+                    </motion.button>
+                  )}
                   <motion.button
                     onClick={handleAddComment}
-                    disabled={!newComment.trim() || isAddingComment}
+                    disabled={!newComment.trim() || isAddingComment || isSendingPrivateReply}
+                    aria-label={t("flow_reply_public_aria")}
                     whileTap={{ scale: 0.9 }}
                     className="shrink-0 h-[34px] w-[34px] rounded-full flex items-center justify-center text-white shadow-lg disabled:opacity-40 transition-opacity"
                     style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)" }}
@@ -1424,6 +1459,14 @@ export default function FlowViewer() {
                     <Send className="h-4 w-4" />
                   </motion.button>
                 </div>
+
+                {/* Os dois botões fazem coisas diferentes com o MESMO texto — a dica só
+                    aparece quando há algo digitado, que é o momento da decisão. */}
+                {!isOwner && newComment.trim().length > 0 && (
+                  <p className="mt-2 px-2 text-center text-[10.5px] leading-tight text-white/45">
+                    {t("flow_reply_hint").replace("{name}", story.userNickname)}
+                  </p>
+                )}
               </div>
             </div>
           </main>

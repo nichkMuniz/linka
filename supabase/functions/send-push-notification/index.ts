@@ -84,6 +84,7 @@ const TITLE_BY_TYPE: Record<number, string> = {
   14: "Check-in classificado ✅",
   15: "Check-in desclassificado ⛔",
   16: "Você foi marcado 📸",
+  17: "Resposta ao seu flow 🎞️",
 };
 
 // Mesmos nomes exibidos no app (INCENTIVE_CONFIG / i18n)
@@ -218,6 +219,11 @@ async function buildBody(
       return `${name} desclassificou seu check-in no duelo.`;
     case 16:
       return `${name} marcou você em um flow.`;
+    // Resposta privada a um flow: é uma mensagem direta como o tipo 10, mas o texto
+    // diz de onde veio — sem isso o autor recebia "te enviou uma mensagem" e só
+    // descobria o contexto abrindo a conversa.
+    case 17:
+      return `${name} respondeu ao seu flow.`;
     default:
       return "Você tem uma nova notificação no LinKa.";
   }
@@ -238,7 +244,10 @@ function deepLinkFor(type: number, record: NotifRecord): string {
     return `/comunidade?checkin=${record.duel_check_in_id}`;
   }
   switch (type) {
+    // 10 = mensagem privada, 17 = resposta a um flow. Nos dois o destino é a
+    // conversa com quem enviou — a resposta ao flow VIVE no chat, não no flow.
     case 10:
+    case 17:
       return record.follower_id ? `/comunidade?user=${record.follower_id}` : "/comunidade";
     case 11:
       return record.post_id ? `/comunidade?group=${record.post_id}` : "/comunidade?tab=duels";

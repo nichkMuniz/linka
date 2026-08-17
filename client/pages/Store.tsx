@@ -98,6 +98,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { openExternalUrl, isSafeExternalUrl } from "@/lib/safe-url";
+import { copyToClipboard } from "@/lib/clipboard";
 import { ImageCropperDrawer } from "@/components/shared/image-cropper-drawer";
 import { Browser } from "@capacitor/browser";
 import {
@@ -108,26 +109,6 @@ import {
   GLASS_LABEL_CLASS,
   GLASS_FIELD_CLASS,
 } from "@/lib/glass-styles";
-
-// ─── Clipboard helper (fallback for iOS WebView) ─────────────────────────────
-
-function copyToClipboard(text: string): void {
-  if (navigator.clipboard?.writeText) {
-    navigator.clipboard.writeText(text).catch(() => fallbackCopy(text));
-  } else {
-    fallbackCopy(text);
-  }
-}
-
-function fallbackCopy(text: string): void {
-  const el = document.createElement("textarea");
-  el.value = text;
-  el.style.cssText = "position:fixed;opacity:0;pointer-events:none;";
-  document.body.appendChild(el);
-  el.select();
-  try { document.execCommand("copy"); } catch { /* silent */ }
-  document.body.removeChild(el);
-}
 
 // ─── Promotion Skeleton ──────────────────────────────────────────────────────
 

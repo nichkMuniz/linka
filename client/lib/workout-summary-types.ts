@@ -12,6 +12,13 @@
 export type WorkoutSummarySet = {
   kg: number;
   reps: number;
+  /**
+   * Inclinação da ESTEIRA (%) nesta série — terceira coluna da tabela, ao lado
+   * de MIN e KM (ver `isTreadmillExercise`). Presente **só** nas séries em que
+   * foi informada: é a única coluna opcional, então ausente = a pessoa não
+   * anotou (o que é diferente de 0% e não vira chip).
+   */
+  elev?: number;
 };
 
 export type WorkoutSummaryExercise = {
@@ -31,6 +38,12 @@ export type WorkoutSummaryExercise = {
    * anteriores a 05/08/2026 → tratado como não-cardio (mantém kg×reps).
    */
   isCardio?: boolean;
+  /**
+   * MAIOR inclinação entre as séries (ver `WorkoutSummarySet.elev`) — o número
+   * único usado por quem não detalha série a série: o card gerado e as listas
+   * de exercício. `null`/ausente = nenhuma série tinha elevação.
+   */
+  elevationPct?: number | null;
 };
 
 export type PostWorkoutSummary = {

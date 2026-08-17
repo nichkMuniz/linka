@@ -99,12 +99,20 @@ const DrawerContent = React.forwardRef<
   React.ElementRef<typeof DrawerPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DrawerPrimitive.Content> & {
     overlayClassName?: string;
+    /**
+     * Classes extras no **lift wrapper** do portal. É o único jeito de elevar o
+     * drawer inteiro acima de um overlay de z alto (ex.: o resumo do treino,
+     * `zIndex 9500`): o `transform` do wrapper faz dele um stacking context, e
+     * um z-index maior no conteúdo/overlay só reordena *dentro* do wrapper —
+     * de fora, o drawer continua pintando no z-[310] dele.
+     */
+    wrapperClassName?: string;
     handleClassName?: string;
     /** Espelha o `handleOnly` do <Drawer>: renderiza a alça como <Drawer.Handle>
      *  (a única que o vaul arrasta nesse modo) em vez de um div decorativo. */
     handleOnly?: boolean;
   }
->(({ className, children, overlayClassName, handleClassName, handleOnly, style, onPointerDownCapture, ...props }, ref) => {
+>(({ className, children, overlayClassName, wrapperClassName, handleClassName, handleOnly, style, onPointerDownCapture, ...props }, ref) => {
   return (
     <DrawerPortal>
       {/* Lift wrapper: transformed ancestor = containing block for the fixed
@@ -116,7 +124,7 @@ const DrawerContent = React.forwardRef<
           left outside would then paint on top of the sheet it is supposed to
           sit behind, blacking out the screen and swallowing every tap. */}
       <div
-        className="pointer-events-none fixed inset-0 z-[310]"
+        className={cn("pointer-events-none fixed inset-0 z-[310]", wrapperClassName)}
         style={{
           transform: "translateY(calc(-1 * var(--keyboard-height, 0px)))",
           transition: "transform 0.28s cubic-bezier(0.38, 0.7, 0.125, 1)",

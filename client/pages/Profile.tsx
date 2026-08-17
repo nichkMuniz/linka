@@ -10,6 +10,7 @@ import {
   getFollowingStatusBatchDb,
   isFollowingDb,
   getUserShotsDb,
+  getTaggedPostsDb,
   getUserGoalsByUserIdDb,
   deletePostDb,
   updatePostDb,
@@ -165,6 +166,8 @@ export default function Profile() {
   const [shareDrawerUrl, setShareDrawerUrl] = React.useState<string | undefined>(undefined);
   const [posts, setPosts] = React.useState<PostWithUser[]>([]);
   const [shots, setShots] = React.useState<ShotWithUser[]>([]);
+  // Posts de OUTRAS pessoas em que este perfil foi marcado (aba "Marcações")
+  const [taggedPosts, setTaggedPosts] = React.useState<PostWithUser[]>([]);
   const [routines, setRoutines] = React.useState<Routine[]>([]);
   const [selectedPost, setSelectedPost] = React.useState<PostWithUser | null>(null);
   const [postDescExpanded, setPostDescExpanded] = React.useState(false);
@@ -282,6 +285,7 @@ export default function Profile() {
       setProfile(null);
       setPosts([]);
       setShots([]);
+      setTaggedPosts([]);
       setRoutines([]);
       setTabsDataLoaded(false);
       setLoading(true);
@@ -323,6 +327,7 @@ export default function Profile() {
         commercialProfileData,
         offersData,
         commercialPlansData,
+        taggedPostsData,
       ] = await Promise.all([
         getUserRoutinesDb(profileUserId),
         getUserGoalsByUserIdDb(profileUserId),
@@ -330,11 +335,13 @@ export default function Profile() {
         getCommercialProfileDb(profileUserId),
         getCommercialOffersByUserIdDb(profileUserId),
         getCommercialPlansDb(profileUserId),
+        getTaggedPostsDb(profileUserId),
       ]);
       if (isStale()) return;
       setRoutines(routinesData);
       setUserGoals(isViewingOtherProfile ? userGoalsData.filter((g) => g.visibility === 1) : userGoalsData);
       setShots(shotsData);
+      setTaggedPosts(taggedPostsData);
       setCommercialProfile(commercialProfileData);
       setProfileOffers(offersData.filter((o) => o.is_active));
       setServicePlans(commercialPlansData.map((p) => ({ name: p.name, price: p.price, description: p.description ?? undefined })));
@@ -422,6 +429,7 @@ export default function Profile() {
         invalidateQueryCache(`userStats:${profileUserId}`);
         invalidateQueryCache(`userPosts:${profileUserId}`);
         invalidateQueryCache(`userShots:${profileUserId}`);
+        invalidateQueryCache(`taggedPosts:${profileUserId}`);
         invalidateQueryCache(`commercialProfile:${profileUserId}`);
         invalidateQueryCache(`userActiveStories:${profileUserId}`);
         if (user?.id) invalidateQueryCache(`isFollowing:${user.id}:${profileUserId}`);
@@ -463,6 +471,11 @@ export default function Profile() {
       setIsLoadingPostData(false);
     }
   }, []);
+
+  // O mesmo drawer de post também abre os posts da aba "Marcações", cujo autor é
+  // OUTRA pessoa — inclusive no próprio perfil. Editar/excluir e a moderação de
+  // comentários seguem o dono do POST, não o dono do perfil (`isViewingOtherProfile`).
+  const isOwnSelectedPost = !!user?.id && !!selectedPost && selectedPost.user_id === user.id;
 
   const handleUpdatePost = React.useCallback(async () => {
     if (!selectedPost) return;
@@ -1266,23 +1279,31 @@ export default function Profile() {
 
       {/* Posts, Shots and Store Tabs */}
       <Tabs defaultValue="posts" className="w-full px-4">
-        <TabsList className="w-full justify-start gap-7 !h-auto !bg-transparent !rounded-none !p-0 border-b border-white/10">
+        {/* Com 4 abas (Publicações, Clipes, Marcações e Vitrine) a linha não cabe
+            na largura do iPhone — rola na horizontal em vez de quebrar/comprimir. */}
+        <TabsList className="w-full justify-start gap-5 !h-auto !bg-transparent !rounded-none !p-0 border-b border-white/10 overflow-x-auto no-scrollbar">
           <TabsTrigger
             value="posts"
-            className="!rounded-none !bg-transparent !shadow-none !px-0 pb-3 -mb-px border-b-2 border-transparent !text-white/45 data-[state=active]:!border-white data-[state=active]:!text-white text-[14px] font-[640]"
+            className="shrink-0 whitespace-nowrap !rounded-none !bg-transparent !shadow-none !px-0 pb-3 -mb-px border-b-2 border-transparent !text-white/45 data-[state=active]:!border-white data-[state=active]:!text-white text-[14px] font-[640]"
           >
             {t("profile_posts")} ({stats.postsCount})
           </TabsTrigger>
           <TabsTrigger
             value="shots"
-            className="!rounded-none !bg-transparent !shadow-none !px-0 pb-3 -mb-px border-b-2 border-transparent !text-white/45 data-[state=active]:!border-white data-[state=active]:!text-white text-[14px] font-[640]"
+            className="shrink-0 whitespace-nowrap !rounded-none !bg-transparent !shadow-none !px-0 pb-3 -mb-px border-b-2 border-transparent !text-white/45 data-[state=active]:!border-white data-[state=active]:!text-white text-[14px] font-[640]"
           >
             {t("nav_clips")}{tabsDataLoaded ? ` (${shots.length})` : ""}
+          </TabsTrigger>
+          <TabsTrigger
+            value="marcacoes"
+            className="shrink-0 whitespace-nowrap !rounded-none !bg-transparent !shadow-none !px-0 pb-3 -mb-px border-b-2 border-transparent !text-white/45 data-[state=active]:!border-white data-[state=active]:!text-white text-[14px] font-[640]"
+          >
+            {t("profile_tagged")}{tabsDataLoaded ? ` (${taggedPosts.length})` : ""}
           </TabsTrigger>
           {profileOffers.length > 0 && (
             <TabsTrigger
               value="vitrine"
-              className="!rounded-none !bg-transparent !shadow-none !px-0 pb-3 -mb-px border-b-2 border-transparent !text-white/45 data-[state=active]:!border-white data-[state=active]:!text-white text-[14px] font-[640]"
+              className="shrink-0 whitespace-nowrap !rounded-none !bg-transparent !shadow-none !px-0 pb-3 -mb-px border-b-2 border-transparent !text-white/45 data-[state=active]:!border-white data-[state=active]:!text-white text-[14px] font-[640]"
             >
               {commercialProfile ? `${t("settings_section_business")} (${profileOffers.length})` : `${t("nav_store")} (${profileOffers.length})`}
             </TabsTrigger>
@@ -1387,6 +1408,64 @@ export default function Profile() {
             <div className="rounded-xl p-6 text-center" style={{ background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.08)" }}>
               <p className="text-sm text-white/50">
                 {t("profile_no_shots")}
+              </p>
+            </div>
+          )}
+        </TabsContent>
+
+        {/* Marcações Tab — posts de OUTRAS pessoas em que este perfil foi
+            marcado. A grade é a mesma dos posts; o autor (que não é o dono do
+            perfil) aparece no chip do tile e no cabeçalho do drawer. */}
+        <TabsContent value="marcacoes" className="space-y-4">
+          {isViewingOtherProfile && profile?.hide_posts_from_non_followers && !viewerFollowsProfile ? (
+            <div className="rounded-xl p-8 text-center flex flex-col items-center gap-2" style={{ background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.08)" }}>
+              <Lock className="h-6 w-6" style={{ color: "rgba(255,255,255,.5)" }} />
+              <p className="text-sm font-medium text-white">{t("profile_tagged_private")}</p>
+              <p className="text-xs text-white/50">{t("profile_tagged_private_desc")}</p>
+            </div>
+          ) : taggedPosts.length > 0 ? (
+            <div className="grid gap-[5px] grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
+              {taggedPosts.map((post) => (
+                <button
+                  key={post.id}
+                  onClick={() => handleViewPost(post)}
+                  className="group relative aspect-square overflow-hidden rounded-[14px] bg-muted transition-all cursor-pointer"
+                >
+                  <img
+                    src={post.photo}
+                    alt={post.description}
+                    loading="lazy"
+                    decoding="async"
+                    className="h-full w-full object-cover group-hover:scale-110 transition-transform"
+                  />
+                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
+                  {/* Multi-photo indicator */}
+                  {post.photos && post.photos.length > 1 && (
+                    <div className="absolute top-2 right-2 bg-white/90 rounded-md px-1.5 py-0.5 flex items-center gap-0.5">
+                      <span className="text-xs font-semibold text-black">📷</span>
+                      <span className="text-xs font-semibold text-black">{post.photos.length}</span>
+                    </div>
+                  )}
+                  {/* Autor do post — a foto é de outra pessoa, então o tile precisa
+                      dizer de quem é sem exigir que o post seja aberto. */}
+                  <div className="absolute bottom-0 left-0 right-0 flex items-center gap-1 px-1.5 py-1 pointer-events-none" style={{ background: "linear-gradient(rgba(0,0,0,0),rgba(0,0,0,.6))" }}>
+                    <UserAvatar
+                      photo={post.userPhoto}
+                      nickname={post.userNickname}
+                      size="sm"
+                      className="h-4 w-4 shrink-0 ring-1 ring-white/25"
+                    />
+                    <span className="text-[10px] font-medium truncate" style={{ color: "rgba(255,255,255,.9)" }}>
+                      {post.userNickname}
+                    </span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl p-6 text-center" style={{ background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.08)" }}>
+              <p className="text-sm text-white/50">
+                {t("profile_no_tagged")}
               </p>
             </div>
           )}
@@ -1689,7 +1768,10 @@ export default function Profile() {
                           <p className="text-sm" style={{ color: "rgba(255,255,255,.5)" }}>{t("profile_no_goals_created")}</p>
                         )}
                       </div>
-                    ) : selectedPost.user_goal_id ? (
+                    ) : selectedPost.user_goal_id && selectedPost.user_id === profileUserId ? (
+                      /* `userGoals` são as metas do dono do PERFIL. Num post da aba
+                         "Marcações" a meta é do outro autor e nunca estaria nessa
+                         lista — sem este guard o chip exibiria "meta removida". */
                       <div className="flex items-center gap-2 px-3 py-2 rounded-xl" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}>
                         <span className="text-xs" style={{ color: "rgba(255,255,255,.45)" }}>{t("profile_goal_label")}</span>
                         <span className="text-xs font-medium truncate" style={{ color: "#fff" }}>
@@ -1723,7 +1805,7 @@ export default function Profile() {
                                 postId={selectedPost.id}
                                 commentCount={postCommentCount}
                                 onCountChange={setPostCommentCount}
-                                isPostOwner={!isViewingOtherProfile}
+                                isPostOwner={isOwnSelectedPost}
                               />
                             </div>
                           )}
@@ -1741,7 +1823,7 @@ export default function Profile() {
                     )}
 
                     {/* Action Buttons */}
-                    {!isViewingOtherProfile && (
+                    {isOwnSelectedPost && (
                       <div className="flex gap-2 pt-2" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
                         {!isEditingPost ? (
                           <>

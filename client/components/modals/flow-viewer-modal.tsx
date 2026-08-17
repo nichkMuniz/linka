@@ -37,7 +37,9 @@ import {
   type FlowViewer,
   type SearchUser,
 } from "@/lib/ritmofit-db";
-import { X, ChevronLeft, ChevronRight, Send, Trash2, Eye, Pause, Play, Pencil, Check, Loader2, AtSign, Repeat2 } from "lucide-react";
+import { X, ChevronLeft, ChevronRight, Send, Trash2, Eye, Pause, Play, Pencil, Check, Loader2, AtSign, Repeat2, MessageCircle } from "lucide-react";
+import { useFlowPrivateReply } from "@/hooks/use-flow-private-reply";
+import { useLanguage } from "@/lib/language-context";
 import { renderIncentiveIcon } from "@/lib/incentive-config";
 import { prefetchFlowMedia } from "@/lib/media-prefetch";
 import { CommentReactions } from "@/components/shared/comment-reactions";
@@ -90,6 +92,7 @@ export function FlowViewerModal({
 }: FlowViewerModalProps) {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { t } = useLanguage();
   const [userLikes, setUserLikes] = React.useState<PostIncentiveType[]>([]);
   const [comments, setComments] = React.useState<StoryComment[]>([]);
   const [newComment, setNewComment] = React.useState("");
@@ -631,6 +634,11 @@ export function FlowViewerModal({
   const prevStory = hasPrevStory ? sortedStories[currentIndex - 1] : null;
   const nextStory = hasNextStory ? sortedStories[currentIndex + 1] : null;
   const isTaggedViewer = !!user && !isOwner && taggedUsers.some((u) => u.id === user.id);
+  // Responder o flow como mensagem privada para o autor (mesma doca da tela /flows/:id)
+  const { isSendingPrivateReply, sendPrivateReply } = useFlowPrivateReply(story, isOwner);
+  const handleSendPrivateReply = React.useCallback(async () => {
+    if (await sendPrivateReply(newComment)) setNewComment("");
+  }, [sendPrivateReply, newComment]);
 
   // Pré-aquece a mídia do PRÓXIMO flow assim que a atual apareceu (antes disso os dois
   // downloads brigariam por banda). A capa vem inteira; do vídeo, só o cabeçalho —
@@ -1122,20 +1130,52 @@ export function FlowViewerModal({
                     <div className="flex gap-3 items-center">
                       <div className="flex-1 flex gap-2 items-center bg-white/5 border border-white/20 rounded-full px-4 py-3 focus-within:border-white/50 transition-all backdrop-blur-sm">
                         <Input
-                          placeholder={isOwner ? "Seu flow..." : `Responder a ${story.userNickname}...`}
+                          placeholder={
+                            isOwner
+                              ? t("flow_reply_placeholder_own")
+                              : t("flow_reply_placeholder").replace("{name}", story.userNickname)
+                          }
                           value={newComment}
                           onChange={(e) => setNewComment(e.target.value)}
                           onFocus={() => setIsTyping(true)}
                           onBlur={() => setIsTyping(false)}
                           onKeyPress={(e) => e.key === "Enter" && newComment.trim() && handleAddComment()}
                           className="flex-1 bg-transparent border-0 text-xs text-white placeholder-white/50 focus-visible:ring-0 h-auto p-0"
-                          disabled={isAddingComment}
+                          disabled={isAddingComment || isSendingPrivateReply}
                         />
                       </div>
-                      <motion.button onClick={handleAddComment} disabled={!newComment.trim() || isAddingComment} className="bg-brand text-white p-3 rounded-full shadow-lg disabled:opacity-40">
+                      {/* Enviar em privado — só faz sentido no flow de outra pessoa */}
+                      {!isOwner && (
+                        <motion.button
+                          onClick={handleSendPrivateReply}
+                          disabled={!newComment.trim() || isSendingPrivateReply || isAddingComment}
+                          aria-label={t("flow_reply_private_aria")}
+                          className="text-white p-3 rounded-full disabled:opacity-40"
+                          style={{ background: "rgba(255,255,255,.14)", border: "1px solid rgba(255,255,255,.2)" }}
+                        >
+                          {isSendingPrivateReply ? (
+                            <Loader2 className="h-5 w-5 animate-spin" />
+                          ) : (
+                            <MessageCircle className="h-5 w-5" />
+                          )}
+                        </motion.button>
+                      )}
+                      <motion.button
+                        onClick={handleAddComment}
+                        disabled={!newComment.trim() || isAddingComment || isSendingPrivateReply}
+                        aria-label={t("flow_reply_public_aria")}
+                        className="bg-brand text-white p-3 rounded-full shadow-lg disabled:opacity-40"
+                      >
                         <Send className="h-5 w-5" />
                       </motion.button>
                     </div>
+
+                    {/* Os dois botões agem sobre o MESMO texto — a dica aparece no momento da decisão */}
+                    {!isOwner && newComment.trim().length > 0 && (
+                      <p className="mt-2 px-2 text-center text-[10.5px] leading-tight text-white/45">
+                        {t("flow_reply_hint").replace("{name}", story.userNickname)}
+                      </p>
+                    )}
                   </div>
                 </main>
             </div>

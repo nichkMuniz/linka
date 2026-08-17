@@ -49,11 +49,33 @@ export function FlowCarousel({
   });
 
   const uniqueStories = Array.from(storyMap.values());
-  // Sort avatars by newest first so most recent activity appears first
-  uniqueStories.sort(
-    (a, b) =>
-      new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
-  );
+
+  // Um autor só conta como "visto" quando TODOS os flows dele foram assistidos —
+  // o mesmo critério do anel cinza, para que ordem e cor nunca se contradigam.
+  const viewedByUserId = new Map<string, boolean>();
+  // Atividade do grupo = flow mais recente do autor (o representante em storyMap é o
+  // mais antigo, então ordenar por ele colocaria quem postou agora no fim da fila).
+  const latestByUserId = new Map<string, number>();
+  storiesByUserId.forEach((list, userId) => {
+    viewedByUserId.set(
+      userId,
+      list.every((s) => viewedStoryIds?.has(s.id) ?? false),
+    );
+    latestByUserId.set(
+      userId,
+      list.reduce((max, s) => Math.max(max, new Date(s.created_at).getTime()), 0),
+    );
+  });
+
+  // Pendentes primeiro (esquerda), já assistidos por último (direita); dentro de cada
+  // bloco, atividade mais recente primeiro. Assim o próximo flow a assistir está sempre
+  // ao alcance do polegar, sem precisar rolar por cima de quem já foi visto.
+  uniqueStories.sort((a, b) => {
+    const aViewed = viewedByUserId.get(a.user_id) ? 1 : 0;
+    const bViewed = viewedByUserId.get(b.user_id) ? 1 : 0;
+    if (aViewed !== bViewed) return aViewed - bViewed;
+    return (latestByUserId.get(b.user_id) ?? 0) - (latestByUserId.get(a.user_id) ?? 0);
+  });
 
   // Separate user's story from others
   const userStory = uniqueStories.find((s) => s.user_id === currentUserId);
@@ -148,7 +170,7 @@ export function FlowCarousel({
       {otherStories.length > 0 &&
         otherStories.map((story) => {
           const userStoryList = storiesByUserId.get(story.user_id) ?? [story];
-          const isViewed = userStoryList.every((s) => viewedStoryIds?.has(s.id) ?? false);
+          const isViewed = viewedByUserId.get(story.user_id) ?? false;
           const entryStory = pickFlowEntry(userStoryList, viewedStoryIds) ?? story;
           return (
             <button

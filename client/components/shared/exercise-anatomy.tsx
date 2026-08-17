@@ -1,6 +1,11 @@
 import * as React from "react";
+import { AlertTriangle, Copy } from "lucide-react";
 import { MuscleMap, buildMuscleIntensity, type MuscleMapView } from "@/components/shared/muscle-map";
 import { useLanguage } from "@/lib/language-context";
+import { useAuthContext } from "@/lib/auth-context";
+import { isAdminUser, anatomySqlSnippet } from "@/lib/admin";
+import { copyToClipboard } from "@/lib/clipboard";
+import { toast } from "@/components/ui/use-toast";
 import { getWorkoutMusclesDb, type WorkoutMuscle } from "@/lib/ritmofit-db";
 
 /**
@@ -14,11 +19,48 @@ import { getWorkoutMusclesDb, type WorkoutMuscle } from "@/lib/ritmofit-db";
  * quando o exercício não tem anatomia mapeada: nem título, nem estado vazio.
  * Exercício de alongamento é pulado de propósito pelo seed, e um "nenhum
  * músculo encontrado" ali seria ruído, não informação.
+ *
+ * A exceção é o admin: para ele a lacuna vira um aviso com o INSERT pronto
+ * (`AnatomyGapNotice`). O mesmo silêncio que protege o usuário final escondia
+ * de quem cura o catálogo que um exercício novo entrou sem anatomia — o
+ * inventário completo fica no painel admin, em "Anatomia dos exercícios".
  */
 
 interface ExerciseAnatomyProps {
   /** `workouts.id` — quando ausente/vazio, o componente não renderiza. */
   workoutId?: string | null;
+  /** Nome do exercício — só entra no SQL que o aviso de admin copia. */
+  workoutName?: string | null;
+}
+
+/** Aviso de lacuna, visível só para admin. */
+function AnatomyGapNotice({ workoutId, workoutName }: { workoutId: string; workoutName?: string | null }) {
+  const { t } = useLanguage();
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        copyToClipboard(anatomySqlSnippet(workoutId, workoutName || workoutId));
+        toast({ title: t("goals_anatomy_missing_copied"), description: t("goals_anatomy_missing_copied_desc") });
+      }}
+      className="w-full flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-left"
+      style={{
+        background: "rgba(249,115,22,.08)",
+        border: "1px dashed rgba(249,115,22,.4)",
+      }}
+    >
+      <AlertTriangle className="w-4 h-4 shrink-0" style={{ color: "#fb923c" }} />
+      <div className="flex-1 min-w-0">
+        <p className="text-[13px] font-semibold" style={{ color: "#fdba74" }}>
+          {t("goals_anatomy_missing_title")}
+        </p>
+        <p className="text-[11px] leading-snug" style={{ color: "rgba(255,255,255,.45)" }}>
+          {t("goals_anatomy_missing_hint")}
+        </p>
+      </div>
+      <Copy className="w-3.5 h-3.5 shrink-0" style={{ color: "rgba(255,255,255,.4)" }} />
+    </button>
+  );
 }
 
 /** Corte dos rótulos. Espelha os cortes de cor do `MuscleMap`. */
@@ -26,8 +68,9 @@ function roleLabelKey(m: WorkoutMuscle): "primary" | "secondary" | "stabilizer" 
   return m.role;
 }
 
-export function ExerciseAnatomy({ workoutId }: ExerciseAnatomyProps) {
+export function ExerciseAnatomy({ workoutId, workoutName }: ExerciseAnatomyProps) {
   const { t } = useLanguage();
+  const { user } = useAuthContext();
   const [muscles, setMuscles] = React.useState<WorkoutMuscle[] | null>(null);
   // Vista escolhida pelo usuário; `null` = automática (a que tem mais estímulo).
   const [pickedView, setPickedView] = React.useState<MuscleMapView | null>(null);
@@ -61,7 +104,13 @@ export function ExerciseAnatomy({ workoutId }: ExerciseAnatomyProps) {
 
   const view = pickedView ?? autoView;
 
-  if (!workoutId || !muscles || muscles.length === 0) return null;
+  if (!workoutId || !muscles) return null;
+  // Sem anatomia: silêncio para o usuário, aviso acionável para o admin.
+  if (muscles.length === 0) {
+    return isAdminUser(user?.id)
+      ? <AnatomyGapNotice workoutId={workoutId} workoutName={workoutName} />
+      : null;
+  }
 
   const primary = muscles.filter((m) => m.role === "primary");
   const others = muscles.filter((m) => m.role !== "primary");

@@ -2025,6 +2025,59 @@ export async function getPostTagsBatchDb(
   return result;
 }
 
+// Posts de OUTRAS pessoas em que `userId` foi marcado — alimenta a aba
+// "Marcações" do perfil. Não são posts do usuário: o autor de cada um é outra
+// pessoa, então os perfis dos autores vêm em lote (2 queries no total).
+export async function getTaggedPostsDb(userId: string): Promise<PostWithUser[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+  return cached(`taggedPosts:${userId}`, CACHE_TTL_SHORT, async () => {
+    const { data: tagRows, error: tagsError } = await supabase
+      .from("post_tags")
+      .select("post_id, created_at")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(100);
+
+    // Tabela pode ainda não existir (migração pendente) — degrada como aba vazia
+    if (tagsError || !tagRows || tagRows.length === 0) return [];
+
+    const postIds = [...new Set(tagRows.map((r: any) => String(r.post_id)))];
+
+    const { data, error } = await supabase
+      .from("posts")
+      .select("id, description, photo, photos, created_at, user_id, user_goal_id, workout_summary")
+      .in("id", postIds)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      const errorMsg = error?.message || String(error);
+      const errorCode = error?.code || "UNKNOWN";
+      console.error(`Error fetching tagged posts [${errorCode}]:`, errorMsg);
+      return [];
+    }
+
+    const rows = data ?? [];
+    const authorsMap = await getProfilesBatchDb(rows.map((r: any) => String(r.user_id)));
+
+    return rows.map((row: any) => {
+      const author = authorsMap.get(String(row.user_id));
+      return {
+        id: String(row.id ?? ""),
+        description: String(row.description ?? ""),
+        photo: String(row.photo ?? ""),
+        photos: Array.isArray(row.photos) ? row.photos : null,
+        created_at: String(row.created_at ?? ""),
+        user_id: String(row.user_id ?? ""),
+        user_goal_id: row.user_goal_id ?? null,
+        userNickname: author?.nickname || "Usuário",
+        userPhoto: author?.photo ?? null,
+        isVerified: author?.is_verified === true,
+        workoutSummary: (row.workout_summary as PostWorkoutSummary | null) ?? null,
+      };
+    });
+  });
+}
+
 // Substitui as marcações de um post (edição) — aplica o diff em vez de recriar
 // tudo: remove quem saiu e insere só os novos, para a trigger notify_post_tag
 // notificar apenas quem acabou de ser marcado (sem re-notificar os existentes).
@@ -2066,6 +2119,8 @@ export async function setPostTagsDb(
   }
 
   invalidateQueryCache(`post:${postId}`);
+  // A aba "Marcações" do perfil de quem entrou/saiu da marcação muda com isso
+  if (toAdd.length > 0 || toRemove.length > 0) invalidateQueryCache("taggedPosts");
 }
 
 export type UserStats = {
@@ -2662,7 +2717,13 @@ export type RoutineLastSummary = {
     photo?: string | null;
     // Carga (kg) e repetições de cada série concluída (opcional: snapshots antigos
     // não têm). Espelha o campo `sets` de WorkoutSessionSummary/WorkoutSummaryData.
-    sets?: Array<{ kg: number; reps: number }>;
+    // `elev` = inclinação (%) da esteira naquela série (só quando informada).
+    sets?: Array<{ kg: number; reps: number; elev?: number }>;
+    // Cardio (kg = MIN, reps = KM) e a maior inclinação (%) entre as séries —
+    // ambos espelham WorkoutSessionSummary/WorkoutSummaryData. Ausentes nos
+    // snapshots gravados antes de cada campo existir.
+    isCardio?: boolean;
+    elevationPct?: number | null;
   }>;
   // `kind` e os pares de reps/e1rm são opcionais: snapshots gravados antes de
   // 05/08/2026 (e todo o modo simplificado) só têm recorde de carga. Ver
@@ -6210,9 +6271,25 @@ export async function uploadMessageImageDb(rawFile: File, recipientId: string): 
   return `${CHAT_MEDIA_PREFIX}${path}`;
 }
 
+/**
+ * Contexto opcional do envio — muda apenas **qual push** o destinatário recebe.
+ * A mensagem em si é sempre uma linha normal em `messages`.
+ */
+export type SendMessageContext = {
+  /**
+   * Tipo da notificação que dispara o push. Padrão 10 ("te enviou uma mensagem").
+   * 17 = resposta a um flow ("respondeu ao seu flow"). Qualquer tipo usado aqui
+   * precisa entrar em `NOTIF_TYPES_PUSH_ONLY`, senão vira card na lista do sino.
+   */
+  notificationType?: 10 | 17;
+  /** Flow respondido (tipo 17) — deixa a linha auto-explicativa no banco. */
+  flowId?: string;
+};
+
 export async function sendMessageDb(
   recipientId: string,
   text: string,
+  context?: SendMessageContext,
 ): Promise<Message | null> {
   if (!hasSupabaseConfig || !supabase) return null;
 
@@ -6246,7 +6323,7 @@ export async function sendMessageDb(
     invalidateQueryCache("conversations"); invalidateQueryCache("unreadMsgCount");
 
     // Notifica o destinatário (fire-and-forget — não bloqueia o envio da mensagem)
-    sendMessageNotificationDb(recipientId).catch((err) =>
+    sendMessageNotificationDb(recipientId, context).catch((err) =>
       console.error("Error sending message notification:", err),
     );
 
@@ -6258,13 +6335,21 @@ export async function sendMessageDb(
 }
 
 /**
- * Notificação de mensagem privada (tipo 10) — **só push, nunca card na lista**.
+ * Notificação de mensagem privada (tipo 10, ou 17 quando é resposta a um flow) —
+ * **só push, nunca card na lista**.
  *
  * A linha em `notifications` existe por um único motivo: é ela que dispara o
  * webhook `notify-push-on-notification` → edge function → push no iPhone. Não há
  * como pedir o push sem gravar a linha (o segredo do webhook não pode viver no
- * cliente). Por isso a linha continua sendo criada, mas o tipo 10 é **filtrado na
- * leitura**, em `getNotificationsDb` e `getUnreadNotificationsCountDb`.
+ * cliente). Por isso a linha continua sendo criada, mas os dois tipos são
+ * **filtrados na leitura** (`NOTIF_TYPES_PUSH_ONLY`), em `getNotificationsDb` e
+ * `getUnreadNotificationsCountDb`.
+ *
+ * O tipo 17 existe só para o **texto** do push mudar de "te enviou uma mensagem"
+ * para "respondeu ao seu flow" — o destino do toque e o lugar onde a mensagem
+ * aparece são idênticos aos do tipo 10. Ele **não é** um tipo de card novo: se um
+ * dia sair de `NOTIF_TYPES_PUSH_ONLY`, vira card duplicando o que a Comunidade
+ * já mostra.
  *
  * Motivo (2026-07-21): uma conversa em ritmo de bate-papo enchia a tela de
  * Notificações de cards de mensagem, empurrando para baixo o que o usuário
@@ -6277,16 +6362,23 @@ export async function sendMessageDb(
  * do destinatário sempre volta vazio sob RLS, ver docs/10-notificacoes.md) e, com
  * os cards fora da lista, o que ela protegia deixou de existir.
  */
-async function sendMessageNotificationDb(recipientId: string): Promise<void> {
+async function sendMessageNotificationDb(
+  recipientId: string,
+  context?: SendMessageContext,
+): Promise<void> {
   if (!hasSupabaseConfig || !supabase) return;
 
   const viewer = await getViewer();
   if (!viewer || viewer.id === recipientId) return;
 
+  const type = context?.notificationType ?? 10;
   const { error } = await supabase.from("notifications").insert({
     user_id: recipientId,
     follower_id: viewer.id,
-    type: 10,
+    type,
+    // Só o tipo 17 carrega flow: numa mensagem comum a coluna tem de ficar nula
+    // (o `context` da edge function usa flow_id para escolher a frase).
+    ...(type === 17 && context?.flowId ? { flow_id: context.flowId } : {}),
     read: false,
   });
 
@@ -7604,7 +7696,7 @@ export async function toggleUserHabitCompletionDb(
 // Notifications functionality
 export type NotificationItem = {
   id: string;
-  type: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16; // 1 = new follower, 2 = incentive, 3 = comment, 4 = duel invite, 5 = join request, 6 = comment reaction, 7 = check-in reaction, 8 = promotion comment, 9 = tagged in post, 10 = private message, 11 = duel check-in, 12 = promotion like, 13 = promotion expired, 14 = check-in classificado, 15 = check-in desclassificado, 16 = tagged in flow
+  type: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17; // 1 = new follower, 2 = incentive, 3 = comment, 4 = duel invite, 5 = join request, 6 = comment reaction, 7 = check-in reaction, 8 = promotion comment, 9 = tagged in post, 10 = private message, 11 = duel check-in, 12 = promotion like, 13 = promotion expired, 14 = check-in classificado, 15 = check-in desclassificado, 16 = tagged in flow, 17 = resposta a um flow (mensagem privada, só push)
   userId: string;
   userNickname: string;
   userPhoto: string | null;
@@ -7627,8 +7719,11 @@ export type NotificationItem = {
 const NOTIF_TYPES_WITHOUT_POST = new Set([4, 5, 7, 8, 11, 12, 13, 14, 15]);
 
 // Mensagem privada: a linha só existe para disparar o push, então some da lista
-// e da contagem do sino. Ver sendMessageNotificationDb.
-const NOTIF_TYPE_PUSH_ONLY = 10;
+// e da contagem do sino. 10 = mensagem comum, 17 = resposta a um flow (mesma
+// mensagem, só muda o texto do push). Ver sendMessageNotificationDb.
+const NOTIF_TYPES_PUSH_ONLY = [10, 17] as const;
+// PostgREST espera a lista entre parênteses: `not.in.(10,17)`.
+const NOTIF_TYPES_PUSH_ONLY_FILTER = `(${NOTIF_TYPES_PUSH_ONLY.join(",")})`;
 
 export async function getNotificationsDb(): Promise<NotificationItem[]> {
   if (!hasSupabaseConfig || !supabase) return [];
@@ -7655,9 +7750,9 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
       `
       )
       .eq("user_id", viewer.id)
-      // Tipo 10 (mensagem privada) é só gatilho de push — nunca vira card aqui.
-      // Ver sendMessageNotificationDb.
-      .neq("type", NOTIF_TYPE_PUSH_ONLY)
+      // Tipos 10 e 17 (mensagem privada / resposta a flow) são só gatilho de push —
+      // nunca viram card aqui. Ver sendMessageNotificationDb.
+      .not("type", "in", NOTIF_TYPES_PUSH_ONLY_FILTER)
       .order("created_at", { ascending: false })
       .limit(100);
 
@@ -8019,8 +8114,8 @@ export async function getUnreadNotificationsCountDb(): Promise<number> {
       .select("id, type, follower_id, post_id, shots_id, flow_id, read")
       .eq("user_id", viewer.id)
       .eq("read", false)
-      // Fora da lista, fora do badge — o tipo 10 só existe para gerar o push.
-      .neq("type", NOTIF_TYPE_PUSH_ONLY)
+      // Fora da lista, fora do badge — 10 e 17 só existem para gerar o push.
+      .not("type", "in", NOTIF_TYPES_PUSH_ONLY_FILTER)
       .limit(200);
 
     // If read column doesn't exist, fallback to fetching all
@@ -8030,7 +8125,7 @@ export async function getUnreadNotificationsCountDb(): Promise<number> {
         .from("notifications")
         .select("id, type, follower_id, post_id, shots_id, flow_id")
         .eq("user_id", viewer.id)
-        .neq("type", NOTIF_TYPE_PUSH_ONLY);
+        .not("type", "in", NOTIF_TYPES_PUSH_ONLY_FILTER);
 
       if (fallbackError) {
         const errorMsg = typeof fallbackError === 'object' ? JSON.stringify(fallbackError) : String(fallbackError);
@@ -8249,6 +8344,7 @@ export async function createPostDb(
         .from("post_tags")
         .insert(tagIds.map((userId) => ({ post_id: postId, user_id: userId })));
       if (tagsError) console.error("Error tagging users in post:", tagsError);
+      else invalidateQueryCache("taggedPosts");
     }
 
     invalidateQueryCache("userPosts"); invalidateQueryCache("post:");
@@ -8328,6 +8424,8 @@ export async function deletePostDb(postId: string): Promise<boolean> {
     invalidateQueryCache("userPosts");
     invalidateQueryCache("post:");
     invalidateQueryCache(`userStats:${viewer.id}`);
+    // O post sai junto da aba "Marcações" de quem estava marcado nele
+    invalidateQueryCache("taggedPosts");
     return true;
   } catch (err: any) {
     console.error("Error deleting post:", err);
@@ -14318,6 +14416,104 @@ export async function deletePushTokenDb(token: string): Promise<void> {
     .delete()
     .eq("user_id", viewer.id)
     .eq("token", token);
+}
+
+// ─── Admin: cobertura da anatomia (curadoria de workout_muscles) ──────────────
+//
+// A ficha de anatomia (`ExerciseAnatomy`) some SEM aviso quando o exercício não
+// tem linha em `workout_muscles` — é de propósito para o usuário final, mas
+// deixava a lacuna invisível também para quem cura o catálogo. Exercício novo
+// entra sem anatomia e ninguém fica sabendo. Isto aqui é o inventário do que
+// falta mapear.
+
+/** Um exercício sem nenhuma linha em `workout_muscles`. */
+export type AnatomyGapItem = {
+  id: string;
+  name: string;
+  muscleGroup: string | null;
+  /** `workouts.type` — 2 costuma ser alongamento/mobilidade no catálogo importado. */
+  type: number | null;
+  /** Criado por um usuário (não é catálogo curado — pode não valer mapear). */
+  isCustom: boolean;
+  /**
+   * Lacuna ESPERADA: o seed da anatomia pula alongamento e mobilidade de
+   * propósito (não faz sentido falar em ênfase de recrutamento ali). Separar os
+   * dois grupos é o que mantém a lista acionável — sem isso, 26 alongamentos
+   * afogariam os poucos exercícios que realmente precisam de atenção.
+   */
+  isStretch: boolean;
+};
+
+export type AnatomyCoverage = {
+  /** Exercícios no catálogo (inclui os custom visíveis pela RLS). */
+  total: number;
+  /** Quantos têm pelo menos uma linha de anatomia. */
+  mapped: number;
+  /** Os que não têm — alongamento/mobilidade no fim. */
+  gaps: AnatomyGapItem[];
+};
+
+const ANATOMY_STRETCH_GROUPS = ["alongamento", "mobilidade"];
+
+/**
+ * Lê uma tabela inteira em páginas. O PostgREST corta em 1000 linhas por
+ * padrão: `workout_muscles` já passa de 800 e cresce a cada exercício mapeado,
+ * então um `select` cru começaria a mentir (exercício mapeado apareceria como
+ * lacuna) justamente conforme a curadoria avança.
+ */
+async function fetchAllRows(table: string, columns: string): Promise<any[]> {
+  const PAGE = 1000;
+  const out: any[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabase!
+      .from(table)
+      .select(columns)
+      .range(from, from + PAGE - 1);
+    if (error) throw error;
+    const rows = (data ?? []) as any[];
+    out.push(...rows);
+    if (rows.length < PAGE) return out;
+  }
+}
+
+/**
+ * Inventário da curadoria de anatomia: quantos exercícios têm músculos
+ * mapeados e quais não têm.
+ *
+ * O diff é no cliente porque o PostgREST não faz `NOT EXISTS` — são duas
+ * leituras pequenas de tabelas públicas (nenhuma RPC, nenhuma migração).
+ * Sem cache: é tela de gestão, e dado de 12h atrás esconderia exatamente o
+ * exercício que o admin acabou de mapear.
+ */
+export async function getAdminAnatomyCoverageDb(): Promise<AnatomyCoverage> {
+  if (!hasSupabaseConfig || !supabase) return { total: 0, mapped: 0, gaps: [] };
+
+  const [workouts, links] = await Promise.all([
+    fetchAllRows("workouts", "id, name, name_eng, muscle_group, type, created_by_user"),
+    fetchAllRows("workout_muscles", "workout_id"),
+  ]);
+
+  const mappedIds = new Set(links.map((r) => String(r.workout_id)));
+
+  const gaps: AnatomyGapItem[] = workouts
+    .filter((w) => !mappedIds.has(String(w.id)))
+    .map((w) => ({
+      id: String(w.id ?? ""),
+      name: pickLocalized(w.name, w.name_eng),
+      muscleGroup: w.muscle_group ? String(w.muscle_group) : null,
+      type: w.type != null ? Number(w.type) : null,
+      isCustom: !!w.created_by_user,
+      isStretch: ANATOMY_STRETCH_GROUPS.includes(String(w.muscle_group ?? "").toLowerCase()),
+    }))
+    // Ordem = ordem de trabalho: primeiro o que precisa de atenção, depois
+    // alongamento/mobilidade; dentro de cada bloco, agrupado por músculo.
+    .sort((a, b) =>
+      Number(a.isStretch) - Number(b.isStretch) ||
+      (a.muscleGroup ?? "").localeCompare(b.muscleGroup ?? "") ||
+      a.name.localeCompare(b.name),
+    );
+
+  return { total: workouts.length, mapped: workouts.length - gaps.length, gaps };
 }
 
 // ─── Admin: verified accounts ─────────────────────────────────────────────────

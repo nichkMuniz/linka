@@ -390,8 +390,10 @@ export default function Notifications() {
       navigate("/vitrine");
       return;
     }
-    // Type 10 (mensagem privada) — abre a conversa com o remetente
-    if (notification.type === 10) {
+    // Types 10 / 17 (mensagem privada e resposta a flow) — abrem a conversa com o
+    // remetente. Ambos são filtrados da lista (só existem para o push), então isto
+    // é rede de segurança para linhas antigas/ inesperadas, não fluxo normal.
+    if (notification.type === 10 || notification.type === 17) {
       navigate(`/comunidade?user=${notification.userId}`);
       return;
     }

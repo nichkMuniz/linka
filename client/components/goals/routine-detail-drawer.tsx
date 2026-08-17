@@ -523,7 +523,7 @@ export function RoutineDetailDrawer({
                           exercício não tem músculos mapeados. */}
                       {isWorkout && (
                         <div className="mt-2">
-                          <ExerciseAnatomy workoutId={(item as any).workout_id} />
+                          <ExerciseAnatomy workoutId={(item as any).workout_id} workoutName={itemName} />
                         </div>
                       )}
                     </div>

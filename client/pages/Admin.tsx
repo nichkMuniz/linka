@@ -40,6 +40,8 @@ import {
   Utensils,
   Send,
   ThumbsUp,
+  PersonStanding,
+  Copy,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -69,6 +71,9 @@ import {
   adminSetPremiumDb,
   adminSearchUsersDb,
   getAdminTodayActivityDb,
+  getAdminAnatomyCoverageDb,
+  type AnatomyCoverage,
+  type AnatomyGapItem,
   type AdminTodayUser,
   type AdminPremiumUser,
   type AdminUserSearchResult,
@@ -82,6 +87,8 @@ import {
 import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
 import { Input } from "@/components/ui/input";
 import { reportHandledError } from "@/lib/monitoring";
+import { copyToClipboard } from "@/lib/clipboard";
+import { anatomySqlSnippet } from "@/lib/admin";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -473,6 +480,41 @@ function SectionHeader({ icon: Icon, label, badge }: { icon: React.ElementType; 
   );
 }
 
+// ─── anatomia: linha de exercício sem músculos mapeados ───────────────────────
+
+function AnatomyGapRow({ gap }: { gap: AnatomyGapItem }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-lg border border-border/40 bg-muted/20 px-3 py-2">
+      <div className="min-w-0">
+        <div className="flex items-center gap-1.5">
+          <span className="text-sm font-medium truncate">{gap.name}</span>
+          {gap.isCustom && (
+            <Badge variant="secondary" className="text-[10px] px-1.5 py-0 shrink-0">custom</Badge>
+          )}
+        </div>
+        <p className="text-xs text-muted-foreground truncate">
+          {gap.muscleGroup ?? "sem grupo"} · <span className="font-mono">{gap.id.slice(0, 8)}…</span>
+        </p>
+      </div>
+      <Button
+        size="sm"
+        variant="ghost"
+        title="Copiar SQL do INSERT"
+        onClick={() => {
+          copyToClipboard(anatomySqlSnippet(gap.id, gap.name, gap.muscleGroup));
+          toast({
+            title: "SQL copiado",
+            description: "Cole no SQL Editor do Supabase e troque SLUG_DO_MUSCULO.",
+          });
+        }}
+        className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground shrink-0"
+      >
+        <Copy className="w-3.5 h-3.5" />
+      </Button>
+    </div>
+  );
+}
+
 // ─── complaint row ────────────────────────────────────────────────────────────
 
 function ComplaintRow({
@@ -711,6 +753,10 @@ export default function Admin() {
   const [premiumDays, setPremiumDays] = React.useState<number | null>(null);
   const [premiumActingId, setPremiumActingId] = React.useState<string | null>(null);
 
+  // ── Anatomia (curadoria de workout_muscles) ────────────────────────────────
+  const [anatomy, setAnatomy] = React.useState<AnatomyCoverage | null>(null);
+  const [showStretchGaps, setShowStretchGaps] = React.useState(false);
+
   // Busca com debounce — cada tecla dispararia um round-trip por letra.
   React.useEffect(() => {
     const raw = premiumQuery.trim().replace(/^@/, "");
@@ -761,7 +807,7 @@ export default function Admin() {
     if (!silent) setLoading(true);
     else setRefreshing(true);
     try {
-      const [c, s, a, v, au, pu, ta] = await Promise.all([
+      const [c, s, a, v, au, pu, ta, an] = await Promise.all([
         getAdminComplaintsDb(),
         getAdminStatsDb(),
         getAdminAnalyticsDb(),
@@ -769,6 +815,7 @@ export default function Admin() {
         getAdminActiveUsersDb(),
         getAdminPremiumUsersDb(),
         getAdminTodayActivityDb(),
+        getAdminAnatomyCoverageDb(),
       ]);
       setComplaints(c);
       setStats(s);
@@ -777,6 +824,7 @@ export default function Admin() {
       setActiveUsers(au);
       setPremiumUsers(pu);
       setTodayActivity(ta);
+      setAnatomy(an);
     } catch (err: any) {
       reportHandledError(err, "admin:load");
       toast({ title: "Erro ao carregar dados", description: err.message, variant: "destructive" });
@@ -1167,6 +1215,81 @@ export default function Admin() {
           </div>
         )}
       </section>
+
+      {/* ── Anatomia dos exercícios ────────────────────────────────────────── */}
+      {anatomy && (() => {
+        // Duas listas com pesos diferentes: alongamento/mobilidade nunca teve
+        // anatomia (o seed pula de propósito), então só o outro bloco é fila
+        // de trabalho de verdade.
+        const pending = anatomy.gaps.filter((g) => !g.isStretch);
+        const stretches = anatomy.gaps.filter((g) => g.isStretch);
+        const pct = anatomy.total > 0 ? Math.round((anatomy.mapped / anatomy.total) * 100) : 0;
+
+        return (
+          <section className="space-y-4">
+            <div className="flex items-center gap-2">
+              <PersonStanding className="w-4 h-4 text-orange-500" />
+              <h2 className="text-base font-semibold">Anatomia dos exercícios</h2>
+              {pending.length > 0 && (
+                <Badge variant="destructive" className="text-xs px-1.5 py-0">{pending.length}</Badge>
+              )}
+            </div>
+
+            {/* Cobertura: a leitura de uma olhada só. */}
+            <div className="rounded-xl border border-border bg-card p-4 space-y-2">
+              <div className="flex items-baseline justify-between">
+                <span className="text-sm text-muted-foreground">Com músculos mapeados</span>
+                <span className="text-sm font-semibold">
+                  {anatomy.mapped} / {anatomy.total}
+                  <span className="text-muted-foreground font-normal"> · {pct}%</span>
+                </span>
+              </div>
+              <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
+                <div className="h-full bg-orange-500/80 rounded-full transition-all" style={{ width: `${pct}%` }} />
+              </div>
+            </div>
+
+            {pending.length === 0 ? (
+              <div className="rounded-xl border border-border bg-card p-6 text-center">
+                <CheckCircle className="w-7 h-7 text-emerald-400 mx-auto mb-2" />
+                <p className="text-sm text-muted-foreground">
+                  Todo exercício de força tem anatomia mapeada.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground">
+                  Sem a ficha de "músculos trabalhados" no detalhe do exercício:
+                </p>
+                {pending.map((g) => <AnatomyGapRow key={g.id} gap={g} />)}
+              </div>
+            )}
+
+            {/* Alongamento/mobilidade: colapsado porque é lacuna esperada. */}
+            {stretches.length > 0 && (
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={() => setShowStretchGaps((v) => !v)}
+                  className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+                >
+                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showStretchGaps ? "" : "-rotate-90"}`} />
+                  {stretches.length} de alongamento/mobilidade (lacuna esperada)
+                </button>
+                {showStretchGaps && stretches.map((g) => <AnatomyGapRow key={g.id} gap={g} />)}
+              </div>
+            )}
+
+            <p className="text-[11px] text-muted-foreground leading-relaxed">
+              A ficha vem de <span className="font-mono">workout_muscles</span> (workout_id, muscle_id,
+              role: primary/secondary/stabilizer, emphasis 0–100). O botão de copiar traz o INSERT
+              pronto — os slugs de músculo saem de{" "}
+              <span className="font-mono">select id, name from muscles</span>. Exercícios marcados como
+              custom foram criados por usuários; mapear é opcional.
+            </p>
+          </section>
+        );
+      })()}
 
       {/* ── LinKa Premium ──────────────────────────────────────────────────── */}
       <section className="space-y-4">

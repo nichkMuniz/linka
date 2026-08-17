@@ -26,12 +26,37 @@ import { BackgroundGeolocation, type Location, type CallbackError } from "@capgo
 // Trajeto: cada fix aceito vira um ponto em `path` (array de SEGMENTOS — um
 // novo segmento abre a cada retomada de pausa, para o mapa não desenhar uma
 // reta ligando o ponto da pausa ao da retomada).
+//
+// Parciais (`splits`): a cada km fechado a corrida grava quanto tempo levou
+// naquele km. O instante da marca é INTERPOLADO dentro do trecho entre dois
+// fixes (o GPS quase nunca entrega um ponto em cima do km redondo), então a
+// soma das parciais bate com o tempo total. Como o tempo usado é o elapsed
+// (wall-clock menos as pausas), um km atravessado por uma pausa não fica com o
+// tempo parado embutido.
 
 export type RunStatus = "idle" | "acquiring" | "running" | "paused";
 
 export interface RunPoint {
   lat: number;
   lng: number;
+}
+
+/**
+ * Trecho de 1 km da corrida. O último pode ser PARCIAL (a corrida terminou
+ * antes de fechar o km) — nesse caso `distanceKm < 1` e o ritmo é extrapolado
+ * a partir do trecho percorrido.
+ */
+export interface RunSplit {
+  /** ordem do trecho (1 = primeiro km) */
+  index: number;
+  /** distância do trecho em km — 1 nos fechados, < 1 no parcial final */
+  distanceKm: number;
+  /** tempo gasto NESTE trecho em ms (não acumulado, já sem o tempo pausado) */
+  durationMs: number;
+  /** ritmo do trecho em segundos por km */
+  paceSecPerKm: number;
+  /** true = trecho final incompleto */
+  partial: boolean;
 }
 
 export interface RunState {
@@ -44,6 +69,8 @@ export interface RunState {
   paceSecPerKm: number | null;
   /** precisão (m) do último fix recebido */
   accuracy: number | null;
+  /** parciais fechadas + o trecho em andamento (ver RunSplit) */
+  splits: RunSplit[];
   error: "denied" | "unavailable" | null;
 }
 
@@ -53,6 +80,8 @@ export interface RunResult {
   paceSecPerKm: number | null;
   /** trajeto percorrido, em segmentos (quebra a cada pausa→retomada) */
   path: RunPoint[][];
+  /** tempo/ritmo de cada km percorrido (o último pode ser parcial) */
+  splits: RunSplit[];
 }
 
 const MAX_ACCURACY_M = 40;
@@ -60,6 +89,13 @@ const MIN_STEP_M = 3;
 const MAX_SPEED_MS = 12.5;
 /** distância mínima para o pace fazer sentido (evita paces absurdos no início) */
 const MIN_PACE_DISTANCE_KM = 0.05;
+/** tamanho do trecho de uma parcial */
+const SPLIT_M = 1000;
+/**
+ * O trecho final só vira parcial a partir daqui. Abaixo disso o ritmo seria
+ * uma extrapolação sem sentido (20 m percorridos não dizem nada sobre o km).
+ */
+const MIN_PARTIAL_SPLIT_M = 50;
 
 let status: RunStatus = "idle";
 let workoutId: string | null = null;
@@ -71,6 +107,12 @@ let lastAccuracy: number | null = null;
 let error: RunState["error"] = null;
 let hadFix = false;
 let path: RunPoint[][] = [];
+/** parciais já fechadas (km cheios) */
+let closedSplits: RunSplit[] = [];
+/** elapsed no instante em que a última parcial fechou */
+let lastSplitElapsedMs = 0;
+/** elapsed do último fix aceito — base da interpolação da marca de km */
+let lastFixElapsedMs = 0;
 
 let watching = false;
 let tick: ReturnType<typeof setInterval> | null = null;
@@ -78,6 +120,49 @@ const listeners = new Set<(s: RunState) => void>();
 
 function currentElapsedMs(): number {
   return accumulatedMs + (segmentStartedAt ? Date.now() - segmentStartedAt : 0);
+}
+
+/**
+ * Fecha toda marca de km cruzada entre dois fixes consecutivos. A marca quase
+ * nunca cai em cima de um fix, então o instante dela é interpolado dentro do
+ * trecho — assim a soma das parciais bate com o tempo total da corrida.
+ */
+function closeSplits(
+  fromM: number, toM: number, fromElapsed: number, toElapsed: number,
+) {
+  while (toM >= (closedSplits.length + 1) * SPLIT_M) {
+    const mark = (closedSplits.length + 1) * SPLIT_M;
+    const span = toM - fromM;
+    const frac = span > 0 ? Math.min(1, Math.max(0, (mark - fromM) / span)) : 1;
+    const markElapsed = fromElapsed + (toElapsed - fromElapsed) * frac;
+    const durationMs = Math.max(0, markElapsed - lastSplitElapsedMs);
+    closedSplits.push({
+      index: closedSplits.length + 1,
+      distanceKm: 1,
+      durationMs,
+      paceSecPerKm: durationMs / 1000,
+      partial: false,
+    });
+    lastSplitElapsedMs = markElapsed;
+  }
+}
+
+/** Parciais fechadas + o trecho em andamento (quando já é longo o bastante). */
+function currentSplits(): RunSplit[] {
+  const restM = distanceM - closedSplits.length * SPLIT_M;
+  const durationMs = Math.max(0, currentElapsedMs() - lastSplitElapsedMs);
+  if (restM < MIN_PARTIAL_SPLIT_M || durationMs <= 0) return closedSplits.slice();
+  const km = restM / 1000;
+  return [
+    ...closedSplits,
+    {
+      index: closedSplits.length + 1,
+      distanceKm: km,
+      durationMs,
+      paceSecPerKm: durationMs / 1000 / km,
+      partial: true,
+    },
+  ];
 }
 
 function snapshot(): RunState {
@@ -91,6 +176,7 @@ function snapshot(): RunState {
     paceSecPerKm:
       distanceKm >= MIN_PACE_DISTANCE_KM ? elapsedMs / 1000 / distanceKm : null,
     accuracy: lastAccuracy,
+    splits: currentSplits(),
     error,
   };
 }
@@ -155,6 +241,9 @@ function onLocation(loc?: Location, err?: CallbackError) {
   }
   if (!lastPoint) {
     lastPoint = { lat: latitude, lng: longitude, time };
+    // Âncora nova (1º fix da corrida ou da retomada): a interpolação da próxima
+    // marca de km parte daqui.
+    lastFixElapsedMs = currentElapsedMs();
     pushPoint(latitude, longitude);
     notify();
     return;
@@ -168,11 +257,17 @@ function onLocation(loc?: Location, err?: CallbackError) {
   }
   if (d / dtSec > MAX_SPEED_MS) {
     lastPoint = { lat: latitude, lng: longitude, time };
+    // A âncora pulou sem somar distância — a interpolação recomeça daqui.
+    lastFixElapsedMs = currentElapsedMs();
     notify();
     return;
   }
 
+  const prevDistanceM = distanceM;
   distanceM += d;
+  const fixElapsedMs = currentElapsedMs();
+  closeSplits(prevDistanceM, distanceM, lastFixElapsedMs, fixElapsedMs);
+  lastFixElapsedMs = fixElapsedMs;
   lastPoint = { lat: latitude, lng: longitude, time };
   pushPoint(latitude, longitude);
   notify();
@@ -262,6 +357,9 @@ export async function startRun(id: string, labels: StartRunLabels): Promise<void
   hadFix = false;
   error = null;
   path = [];
+  closedSplits = [];
+  lastSplitElapsedMs = 0;
+  lastFixElapsedMs = 0;
   // O cronômetro parte do toque em "Iniciar" (como apps de corrida); a
   // distância só começa a contar quando o primeiro fix chega.
   segmentStartedAt = Date.now();
@@ -311,12 +409,16 @@ export async function stopRun(): Promise<RunResult> {
   hadFix = false;
   error = null;
   path = [];
+  closedSplits = [];
+  lastSplitElapsedMs = 0;
+  lastFixElapsedMs = 0;
   notify();
   return {
     distanceKm: final.distanceKm,
     elapsedMs: final.elapsedMs,
     paceSecPerKm: final.paceSecPerKm,
     path: finalPath,
+    splits: final.splits,
   };
 }
 

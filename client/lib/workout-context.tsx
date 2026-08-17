@@ -28,6 +28,17 @@ export type WorkoutSeriesEntry = {
   kind?: SetKind;
   prevKg?: number;
   prevReps?: number;
+  /**
+   * Inclinação da ESTEIRA (%) desta série — terceira coluna da tabela, à direita
+   * do KM, e só nos exercícios de esteira (ver `isTreadmillExercise`). É por
+   * série porque a inclinação muda no meio do treino (10min a 3%, 10min a 6%),
+   * exatamente como MIN e KM.
+   *
+   * **Opcional de verdade**: ausente ou 0 = "não anotei", que é diferente de
+   * "0% de inclinação" — em nenhum dos dois casos o resumo estampa um número.
+   * Nunca participa de `canCompleteSeries`: a série fecha sem ela.
+   */
+  elev?: number;
 };
 
 interface WorkoutContextValue {

@@ -25,7 +25,8 @@ Página de perfil do usuário. Exibe informações pessoais, estatísticas, cont
 ├──────────────────────────────────┤
 │  🎯 Metas (scroll horizontal)    │  ← condicional: só aparece se há metas públicas
 ├──────────────────────────────────┤
-│  Tabs: [Posts][Shots][Vitrine]   │  ← Vitrine só aparece se há ofertas ativas
+│  Tabs: [Posts][Shots][Marcações] │  ← + [Vitrine], só se há ofertas ativas
+│         [Vitrine]                │    (a linha rola na horizontal)
 ├──────────────────────────────────┤
 │  Conteúdo da Tab ativa           │
 └──────────────────────────────────┘
@@ -41,7 +42,7 @@ Página de perfil do usuário. Exibe informações pessoais, estatísticas, cont
 > - **Ações à direita** na mesma linha do avatar: próprio perfil → botão circular de engrenagem (42px) + pílula branca "Editar perfil"; outro perfil → `FollowButton` + botões circulares de mensagem e compartilhar.
 > - **Nome/handle/bio alinhados à esquerda** (nome 21px peso 740, handle 13px branco .5, bio 13.5px branco .82).
 > - **Stats em 3 cards** (Posts, Seguidores, Seguindo) com `rounded-18px`, fundo `rgba(255,255,255,.05)`, número 17px peso 740.
-> - **Tabs em estilo underline** (transparente, indicador `border-b-2` branco no ativo) em vez do `TabsList` boxed.
+> - **Tabs em estilo underline** (transparente, indicador `border-b-2` branco no ativo) em vez do `TabsList` boxed. Com a aba **Marcações** são até 4 abas, que não cabem na largura do iPhone — o `TabsList` ganhou `overflow-x-auto no-scrollbar` (gap reduzido para `gap-5`) e cada `TabsTrigger` é `shrink-0 whitespace-nowrap`, então a linha **rola na horizontal** em vez de comprimir/quebrar os rótulos.
 > - **Grids de posts/shots** em 3 colunas, `gap-[5px]`, itens `rounded-[14px]`.
 > - **Back chip** circular no topo-esquerdo apenas ao visualizar o perfil de outro usuário.
 > - O trigger do `SettingsDrawer` agora é externo (props `open`/`onOpenChange`/`hideTrigger`); a engrenagem e o botão "Editar perfil" abrem o mesmo drawer.
@@ -176,6 +177,40 @@ Cada shot na grade:
 
 **Botão de edição (próprio perfil apenas):**
 - Botão de engrenagem **sempre visível** no canto do tile (antes era `opacity-0 group-hover` — invisível no iOS, onde não há hover) → abre `ShotEditorDrawer` (editar descrição / excluir)
+
+---
+
+## Tab: Marcações
+
+Grade das publicações **de outras pessoas** em que o dono do perfil foi marcado (tabela `post_tags`, criada em `docs/migrations/20260710-post-tags.sql` — ver `docs/04-novo-post.md` para o fluxo de marcação).
+
+> Exemplo: A publica uma foto no feed e marca B nela. No perfil de **B**, essa publicação de **A** aparece na aba Marcações. A aba nunca lista posts do próprio dono do perfil — ninguém pode se marcar (`createPostDb`/`setPostTagsDb` filtram o próprio id).
+
+**Layout:** Grid 3 colunas (mesmo grid dos posts), `gap-[5px]`, itens `rounded-[14px]`
+
+Cada item na grade:
+- Thumbnail da primeira imagem (`loading="lazy"` + `decoding="async"`)
+- Indicador de carrossel (📷 + contagem) quando o post tem mais de uma foto — igual à aba Posts
+- **Chip do autor no rodapé do tile** (avatar 16px + nickname sobre um gradiente preto). Diferente das abas Posts e Shots, a foto **não é do dono do perfil** — sem o chip não dá para saber de quem é a publicação sem abri-la
+- Ao clicar → abre o **mesmo** Post Viewer da aba Posts (`handleViewPost`)
+
+**Privacidade:** segue a mesma regra das abas Posts e Shots — com `hide_posts_from_non_followers` ligado, um não seguidor vê o estado bloqueado ("Marcações privadas" + cadeado).
+
+**Contagem no rótulo:** `Marcações (n)` só aparece depois que o batch 2 termina (`tabsDataLoaded`), evitando o flicker "(0)".
+
+### Dono do post ≠ dono do perfil (Post Viewer)
+
+O Post Viewer é compartilhado com a aba Posts, mas um post de Marcações pertence a **outra pessoa** — inclusive no próprio perfil. Por isso as permissões do drawer deixaram de usar `isViewingOtherProfile` (dono do **perfil**) e passaram a usar `isOwnSelectedPost` (`selectedPost.user_id === user.id`, dono do **post**):
+
+| Elemento | Antes | Agora |
+|---|---|---|
+| Botões Editar / Excluir | `!isViewingOtherProfile` | `isOwnSelectedPost` |
+| `isPostOwner` do `PostCommentsDialog` (moderação de comentários) | `!isViewingOtherProfile` | `isOwnSelectedPost` |
+| Chip da meta vinculada | `selectedPost.user_goal_id` | `... && selectedPost.user_id === profileUserId` |
+
+O guard do chip da meta existe porque `userGoals` são as metas **do dono do perfil**: a meta de um post alheio nunca estaria nessa lista e o chip exibiria "meta removida" indevidamente.
+
+Incentivos e comentários continuam liberados normalmente (é um post público como qualquer outro do feed).
 
 ---
 
@@ -364,6 +399,7 @@ Um segmento por flow do usuário; o segmento ativo enche conforme o tempo do flo
 | Perfil do usuário | `getUserProfileDb(userId)` |
 | Posts do usuário | `getUserPostsDb(userId)` |
 | Shots do usuário | `getUserShotsDb(userId)` |
+| Posts em que foi marcado (aba Marcações) | `getTaggedPostsDb(userId)` |
 | Estatísticas | `getUserStatsDb(userId)` |
 | Seguidores | `getFollowersDb(userId)` |
 | Seguindo | `getFollowingDb(userId)` |
@@ -406,6 +442,8 @@ Exibida entre o card de perfil e as tabs, **apenas quando o usuário tem metas**
 | Botão Mensagem | ❌ | ✅ |
 | Ver posts | ✅ | ✅ (respeitando privacidade) |
 | Ver shots | ✅ | ✅ |
+| Ver marcações | ✅ | ✅ (respeitando privacidade) |
+| Editar/excluir post aberto na aba Marcações | ❌ (o post é de outra pessoa) | ❌ |
 | Ver vitrine (se tem ofertas) | ✅ | ✅ |
 
 ---
@@ -432,6 +470,7 @@ O perfil não é uma tela que muda com frequência, então as queries de carrega
 | `getUserStatsDb` | `userStats:{userId}` | 30s |
 | `getUserPostsDb` | `userPosts:{userId}` | 30s |
 | `getUserShotsDb` | `userShots:{userId}` | 30s |
+| `getTaggedPostsDb` | `taggedPosts:{userId}` | 30s |
 | `getCommercialProfileDb` | `commercialProfile:{userId}` | 30s |
 | `getUserActiveStoriesDb` | `userActiveStories:{userId}` | 60s |
 | `isFollowingDb` | `isFollowing:{viewerId}:{followingId}` | 30s |
@@ -439,6 +478,7 @@ O perfil não é uma tela que muda com frequência, então as queries de carrega
 - Ao reentrar na tela dentro do TTL, os dados vêm da memória sem round-trip de rede. Após o TTL expirar (mas dentro de 24h), o valor persistido em `localStorage` é exibido imediatamente enquanto uma atualização roda em segundo plano — por isso a tela nunca fica "travada" esperando a rede em revisitas.
 - `updateUserProfileDb` chama `invalidateProfileCache(userId)` para garantir que uma edição de perfil não fique presa ao cache antigo.
 - **`deletePostDb` invalida `userPosts`, `post:` e `userStats:{userId}`; `updatePostDb` invalida `userPosts` e `post:`** — a invalidação roda ANTES do `return` (bug corrigido em 2026-07: as chamadas estavam depois do `try/catch` com `return`, código inalcançável, e o post excluído "ressuscitava" do cache ao reentrar no perfil).
+- **`taggedPosts` é invalidado por prefixo** (todos os usuários, não só o viewer) em `createPostDb` (quando o post nasce com marcações), `setPostTagsDb` (quando o diff de marcações não é vazio) e `deletePostDb` — a lista afetada é a de **quem foi marcado**, e o cliente que faz a escrita não sabe qual perfil está em cache.
 - **`getDisplayBadgeDb` (`displayBadge:{userId}`) e `getTotalCheckInsDb` (`totalCheckIns:{userId}`) são cacheados (30s)** — o `UserInsignias` monta no header e a cada post aberto no drawer; sem cache eram 2 queries extras por post visualizado. Invalidam em `createCheckInDb` (check-in novo) e `setSelectedBadgeDb` (troca de insígnia).
 
 ### Insígnia exibida (persistente)

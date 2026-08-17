@@ -7,19 +7,32 @@ import { hapticMedium } from "@/lib/haptics";
 import { cn } from "@/lib/utils";
 import { GLASS_TOP } from "@/lib/post-visuals";
 import { GLASS_SHEET_STYLE, GLASS_SHEET_PROPS } from "@/lib/glass-styles";
-import type { PostWorkoutSummary } from "@/lib/workout-summary-types";
+import type { PostWorkoutSummary, WorkoutSummarySet } from "@/lib/workout-summary-types";
+import {
+  cardioMinutesFromInput,
+  formatCardioKm,
+  formatCardioMinutes,
+  formatElevationPct,
+} from "@/lib/cardio-exercises";
 
 // Uma série vira um chip. Força: "40kg × 12" ou "12×" (sem carga). Cardio
 // (corrida/bike): a série codifica kg = MINUTOS e reps = KM, então o chip vira
 // "15min × 3km" — nunca "kg × reps" (ver isCardio em WorkoutSummaryExercise).
-function formatSet(set: { kg: number; reps: number }, isCardio: boolean): string {
+// O minuto passa por `cardioMinutesFromInput`: quem treinou 1h30 digitou "1,30"
+// no campo MIN, e sem a conversão o chip saía "1.3min".
+//
+// Esteira com inclinação anotada ganha um sufixo "⛰ 6%" no próprio chip — a
+// elevação é uma coluna da série (como MIN e KM), então pertence à série que a
+// registrou, e não ao exercício.
+function formatSet(set: WorkoutSummarySet, isCardio: boolean): string {
   if (isCardio) {
-    const min = set.kg; // cardio: kg encoda MIN
+    const min = cardioMinutesFromInput(set.kg); // cardio: kg encoda MIN
     const km = set.reps; // cardio: reps encoda KM
-    if (min > 0 && km > 0) return `${min}min × ${km}km`;
-    if (min > 0) return `${min}min`;
-    if (km > 0) return `${km}km`;
-    return "—";
+    const incline = set.elev ? ` · ⛰ ${formatElevationPct(set.elev)}` : "";
+    if (min > 0 && km > 0) return `${formatCardioMinutes(min)} × ${formatCardioKm(km)}km${incline}`;
+    if (min > 0) return `${formatCardioMinutes(min)}${incline}`;
+    if (km > 0) return `${formatCardioKm(km)}km${incline}`;
+    return incline ? incline.replace(" · ", "") : "—";
   }
   if (set.kg > 0 && set.reps > 0) return `${set.kg}kg × ${set.reps}`;
   if (set.kg > 0) return `${set.kg}kg`;

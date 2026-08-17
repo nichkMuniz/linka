@@ -8,7 +8,7 @@
 client/components/
 ├── ui/             ← Shadcn UI (não mexer)
 ├── layout/         ← Componentes estruturais globais (AppLayout, ShotsLayout, ThemeProvider, FloatingActionMenu)
-├── shared/         ← Componentes reutilizáveis em 2+ domínios (ImageWithFallback, AnimatedLoading, PostIncentiveButton, ExerciseImage, DietImage, EmojiPicker, InlineCropPreview, RouteMap, CheckInCalendarGrid, ReportDrawer, ReportProblemDrawer, IncomingMessageToast, ShotThumb)
+├── shared/         ← Componentes reutilizáveis em 2+ domínios (ImageWithFallback, AnimatedLoading, PostIncentiveButton, ExerciseImage, DietImage, EmojiPicker, InlineCropPreview, RouteMap, RunSplitsList, CheckInCalendarGrid, ReportDrawer, ReportProblemDrawer, IncomingMessageToast, ShotThumb)
 ├── modals/         ← Modais e Dialogs globais (PostCommentsDialog, PostLikesModal, FlowViewerModal, FlowCreationDialog)
 ├── post/           ← Componentes de post (PostCarousel)
 ├── shots/          ← Componentes de shots/flows (FlowCarousel)
@@ -306,6 +306,16 @@ Estático de propósito (sem pan/zoom): é um resumo pós-corrida, não um mapa 
 
 ---
 
+### RunSplitsList
+**Arquivo:** `client/components/shared/run-splits.tsx`
+**Usado em:** WorkoutSessionDialog (resumo pós-corrida GPS) e WorkoutSummaryOverlay (seção "Corrida ao ar livre" do resumo do treino) — ver `docs/05-metas.md`
+
+Lista das **parciais por km** de uma corrida GPS (`RunSplit[]` de `run-tracker.ts`), na linguagem dos apps de corrida: colunas **Km · Tempo · Ritmo (/km)**, uma linha por quilômetro. Cada linha tem uma **barra proporcional à velocidade do trecho** (`fastestPace / paceSecPerKm`, com piso de 28% para o km mais lento continuar visível), o **km mais rápido** ganha o selo ⚡ (calculado só entre os km **fechados** — um trecho parcial de 80 m não é comparável a um km inteiro) e o **trecho final incompleto** aparece com a distância percorrida (ex.: `0,4`) e o selo `parcial`.
+
+Props: `splits`, `accent` (cor das barras/destaques — quem chama passa a cor do contexto: azul da sessão ou o acento do template escolhido no resumo) e `maxRows` (0 = todas; > 0 mostra N linhas com "Ver todos/Mostrar menos"). Renderiza `null` sem parciais. Tokens de cor **fixos em branco translúcido**: as duas telas que o usam são shells "liquid glass" escuros independentemente do tema.
+
+---
+
 ### WorkoutDetailButton
 **Arquivo:** `client/components/shared/workout-detail-dialog.tsx`
 **Usado em:** Feed (`PostCard`), Perfil (viewer de post), PostDetail
@@ -316,14 +326,15 @@ Pill **"Ver treino"** + drawer glass **simplificado** de detalhe do treino, rend
 
 ### TagPeopleDrawer
 **Arquivo:** `client/components/shared/tag-people-drawer.tsx`
-**Usado em:** NewPost (Etapa 2 — "Marcar pessoas") e EditPostDrawer (seção "Pessoas marcadas" — abre por cima do drawer de edição)
+**Usado em:** NewPost (Etapa 2 — "Marcar pessoas"), EditPostDrawer (seção "Pessoas marcadas" — abre por cima do drawer de edição) e WorkoutSummaryOverlay (marcar quem treinou junto antes de publicar o resumo no feed)
 
 Drawer glass de **marcação de pessoas em um post** (estilo Instagram). Seleção controlada pelo pai via `selected: SearchUser[]` / `onChange`:
 - Ao abrir, lista quem o usuário segue (`getFollowingDb`); a busca filtra os seguidos **e** procura qualquer pessoa do app (`searchUsersDb`, debounce 300ms), mesclando sem duplicatas e excluindo o próprio usuário
 - Cada linha: `UserAvatar` + nickname + check circular (gradiente azul→roxo quando selecionado)
 - Limite exportado `MAX_TAGGED_PEOPLE = 10` — exceder mostra toast destrutivo
 - Botão "Concluir (n)" apenas fecha (a seleção já está no pai)
-- Props: `open`, `onOpenChange`, `selected`, `onChange`
+- Props: `open`, `onOpenChange`, `selected`, `onChange`, `wrapperClassName?`
+- **`wrapperClassName`** repassa classes ao **lift wrapper do portal** do `DrawerContent` (novo prop, 17/08/2026). É o único jeito de abrir o drawer por cima de um overlay de z alto: o wrapper tem `transform` (para subir com o teclado), o que faz dele um **stacking context** — subir o z-index do conteúdo/overlay só reordena *dentro* dele e o drawer inteiro continua pintando no `z-[310]` do wrapper, atrás do overlay. O resumo do treino (`zIndex 9500`) passa `z-[9600]`. Note que isso é diferente do caso de drawer-sobre-drawer (Comunidade), onde os dois estão no mesmo wrapper e `className="z-[330]" + overlayClassName="z-[320]"` resolvem.
 
 ---
 
@@ -349,6 +360,19 @@ Drawer glass de **envio de post/shot para amigos via mensagem privada** (estilo 
 - Props: `open`, `onOpenChange`, `content: SendableContent | null` (`{ kind: "post" | "shot", id, previewImage?, authorNickname? }`)
 - No chat da Comunidade, essas mensagens são renderizadas pelo **`SharedContentMessage`** (`client/components/community/shared-content-message.tsx`): card clicável com autor, thumbnail, descrição e "Ver post"/"Ver shot"; conteúdo apagado mostra "Conteúdo indisponível". Ver `docs/07-comunidade.md`
 - **`ShareDrawer`** ganhou a prop opcional `onSendToFriend?: () => void` — quando presente, exibe o botão "Amigos" (gradiente do app + `SendHorizontal`) como primeira opção da fileira de apps; o pai fecha o share e abre este drawer
+
+---
+
+### useFlowPrivateReply / FlowReplyMessage (2026-08-17)
+**Arquivos:** `client/hooks/use-flow-private-reply.ts`, `client/lib/flow-reply.ts`, `client/components/community/flow-reply-message.tsx`
+**Usado em:** os **dois** viewers de flow — a tela `/flows/:storyId` (`client/pages/FlowViewer.tsx`) e o modal aberto pelo perfil (`client/components/modals/flow-viewer-modal.tsx`) — e o chat da Comunidade
+
+Responder um flow **em privado**: o texto digitado na doca do viewer, em vez de virar comentário público (balão flutuante), vai como **mensagem direta para o autor**, com a miniatura do flow respondido na conversa.
+
+- **Hook `useFlowPrivateReply(story, isOwner)`** → `{ isSendingPrivateReply, sendPrivateReply(text) }`. Concentra validação (teto de 900 chars — `sendMessageDb` rejeita acima de 1000 e o payload ainda leva prefixo + id), haptic, toasts de sucesso/erro e `reportHandledError`. Devolve `true` quando gravou, e só então o chamador limpa o campo. Existe como hook porque as duas docas são cópias uma da outra: a lógica não podia nascer duplicada uma terceira vez.
+- **Doca:** botão circular de vidro com `MessageCircle` **antes** do avião de envio (que segue sendo o comentário público). Só aparece em flow de outra pessoa (`!isOwner`). Como os dois botões agem sobre o mesmo campo, uma linha de dica (`flow_reply_hint`) surge assim que há texto digitado.
+- **Protocolo:** `[flowreply]:<flowId>|<texto>` (`buildFlowReplyPayload`/`parseFlowReply` em `client/lib/flow-reply.ts`), na mesma família de `[audio]:`/`[image]:`/`[post]:`/`[shot]:`. **Sem migração** — mas o push usa a notificação **tipo 17** ("respondeu ao seu flow"), então **exige redeploy da `send-push-notification`**. `sendMessageDb` ganhou um 3º parâmetro opcional (`SendMessageContext`: `notificationType` + `flowId`) só para escolher o texto do push; a mensagem em si continua uma linha normal em `messages`.
+- **`FlowReplyMessage`** renderiza a bolha no chat: rótulo de contexto, miniatura vertical 68×104 e o texto. Ver `docs/07-comunidade.md` para os estados (flow apagado, flow expirado) e o memo de sessão que evita refetch.
 
 ---
 
@@ -587,6 +611,14 @@ Cliente Supabase configurado:
 Catálogos locais de exercícios e refeições:
 - `fetchExerciseCatalog()` — retorna lista de exercícios com imagem, nome e grupo muscular
 - `fetchMealCatalog()` — retorna lista de refeições com imagem, nome e calorias
+
+---
+
+### admin.ts / clipboard.ts (2026-08-17)
+**Arquivos:** `client/lib/admin.ts`, `client/lib/clipboard.ts`
+
+- `admin.ts` — `ADMIN_USER_IDS` (saiu de `App.tsx` para poder ser usado fora da guarda de rota), `isAdminUser(userId)` e `anatomySqlSnippet(...)`. **Guarda de UI, não autorização**: quem autoriza escrita é `app_admins` no servidor (`docs/18-admin.md`). Consumido pelo `RequireAdmin` e pelo aviso de anatomia faltante em `ExerciseAnatomy`.
+- `clipboard.ts` — `copyToClipboard(text)` com fallback `<textarea>` + `execCommand` para o WKWebView (onde `navigator.clipboard` falha sem gesto/contexto seguro). Estava duplicado dentro de `Store.tsx`; agora é fonte única.
 
 ---
 

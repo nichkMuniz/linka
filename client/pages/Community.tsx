@@ -131,6 +131,8 @@ import { UserInsignias } from "@/components/profile/user-insignias";
 import { ImageWithFallback } from "@/components/shared/image-with-fallback";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { SharedContentMessage } from "@/components/community/shared-content-message";
+import { FlowReplyMessage } from "@/components/community/flow-reply-message";
+import { parseFlowReply } from "@/lib/flow-reply";
 import { ChatImageMessage, ChatAudioMessage } from "@/components/community/chat-media";
 import { RankingTab } from "@/components/community/ranking-tab";
 import { subscribeKeyboardHeight } from "@/lib/keyboard";
@@ -1532,6 +1534,7 @@ export default function Community() {
               const replyMatch = message.text.match(/^↩ (.+?)\n\n([\s\S]*)$/);
               const replyQuote = replyMatch ? replyMatch[1] : null;
               const mainText = replyMatch ? replyMatch[2] : message.text;
+              const flowReply = parseFlowReply(mainText);
               return (
                 <div
                   key={message.id}
@@ -1553,7 +1556,13 @@ export default function Community() {
                           <p className="truncate">{specialMessageLabel(replyQuote, t) ?? replyQuote}</p>
                         </div>
                       )}
-                      {mainText.startsWith("[post]:") ? (
+                      {flowReply ? (
+                        <FlowReplyMessage
+                          flowId={flowReply.flowId}
+                          text={flowReply.text}
+                          isOwn={isOwn}
+                        />
+                      ) : mainText.startsWith("[post]:") ? (
                         <SharedContentMessage kind="post" contentId={mainText.replace("[post]:", "").trim()} />
                       ) : mainText.startsWith("[shot]:") ? (
                         <SharedContentMessage kind="shot" contentId={mainText.replace("[shot]:", "").trim()} />

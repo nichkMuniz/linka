@@ -1,5 +1,6 @@
 import type { TranslationKey } from "@/lib/i18n";
 import type { DuelScoringType, MessageWithUser } from "@/lib/ritmofit-db";
+import { parseFlowReply } from "@/lib/flow-reply";
 
 // Helpers e constantes puros da tela de Comunidade, extraídos de `Community.tsx`
 // para reduzir o tamanho do arquivo monolítico. Nenhum estado/efeito aqui — só
@@ -25,13 +26,21 @@ export function sameMessageList(a: MessageWithUser[], b: MessageWithUser[]): boo
 }
 
 // Mensagens especiais são codificadas com prefixo no texto ([audio]:, [image]:,
-// [post]:, [shot]:). Em previews (lista de conversas, quote de reply, banner de
-// resposta) exibimos um rótulo curto em vez do texto bruto.
+// [post]:, [shot]:, [flowreply]:). Em previews (lista de conversas, quote de reply,
+// banner de resposta) exibimos um rótulo curto em vez do texto bruto.
 export function specialMessageLabel(
   text: string | null | undefined,
   t: (key: TranslationKey) => string,
 ): string | null {
   if (!text) return null;
+  // Resposta a flow: o preview mostra o TEXTO digitado (é o que interessa na lista
+  // de conversas), com o ícone sinalizando de onde veio. Só cai no rótulo genérico
+  // se a resposta vier vazia.
+  const flowReply = parseFlowReply(text);
+  if (flowReply) {
+    const body = flowReply.text.trim();
+    return `🎞️ ${body || t("community_msg_flow_reply_label")}`;
+  }
   if (text.startsWith("[audio]:")) return `🎤 ${t("community_msg_audio_label")}`;
   if (text.startsWith("[image]:")) return `🖼️ ${t("community_msg_image_label")}`;
   if (text.startsWith("[post]:")) return `📤 ${t("community_msg_post_label")}`;

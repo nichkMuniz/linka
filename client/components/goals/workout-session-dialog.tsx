@@ -6,9 +6,10 @@ import type { TranslationKey } from "@/lib/i18n";
 import {
   subscribeRun, getRunState, startRun, pauseRun, resumeRun, stopRun,
   openLocationSettings, formatRunTime, formatRunPace,
-  type RunState, type RunPoint, type StartRunLabels,
+  type RunState, type RunPoint, type RunSplit, type StartRunLabels,
 } from "@/lib/run-tracker";
 import { RouteMap } from "@/components/shared/route-map";
+import { RunSplitsList } from "@/components/shared/run-splits";
 import { ExerciseImage } from "@/components/shared/exercise-image";
 import { ExerciseAnatomy } from "@/components/shared/exercise-anatomy";
 import { TechniqueInfoOverlay } from "@/components/goals/technique-info-overlay";
@@ -23,7 +24,11 @@ import {
 import { getNetworkStatus } from "@/lib/network-status";
 import { subscribeKeyboardHeight, getKeyboardHeight } from "@/lib/keyboard";
 import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
-import { isCardioExercise } from "@/lib/cardio-exercises";
+import {
+  isCardioExercise,
+  isTreadmillExercise,
+  parseElevationPct,
+} from "@/lib/cardio-exercises";
 import { beatsE1rm, estimateOneRepMax, roundE1rm } from "@/lib/one-rep-max";
 import { toast } from "@/components/ui/use-toast";
 import {
@@ -81,10 +86,15 @@ export type WorkoutSessionSummary = {
     photo: string | null;
     // Uma entrada por série concluída, em ordem — carga (kg) e repetições de cada
     // série. Alimenta o detalhe "kg × reps" do resumo compartilhado no feed.
-    // Para cardio (isCardio), kg = MINUTOS e reps = KM.
-    sets: Array<{ kg: number; reps: number }>;
+    // Para cardio (isCardio), kg = MINUTOS e reps = KM. `elev` (inclinação da
+    // esteira, %) só vem nas séries em que foi informada — é a única coluna
+    // opcional da tabela.
+    sets: Array<{ kg: number; reps: number; elev?: number }>;
     // Cardio (corrida/bike) → o detalhe deve mostrar min×km, não kg×reps.
     isCardio: boolean;
+    // MAIOR inclinação entre as séries, para quem mostra um número só por
+    // exercício (card gerado e listas). `null` = nenhuma série tinha elevação.
+    elevationPct?: number | null;
   }>;
   prExercises: Array<{
     name: string;
@@ -113,6 +123,8 @@ export type WorkoutSessionSummary = {
     elapsedMs: number;
     paceSecPerKm: number | null;
     path: RunPoint[][];
+    /** tempo/ritmo de cada km percorrido (o último pode ser parcial) */
+    splits: RunSplit[];
   } | null;
 };
 
@@ -1076,7 +1088,7 @@ function ExerciseDetailOverlay({
             exercício com mais frequência (o "i" no card, durante o treino),
             então deixá-la só no wizard escondia a feature. */}
         <div style={{ width: "100%", paddingBottom: 8 }}>
-          <ExerciseAnatomy workoutId={workoutId} />
+          <ExerciseAnatomy workoutId={workoutId} workoutName={name} />
         </div>
         </>
         )}
@@ -1161,13 +1173,8 @@ export function WorkoutSessionDialog({
   // só espelhamos o estado para renderizar o painel.
   const [runState, setRunState] = React.useState<RunState>(getRunState);
   React.useEffect(() => subscribeRun(setRunState), []);
-  // Resumo pós-corrida (stats + mapa do trajeto) — overlay estilo Strava
-  const [runSummary, setRunSummary] = React.useState<{
-    distanceKm: number;
-    elapsedMs: number;
-    paceSecPerKm: number | null;
-    path: RunPoint[][];
-  } | null>(null);
+  // Resumo pós-corrida (stats + parciais por km + mapa do trajeto)
+  const [runSummary, setRunSummary] = React.useState<WorkoutSessionSummary["run"]>(null);
   // Última corrida concluída na sessão — sobrevive ao fechar do overlay de
   // resumo da corrida e segue no WorkoutSessionSummary ao finalizar o treino
   // (vira o slide de mapa compartilhável no resumo do treino).
@@ -1874,17 +1881,21 @@ export function WorkoutSessionDialog({
   const swipeStartY = React.useRef(0);
   const swipeHorizontal = React.useRef(false); // evita interferir no scroll vertical
 
-  // Célula (kg/reps/min/km) sendo digitada — guarda o TEXTO cru enquanto o campo
+  // Célula (kg/reps/min/km/elev) sendo digitada — guarda o TEXTO cru enquanto o campo
   // tem foco. Sem isso, um input controlado por número descartaria o "." no meio
   // da digitação ("1." vira 1 e o ponto some), impossibilitando casas decimais —
   // crítico para o KM do cardio. Só uma célula é editada por vez (foco único).
   // No blur, o texto cru é descartado e o valor numérico canônico volta a mandar.
   const [editingCell, setEditingCell] = React.useState<{ key: string; text: string } | null>(null);
+  // Colunas editáveis de uma série. `elev` (inclinação da esteira, %) só existe
+  // na tabela dos exercícios de esteira e, ao contrário de kg/reps, nunca é
+  // exigida para concluir a série — ver `canCompleteSeries`.
+  type SeriesField = "kg" | "reps" | "elev";
   // Normaliza a digitação: vírgula→ponto, só dígitos e um único ponto decimal.
   const sanitizeDecimalInput = (raw: string) =>
     raw.replace(",", ".").replace(/[^0-9.]/g, "").replace(/(\..*)\./g, "$1");
   const handleSeriesInput = (
-    workoutId: string, index: number, field: "kg" | "reps", raw: string, isCardio: boolean,
+    workoutId: string, index: number, field: SeriesField, raw: string, isCardio: boolean,
   ) => {
     const cleaned = sanitizeDecimalInput(raw);
     setEditingCell({ key: `${workoutId}:${index}:${field}`, text: cleaned });
@@ -2037,6 +2048,7 @@ export function WorkoutSessionDialog({
       elapsedMs: result.elapsedMs,
       paceSecPerKm: result.paceSecPerKm,
       path: result.path,
+      splits: result.splits,
     };
     setRunSummary(summary);
     lastRunRef.current = summary;
@@ -2181,7 +2193,9 @@ export function WorkoutSessionDialog({
         ...prev,
         [workoutId]: [
           ...list,
-          { series: list.length + 1, kg: last?.kg ?? 0, reps: last?.reps ?? 0, completed: false },
+          // `elev` acompanha kg/reps: quem já anotou a inclinação raramente a
+          // muda na série seguinte, e é sempre editável.
+          { series: list.length + 1, kg: last?.kg ?? 0, reps: last?.reps ?? 0, elev: last?.elev, completed: false },
         ],
       };
     });
@@ -2297,7 +2311,7 @@ export function WorkoutSessionDialog({
   };
 
   const updateSeries = (
-    workoutId: string, index: number, field: "kg" | "reps", value: number, isCardio: boolean,
+    workoutId: string, index: number, field: SeriesField, value: number, isCardio: boolean,
   ) => {
     setWorkoutSeries((prev) => ({
       ...prev,
@@ -2305,7 +2319,10 @@ export function WorkoutSessionDialog({
         i === index ? { ...s, [field]: value } : s,
       ),
     }));
-    // Limpa o destaque de erro assim que a série passa a ter os dados necessários
+    // Limpa o destaque de erro assim que a série passa a ter os dados necessários.
+    // A elevação não entra nessa conta (não é exigida para concluir), então
+    // digitar nela nunca tira nem põe o destaque de erro da linha.
+    if (field === "elev") return;
     setInvalidSeries((prev) => {
       const key = seriesKey(workoutId, index);
       if (!prev.has(key)) return prev;
@@ -2555,8 +2572,21 @@ export function WorkoutSessionDialog({
           bestKg,
           muscleGroup: row?.muscle_group ?? null,
           photo: row?.workoutPhoto ?? null,
-          sets: completed.map((s) => ({ kg: s.kg || 0, reps: s.reps || 0 })),
+          // `elev` só é anexado quando a série tem inclinação válida — assim o
+          // payload de todo exercício que não é esteira sai idêntico ao de antes.
+          sets: completed.map((s) => {
+            const base = { kg: s.kg || 0, reps: s.reps || 0 };
+            const elev = parseElevationPct(s.elev);
+            return elev === null ? base : { ...base, elev };
+          }),
           isCardio,
+          // Um número por exercício para o card e as listas (que não têm espaço
+          // para detalhar série a série): a MAIOR inclinação registrada, que é a
+          // que descreve o esforço do treino. `null` quando ninguém anotou.
+          elevationPct: completed.reduce<number | null>((max, s) => {
+            const pct = parseElevationPct(s.elev);
+            return pct !== null && pct > (max ?? 0) ? pct : max;
+          }, null),
         });
 
         const exerciseName = row?.workoutName ?? workoutId;
@@ -3423,6 +3453,17 @@ export function WorkoutSessionDialog({
           // Corrida ao Ar Livre: modo GPS estilo Strava — a tabela de séries
           // (MIN×KM manual) fica oculta; quem registra é o painel de corrida.
           const isRunExercise = isOutdoorRun(item.workoutName);
+          // Esteira: a tabela ganha uma TERCEIRA coluna de dado — ELEV (%) —,
+          // logo à direita do KM. `isCardio` junto porque a coluna só faz
+          // sentido no contrato MIN × KM: um exercício fora do grupo "Cardio"
+          // com "esteira" no nome registra KG × REPS e não teria o que inclinar.
+          const hasElevationCol = isCardio && isTreadmillExercise(item.workoutName);
+          // Com 6 colunas o espaço é apertado: as células de dado encolhem e a
+          // coluna ANTERIOR (texto, elástica) absorve o resto. Sem elevação, a
+          // tabela fica exatamente como sempre foi.
+          const seriesGridCols = hasElevationCol
+            ? "32px minmax(0,1fr) 54px 54px 54px 40px"
+            : "40px 1fr 68px 68px 44px";
           const noteOpen = noteOpenIds.has(item.workout_id);
           const note = workoutExerciseNotes[item.workout_id] ?? "";
           // Exercício marcado como "máquina zerada" → borda/realce dourado.
@@ -3986,10 +4027,18 @@ export function WorkoutSessionDialog({
                   {/* Column headers */}
                   <div style={{
                     display: "grid",
-                    gridTemplateColumns: "40px 1fr 68px 68px 44px",
+                    gridTemplateColumns: seriesGridCols,
                     padding: "8px 12px 4px", gap: 4,
                   }}>
-                    {["#", "ANTERIOR", isCardio ? "MIN" : "KG", isCardio ? "KM" : "REPS", ""].map((h, i) => (
+                    {[
+                      "#",
+                      t("goals_col_previous"),
+                      isCardio ? "MIN" : "KG",
+                      isCardio ? "KM" : "REPS",
+                      // Só a esteira tem a 5ª coluna (ver hasElevationCol).
+                      ...(hasElevationCol ? [t("goals_col_elevation")] : []),
+                      "",
+                    ].map((h, i) => (
                       <div key={i} style={{
                         fontSize: 10, fontWeight: 700, letterSpacing: 0.7,
                         color: MUTED_FG, textAlign: "center",
@@ -4060,7 +4109,7 @@ export function WorkoutSessionDialog({
                           onTouchEnd={(e) => onSeriesTouchEnd(e, sKey)}
                           style={{
                             display: "grid",
-                            gridTemplateColumns: "40px 1fr 68px 68px 44px",
+                            gridTemplateColumns: seriesGridCols,
                             alignItems: "center", gap: 4,
                             // Vidro translúcido — o botão de apagar atrás só aparece
                             // durante o swipe (opacity gated), então nada vaza aqui.
@@ -4192,6 +4241,37 @@ export function WorkoutSessionDialog({
                               fontFamily: "'Inter', system-ui",
                             }}
                           />
+
+                          {/* ELEV (só esteira) — inclinação em %, à direita do KM.
+                              É a única célula OPCIONAL da linha: nunca fica em
+                              estado de erro e não trava o check, porque quem
+                              corre no plano não tem nada a informar aqui. */}
+                          {hasElevationCol && (
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              aria-label={`${item.workoutName} — ${t("goals_col_elevation")}`}
+                              value={
+                                editingCell?.key === `${item.workout_id}:${idx}:elev`
+                                  ? editingCell.text
+                                  : (row.elev || "")
+                              }
+                              placeholder="—"
+                              onChange={(e) => handleSeriesInput(item.workout_id, idx, "elev", e.target.value, isCardio)}
+                              onBlur={() => setEditingCell(null)}
+                              style={{
+                                background: SURFACE,
+                                border: "1.5px solid transparent",
+                                borderRadius: 10,
+                                height: 40, textAlign: "center",
+                                fontWeight: 700, fontSize: 16,
+                                color: FG, width: "100%", padding: "0 4px",
+                                boxSizing: "border-box" as const,
+                                WebkitAppearance: "none" as any,
+                                fontFamily: "'Inter', system-ui",
+                              }}
+                            />
+                          )}
 
                           {/* Check */}
                           <div style={{ display: "flex", justifyContent: "center" }}>
@@ -5139,6 +5219,23 @@ export function WorkoutSessionDialog({
                 ))}
               </div>
 
+              {/* Parciais por km — tempo e ritmo de cada quilômetro */}
+              {runSummary.splits.length > 0 && (
+                <>
+                  <div style={{
+                    fontSize: 11, fontWeight: 700, letterSpacing: 0.7,
+                    textTransform: "uppercase", color: MUTED_FG, marginBottom: 8,
+                  }}>
+                    {t("goals_run_splits_title")}
+                  </div>
+                  {/* flexShrink:0 — o container é uma coluna flex rolável e sem
+                      isso a lista/mapa seriam comprimidos em vez de rolar. */}
+                  <div style={{ marginBottom: 16, flexShrink: 0 }}>
+                    <RunSplitsList splits={runSummary.splits} accent={PRIMARY} />
+                  </div>
+                </>
+              )}
+
               {/* Mapa do trajeto */}
               <div style={{
                 fontSize: 11, fontWeight: 700, letterSpacing: 0.7,
@@ -5146,11 +5243,13 @@ export function WorkoutSessionDialog({
               }}>
                 {t("goals_run_map_title")}
               </div>
-              <RouteMap
-                path={runSummary.path}
-                height={260}
-                emptyLabel={t("goals_run_no_route")}
-              />
+              <div style={{ flexShrink: 0 }}>
+                <RouteMap
+                  path={runSummary.path}
+                  height={260}
+                  emptyLabel={t("goals_run_no_route")}
+                />
+              </div>
             </div>
 
             {/* Fechar */}

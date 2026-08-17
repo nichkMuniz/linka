@@ -1,12 +1,15 @@
 import * as React from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, UserRoundPlus, X } from "lucide-react";
 import { useLanguage } from "@/lib/language-context";
 import { toast } from "@/components/ui/use-toast";
 import {
   createPostDb,
   addGroupCheckInDb,
   uploadWorkoutImageDb,
+  type SearchUser,
 } from "@/lib/ritmofit-db";
+import { TagPeopleDrawer } from "@/components/shared/tag-people-drawer";
+import { UserAvatar } from "@/components/shared/user-avatar";
 import {
   InlineCropPreview,
   type CropTransform,
@@ -14,17 +17,21 @@ import {
   applyTransformToBlob,
 } from "@/components/shared/inline-crop-preview";
 import { renderRouteMapImage } from "@/components/shared/route-map";
+import { RunSplitsList } from "@/components/shared/run-splits";
 import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
 import { addNetworkStatusListener, getNetworkStatus } from "@/lib/network-status";
-import { formatRunTime, formatRunPace, type RunPoint } from "@/lib/run-tracker";
+import { formatRunTime, formatRunPace, type RunPoint, type RunSplit } from "@/lib/run-tracker";
 import type { PostWorkoutSummary } from "@/lib/workout-summary-types";
-import type { CardioKind } from "@/lib/cardio-exercises";
+import {
+  formatCardioKm,
+  formatCardioMinutes,
+  formatElevationPct,
+  type CardioKind,
+} from "@/lib/cardio-exercises";
 import {
   CARDIO_KIND_META,
   drawCardioCanvas,
-  formatCardioKm,
   formatCardioLine,
-  formatCardioMinutes,
   getCardioBreakdown,
   sumCardioSets,
   type CardioGroup,
@@ -74,9 +81,13 @@ export type WorkoutSummaryData = {
     // Carga (kg) e repetições de cada série concluída, em ordem. Opcional: resumos
     // persistidos antes desta feature (routines.last_summary) não têm este campo.
     // Para cardio (isCardio), kg = MINUTOS e reps = KM.
-    sets?: Array<{ kg: number; reps: number }>;
+    // `elev` = inclinação (%) da esteira naquela série; só vem quando informada.
+    sets?: Array<{ kg: number; reps: number; elev?: number }>;
     // Cardio (corrida/bike) → detalhe deve mostrar min×km. Ausente = não-cardio.
     isCardio?: boolean;
+    // MAIOR inclinação entre as séries — o número único do card e das listas,
+    // que não têm espaço para detalhar série a série. Ausente/null = nenhuma.
+    elevationPct?: number | null;
   }>;
   prExercises: Array<{
     name: string;
@@ -104,6 +115,12 @@ export type WorkoutSummaryData = {
     elapsedMs: number;
     paceSecPerKm: number | null;
     path: RunPoint[][];
+    /**
+     * Tempo e ritmo de cada km percorrido (o último pode ser parcial) — vira a
+     * seção "Parciais por km" do resumo. Opcional: corridas registradas antes
+     * desta feature e o fluxo de duelo não têm este campo.
+     */
+    splits?: RunSplit[];
   } | null;
 };
 
@@ -122,6 +139,36 @@ function formatVolumeKg(kg: number): string {
     return `${(kg / 1000).toFixed(1).replace(".", ",")} t`;
   }
   return `${kg}kg`;
+}
+
+/**
+ * Soma do que a pessoa REGISTROU nos exercícios de cardio da sessão: minutos
+ * (campo MIN) e km (campo KM). São números digitados por ela — diferentes do
+ * `durationSecs`, que é o cronômetro da sessão inteira e inclui preparação,
+ * descanso e qualquer tempo com o treino aberto sem estar treinando.
+ */
+function getSessionCardioTotals(
+  exercises: WorkoutSummaryData["completedExercises"],
+): { minutes: number; km: number } {
+  return exercises.reduce(
+    (acc, ex) => {
+      if (!ex.isCardio) return acc;
+      const { minutes, km } = sumCardioSets(ex.sets);
+      return { minutes: acc.minutes + minutes, km: acc.km + km };
+    },
+    { minutes: 0, km: 0 },
+  );
+}
+
+/**
+ * Sessão 100% cardio. Importa porque "séries" não é um dado que a pessoa
+ * informa em cardio — ela registra MINUTOS e KM —, então o número de séries não
+ * deve ocupar um painel do card quando não há mais nada de força na sessão.
+ * Resumos persistidos antes do campo `isCardio` caem no `false` (comportamento
+ * antigo preservado).
+ */
+function isCardioOnlySession(exercises: WorkoutSummaryData["completedExercises"]): boolean {
+  return exercises.length > 0 && exercises.every((ex) => ex.isCardio);
 }
 
 // ─── Auto-generated description ─────────────────────────────────────────────
@@ -233,8 +280,14 @@ function buildPostWorkoutSummary(
       muscleGroup: ex.muscleGroup,
       bestKg: ex.bestKg,
       photo: ex.photo ?? null,
-      sets: (ex.sets ?? []).map((s) => ({ kg: s.kg || 0, reps: s.reps || 0 })),
+      // `elev` só é anexado quando existe, para não engordar o jsonb de todo
+      // treino de força com um campo nulo por série.
+      sets: (ex.sets ?? []).map((s) => {
+        const base = { kg: s.kg || 0, reps: s.reps || 0 };
+        return s.elev ? { ...base, elev: s.elev } : base;
+      }),
       isCardio: ex.isCardio ?? false,
+      elevationPct: ex.elevationPct ?? null,
     })),
     prExercises: data.prExercises.length > 0 ? data.prExercises : undefined,
     machinedExercises: data.machinedExercises.length > 0 ? data.machinedExercises : undefined,
@@ -299,9 +352,24 @@ function drawCanvasStats(
   ctx: CanvasRenderingContext2D, W: number, y: number, data: WorkoutSummaryData,
   accent: string,
 ): number {
+  const { minutes: cardioMin, km: cardioKm } = getSessionCardioTotals(data.completedExercises);
+  const cardioOnly = isCardioOnlySession(data.completedExercises);
+  // Treino só de cardio: o tempo em destaque é o que a pessoa registrou no
+  // campo MIN, não o cronômetro da sessão (que conta desde "iniciar treino" e
+  // inclui preparação e pausas). Num treino misto a duração da sessão continua
+  // valendo — o tempo de cada cardio aparece na lista de exercícios.
+  const showCardioTime = cardioOnly && cardioMin > 0;
+  // Com distância registrada num treino só de cardio, o painel de séries dá
+  // lugar ao de distância: km é o que a pessoa digitou, série não. Cardio sem
+  // km (pular corda, esteira anotada só em minutos) mantém séries — senão o
+  // card ficaria com um painel solitário.
+  const hideSeries = cardioOnly && cardioKm > 0;
   return drawCanvasStatPanels(ctx, W, y, [
-    { l: "DURACAO", v: formatSummaryDuration(data.durationSecs) },
-    { l: "SERIES", v: String(data.totalSeries) },
+    showCardioTime
+      ? { l: "TEMPO", v: formatCardioMinutes(cardioMin) }
+      : { l: "DURACAO", v: formatSummaryDuration(data.durationSecs) },
+    ...(cardioKm > 0 ? [{ l: "DISTANCIA", v: `${formatCardioKm(cardioKm)} km` }] : []),
+    ...(hideSeries ? [] : [{ l: "SERIES", v: String(data.totalSeries) }]),
     ...(data.totalVolume > 0 ? [{ l: "VOLUME", v: formatVolumeKg(data.totalVolume) }] : []),
   ], accent);
 }
@@ -330,6 +398,8 @@ function drawCanvasExercises(
       ? [
           cardio.minutes > 0 ? formatCardioMinutes(cardio.minutes) : null,
           cardio.km > 0 ? `${formatCardioKm(cardio.km)}km` : null,
+          // Inclinação da esteira, quando informada.
+          ex.elevationPct ? `⛰ ${formatElevationPct(ex.elevationPct)}` : null,
         ].filter(Boolean).join("  ·  ")
       : "";
     const suffix = cardioText
@@ -912,13 +982,25 @@ function drawNumbersCanvas(
   ctx.textAlign = "center";
   ctx.fillText("SEU TREINO EM NUMEROS", W / 2, 104);
 
+  // Cardio fica de fora da contagem de repetições: nesses exercícios `reps` é a
+  // DISTÂNCIA em km (contrato kg=min/reps=km), e somá-la aqui estampava os km
+  // percorridos no tile de "REPETICOES".
   const totalReps = data.completedExercises.reduce(
-    (sum, ex) => sum + (ex.sets ?? []).reduce((s, st) => s + (st.reps || 0), 0),
+    (sum, ex) =>
+      sum + (ex.isCardio ? 0 : (ex.sets ?? []).reduce((s, st) => s + (st.reps || 0), 0)),
     0,
   );
+  const { minutes: cardioMin, km: cardioKm } = getSessionCardioTotals(data.completedExercises);
+  const cardioOnly = isCardioOnlySession(data.completedExercises);
   const tiles: Array<{ emoji: string; value: string; label: string }> = [
-    { emoji: "⏱", value: formatSummaryDuration(data.durationSecs), label: "TEMPO ATIVO" },
-    { emoji: "💪", value: String(data.totalSeries), label: "SERIES" },
+    // Mesma regra de cardio dos painéis de stat (ver drawCanvasStats): tempo
+    // registrado no lugar do cronômetro da sessão, distância no lugar de séries.
+    cardioOnly && cardioMin > 0
+      ? { emoji: "⏱", value: formatCardioMinutes(cardioMin), label: "TEMPO" }
+      : { emoji: "⏱", value: formatSummaryDuration(data.durationSecs), label: "TEMPO ATIVO" },
+    cardioOnly && cardioKm > 0
+      ? { emoji: "📍", value: `${formatCardioKm(cardioKm)} km`, label: "DISTANCIA" }
+      : { emoji: "💪", value: String(data.totalSeries), label: "SERIES" },
     totalReps > 0
       ? { emoji: "💥", value: fmtInt(totalReps), label: "REPETICOES" }
       : { emoji: "🎯", value: String(data.completedExercises.length), label: "EXERCICIOS" },
@@ -1091,6 +1173,11 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
   );
   const [showGroupPicker, setShowGroupPicker] = React.useState(false);
   const [showAllExercises, setShowAllExercises] = React.useState(false);
+  // Marcação de pessoas — mesmo drawer do NewPost (quem treinou junto costuma
+  // aparecer na foto). Vale para o post do FEED; o check-in de duelo não tem
+  // marcação (é check-in, não post).
+  const [taggedUsers, setTaggedUsers] = React.useState<SearchUser[]>([]);
+  const [tagPeopleOpen, setTagPeopleOpen] = React.useState(false);
   // Modalidades de cardio feitas na sessão (corrida na esteira e ao ar livre
   // caem no mesmo grupo), ordenadas da mais longa para a mais curta. Cada uma
   // vira um chip e um card compartilhável próprio.
@@ -1098,6 +1185,13 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
     () => getCardioBreakdown(data.completedExercises),
     [data.completedExercises],
   );
+  // Minutos/km registrados no cardio da sessão + regras de exibição — a fileira
+  // de stats da tela segue exatamente o mesmo critério do card gerado
+  // (drawCanvasStats), para os dois nunca discordarem.
+  const sessionCardio = getSessionCardioTotals(data.completedExercises);
+  const cardioOnlySession = isCardioOnlySession(data.completedExercises);
+  const showCardioTimeStat = cardioOnlySession && sessionCardio.minutes > 0;
+  const hideSeriesStat = cardioOnlySession && sessionCardio.km > 0;
   // Template do card gerado, escolhido no seletor de estilo. "auto" = variante
   // clássica (padrão/PR/máquina). comparisonIndex alterna entre as equivalências
   // válidas (elefante, caminhonete...) ao tocar de novo no chip de Equivalência.
@@ -1311,6 +1405,7 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
         description.trim() || t("goals_summary_share_default_desc"),
         data.userGoalId ?? null,
         buildPostWorkoutSummary(data, canvasUrl),
+        taggedUsers.map((u) => u.id),
       );
       toast({ title: t("goals_summary_shared_feed"), description: t("goals_summary_shared_feed_desc") });
       // Leva o usuário ao feed para ver a publicação recém-criada (fallback: só fecha).
@@ -1852,11 +1947,16 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
         </div>
       )}
 
-      {/* ── Stats row ── */}
+      {/* ── Stats row ── (mesma regra de cardio do card gerado: ver drawCanvasStats) */}
       <div style={{ display: "flex", gap: 8, padding: "12px 16px 4px" }}>
         {[
-          { label: t("goals_summary_duration"), value: formatSummaryDuration(data.durationSecs) },
-          { label: t("goals_summary_sets"), value: String(data.totalSeries) },
+          showCardioTimeStat
+            ? { label: t("goals_run_time"), value: formatCardioMinutes(sessionCardio.minutes) }
+            : { label: t("goals_summary_duration"), value: formatSummaryDuration(data.durationSecs) },
+          ...(sessionCardio.km > 0
+            ? [{ label: t("goals_run_distance"), value: `${formatCardioKm(sessionCardio.km)} km` }]
+            : []),
+          ...(hideSeriesStat ? [] : [{ label: t("goals_summary_sets"), value: String(data.totalSeries) }]),
           ...(data.totalVolume > 0 ? [{ label: t("goals_summary_volume"), value: formatVolumeKg(data.totalVolume) }] : []),
         ].map(({ label, value }) => (
           <div key={label} style={{
@@ -1875,6 +1975,66 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
           </div>
         ))}
       </div>
+
+      {/* ── Corrida GPS: stats + parciais por km ── */}
+      {data.run && data.run.distanceKm > 0 && (
+        <div style={{ padding: "12px 16px 0" }}>
+          <div style={{
+            fontSize: 12, fontWeight: 700, color: MUTED,
+            textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10,
+          }}>
+            🏃 {t("goals_run_section_title")}
+          </div>
+
+          {/* Distância / tempo / ritmo médio da corrida */}
+          <div style={{
+            display: "flex", padding: "12px 8px",
+            background: CARD, borderRadius: 18, border: `1px solid ${BORDER}`,
+            backdropFilter: GLASS_BLUR, WebkitBackdropFilter: GLASS_BLUR,
+            boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08)",
+          }}>
+            {[
+              { label: t("goals_run_distance"), value: data.run.distanceKm.toFixed(2), unit: "km" },
+              { label: t("goals_run_time"), value: formatRunTime(data.run.elapsedMs), unit: null },
+              { label: t("goals_run_pace"), value: formatRunPace(data.run.paceSecPerKm), unit: "/km" },
+            ].map(({ label, value, unit }) => (
+              <div key={label} style={{ flex: 1, textAlign: "center" }}>
+                <div style={{
+                  fontSize: 20, fontWeight: 800, color: FG,
+                  fontVariantNumeric: "tabular-nums", lineHeight: 1.1,
+                }}>
+                  {value}
+                  {unit && (
+                    <span style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginLeft: 3 }}>
+                      {unit}
+                    </span>
+                  )}
+                </div>
+                <div style={{
+                  fontSize: 10, color: MUTED, marginTop: 4,
+                  textTransform: "uppercase", letterSpacing: 0.5,
+                }}>
+                  {label}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Tempo e ritmo de cada km — o parcial final aparece marcado */}
+          {(data.run.splits?.length ?? 0) > 0 && (
+            <>
+              <div style={{
+                fontSize: 12, fontWeight: 700, color: MUTED,
+                textTransform: "uppercase", letterSpacing: 0.5,
+                margin: "14px 0 10px",
+              }}>
+                {t("goals_run_splits_title")}
+              </div>
+              <RunSplitsList splits={data.run.splits!} accent={accentHex} maxRows={6} />
+            </>
+          )}
+        </div>
+      )}
 
       {/* ── Badges ── */}
       {data.badges.length > 0 && (
@@ -1950,6 +2110,8 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
                       {[
                         cardio.minutes > 0 ? formatCardioMinutes(cardio.minutes) : null,
                         cardio.km > 0 ? `${formatCardioKm(cardio.km)}km` : null,
+                        // Inclinação da esteira, quando informada.
+                        ex.elevationPct ? `⛰ ${formatElevationPct(ex.elevationPct)}` : null,
                       ].filter(Boolean).join(" · ")}
                     </span>
                   ) : ex.bestKg > 0 ? (
@@ -1975,7 +2137,7 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
               }}
             >
               {showAllExercises
-                ? "Mostrar menos"
+                ? t("goals_summary_show_less")
                 : `${t("goals_summary_show_all")} (+${data.completedExercises.length - 4})`}
             </button>
           )}
@@ -2010,6 +2172,57 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
             outline: "none", boxSizing: "border-box",
           }}
         />
+
+        {/* Marcar pessoas — quem treinou junto (só entra no post do feed) */}
+        <div style={{
+          fontSize: 12, fontWeight: 700, color: MUTED,
+          textTransform: "uppercase", letterSpacing: 0.5, margin: "16px 0 10px",
+        }}>
+          {t("newpost_tag_people_section")}
+        </div>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+          {taggedUsers.map((u) => (
+            <span
+              key={u.id}
+              style={{
+                display: "flex", alignItems: "center", gap: 8,
+                padding: "6px 10px 6px 6px", borderRadius: 18,
+                background: `${accentHex}1F`,
+                border: `1px solid ${accentHex}66`,
+              }}
+            >
+              <UserAvatar photo={u.photo} nickname={u.nickname} size="sm" />
+              <span style={{
+                fontSize: 13, fontWeight: 600, color: FG, maxWidth: 110,
+                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+              }}>
+                {u.nickname}
+              </span>
+              <button
+                onClick={() => setTaggedUsers((prev) => prev.filter((s) => s.id !== u.id))}
+                aria-label={t("tag_people_remove").replace("{name}", u.nickname)}
+                style={{
+                  display: "flex", alignItems: "center", background: "none",
+                  border: "none", padding: 0, cursor: "pointer", color: MUTED,
+                }}
+              >
+                <X width={14} height={14} />
+              </button>
+            </span>
+          ))}
+          <button
+            onClick={() => setTagPeopleOpen(true)}
+            style={{
+              display: "flex", alignItems: "center", gap: 8,
+              padding: "12px 18px", borderRadius: 18, cursor: "pointer",
+              background: "none", border: `1px dashed ${BORDER}`,
+              color: MUTED, fontSize: 13, fontWeight: 600,
+            }}
+          >
+            <UserRoundPlus width={15} height={15} strokeWidth={2.2} />
+            {t("newpost_tag_people_add")}
+          </button>
+        </div>
       </div>
 
       {/* Hidden file input */}
@@ -2212,6 +2425,17 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
           </div>
         </div>
       )}
+
+      {/* Drawer de marcação — o portal do vaul nasce no body com z-[310] e o
+          transform do lift wrapper o torna um stacking context, então sem
+          elevar o WRAPPER ele ficaria atrás deste overlay (zIndex 9500). */}
+      <TagPeopleDrawer
+        open={tagPeopleOpen}
+        onOpenChange={setTagPeopleOpen}
+        selected={taggedUsers}
+        onChange={setTaggedUsers}
+        wrapperClassName="z-[9600]"
+      />
 
       <style>{`
         @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }

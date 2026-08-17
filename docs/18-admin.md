@@ -8,7 +8,8 @@ Tela interna de moderação, métricas e gestão de usuários. **Não é traduzi
 
 | Camada | Onde | O que faz |
 |---|---|---|
-| Guarda de rota | `ADMIN_USER_IDS` em `client/App.tsx` | Esconde a tela; redireciona para `/` quem não está na lista. **Não autoriza nada** |
+| Guarda de rota | `ADMIN_USER_IDS` em `client/lib/admin.ts` | Esconde a tela; redireciona para `/` quem não está na lista. **Não autoriza nada** |
+| Guarda de UI | `isAdminUser(userId)`, mesmo arquivo | Indicadores de curadoria embutidos em telas normais (ver "Anatomia dos exercícios") |
 | Autorização real | Tabela `app_admins` + `is_app_admin(auth.uid())` | Checada dentro das RPCs `SECURITY DEFINER` que leem/escrevem dados de terceiros |
 
 > Promover alguém a admin = inserir nos **dois** lugares (ver `docs/migrations/20260729-admin-premium.sql`).
@@ -26,6 +27,7 @@ Tela interna de moderação, métricas e gestão de usuários. **Não é traduzi
 | Telas mais acessadas (7 dias) | `get_admin_analytics()` → `screen_time_logs` |
 | Conteúdo de hoje / Totais gerais | `get_admin_analytics()` |
 | Fila de moderação | `admin_complaints_view` + `adminDismissComplaintDb` / `adminDeleteContentDb` / `adminBanUserDb` → RPC `admin_set_banned()` |
+| **Anatomia dos exercícios** | `getAdminAnatomyCoverageDb()` → `workouts` + `workout_muscles` (leitura direta, sem RPC) |
 | **LinKa Premium** | `admin_list_premium()` / `admin_set_premium()` — ver `docs/17-premium.md` |
 | Contas Verificadas | `getVerifiedAccountsDb()` / `setUserVerifiedDb()` ⚠️ ver nota no fim |
 
@@ -46,6 +48,26 @@ Ações rastreadas (contagem + horário da última, derivadas das tabelas de con
 - A telemetria (`access_sessions`, `screen_time_logs`) é gravada quando **o app vai para segundo plano** (`flush` no `AppLayout`). Quem está com o app aberto agora só aparece com o que já enviou — a tela avisa isso no rodapé da seção.
 - Quem navegou mas ainda não fechou o app pode ter linha em `screen_time_logs` sem linha em `access_sessions`. A RPC usa a **união** das duas para não sumir com ninguém; quando falta a sessão, o card mostra o tempo somado por tela.
 - Datas comparadas em **UTC** (`current_date`), igual ao resto do painel — os números batem entre as seções.
+
+## Anatomia dos exercícios (17/08/2026)
+
+Inventário da curadoria de `workout_muscles` — quais exercícios **não têm** a ficha de "músculos trabalhados" que aparece no ⓘ do card. Existe porque `ExerciseAnatomy` não renderiza nada quando falta anatomia (ver `docs/05-metas.md`): a lacuna era invisível, inclusive para quem cura o catálogo, e exercício novo entrava sem ninguém notar.
+
+**Sem migração e sem RPC.** `getAdminAnatomyCoverageDb()` lê `workouts` e `workout_muscles` (as duas têm leitura pública) e faz o diff no cliente — o PostgREST não tem `NOT EXISTS`.
+
+O que a seção mostra:
+
+- **Barra de cobertura:** `mapeados / total` e o %.
+- **Fila de trabalho:** exercícios sem anatomia que **não** são alongamento/mobilidade — os que realmente precisam de atenção. Badge `custom` = criado por um usuário (mapear é opcional).
+- **Bloco colapsado** com os alongamentos/mobilidade: o seed pula esses de propósito, é **lacuna esperada**. Separar é o que mantém a lista acionável — hoje são ~26 alongamentos contra ~6 exercícios de verdade; juntos, afogariam o sinal.
+- **Botão de copiar** por linha: devolve o `INSERT` pronto (`anatomySqlSnippet`, em `client/lib/admin.ts`), com o `workout_id` já preenchido e `SLUG_DO_MUSCULO` para trocar. Os slugs saem de `select id, name from muscles` — são legíveis (`peitoral_clavicular`, `biceps_braquial`), não uuid.
+
+**Decisões:**
+
+- **Sem cache.** É tela de gestão; servir dado de 12h esconderia exatamente o exercício que o admin acabou de mapear.
+- **Leitura paginada** (`fetchAllRows`, em `ritmofit-db.ts`): o PostgREST corta em 1000 linhas e `workout_muscles` já passa de 800 — sem paginar, a lista começaria a apontar lacuna falsa conforme a curadoria avança.
+- **Preencher continua sendo SQL.** Não há editor de anatomia no painel: escrita em `workout_muscles` pela anon key cairia na RLS **em silêncio** (a regra do topo da seção de moderação), então um editor exigiria RPC `SECURITY DEFINER` + migração. O indicador entrega a fila e o snippet; o INSERT roda no SQL Editor.
+- **O mesmo aviso aparece no app**, dentro do detalhe do exercício, só para quem está em `ADMIN_USER_IDS` — a lacuna é vista onde ela incomoda, sem precisar abrir o painel.
 
 ## Fila de moderação — o que cada botão faz de verdade
 

@@ -687,7 +687,7 @@ Notificações geradas para os usuários (follows, likes, comentários, duelos).
 | `id` | bigint | PK (identity) | — | Identificador único |
 | `user_id` | uuid | — | `gen_random_uuid()` | Destinatário da notificação |
 | `follower_id` | uuid | — | `gen_random_uuid()` | Quem originou a notificação |
-| `type` | bigint | — | — | Tipo da notificação (1–13 — ver `docs/10-notificacoes.md`) |
+| `type` | bigint | — | — | Tipo da notificação (1–17 — ver `docs/10-notificacoes.md`). **Sem check constraint**: adicionar um tipo novo não precisa de migração, só de redeploy da `send-push-notification` para o push ter texto próprio. Os tipos **10 e 17** (mensagem privada / resposta a flow) são filtrados na leitura — existem só para disparar o push |
 | `created_at` | timestamptz | ✓ | `now()` | Data de criação |
 | `post_id` | uuid | — | — | Post relacionado; guarda o **id do grupo de duelo** quando type=4, 5 ou 11, e o **id da promoção** quando type=8, 12 ou 13 |
 | `read` | boolean | — | `false` | Notificação lida ou não |
@@ -710,6 +710,7 @@ Notificações geradas para os usuários (follows, likes, comentários, duelos).
 | 8 | Comentário em promoção | `follower_id`, `post_id` (= promotion_id) |
 | 9 | Marcado em um post | `follower_id` (autor do post), `post_id` |
 | 16 | Marcado em um flow | `follower_id` (autor do flow), `flow_id` |
+| 17 | **Resposta privada a um flow** (mensagem, não card) | `follower_id` (quem respondeu), `flow_id` |
 | 14 | Check-in **classificado** (aprovado) por um participante | `follower_id` (quem votou), `duel_check_in_id` |
 | 15 | Check-in **desclassificado** (reprovado) por um participante | `follower_id` (quem votou), `duel_check_in_id` |
 
