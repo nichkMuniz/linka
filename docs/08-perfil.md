@@ -206,11 +206,18 @@ O Post Viewer é compartilhado com a aba Posts, mas um post de Marcações perte
 |---|---|---|
 | Botões Editar / Excluir | `!isViewingOtherProfile` | `isOwnSelectedPost` |
 | `isPostOwner` do `PostCommentsDialog` (moderação de comentários) | `!isViewingOtherProfile` | `isOwnSelectedPost` |
-| Chip da meta vinculada | `selectedPost.user_goal_id` | `... && selectedPost.user_id === profileUserId` |
-
-O guard do chip da meta existe porque `userGoals` são as metas **do dono do perfil**: a meta de um post alheio nunca estaria nessa lista e o chip exibiria "meta removida" indevidamente.
 
 Incentivos e comentários continuam liberados normalmente (é um post público como qualquer outro do feed).
+
+### Pessoas marcadas no Post Viewer
+
+O chip "com fulano" / "com fulano e mais N" (mesmo padrão visual do `post-card.tsx` do feed, ícone `UsersRound`) aparece no Post Viewer sempre que `selectedPost.taggedUsers` não está vazio — 1 pessoa navega direto ao perfil dela, 2+ abre um `FollowListDrawer` com a lista completa (título "Pessoas marcadas"). Antes de 2026-08-17, `getUserPostsDb` e `getTaggedPostsDb` não buscavam `post_tags`, então a marcação feita no feed (que usa `post.service.ts`, já batelado) sumia ao abrir o mesmo post pelo perfil (aba Posts ou aba Marcações) — as duas funções agora chamam `getPostTagsBatchDb` em lote, igual ao feed.
+
+### Meta vinculada no Post Viewer
+
+O chip "Meta: {descrição}" (fora do modo de edição) usa `selectedPost.userGoal` — um objeto batelado por `getPostGoalsBatchDb` (mesma query/shape de `post.service.ts`), que só existe quando a meta está pública (`visibility === 1`). Funciona para post de **qualquer** autor, inclusive na aba Marcações. Existia um bug duplo antes de 2026-08-17: `getUserPostsDb` selecionava `user_goal_id` do banco mas **descartava o campo ao montar o objeto de retorno**, então até o post do próprio dono do perfil (aba Posts) ficava sem o chip; e o guard `selectedPost.user_id === profileUserId` escondia o chip inteiro em qualquer post de outro autor (aba Marcações), mesmo com meta pública.
+
+Como `getPostGoalsBatchDb` só retorna metas públicas (para bater com o comportamento do feed, que esconde meta privada até do próprio autor rolando o feed), o Post Viewer mantém um **fallback** só para o post do próprio dono do perfil: se `selectedPost.userGoal` vier vazio mas `selectedPost.user_id === profileUserId`, cai para `userGoals.find(...)` — a lista completa (sem filtro de visibilidade) do dono, carregada no batch 2. Isso preserva duas coisas que só fazem sentido pro próprio dono olhando o próprio post: ver uma meta que ele mesmo marcou como privada, e o aviso "meta removida" quando a meta foi de fato apagada (referência órfã).
 
 ---
 

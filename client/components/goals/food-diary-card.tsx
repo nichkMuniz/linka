@@ -107,6 +107,43 @@ function normalize(s: string): string {
   return s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 }
 
+/**
+ * `diets.serving_label` é gravado em português pela carga da TACO
+ * (`docs/migrations/20260818-taco-food-catalog.sql`), então a tradução acontece
+ * aqui — o conjunto de medidas é fechado, criado pela nossa própria migração.
+ * Uma medida nova em migração futura precisa entrar neste mapa E no `i18n.ts`;
+ * sem isso ela não vira texto em português na tela do usuário EN, então o
+ * fallback é o genérico "por porção" em vez do rótulo cru.
+ */
+const SERVING_KEYS: Record<string, string> = {
+  "100 g": "serving_100g",
+  unidade: "serving_unit",
+  "unidade média": "serving_unit_avg",
+  "colher de sopa": "serving_tbsp",
+  "colher de chá": "serving_tsp",
+  copo: "serving_glass",
+  "xícara": "serving_cup",
+  concha: "serving_ladle",
+  pitada: "serving_pinch",
+};
+
+/**
+ * Descreve a que porção os macros do item se referem: "100 g", "concha (80 g)".
+ * Os itens antigos do catálogo não têm medida declarada — para eles fica o
+ * genérico "por porção", que é o que a tela mostrava antes da TACO.
+ */
+function servingText(
+  item: Pick<Diet, "serving_label" | "serving_grams">,
+  t: (k: string) => string,
+): string {
+  const key = item.serving_label ? SERVING_KEYS[item.serving_label.trim()] : null;
+  if (!key) return t("nutrition_per_portion");
+  const measure = t(key);
+  return item.serving_grams != null && item.serving_label !== "100 g"
+    ? `${measure} (${Math.round(item.serving_grams)} g)`
+    : measure;
+}
+
 type RecentFood = Pick<
   FoodLog,
   "name" | "calories" | "protein_g" | "carbs_g" | "fat_g" | "sugar_g" | "diet_id"
@@ -929,7 +966,7 @@ export function FoodDiaryDrawer({
                             <div className="text-white truncate" style={{ fontSize: "13.5px" }}>{item.name}</div>
                             <div className="tabular-nums" style={{ fontSize: "11.5px", color: "rgba(255,255,255,.5)" }}>
                               {item.calories != null
-                                ? `${fmtKcal(item.calories)} ${t("nutrition_kcal_unit")} · ${t("nutrition_per_portion")}`
+                                ? `${fmtKcal(item.calories)} ${t("nutrition_kcal_unit")} · ${servingText(item, t)}`
                                 : item.category ?? ""}
                             </div>
                           </div>

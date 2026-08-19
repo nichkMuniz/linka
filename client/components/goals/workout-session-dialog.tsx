@@ -22,6 +22,7 @@ import {
   type JointRestriction,
 } from "@/lib/coach-profile";
 import { getNetworkStatus } from "@/lib/network-status";
+import { reportHandledError } from "@/lib/monitoring";
 import { subscribeKeyboardHeight, getKeyboardHeight } from "@/lib/keyboard";
 import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
 import {
@@ -43,6 +44,7 @@ import {
   type WorkoutGroup,
   createCustomWorkoutDb,
   createUserWorkoutsDb,
+  linkSessionWorkoutsToRoutineDb,
   updateUserWorkoutNotesDb,
   updateUserWorkoutRestDb,
   uploadCustomExercisePhotoDb,
@@ -149,6 +151,12 @@ interface WorkoutSessionDialogProps {
 
 const REST_PRESETS = [0, 30, 60, 90, 120];
 const SWIPE_REVEAL = 72; // px revelados ao deslizar para a esquerda
+
+// Prefixo do id sintético de um exercício AVULSO (adicionado durante o treino).
+// Itens de verdade da rotina têm `user_workouts.id` numérico, então o prefixo é
+// o que distingue "ainda não existe no banco" de "já é item da rotina" — e é o
+// que a finalização usa para saber quem precisa ser vinculado.
+const SESSION_ITEM_ID_PREFIX = "session_";
 
 // "Máquina zerada" — ao concluir uma série (não-cardio) ACIMA deste peso, o app
 // pergunta se o usuário zerou a máquina naquele exercício. Se confirmar, o card
@@ -2157,7 +2165,7 @@ export function WorkoutSessionDialog({
     const newItems: UserWorkoutWithDetails[] = chosen
       .filter((workout) => !existingIds.has(workout.id))
       .map((workout) => ({
-        id: `session_${workout.id}`,
+        id: `${SESSION_ITEM_ID_PREFIX}${workout.id}`,
         workout_id: workout.id,
         user_id: userId,
         name: null,
@@ -2470,6 +2478,45 @@ export function WorkoutSessionDialog({
       const prExercises: WorkoutSessionSummary["prExercises"] = [];
       const machinedExercises: WorkoutSessionSummary["machinedExercises"] = [];
 
+      // ── Exercícios avulsos → itens da rotina ────────────────────────────
+      // O que foi adicionado pelo "+ Adicionar exercício" durante o treino só
+      // vivia em `workoutExtraItems` (id sintético `session_<workout_id>`) e
+      // sumia ao finalizar: a rotina voltava a ter os itens de antes. Ao
+      // finalizar, todo avulso da sessão vira item da rotina de verdade.
+      //
+      // São TODOS os avulsos ainda na tela, não só os que têm série concluída:
+      // adicionar o exercício à rotina é uma decisão de montagem do treino, e
+      // não fazê-lo hoje (ou anotar só o aquecimento) não a desfaz. Os que o
+      // usuário removeu da sessão ficam de fora — `allItemsForSave` já os
+      // filtrou por `workoutRemovedIds`.
+      const extraWorkoutIds = allItemsForSave
+        .filter((i) => String(i.id).startsWith(SESSION_ITEM_ID_PREFIX))
+        .map((i) => i.workout_id);
+      // workout_id → user_workouts.id, para as séries destes exercícios
+      // gravarem histórico VINCULADO (antes iam com user_workout_id nulo).
+      let linkedExtraIds = new Map<string, string>();
+      if (extraWorkoutIds.length > 0) {
+        try {
+          linkedExtraIds = await linkSessionWorkoutsToRoutineDb(userId, extraWorkoutIds, {
+            routine_id: routineId,
+            name: routineName,
+          });
+        } catch (err) {
+          // Best-effort, como as notas e o descanso: o treino executado é o
+          // dado importante e não pode ser perdido porque a rotina não pôde
+          // ser atualizada (offline, por exemplo). Avisa em vez de silenciar —
+          // o usuário precisa saber que a rotina continua como estava.
+          reportHandledError(err, "workout-session:link-extra-exercises", {
+            count: extraWorkoutIds.length,
+          });
+          toast({
+            title: t("goals_extra_exercises_not_saved_title"),
+            description: t("goals_extra_exercises_not_saved_desc"),
+            variant: "destructive",
+          });
+        }
+      }
+
       // Collect exercises with completed series
       const exerciseEntries = Object.entries(workoutSeries).filter(
         ([, series]) => series.some((s) => s.completed),
@@ -2519,8 +2566,11 @@ export function WorkoutSessionDialog({
 
         const row = allItemsForSave.find((w) => w.workout_id === workoutId);
         const isCardio = isCardioExercise(row?.muscle_group, workoutId);
-        const isExtra = workoutExtraItems.some((e) => e.workout_id === workoutId);
-        const rawId = isExtra ? null : (row?.id ?? null);
+        // Avulso: o id do item é sintético, então o vínculo vem da linha que
+        // acabou de ser criada em user_workouts (mapa acima). Só fica nulo se o
+        // vínculo falhou — aí o histórico se salva sozinho, como antes.
+        const isExtra = String(row?.id ?? "").startsWith(SESSION_ITEM_ID_PREFIX);
+        const rawId = isExtra ? (linkedExtraIds.get(workoutId) ?? null) : (row?.id ?? null);
         const userWorkoutId: number | null = rawId && !isNaN(Number(rawId)) ? Number(rawId) : null;
 
         // Séries de MARCA: as que podem virar recorde. O aquecimento fica fora

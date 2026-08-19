@@ -77,6 +77,10 @@ O que a seção mostra:
 
 `adminDeleteContentDb(tipo, id)` → RPC `admin_delete_content(p_tipo, p_id)`. Migração: `docs/migrations/20260811-admin-moderation.sql`.
 
+> **Entrada de denúncia de flow (2026-08-17):** o caso especial de flow nesta RPC (linha abaixo) já existia antes de a fila ter como receber denúncias reais — não havia botão em nenhuma tela que gravasse em `flow_complaint`. O botão entrou no `FlowViewer`/`FlowViewerModal` (menu "Denunciar usuário"/"Denunciar flow", ver `docs/01-feed.md`), usando o mesmo `ReportDrawer` do Feed/Shots. Nada mudou nesta seção — o pipeline de moderação já estava pronto e só passou a ser alimentado.
+
+> **"Ver flow" na denúncia caía no feed (corrigido em 17/08/2026):** `contentRoute` mandava sempre para `/` no caso `flow` — nunca chegou a apontar pro flow em si. Agora navega para `/flows/{conteudo_id}`. Como flows saem do ring ativo depois de 24h (comum entre a denúncia e a revisão), `FlowViewer` ganhou um fallback: se o id não está em `getActiveStoriesDb()`, busca via `getFlowByIdDb` (já existia, usado pelas notificações) e injeta o resultado nas stories carregadas antes de desistir e voltar pro feed.
+
 Corrigido em 11/08/2026 — o `delete from posts where id = …` casava 0 linhas (a RLS só deixa o **autor** apagar), a denúncia saía da fila e o conteúdo continuava no ar.
 
 - A RPC limpa as dependências antes (`notifications`, likes, comentários, tags, visualizações e a própria denúncia) via helper `admin_purge_refs`, que compara `coluna::text = id` — o schema tem divergência real de tipo entre PK e FK (`shots_likes.shots_id` é smallint; `flow_user_viewed.flow_id` está documentado como uuid com `flow.id` bigint).

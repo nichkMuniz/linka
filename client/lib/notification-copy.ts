@@ -48,6 +48,7 @@ const TITLE_KEY_BY_TYPE: Record<number, TranslationKey> = {
   15: "notif_title_15",
   16: "notif_title_16",
   17: "notif_title_17",
+  18: "notif_title_18",
 };
 
 const INCENTIVE_KEY_BY_TYPE: Record<number, TranslationKey> = {
@@ -183,6 +184,10 @@ export function notificationBody(
       return t("notif_desc_flow_tag").replace("{name}", name);
     case 17:
       return t("notif_desc_flow_reply").replace("{name}", name);
+    // 18 = alguém comentou num flow em que o destinatário TAMBÉM comentou. O
+    // flow não é dele, então nada de "no seu flow" — o contexto é o comentário.
+    case 18:
+      return t("notif_desc_flow_comment_followup").replace("{name}", name);
     default:
       return t("notif_body_default");
   }

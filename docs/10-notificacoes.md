@@ -63,6 +63,7 @@ Cada item exibe:
 | 15 `checkin_disqualified` | `XCircle` | Vermelho | Um participante **desclassificou** (reprovou) seu check-in num duelo do modo memes (trigger `trg_notify_check_in_vote`) |
 | 16 `flow_tag` | `AtSign` | Ciano | Alguém marcou você em um **flow** (tabela `flow_tags`, trigger `trg_notify_flow_tag`). Ao tocar, abre o flow (`openFlow`); a pessoa marcada pode repostá-lo |
 | 17 `flow_reply` | — | — | Alguém **respondeu ao seu flow** em privado (botão de mensagem na doca do viewer). É uma **mensagem privada** com texto de push próprio — **só push, nunca aparece nesta lista**, igual ao tipo 10 |
+| 18 `flow_comment_followup` | `MessagesSquare` | Índigo | **Comentaram num flow em que você também comentou** (tabela `flow_comments`, trigger `trg_notify_flow_comment_followup`). Vale tanto para o dono do flow respondendo quanto para um terceiro comentando. O dono do flow **não** recebe este tipo — para ele a mesma inserção já gera o tipo 3 |
 
 ### Tipos de Incentivo (subtipo)
 Quando o tipo é incentivo, o ícone exibido é o do incentivo específico (não um ícone genérico):
@@ -112,6 +113,18 @@ Quando o tipo é incentivo, o ícone exibido é o do incentivo específico (não
   - Notificação de check-in em duelo (tipo 11, `checkInId`) → `/comunidade` com `state.openCheckIn = checkInId` (abre o drawer do check-in); sem `checkInId`, cai em `/comunidade?tab=duels`
   - Notificação de curtida (tipo 12) ou expiração (tipo 13) de promoção → `/vitrine` (mesmo destino do tipo 8)
   - Notificação de check-in classificado (tipo 14) ou desclassificado (tipo 15) → `/comunidade` com `state.openCheckIn = checkInId` (abre o check-in avaliado)
+  - Notificação de comentário em flow que você comentou (tipo 18, `flowId`) → `/` (feed) com `state.openFlow = flowId` (abre o flow da conversa). Como o flow **não é do usuário**, se ele já expirou o `Index.tsx` mostra o toast "não disponível" em vez de cair no Arquivo de Flows
+
+### Quem é avisado quando alguém comenta num flow (tipos 3 e 18)
+
+Uma única inserção em `flow_comments` dispara duas triggers, e cada uma avisa um público diferente — sem sobreposição:
+
+| Quem | Tipo | Texto |
+|---|---|---|
+| **Dono do flow** | 3 | "{nome} comentou no seu flow" (`trg_notify_flow_comment`) |
+| **Quem já havia comentado ali** (menos o autor novo e menos o dono) | 18 | "{nome} também comentou em um flow que você comentou" (`trg_notify_flow_comment_followup`) |
+
+**Anti-enxurrada (tipo 18):** o mesmo autor comentando várias vezes seguidas gera **um** aviso, não um por comentário — a trigger pula a inserção enquanto existir uma 18 **não lida** daquele autor, naquele flow, para aquele destinatário. Abrir a tela de Notificações marca tudo como lido e reabre a janela. Autores **diferentes** sempre geram avisos separados: o que se colapsa é a repetição de uma pessoa, não a conversa.
 
 ---
 

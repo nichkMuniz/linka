@@ -531,6 +531,14 @@ export function FlowCreationDialog({
   const [editingStyle, setEditingStyle] = React.useState<TextStyle>(DEFAULT_TEXT_STYLE);
   const isEditingText = editingId !== null;
 
+  // Espelha `facingMode` num ref para o loop de desenho do canvas (abaixo) ler o
+  // lado ATUAL da câmera a cada frame, sem precisar recriar a gravação quando o
+  // usuário troca de câmera no meio de um clipe.
+  const facingModeRef = React.useRef(facingMode);
+  React.useEffect(() => {
+    facingModeRef.current = facingMode;
+  }, [facingMode]);
+
   const videoRef = React.useRef<HTMLVideoElement>(null);
   const streamRef = React.useRef<MediaStream | null>(null);
   const audioStreamRef = React.useRef<MediaStream | null>(null);
@@ -935,14 +943,29 @@ export function FlowCreationDialog({
 
     const combined = new MediaStream();
 
-    // Câmera frontal: a pré-visualização ao vivo é espelhada (efeito selfie),
-    // mas a track bruta da câmera não é. Sem tratamento, o vídeo gravado sai
-    // invertido em relação ao que o usuário viu. Para corrigir, gravamos a
-    // partir de um canvas que desenha cada frame espelhado (mesma lógica do
-    // `handleCapture` para fotos), assim o arquivo final bate com o preview.
+    // SEMPRE gravamos a partir de um canvas que redesenha o `<video>` a cada
+    // frame — nunca a track bruta da câmera direto. Dois motivos:
+    //
+    // 1. Espelhamento: a câmera frontal mostra a pré-visualização espelhada
+    //    (efeito selfie), mas a track bruta não é. Sem o canvas, o vídeo
+    //    gravado sairia invertido em relação ao que o usuário viu.
+    // 2. Troca de câmera em pleno voo: `handleFlipCamera` troca `facingMode`,
+    //    o que reabre `getUserMedia` com um novo device e PÁRA as tracks do
+    //    stream antigo (`stopStream`, no efeito que reage a `facingMode`). Se
+    //    o MediaRecorder estivesse gravando a track bruta, ela morreria no
+    //    meio da gravação e o clipe parava sozinho. O canvas desenha o que
+    //    quer que o elemento `<video>` esteja mostrando A CADA MOMENTO — ao
+    //    trocar de câmera, o `srcObject` é trocado por baixo, e o canvas
+    //    simplesmente passa a desenhar o feed novo no frame seguinte, sem
+    //    nunca soltar a track que o `MediaRecorder` está de fato gravando.
+    //
+    // O espelhamento também precisa reagir à troca: por isso usa
+    // `facingModeRef` (lido a cada frame), não o `facingMode` capturado no
+    // fechamento do início da gravação — senão um clipe iniciado na frontal
+    // continuaria espelhando a traseira depois de trocar.
     recordCanvasCleanupRef.current?.();
     recordCanvasCleanupRef.current = null;
-    if (facingMode === "user" && typeof video.videoWidth === "number" && video.videoWidth > 0) {
+    if (typeof video.videoWidth === "number" && video.videoWidth > 0) {
       const canvas = document.createElement("canvas");
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
@@ -952,9 +975,12 @@ export function FlowCreationDialog({
         const drawFrame = () => {
           if (video.readyState >= 2) {
             const digitalZoom = !nativeZoomRef.current ? zoomRef.current : 1;
+            const mirror = facingModeRef.current === "user";
             ctx.save();
-            ctx.translate(canvas.width, 0);
-            ctx.scale(-1, 1);
+            if (mirror) {
+              ctx.translate(canvas.width, 0);
+              ctx.scale(-1, 1);
+            }
             if (digitalZoom > 1) {
               const sw = video.videoWidth / digitalZoom;
               const sh = video.videoHeight / digitalZoom;
@@ -978,7 +1004,11 @@ export function FlowCreationDialog({
       }
     }
 
-    // Fallback (câmera traseira, ou se o canvas falhar): grava a track bruta.
+    // Fallback só para o caso raro de o canvas não ter ficado pronto (sem
+    // dimensão do vídeo ainda, ou 2D context indisponível): grava a track
+    // bruta. Como essa track morre se o usuário trocar de câmera no meio da
+    // gravação (ver comentário acima), esse caminho não sobrevive à troca —
+    // mas é essencialmente inatingível em uso normal.
     if (combined.getVideoTracks().length === 0) {
       videoTracks.forEach((t) => combined.addTrack(t));
     }
@@ -1057,7 +1087,7 @@ export function FlowCreationDialog({
     if (!wantRecordingRef.current) {
       stopRecording();
     }
-  }, [cameraReady, ensureAudioStream, stopRecording, facingMode]);
+  }, [cameraReady, ensureAudioStream, stopRecording]);
 
   const handleShutterPointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
     e.preventDefault();
@@ -1184,7 +1214,21 @@ export function FlowCreationDialog({
         // arquivo que será publicado. Devolve o original se não der para
         // comprimir, então nunca bloqueia a publicação.
         const compressed = await compressVideoBlob(file);
-        const previewUrl = compressed === file ? blobUrl : URL.createObjectURL(compressed);
+        // O Blob que volta de `compressVideoBlob` (via fetch do arquivo nativo
+        // reencodado) não chega sempre com `.type` = "video/mp4" — no WKWebView
+        // isso pode vir vazio dependendo da versão do iOS. Sem essa reembalagem,
+        // `handleCreateStory` (Index.tsx) cai no fallback `blob.type || "image/jpeg"`
+        // — pensado para posts sem foto — e sobe o vídeo com extensão/content-type
+        // de IMAGEM: o flow publica, mas o viewer não reconhece a URL como vídeo e
+        // não mostra nada. Mesma reembalagem já usada em NewPost.tsx para os dois
+        // caminhos que passam por `compressVideoBlob`/`getCompressedVideoUrl`.
+        const finalBlob =
+          compressed === file
+            ? file
+            : new File([compressed], `${file.name.replace(/\.[^.]+$/, "")}.mp4`, {
+                type: compressed.type || "video/mp4",
+              });
+        const previewUrl = finalBlob === file ? blobUrl : URL.createObjectURL(finalBlob);
         if (previewUrl !== blobUrl) URL.revokeObjectURL(blobUrl);
         // NÃO encerra o indicador aqui: mantém até o <video> do preview decodificar o
         // 1º frame (onLoadedData → finishPreparing), senão pisca um frame preto.

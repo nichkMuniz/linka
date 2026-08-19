@@ -1232,6 +1232,8 @@ export type UserGoal = {
   perc: number;
   days_completed: number;
   visibility: number;
+  /** Quando a meta foi criada — alimenta o "tempo total" no card de meta concluída. */
+  created_at: string | null;
 };
 
 export async function getGoalByIdDb(goalId: string): Promise<UserGoal | null> {
@@ -1263,6 +1265,8 @@ export async function getGoalByIdDb(goalId: string): Promise<UserGoal | null> {
     perc: 0,
     days_completed: 0,
     visibility: 1,
+    // Meta do catálogo, não uma instância do usuário — sem data de início.
+    created_at: null,
   };
 }
 
@@ -1288,6 +1292,7 @@ export async function getUserGoalsByUserIdDb(
         perc,
         days_completed,
         visibility: Number(row.visibility ?? 1),
+        created_at: row.created_at ? String(row.created_at) : null,
       } satisfies UserGoal;
     });
 
@@ -1300,7 +1305,7 @@ export async function getUserGoalsByUserIdDb(
   // Try with embedded join first
   const { data, error } = await supabase
     .from("user_goals")
-    .select("id, goal_id, duration, quantity, type_goal, perc, days_completed, visibility, goals(description)")
+    .select("id, goal_id, duration, quantity, type_goal, perc, days_completed, visibility, created_at, goals(description)")
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
@@ -1312,7 +1317,7 @@ export async function getUserGoalsByUserIdDb(
   console.warn(`[getUserGoalsByUserIdDb] Join failed (${error.code}), using fallback`);
   const { data: fallback, error: fbError } = await supabase
     .from("user_goals")
-    .select("id, goal_id, duration, quantity, type_goal, perc, days_completed, visibility")
+    .select("id, goal_id, duration, quantity, type_goal, perc, days_completed, visibility, created_at")
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
@@ -1380,13 +1385,14 @@ export async function getUserGoalByIdDb(
       perc,
       days_completed,
       visibility: Number(row.visibility ?? 1),
+      created_at: row.created_at ? String(row.created_at) : null,
     };
   };
 
   // Try with embedded join first
   const { data, error } = await supabase
     .from("user_goals")
-    .select("id, goal_id, duration, quantity, type_goal, perc, days_completed, visibility, goals(description)")
+    .select("id, goal_id, duration, quantity, type_goal, perc, days_completed, visibility, created_at, goals(description)")
     .eq("id", userGoalId)
     .maybeSingle();
 
@@ -1399,12 +1405,29 @@ export async function getUserGoalByIdDb(
   console.warn(`[getUserGoalByIdDb] Join failed (${error.code}), using fallback`);
   const { data: fb } = await supabase
     .from("user_goals")
-    .select("id, goal_id, duration, quantity, type_goal, perc, days_completed, visibility")
+    .select("id, goal_id, duration, quantity, type_goal, perc, days_completed, visibility, created_at")
     .eq("id", userGoalId)
     .maybeSingle();
   if (!fb) return null;
   const { data: goalData } = await supabase.from("goals").select("description").eq("id", fb.goal_id).maybeSingle();
   return buildGoal(fb, String(goalData?.description ?? ""));
+}
+
+/**
+ * Data local (YYYY-MM-DD) de "hoje" para `user_goals.last_progress_date` (uma
+ * coluna `date`, sem hora). NUNCA `new Date().toISOString().split("T")[0]`: é
+ * o dia em UTC, que vira "amanhã" ao anoitecer num fuso atrás de UTC (Brasil,
+ * ~21h–23h59 local) — a mesma pegadinha já corrigida em `today-dashboard.tsx`/
+ * `goals-helpers.ts` para `date_completed`. Aqui importa ainda mais: é a base
+ * da regra de "1x por dia" e de quando uma meta 100% desvincula suas rotinas
+ * (ver `unlinkCompletedGoalRoutinesDb`) — errar o dia adiantaria a desvinculação
+ * para o próprio dia da conquista, cortando a janela de compartilhar.
+ */
+function localDateStr(d: Date = new Date()): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 // Caminho online puro (lança erro de rede) — usado pela função pública e pelo
@@ -1445,7 +1468,7 @@ async function applyGoalProgressOnlineDb(
     .update({ days_completed: newDaysCompleted, perc: Math.round(perc), last_progress_date: newLastDate })
     .eq("id", userGoalId)
     .eq("user_id", viewerId)
-    .select("id, goal_id, duration, quantity, type_goal, days_completed, perc, visibility")
+    .select("id, goal_id, duration, quantity, type_goal, days_completed, perc, visibility, created_at")
     .maybeSingle();
 
   if (error) {
@@ -1478,6 +1501,7 @@ async function applyGoalProgressOnlineDb(
     perc: Number(data.perc ?? Math.round(perc)),
     days_completed: newDaysCompleted,
     visibility: Number(data.visibility ?? 1),
+    created_at: withDescription?.created_at ?? (data.created_at ? String(data.created_at) : null),
   };
 }
 
@@ -1487,7 +1511,7 @@ export async function incrementGoalProgressDb(
 ): Promise<UserGoal | null> {
   if (!hasSupabaseConfig || !supabase) return null;
 
-  const date = progressDate ?? new Date().toISOString().split("T")[0]; // YYYY-MM-DD
+  const date = progressDate ?? localDateStr();
 
   // Offline: incrementa otimisticamente a cópia local das metas (a barra de
   // progresso e o diálogo de "meta concluída" funcionam na hora) e enfileira o
@@ -1538,6 +1562,62 @@ export async function incrementGoalProgressDb(
     const errorMsg = err?.message || String(err);
     console.error("Error updating goal progress:", errorMsg);
     throw new Error(`Erro ao atualizar progresso: ${errorMsg}`);
+  }
+}
+
+/**
+ * Desvincula rotinas de metas que bateram 100% ONTEM ou antes — dando ao
+ * usuário o dia inteiro da conquista para compartilhar a rotina/meta (ver
+ * `goal-share-drawer.tsx`/`WorkoutSummaryOverlay`) antes de "soltar" a rotina
+ * no dia seguinte. Sem isso o usuário precisaria desvincular na mão toda vez
+ * que uma meta terminasse.
+ *
+ * Casa por `goal_id` — o id do CATÁLOGO, é assim que `routines.goal_id` já se
+ * relaciona com a meta (ver `buildRoutineCards`/`getUserGoalByIdDb`), nunca
+ * por `user_goals.id`. Como uma rotina só guarda 1 `goal_id` por vez, essa
+ * coluna já garante 1 rotina : 1 meta vinculada — desvincular por ela nunca
+ * risca uma OUTRA meta ainda pendente na mesma rotina.
+ *
+ * Sem job agendado no backend: roda no carregamento da tela de Metas
+ * (`Goals.tsx`/`loadData`). Idempotente — sem metas "velhas" em 100%, é um
+ * SELECT vazio e nada mais. Retorna `true` quando desvinculou algo, para o
+ * chamador saber que precisa recarregar as rotinas.
+ */
+export async function unlinkCompletedGoalRoutinesDb(userId: string): Promise<boolean> {
+  if (!hasSupabaseConfig || !supabase || isLikelyOffline()) return false;
+
+  try {
+    const { data: goals, error } = await supabase
+      .from("user_goals")
+      .select("goal_id")
+      .eq("user_id", userId)
+      .gte("perc", 100)
+      .not("last_progress_date", "is", null)
+      .lt("last_progress_date", localDateStr());
+
+    if (error || !goals || goals.length === 0) return false;
+
+    const goalIds = Array.from(
+      new Set(goals.map((g: any) => g.goal_id).filter((id: unknown) => id != null)),
+    );
+    if (goalIds.length === 0) return false;
+
+    const { data: updated, error: updateError } = await supabase
+      .from("routines")
+      .update({ goal_id: null })
+      .eq("user_id", userId)
+      .in("goal_id", goalIds)
+      .select("id");
+
+    if (updateError) {
+      console.error("Error unlinking completed-goal routines:", updateError.message);
+      return false;
+    }
+    return (updated?.length ?? 0) > 0;
+  } catch (err: any) {
+    // Best-effort: falhar aqui não pode travar o carregamento da tela de Metas.
+    console.error("Error unlinking completed-goal routines:", err?.message || err);
+    return false;
   }
 }
 
@@ -1815,6 +1895,22 @@ export async function updateUserPersonalDataDb(
   invalidateQueryCache("allUsers");
 }
 
+// Meta vinculada a um post, já resolvida (descrição + progresso) — só aparece
+// no Map de getPostGoalsBatchDb quando a meta é pública (visibility === 1),
+// espelhando o filtro do feed (post.service.ts). Uma meta privada ou apagada
+// simplesmente não entra no Map; quem consome decide o fallback.
+export type PostUserGoal = {
+  id: string;
+  goal_id: string;
+  description: string;
+  perc: number;
+  duration: number;
+  quantity: number;
+  type_goal: number;
+  actual_progress: number;
+  visibility: number;
+};
+
 export type PostWithUser = {
   id: string;
   description: string;
@@ -1828,7 +1924,48 @@ export type PostWithUser = {
   isVerified?: boolean;
   workoutSummary?: PostWorkoutSummary | null;
   taggedUsers?: SearchUser[];
+  userGoal?: PostUserGoal;
 };
+
+// Busca em lote as metas vinculadas de vários posts, no mesmo formato usado
+// pelo feed (post.service.ts) — só entram no Map as metas com visibility=1,
+// para o chip "Meta" se comportar igual em qualquer tela que exiba o post.
+export async function getPostGoalsBatchDb(
+  goalIds: string[],
+): Promise<Map<string, PostUserGoal>> {
+  const result = new Map<string, PostUserGoal>();
+  const uniqueIds = [...new Set(goalIds.filter(Boolean))];
+  if (!uniqueIds.length || !hasSupabaseConfig || !supabase) return result;
+
+  try {
+    const { data, error } = await supabase
+      .from("user_goals")
+      .select("id, goal_id, duration, quantity, type_goal, perc, visibility, goals(description)")
+      .in("id", uniqueIds.map(Number));
+    if (error || !data) return result;
+
+    for (const g of data as any[]) {
+      if (Number(g.visibility ?? 1) !== 1) continue;
+      const description = Array.isArray(g.goals)
+        ? (g.goals[0]?.description ?? "")
+        : (g.goals?.description ?? "");
+      result.set(String(g.id), {
+        id: String(g.id),
+        goal_id: String(g.goal_id),
+        description,
+        perc: Number(g.perc ?? 0),
+        duration: Number(g.duration ?? 0),
+        quantity: Number(g.quantity ?? 0),
+        type_goal: Number(g.type_goal ?? 0),
+        actual_progress: Math.round((Number(g.perc ?? 0) / 100) * Number(g.quantity ?? 0)),
+        visibility: Number(g.visibility ?? 1),
+      });
+    }
+  } catch (err) {
+    console.error("Error fetching post goals:", err);
+  }
+  return result;
+}
 
 export async function getUserPostsDb(userId: string): Promise<PostWithUser[]> {
   if (!hasSupabaseConfig || !supabase) return [];
@@ -1857,17 +1994,26 @@ export async function getUserPostsDb(userId: string): Promise<PostWithUser[]> {
   const userPhoto = userProfile?.photo || null;
   const isVerified = userProfile?.is_verified === true;
 
-  return (data ?? []).map((row: any) => ({
+  const rows = data ?? [];
+  const [tagsMap, goalsMap] = await Promise.all([
+    getPostTagsBatchDb(rows.map((r: any) => String(r.id))),
+    getPostGoalsBatchDb(rows.map((r: any) => r.user_goal_id).filter(Boolean)),
+  ]);
+
+  return rows.map((row: any) => ({
     id: String(row.id ?? ""),
     description: String(row.description ?? ""),
     photo: String(row.photo ?? ""),
     photos: Array.isArray(row.photos) ? row.photos : null,
     created_at: String(row.created_at ?? ""),
     user_id: String(row.user_id ?? ""),
+    user_goal_id: row.user_goal_id ?? null,
     userNickname,
     userPhoto,
     isVerified,
     workoutSummary: (row.workout_summary as PostWorkoutSummary | null) ?? null,
+    taggedUsers: tagsMap.get(String(row.id)) ?? [],
+    userGoal: row.user_goal_id ? goalsMap.get(String(row.user_goal_id)) : undefined,
   }));
 
   });
@@ -2057,7 +2203,11 @@ export async function getTaggedPostsDb(userId: string): Promise<PostWithUser[]> 
     }
 
     const rows = data ?? [];
-    const authorsMap = await getProfilesBatchDb(rows.map((r: any) => String(r.user_id)));
+    const [authorsMap, postTagsMap, goalsMap] = await Promise.all([
+      getProfilesBatchDb(rows.map((r: any) => String(r.user_id))),
+      getPostTagsBatchDb(rows.map((r: any) => String(r.id))),
+      getPostGoalsBatchDb(rows.map((r: any) => r.user_goal_id).filter(Boolean)),
+    ]);
 
     return rows.map((row: any) => {
       const author = authorsMap.get(String(row.user_id));
@@ -2073,6 +2223,8 @@ export async function getTaggedPostsDb(userId: string): Promise<PostWithUser[]> 
         userPhoto: author?.photo ?? null,
         isVerified: author?.is_verified === true,
         workoutSummary: (row.workout_summary as PostWorkoutSummary | null) ?? null,
+        taggedUsers: postTagsMap.get(String(row.id)) ?? [],
+        userGoal: row.user_goal_id ? goalsMap.get(String(row.user_goal_id)) : undefined,
       };
     });
   });
@@ -2795,6 +2947,15 @@ export type Diet = {
   fiber_g?: number | null;
   sugar_g?: number | null;
   food_quality?: "in_natura" | "processado" | "ultraprocessado" | null;
+  /**
+   * Medida caseira a que os macros acima se referem ("1 concha", "1 unidade",
+   * "100 g"). Os alimentos da TACO declaram a porção; os itens antigos do
+   * catálogo só dizem "porção" — daí o rótulo ser texto livre e não uma unidade
+   * calculável. Ver `docs/migrations/20260818-taco-food-catalog.sql`.
+   */
+  serving_label?: string | null;
+  /** Peso em gramas de 1 porção. NULL nos itens de catálogo antigos. */
+  serving_grams?: number | null;
   /** true = alimento que o próprio usuário cadastrou (não é catálogo) */
   created_by_user?: boolean;
 };
@@ -2817,16 +2978,21 @@ export async function getDietsDb(): Promise<Diet[]> {
     fiber_g: row.fiber_g != null ? Number(row.fiber_g) : null,
     sugar_g: row.sugar_g != null ? Number(row.sugar_g) : null,
     food_quality: row.food_quality ?? null,
+    serving_label: row.serving_label ? String(row.serving_label) : null,
+    serving_grams: row.serving_grams != null ? Number(row.serving_grams) : null,
     created_by_user: Boolean(row.created_by_user),
   });
 
   // mealdb_id identifica itens de catálogo importados (TheMealDB) — mais confiável que created_by_user
   const { data: allData, error } = await supabase!
     .from("diets")
-    .select("id, name, description, name_eng, description_eng, photo, category, calories, protein_g, carbs_g, fat_g, fiber_g, sugar_g, food_quality, created_by_user, created_by, mealdb_id")
+    .select("id, name, description, name_eng, description_eng, photo, category, calories, protein_g, carbs_g, fat_g, fiber_g, sugar_g, food_quality, serving_label, serving_grams, created_by_user, created_by, mealdb_id")
     .order("created_at", { ascending: false });
 
   if (error) {
+    // Fallback com o conjunto mínimo de colunas — é o que mantém o catálogo de
+    // pé num banco onde `20260818-taco-food-catalog.sql` (serving_label/grams)
+    // ainda não rodou. `mapRow` trata as ausentes como null.
     const { data } = await supabase!
       .from("diets")
       .select("id, name, description, name_eng, description_eng, photo, category, calories, protein_g, carbs_g, fat_g, fiber_g, sugar_g, food_quality")
@@ -3841,6 +4007,98 @@ export async function createUserWorkoutsDb(
     user_id: String(row.user_id ?? ""),
     name: row.name ? String(row.name) : null,
   }));
+}
+
+/**
+ * Vincula à rotina os exercícios AVULSOS de uma sessão de treino — os que o
+ * usuário adiciona pelo "+ Adicionar exercício" no meio do treino e que, até
+ * finalizar, só existem no estado local da sessão (`workoutExtraItems`, com id
+ * sintético `session_<workout_id>`). Sem isto o exercício sumia ao fechar o
+ * resumo: a rotina continuava com os mesmos itens de antes.
+ *
+ * **Idempotente** por (user_id, rotina, workout_id): consulta o que já está
+ * vinculado antes de inserir. Isso cobre readicionar o mesmo exercício, o
+ * "Criar exercício" (que já se vincula na hora e não pode ganhar uma segunda
+ * linha ao finalizar) e um `items` desatualizado no componente.
+ *
+ * A "rotina" é `routine_id` quando existe; nas rotinas legadas (sem ele) o
+ * agrupador é o `name`, que é como `buildRoutineCards` monta os cards — casar
+ * só por workout_id ali juntaria exercícios de rotinas diferentes.
+ *
+ * Devolve `workout_id → user_workouts.id` de **todos** os pedidos (pré-existentes
+ * e recém-criados), para o histórico da sessão gravar `user_workout_id` em vez
+ * do nulo que os avulsos gravavam.
+ *
+ * Uma falha na consulta **aborta sem inserir** (lança): duplicar exercício na
+ * rotina é pior do que não salvar — o treino em si já foi gravado.
+ */
+export async function linkSessionWorkoutsToRoutineDb(
+  userId: string,
+  workoutIds: string[],
+  options?: {
+    name?: string | null;
+    routine_id?: string | null;
+  },
+): Promise<Map<string, string>> {
+  const linked = new Map<string, string>();
+  if (!hasSupabaseConfig || !supabase || workoutIds.length === 0) return linked;
+
+  const ids = [...new Set(workoutIds)];
+  const routineId = options?.routine_id ? Number(options.routine_id) : null;
+  const routineName = options?.name || null;
+
+  let query = supabase
+    .from("user_workouts")
+    .select("id, workout_id")
+    .eq("user_id", userId)
+    .in("workout_id", ids);
+  if (routineId != null) {
+    query = query.eq("routine_id", routineId);
+  } else {
+    query = routineName
+      ? query.is("routine_id", null).eq("name", routineName)
+      : query.is("routine_id", null).is("name", null);
+  }
+
+  const { data: existing, error: selectError } = await query;
+  if (selectError) {
+    const errorMsg = selectError?.message || String(selectError);
+    console.error(`Error reading routine exercises [${selectError?.code || "UNKNOWN"}]:`, errorMsg);
+    throw new Error(`Erro ao ler exercícios da rotina: ${errorMsg}`);
+  }
+  (existing ?? []).forEach((row: any) => {
+    linked.set(String(row.workout_id ?? ""), String(row.id ?? ""));
+  });
+
+  const missing = ids.filter((id) => !linked.has(id));
+  if (missing.length === 0) return linked;
+
+  const { data: created, error: insertError } = await supabase
+    .from("user_workouts")
+    .insert(
+      missing.map((workoutId) => ({
+        workout_id: workoutId,
+        user_id: userId,
+        name: routineName,
+        routine_id: routineId,
+        // `order_index` fica nulo de propósito: é a "ordem legada por
+        // created_at", que joga os recém-chegados para o FIM da rotina — que é
+        // onde eles foram feitos no treino.
+      })),
+    )
+    .select("id, workout_id");
+
+  if (insertError) {
+    const errorMsg = insertError?.message || String(insertError);
+    console.error(`Error linking session exercises [${insertError?.code || "UNKNOWN"}]:`, errorMsg);
+    throw new Error(`Erro ao salvar exercícios na rotina: ${errorMsg}`);
+  }
+
+  (created ?? []).forEach((row: any) => {
+    linked.set(String(row.workout_id ?? ""), String(row.id ?? ""));
+  });
+  invalidateQueryCache("userWorkouts");
+  return linked;
 }
 
 // Salva a nota de um exercício na rotina (coluna user_workouts.notes).
@@ -7696,7 +7954,7 @@ export async function toggleUserHabitCompletionDb(
 // Notifications functionality
 export type NotificationItem = {
   id: string;
-  type: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17; // 1 = new follower, 2 = incentive, 3 = comment, 4 = duel invite, 5 = join request, 6 = comment reaction, 7 = check-in reaction, 8 = promotion comment, 9 = tagged in post, 10 = private message, 11 = duel check-in, 12 = promotion like, 13 = promotion expired, 14 = check-in classificado, 15 = check-in desclassificado, 16 = tagged in flow, 17 = resposta a um flow (mensagem privada, só push)
+  type: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18; // 1 = new follower, 2 = incentive, 3 = comment, 4 = duel invite, 5 = join request, 6 = comment reaction, 7 = check-in reaction, 8 = promotion comment, 9 = tagged in post, 10 = private message, 11 = duel check-in, 12 = promotion like, 13 = promotion expired, 14 = check-in classificado, 15 = check-in desclassificado, 16 = tagged in flow, 17 = resposta a um flow (mensagem privada, só push), 18 = comentaram no flow em que você também comentou
   userId: string;
   userNickname: string;
   userPhoto: string | null;
@@ -8702,6 +8960,30 @@ export async function reportShotDb(shotId: string, reason: string): Promise<bool
     return true;
   } catch (err: any) {
     console.error("Error reporting shot:", err);
+    throw err;
+  }
+}
+
+export async function reportFlowDb(flowId: string, reason: string): Promise<boolean> {
+  if (!supabase) throw new Error("Supabase não configurado");
+
+  try {
+    const viewer = await getViewer();
+    if (!viewer) throw new Error("Usuário não autenticado");
+
+    const { error } = await supabase
+      .from("flow_complaint")
+      .insert({
+        user_id: viewer.id,
+        flow_id: flowId,
+        reason: reason,
+        created_at: new Date().toISOString(),
+      });
+
+    if (error) throw error;
+    return true;
+  } catch (err: any) {
+    console.error("Error reporting flow:", err);
     throw err;
   }
 }

@@ -299,7 +299,7 @@ function TodayActivityCard({ user }: { user: AdminTodayUser }) {
 function contentRoute(complaint: AdminComplaint): string | null {
   if (complaint.tipo === "post") return `/post/${complaint.conteudo_id}`;
   if (complaint.tipo === "shot") return `/shots`;
-  if (complaint.tipo === "flow") return `/`;
+  if (complaint.tipo === "flow") return `/flows/${complaint.conteudo_id}`;
   if (complaint.tipo === "usuario") return `/usuario/${complaint.conteudo_id}`;
   return null;
 }

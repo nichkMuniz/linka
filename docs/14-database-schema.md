@@ -366,19 +366,37 @@ Catálogo de dietas disponíveis na plataforma.
 | `description_eng` | text | — | — | Descrição da dieta em inglês. Populada a partir de tradução PT→EN (`docs/migrations/20260704-catalog-eng-data.sql`) |
 | `photo` | bytea | — | — | Imagem da dieta (binário) |
 | `created_at` | timestamptz | ✓ | `now()` | Data de criação |
-| `calories` | real | — | — | Calorias associadas (por porção). ⚠️ **O catálogo foi semeado do TheMealDB, que não fornece nutrição** — em 16/07/2026, 601 dos 603 alimentos estavam com `NULL` (os 2 preenchidos eram itens custom do usuário). `docs/migrations/20260716-diets-nutrition.sql` preenche **171** deles (pratos conhecidos + itens do usuário) com **estimativas por porção**; os ~432 restantes seguem `NULL` de propósito (a UI mostra "Sem informação nutricional"). Para completar: as receitas têm `mealdb_id` → buscar ingredientes na API do TheMealDB e calcular via Edamam/Nutritionix |
+| `calories` | real | — | — | Calorias associadas (**por porção** — ver `serving_grams`). O catálogo tem duas origens: (a) as ~603 linhas do **TheMealDB**, que não fornece nutrição — dessas, `docs/migrations/20260716-diets-nutrition.sql` preencheu **171** com **estimativas** e as ~432 restantes seguem `NULL` de propósito (a UI mostra "Sem informação nutricional"); (b) os **597 alimentos da Tabela TACO** (`docs/migrations/20260818-taco-food-catalog.sql`), com valor **oficial de análise laboratorial** — só 6 entram sem calorias, porque a própria fonte marca o valor como não analisado |
 | `mealdb_id` | integer | — | — | ID de referência no MealDB |
 | `category` | text | — | — | Categoria da dieta |
 | `protein_g` | real | — | — | Proteína por porção (g). Migração `20260714-food-diary.sql` |
 | `carbs_g` | real | — | — | Carboidrato por porção (g) |
 | `fat_g` | real | — | — | Gordura por porção (g) |
 | `fiber_g` | real | — | — | Fibras por porção (g) |
-| `sugar_g` | real | — | — | Açúcar por porção (g). Migração `20260714-water-sugar.sql`. **Precisa ser populado** — sem ele, a insígnia `sem_acucar_7d` fica inalcançável (`null` = desconhecido, não zero) |
+| `sugar_g` | real | — | — | Açúcar por porção (g). Migração `20260714-water-sugar.sql`. **Continua majoritariamente vazio** — sem ele, a insígnia `sem_acucar_7d` fica inalcançável (`null` = desconhecido, não zero). ⚠️ A carga da TACO **não resolve isto**: a tabela da Unicamp não publica açúcares totais, então os 597 alimentos entram com `sugar_g` NULL |
 | `food_quality` | text | — | — | Classificação NOVA simplificada: `in_natura` \| `processado` \| `ultraprocessado` |
 | `created_by_user` | boolean | — | `false` | `true` quando o alimento foi cadastrado pelo próprio usuário (criar alimento no wizard de rotina ou registro manual no diário alimentar) |
 | `created_by` | uuid | — | — | FK → `auth.users` ON DELETE CASCADE. Dono do item custom; `NULL` nos itens de catálogo. Migração `20260714-custom-items-owner.sql`. **É o que define a visibilidade**: `getDietsDb` mostra o item custom para o seu criador independentemente de existir vínculo em `user_diets` — antes a autoria era inferida do vínculo, e um alimento criado sem virar rotina desaparecia |
+| `taco_id` | integer | — | — | ID do alimento na **Tabela TACO 4ª ed. (NEPA/Unicamp)**. `NULL` em tudo que não veio da TACO. Tem índice único parcial (`where taco_id is not null`) — é o que torna `20260818-taco-food-catalog.sql` seguro de reexecutar |
+| `serving_grams` | real | — | — | Peso em gramas de **1 porção** — a unidade a que `calories`/`protein_g`/etc. desta linha se referem. Nos itens da TACO é 100 g por padrão (a unidade da fonte), com exceções onde 100 g seria absurdo (óleo → 13 g, bebida → 200 g) ou onde existe medida caseira padronizada (ovo → 50 g, concha de feijão → 80 g). `NULL` nos itens do TheMealDB, que nunca declararam porção |
+| `serving_label` | text | — | — | Nome da medida caseira exibido ao usuário — **sem o número na frente** (`"concha"`, não `"1 concha"`), porque a UI já mostra a quantidade ao lado. Gravado em **português**; a tradução acontece na tela, via o mapa `SERVING_KEYS` em `food-diary-card.tsx` (o conjunto de medidas é fechado, criado pela nossa própria migração). `NULL` nos itens do TheMealDB — eles nunca declararam porção, e a UI trata NULL como o genérico "por porção" |
 
 **RLS:** leitura pública. Escrita (`insert`/`update`/`delete`) só é permitida em linhas com `created_by_user = true and created_by = auth.uid()` — ninguém edita o catálogo do sistema pelo app.
+
+### Carga da Tabela TACO (`20260818-taco-food-catalog.sql`)
+
+Os 597 alimentos da Tabela Brasileira de Composição de Alimentos entram como linhas normais de catálogo (`created_by_user = false`, `mealdb_id` nulo) — `getDietsDb` já as mostra a todo mundo pela regra "sem flag de criação manual → visível".
+
+| Detalhe | Como ficou |
+|---|---|
+| Origem | TACO 4ª ed. (NEPA/Unicamp), dataset público `marcelosanto/tabela_taco` |
+| Unidade da fonte | Por 100 g → convertido para a porção da linha (`valor × serving_grams / 100`) |
+| `"Tr"` (traços) | Vira `0` — é quantidade conhecida e desprezível |
+| `"NA"` / `"*"` / vazio | Vira `NULL` — não foi analisado. Daí 6 alimentos sem calorias (incl. "Leite de vaca integral") e 235 sem fibra |
+| Carboidrato negativo | A TACO calcula carboidrato por diferença e 4 alimentos dão ~−0,03 g; a carga zera |
+| `food_quality` (NOVA) | Classificação **por regra nossa**, não da TACO: padrão pela categoria + sobrescrita por palavra-chave (salsicha/refrigerante/biscoito → `ultraprocessado`; queijo/pão/conserva → `processado`). Resultado: 409 `in_natura`, 132 `processado`, 56 `ultraprocessado` |
+| `name_eng` | `NULL` — a TACO não tem versão em inglês. `pickLocalized` cai no nome em PT para usuário EN; traduzir os 597 nomes é tarefa separada |
+| Nome | O invertido da fonte ("Arroz, integral, cozido") vira "Arroz integral cozido" |
 
 ---
 
@@ -528,6 +546,8 @@ Denúncias de conteúdo de Flows por usuários.
 | `flow_id` | bigint | ✓ | — | Flow denunciado |
 | `reason` | text | — | — | Motivo da denúncia |
 | `created_at` | timestamptz | ✓ | `now()` | Data da denúncia |
+
+> **UI de denúncia entrou em 2026-08-17** (`reportFlowDb`, botão no `FlowViewer`/`FlowViewerModal` — ver `docs/01-feed.md`). O lado admin (`admin_complaints_view`, `admin_delete_content`) já lia/apagava esta tabela desde antes; se o INSERT do app voltar erro de RLS, comparar a policy desta tabela com a de `shots_complaint`/`post_complaint` (INSERT liberado para `authenticated`, sem policy de SELECT/UPDATE/DELETE pro cliente comum) — nenhuma delas está numa migração deste repo, foram criadas direto no painel do Supabase.
 
 ---
 
@@ -687,7 +707,7 @@ Notificações geradas para os usuários (follows, likes, comentários, duelos).
 | `id` | bigint | PK (identity) | — | Identificador único |
 | `user_id` | uuid | — | `gen_random_uuid()` | Destinatário da notificação |
 | `follower_id` | uuid | — | `gen_random_uuid()` | Quem originou a notificação |
-| `type` | bigint | — | — | Tipo da notificação (1–17 — ver `docs/10-notificacoes.md`). **Sem check constraint**: adicionar um tipo novo não precisa de migração, só de redeploy da `send-push-notification` para o push ter texto próprio. Os tipos **10 e 17** (mensagem privada / resposta a flow) são filtrados na leitura — existem só para disparar o push |
+| `type` | bigint | — | — | Tipo da notificação (1–18 — ver `docs/10-notificacoes.md`). **Sem check constraint**: adicionar um tipo novo não precisa de migração, só de redeploy da `send-push-notification` para o push ter texto próprio. Os tipos **10 e 17** (mensagem privada / resposta a flow) são filtrados na leitura — existem só para disparar o push |
 | `created_at` | timestamptz | ✓ | `now()` | Data de criação |
 | `post_id` | uuid | — | — | Post relacionado; guarda o **id do grupo de duelo** quando type=4, 5 ou 11, e o **id da promoção** quando type=8, 12 ou 13 |
 | `read` | boolean | — | `false` | Notificação lida ou não |
@@ -711,6 +731,7 @@ Notificações geradas para os usuários (follows, likes, comentários, duelos).
 | 9 | Marcado em um post | `follower_id` (autor do post), `post_id` |
 | 16 | Marcado em um flow | `follower_id` (autor do flow), `flow_id` |
 | 17 | **Resposta privada a um flow** (mensagem, não card) | `follower_id` (quem respondeu), `flow_id` |
+| 18 | **Comentaram num flow em que o destinatário também comentou** | `follower_id` (quem comentou agora), `flow_id` |
 | 14 | Check-in **classificado** (aprovado) por um participante | `follower_id` (quem votou), `duel_check_in_id` |
 | 15 | Check-in **desclassificado** (reprovado) por um participante | `follower_id` (quem votou), `duel_check_in_id` |
 
@@ -726,20 +747,23 @@ Notificações geradas para os usuários (follows, likes, comentários, duelos).
 | `flow_likes` | `trg_notify_on_flow_incentive` | `notify_on_flow_incentive()` | type 2 (flow) |
 | `comments` | `trigger_notify_post_comment` | `notify_post_comment()` | type 3 (post) |
 | `shots_comments` | `notify_shots_comment` | `notify_shots_comment()` | type 3 (shot) |
-| `flow_comments` | `trg_notify_flow_comment` | `notify_flow_comment()` | type 3 (flow) |
+| `flow_comments` | `trg_notify_flow_comment` | `notify_flow_comment()` | type 3 (flow) — só para o **dono** do flow |
+| `flow_comments` | `trg_notify_flow_comment_followup` | `notify_flow_comment_followup()` | type 18 — para os **demais comentaristas** do mesmo flow |
 | `post_tags` | `trg_notify_post_tag` | `notify_post_tag()` | type 9 (marcado em post) |
 | `flow_tags` | `trg_notify_flow_tag` | `notify_flow_tag()` | type 16 (marcado em flow) |
 | `duel_check_in_votes` | `trg_notify_check_in_vote` | `notify_check_in_vote()` | type 14 / 15 (check-in classificado / desclassificado) |
 | `duel_check_in_votes` | `trg_notify_check_in_vote_removed` | `notify_check_in_vote_removed()` | apaga a 14/15 quando o voto é desfeito |
 
 > A trigger `notify-push-on-notification` (AFTER INSERT em `notifications`) chama a edge function `send-push-notification` para qualquer linha inserida — ou seja, o push é automático.
-> As triggers de flow foram adicionadas em `docs/migrations/20260521-flow-notifications.sql`.
+> As triggers de flow foram adicionadas em `docs/migrations/20260521-flow-notifications.sql`; a do tipo 18, em `docs/migrations/20260818-flow-comment-followup.sql`.
+>
+> **As duas triggers de `flow_comments` não se sobrepõem:** a `..._followup` exclui da lista de destinatários tanto o autor do comentário novo quanto o dono do flow (que já recebeu o tipo 3 na mesma inserção). Sem essa exclusão o dono levaria dois pushes pela mesma frase. Ela também pula o insert enquanto existir uma 18 **não lida** do mesmo autor no mesmo flow — é o que impede uma rajada de comentários de virar uma rajada de pushes.
 >
 > **Por que a avaliação de check-in (14/15) é trigger e não insert do cliente** (`docs/migrations/20260721-checkin-vote-notifications.sql`): a RLS de `notifications` dá SELECT/DELETE **só ao destinatário**. O votante não lê nem apaga as notificações de quem recebeu o voto, então nenhuma checagem de duplicata feita no cliente funciona — o SELECT volta vazio e o insert se repete a cada troca de voto. Rodando como `SECURITY DEFINER`, a função apaga a avaliação anterior daquele votante antes de gravar a nova (trocar de voto **reescreve**, e desfazer o voto **remove**).
 >
 > ⚠️ Pelo mesmo motivo, os dedups client-side que ainda existem em `sendCheckInReactionNotificationDb` (type 7) e `sendMessageNotificationDb` (type 10) são **no-ops silenciosos** — o `SELECT` que eles fazem em `notifications` sempre volta vazio sob RLS. Ver `docs/10-notificacoes.md`.
 
-**Índices** (`docs/migrations/20260702-performance-indexes.sql`): `notifications_user_id_created_at_idx (user_id, created_at DESC)` (listagem em `getNotificationsDb`), `notifications_user_id_read_idx (user_id, read)` (contagem de não lidas em `getUnreadNotificationsCountDb`).
+**Índices** (`docs/migrations/20260702-performance-indexes.sql`): `notifications_user_id_created_at_idx (user_id, created_at DESC)` (listagem em `getNotificationsDb`), `notifications_user_id_read_idx (user_id, read)` (contagem de não lidas em `getUnreadNotificationsCountDb`). Em `20260818-flow-comment-followup.sql`: `notifications_followup_dedup_idx (user_id, type, flow_id) WHERE read = false` (checagem de duplicata da trigger do tipo 18) e `flow_comments_flow_id_user_id_idx (flow_id, user_id)` (varredura dos participantes do flow).
 
 ---
 
@@ -897,7 +921,7 @@ Rotinas de treino dos usuários (estrutura de programação).
 | `type` | integer | ✓ | — | Tipo de rotina |
 | `created_at` | timestamptz | ✓ | `now()` | Data de criação |
 | `updated_at` | timestamp | — | `now()` | Data de atualização |
-| `goal_id` | bigint | — | — | Meta vinculada à rotina |
+| `goal_id` | bigint | — | — | Meta vinculada à rotina (id do catálogo `goals`, não `user_goals.id`). Zerado automaticamente pelo próprio app no dia seguinte a essa meta chegar a 100% (`unlinkCompletedGoalRoutinesDb`, ver `docs/05-metas.md`) — não é RLS nem trigger, é uma checagem no carregamento da tela de Metas. |
 | `name` | text | — | — | Nome da rotina |
 | `last_summary` | jsonb | — | — | Snapshot do resumo do **último treino finalizado** desta rotina (mesmo formato de `WorkoutSummaryData`, sem `userId`/`userGroups` — resolvidos de novo ao reabrir): `routineName`, `totalSeries`, `totalVolume`, `durationSecs`, `badges`, `completedExercises`, `prExercises`, `machinedExercises`, `completedAt`. Sobrescrito a cada "Finalizar" (`updateRoutineLastSummaryDb`) — nunca há mais de um snapshot por rotina, sempre o mais recente. `NULL` = rotina nunca executada. Gateia o ícone de "resumo do treino" no `routine-detail-drawer.tsx` (só aparece quando não-nulo). Migration: `docs/migrations/20260702-routine-last-summary.sql`. |
 | `training_mode` | text | ✓ | `'simple'` | **(2026-08-05)** Modo da experiência de treino desta rotina — a escolha do usuário no passo `routine-mode` do wizard. `'simple'` = tela clássica de registro (tabela KG × REPS); `'expert'` = série tipada (aquecimento/válida/falha), com o aquecimento contando no volume e na contagem de séries mas fora do PR e da progressão (ver `docs/05-metas.md`). `CHECK (training_mode IN ('simple','expert'))`. É **por rotina**, não por conta: o mesmo usuário pode ter "Peito/Tríceps" no expert e "Corrida de domingo" no simplificado. Só rotinas de treino (`type = 1`) perguntam; dieta/hábito ficam no default. Lido em `getUserRoutinesDb` → `RoutineCard.trainingMode` → prop `trainingMode` do `WorkoutSessionDialog`. Gravado por `updateRoutineTrainingModeDb` (por id, caminho do quiz) e `updateRoutineTrainingModeByNameDb` (por `user_id`+`type`+`name`, caminho "do zero", onde a linha nasce de trigger). Migration: `docs/migrations/20260805-training-mode.sql`. |

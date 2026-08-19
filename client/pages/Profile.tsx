@@ -113,6 +113,7 @@ import {
   ImagePlus,
   Lock,
   Play,
+  UsersRound,
 } from "lucide-react";
 import { resetSupabaseAuth, supabase } from "@/lib/supabase";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
@@ -172,6 +173,8 @@ export default function Profile() {
   const [selectedPost, setSelectedPost] = React.useState<PostWithUser | null>(null);
   const [postDescExpanded, setPostDescExpanded] = React.useState(false);
   const [isPostViewerOpen, setIsPostViewerOpen] = React.useState(false);
+  // Lista de marcações do post aberto no viewer (2+ pessoas)
+  const [postTaggedOpen, setPostTaggedOpen] = React.useState(false);
   const [isEditingPost, setIsEditingPost] = React.useState(false);
   const [editPostDescription, setEditPostDescription] = React.useState("");
   const [editPostGoalId, setEditPostGoalId] = React.useState<string>("");
@@ -1671,6 +1674,29 @@ export default function Profile() {
 
                   {/* Conteúdo */}
                   <div className="md:flex-1 md:overflow-y-auto px-4 pb-4 pt-3 space-y-3">
+                    {/* Pessoas marcadas — "com fulano" (1) navega ao perfil; 2+ abre a lista */}
+                    {!isEditingPost && (selectedPost.taggedUsers?.length ?? 0) > 0 && (
+                      <button
+                        type="button"
+                        className="flex items-center gap-1.5 -mb-1 active:opacity-70 transition-opacity"
+                        onClick={() => {
+                          hapticLight();
+                          const tagged = selectedPost.taggedUsers ?? [];
+                          if (tagged.length === 1) navigate(`/usuario/${tagged[0].id}`);
+                          else setPostTaggedOpen(true);
+                        }}
+                      >
+                        <UsersRound className="h-3.5 w-3.5 flex-shrink-0" style={{ color: "rgba(255,255,255,.5)" }} />
+                        <span className="text-xs" style={{ color: "rgba(255,255,255,.65)" }}>
+                          {selectedPost.taggedUsers!.length === 1
+                            ? t("post_with_person").replace("{name}", selectedPost.taggedUsers![0].nickname)
+                            : t("post_with_others")
+                                .replace("{name}", selectedPost.taggedUsers![0].nickname)
+                                .replace("{n}", String(selectedPost.taggedUsers!.length - 1))}
+                        </span>
+                      </button>
+                    )}
+
                     {/* Description */}
                     {isEditingPost ? (
                       <div className="space-y-1.5">
@@ -1768,14 +1794,20 @@ export default function Profile() {
                           <p className="text-sm" style={{ color: "rgba(255,255,255,.5)" }}>{t("profile_no_goals_created")}</p>
                         )}
                       </div>
-                    ) : selectedPost.user_goal_id && selectedPost.user_id === profileUserId ? (
-                      /* `userGoals` são as metas do dono do PERFIL. Num post da aba
-                         "Marcações" a meta é do outro autor e nunca estaria nessa
-                         lista — sem este guard o chip exibiria "meta removida". */
+                    ) : selectedPost.userGoal || (selectedPost.user_goal_id && selectedPost.user_id === profileUserId) ? (
+                      /* `selectedPost.userGoal` vem batelado do banco (igual ao feed em
+                         post.service.ts) e só existe quando a meta é pública — funciona
+                         para post de qualquer autor, inclusive na aba "Marcações". Para
+                         o post do PRÓPRIO dono do perfil, cai no fallback via `userGoals`
+                         (lista completa, sem filtro de visibilidade) para não esconder
+                         uma meta privada do próprio dono nem perder o aviso "meta
+                         removida" quando a meta foi de fato apagada. */
                       <div className="flex items-center gap-2 px-3 py-2 rounded-xl" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}>
                         <span className="text-xs" style={{ color: "rgba(255,255,255,.45)" }}>{t("profile_goal_label")}</span>
                         <span className="text-xs font-medium truncate" style={{ color: "#fff" }}>
-                          {userGoals.find((g) => g.id === selectedPost.user_goal_id)?.description || t("profile_goal_removed_label")}
+                          {selectedPost.userGoal?.description
+                            ?? userGoals.find((g) => g.id === selectedPost.user_goal_id)?.description
+                            ?? t("profile_goal_removed_label")}
                         </span>
                       </div>
                     ) : null}
@@ -1881,6 +1913,19 @@ export default function Profile() {
         onOpenChange={setIsLikesModalOpen}
         likes={postLikes}
       />
+
+      {/* Lista de pessoas marcadas no post aberto (2+) */}
+      {(selectedPost?.taggedUsers?.length ?? 0) > 1 && (
+        <FollowListDrawer
+          open={postTaggedOpen}
+          onOpenChange={setPostTaggedOpen}
+          type="following"
+          title={t("post_tagged_title")}
+          emptyMessage={t("post_tagged_title")}
+          users={selectedPost!.taggedUsers!}
+          isLoading={false}
+        />
+      )}
 
       {/* Followers Drawer */}
       <FollowListDrawer

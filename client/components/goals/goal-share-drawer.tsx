@@ -40,11 +40,27 @@ const ACCENT = "#22c55e";
 // componente — mesmo padrão de renderRouteMapImage({ labels }).
 type GoalCardLabels = {
   completed: string;
-  daysDone: string;
   duration: string;
-  progress: string;
+  frequency: string;
+  time: string;
+  consistency: string;
   daysUnit: string;
+  timeLine: string;
 };
+
+/**
+ * Dias corridos entre a criação da meta e hoje (dia da conclusão) — "quanto
+ * tempo levou", em contraste com `days_completed` ("quantas rotinas/dias
+ * ativos"). `created_at` é `timestamptz` (com fuso), então `new Date(...)`
+ * já converte certo — sem a pegadinha UTC-naive de `date_completed`.
+ * `null` quando a meta não tem `created_at` (linha muito antiga/fallback).
+ */
+function calendarDaysSinceCreated(goal: UserGoal): number | null {
+  if (!goal.created_at) return null;
+  const created = new Date(goal.created_at).getTime();
+  if (Number.isNaN(created)) return null;
+  return Math.max(1, Math.round((Date.now() - created) / 86400000));
+}
 
 // ─── Canvas: meta concluída (green accent) ──────────────────────────────────
 
@@ -138,20 +154,38 @@ function drawGoalCanvas(
     y += 4;
   }
 
-  // Frequência da meta (ex.: "3x por semana" já vem embutido na descrição em
-  // muitas metas, então aqui só o resumo de constância)
+  const calendarDays = calendarDaysSinceCreated(goal);
+  // Quantos dos dias corridos desde a criação tiveram progresso — reforça o
+  // "não foi por acaso" sem exigir dado que o app não guarda historicamente
+  // (ex.: horas efetivas de treino). 100 quando a meta foi feita no mesmo dia.
+  const consistencyPct =
+    calendarDays !== null
+      ? Math.min(100, Math.round((goal.days_completed / calendarDays) * 100))
+      : null;
+
+  // Narrativa: "Conquistada em N dias corridos" — quando não há `created_at`
+  // (meta antiga sem a coluna), cai no resumo anterior de dias ativos.
   ctx.fillStyle = "rgba(255,255,255,0.45)";
   ctx.font = `500 13px ${FONT}`;
   ctx.fillText(
-    `${goal.days_completed} ${labels.daysUnit} • 100%`,
+    calendarDays !== null
+      ? labels.timeLine.replace("{days}", String(calendarDays))
+      : `${goal.days_completed} ${labels.daysUnit} • 100%`,
     W / 2,
     y + 18,
   );
 
   drawCanvasStatPanels(ctx, W, 380, [
-    { l: labels.daysDone, v: String(goal.days_completed) },
     { l: labels.duration, v: `${goal.duration}` },
-    { l: labels.progress, v: "100%" },
+    // `days_completed` NÃO entra mais: numa meta concluída ele é sempre igual
+    // a `duration` (o incremento para em `min(atual+1, duration)`) — mostrar
+    // os dois é repetir o mesmo número duas vezes. `quantity` é a frequência
+    // (dias/semana) definida na criação — um dado diferente de verdade.
+    { l: labels.frequency, v: `${goal.quantity}x/${locale.startsWith("en") ? "wk" : "sem"}` },
+    // Tempo total e constância só entram com `created_at` disponível — sem
+    // ele, ficam só os 2 painéis originais em vez de inventar um número.
+    ...(calendarDays !== null ? [{ l: labels.time, v: `${calendarDays}d` }] : []),
+    ...(consistencyPct !== null ? [{ l: labels.consistency, v: `${consistencyPct}%` }] : []),
   ], ACCENT);
 
   drawCanvasDivider(ctx, W, 462);
@@ -227,10 +261,12 @@ export function GoalShareDrawer({ goal, onClose, onShared }: GoalShareDrawerProp
         logo,
         {
           completed: t("goals_share_card_label"),
-          daysDone: t("goals_share_card_stat_days"),
           duration: t("goals_share_card_stat_duration"),
-          progress: t("goals_share_card_stat_progress"),
+          frequency: t("goals_share_card_stat_frequency"),
+          time: t("goals_share_card_stat_time"),
+          consistency: t("goals_share_card_stat_consistency"),
           daysUnit: t("goals_share_card_days_unit"),
+          timeLine: t("goals_share_card_time_line"),
         },
         language === "en" ? "en-US" : "pt-BR",
       );

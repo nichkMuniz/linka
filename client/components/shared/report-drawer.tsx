@@ -20,7 +20,7 @@ interface ReportTarget {
 interface ReportDrawerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  type: "user" | "post" | "shot" | null;
+  type: "user" | "post" | "shot" | "flow" | null;
   target: ReportTarget | null;
 }
 
@@ -56,6 +56,9 @@ export function ReportDrawer({ open, onOpenChange, type, target }: ReportDrawerP
       } else if (type === "shot") {
         const { reportShotDb } = await import("@/lib/ritmofit-db");
         await reportShotDb(target.id, reason);
+      } else if (type === "flow") {
+        const { reportFlowDb } = await import("@/lib/ritmofit-db");
+        await reportFlowDb(target.id, reason);
       } else {
         const { reportPostDb } = await import("@/lib/ritmofit-db");
         await reportPostDb(target.id, reason);
@@ -67,7 +70,9 @@ export function ReportDrawer({ open, onOpenChange, type, target }: ReportDrawerP
             ? t("report_sent_user_desc")
             : type === "shot"
               ? t("report_sent_shot_desc")
-              : t("report_sent_post_desc"),
+              : type === "flow"
+                ? t("report_sent_flow_desc")
+                : t("report_sent_post_desc"),
       });
       onOpenChange(false);
     } catch (err: any) {
@@ -92,7 +97,13 @@ export function ReportDrawer({ open, onOpenChange, type, target }: ReportDrawerP
       >
         <DrawerHeader>
           <DrawerTitle style={{ color: "#fff" }}>
-            {type === "user" ? t("report_user") : type === "shot" ? t("report_shot") : t("report_post")}
+            {type === "user"
+              ? t("report_user")
+              : type === "shot"
+                ? t("report_shot")
+                : type === "flow"
+                  ? t("report_flow")
+                  : t("report_post")}
           </DrawerTitle>
           {target && (
             <p className="text-sm" style={{ color: "rgba(255,255,255,.5)" }}>
@@ -100,7 +111,9 @@ export function ReportDrawer({ open, onOpenChange, type, target }: ReportDrawerP
                 ? t("report_target_user")
                 : type === "shot"
                   ? t("report_target_shot")
-                  : t("report_target_post")
+                  : type === "flow"
+                    ? t("report_target_flow")
+                    : t("report_target_post")
               ).replace("{name}", target.userName)}
               {type !== "user" && target.description && (
                 <span className="block mt-0.5 text-xs line-clamp-1">"{target.description}"</span>

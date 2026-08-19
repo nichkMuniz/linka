@@ -17,6 +17,13 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { ReportDrawer } from "@/components/shared/report-drawer";
 import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
 import {
   getActiveStoriesDb,
@@ -30,6 +37,7 @@ import {
   recordFlowViewDb,
   getFlowViewersDb,
   getFlowTagsDb,
+  getFlowByIdDb,
   repostStoryDb,
   type StoryWithUser,
   type PostIncentiveType,
@@ -52,6 +60,8 @@ import {
   AtSign,
   Repeat2,
   MessageCircle,
+  MoreVertical,
+  Flag,
 } from "lucide-react";
 import {
   renderIncentiveIcon,
@@ -122,6 +132,10 @@ export default function FlowViewer() {
 
   const [allStories, setAllStories] = React.useState<StoryWithUser[]>([]);
   const [loadingStories, setLoadingStories] = React.useState(true);
+  // Se o flow não estiver mais no ring ativo (>24h ou fora do alcance de quem
+  // acessa, ex: admin analisando uma denúncia), tentamos buscá-lo direto por id
+  // antes de desistir e voltar pro feed.
+  const [fallbackAttempted, setFallbackAttempted] = React.useState(false);
 
   const [userLikes, setUserLikes] = React.useState<PostIncentiveType[]>([]);
   const [comments, setComments] = React.useState<StoryComment[]>([]);
@@ -177,6 +191,8 @@ export default function FlowViewer() {
   // Pessoas marcadas no flow atual + estado do repost (para quem foi marcado).
   const [taggedUsers, setTaggedUsers] = React.useState<SearchUser[]>([]);
   const [isReposting, setIsReposting] = React.useState(false);
+  const [reportDrawerOpen, setReportDrawerOpen] = React.useState(false);
+  const [reportType, setReportType] = React.useState<"user" | "flow">("flow");
 
   const markMediaReady = React.useCallback(() => {
     if (mediaReadySafetyRef.current) {
@@ -221,10 +237,18 @@ export default function FlowViewer() {
   }, [story?.media_url]);
 
   React.useEffect(() => {
-    if (!loadingStories && !story) {
-      navigate("/", { replace: true });
-    }
-  }, [loadingStories, story, navigate]);
+    if (loadingStories || story || fallbackAttempted || !storyId) return;
+    setFallbackAttempted(true);
+    getFlowByIdDb(storyId)
+      .then((flow) => {
+        if (flow) {
+          setAllStories((prev) => (prev.some((s) => s.id === flow.id) ? prev : [...prev, flow]));
+        } else {
+          navigate("/", { replace: true });
+        }
+      })
+      .catch(() => navigate("/", { replace: true }));
+  }, [loadingStories, story, fallbackAttempted, storyId, navigate]);
 
   const currentIndex = story ? sortedStories.findIndex((s) => s.id === story.id) : -1;
   const isOwner = story ? user?.id === story.user_id : false;
@@ -1004,6 +1028,41 @@ export default function FlowViewer() {
                       <Trash2 className="h-[18px] w-[18px]" />
                     </motion.button>
                   )}
+                  {/* Denunciar — só faz sentido no flow de outra pessoa */}
+                  {!isOwner && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <motion.button
+                          aria-label={t("flow_options_label")}
+                          whileTap={{ scale: 0.88 }}
+                          style={HEADER_GLASS_BTN_STYLE}
+                          className="h-9 w-9 rounded-full flex items-center justify-center text-white/90 hover:text-white transition-colors"
+                        >
+                          <MoreVertical className="h-[18px] w-[18px]" />
+                        </motion.button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-48">
+                        <DropdownMenuItem
+                          onClick={() => {
+                            setReportType("user");
+                            setReportDrawerOpen(true);
+                          }}
+                        >
+                          <Flag className="h-4 w-4 mr-2" />
+                          {t("report_user")}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => {
+                            setReportType("flow");
+                            setReportDrawerOpen(true);
+                          }}
+                        >
+                          <Flag className="h-4 w-4 mr-2" />
+                          {t("report_flow")}
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
                   <motion.button
                     onClick={handleClose}
                     whileTap={{ scale: 0.88 }}
@@ -1706,6 +1765,23 @@ export default function FlowViewer() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Report Drawer (denunciar usuário / denunciar flow) */}
+      <ReportDrawer
+        open={reportDrawerOpen}
+        onOpenChange={setReportDrawerOpen}
+        type={reportType}
+        target={
+          story
+            ? {
+                id: story.id,
+                userId: story.user_id,
+                userName: story.userNickname,
+                description: story.description,
+              }
+            : null
+        }
+      />
     </>
   );
 }

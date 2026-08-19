@@ -18,6 +18,13 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { ReportDrawer } from "@/components/shared/report-drawer";
 import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
 import {
   getUserStoryLikesDb,
@@ -37,7 +44,7 @@ import {
   type FlowViewer,
   type SearchUser,
 } from "@/lib/ritmofit-db";
-import { X, ChevronLeft, ChevronRight, Send, Trash2, Eye, Pause, Play, Pencil, Check, Loader2, AtSign, Repeat2, MessageCircle } from "lucide-react";
+import { X, ChevronLeft, ChevronRight, Send, Trash2, Eye, Pause, Play, Pencil, Check, Loader2, AtSign, Repeat2, MessageCircle, MoreVertical, Flag } from "lucide-react";
 import { useFlowPrivateReply } from "@/hooks/use-flow-private-reply";
 import { useLanguage } from "@/lib/language-context";
 import { renderIncentiveIcon } from "@/lib/incentive-config";
@@ -639,6 +646,8 @@ export function FlowViewerModal({
   const handleSendPrivateReply = React.useCallback(async () => {
     if (await sendPrivateReply(newComment)) setNewComment("");
   }, [sendPrivateReply, newComment]);
+  const [reportDrawerOpen, setReportDrawerOpen] = React.useState(false);
+  const [reportType, setReportType] = React.useState<"user" | "flow">("flow");
 
   // Pré-aquece a mídia do PRÓXIMO flow assim que a atual apareceu (antes disso os dois
   // downloads brigariam por banda). A capa vem inteira; do vídeo, só o cabeçalho —
@@ -818,6 +827,36 @@ export function FlowViewerModal({
                               <Trash2 className="h-6 w-6" />
                             </button>
                           </>
+                        )}
+                        {/* Denunciar — só faz sentido no flow de outra pessoa */}
+                        {!isOwner && (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <button aria-label={t("flow_options_label")} className="text-white/90 hover:text-white p-2">
+                                <MoreVertical className="h-6 w-6" />
+                              </button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-48">
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  setReportType("user");
+                                  setReportDrawerOpen(true);
+                                }}
+                              >
+                                <Flag className="h-4 w-4 mr-2" />
+                                {t("report_user")}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  setReportType("flow");
+                                  setReportDrawerOpen(true);
+                                }}
+                              >
+                                <Flag className="h-4 w-4 mr-2" />
+                                {t("report_flow")}
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         )}
                         <button onClick={() => onOpenChange(false)} className="text-white/70 hover:text-white p-2 ml-1">
                           <X className="h-6 w-6" />
@@ -1396,6 +1435,23 @@ export function FlowViewerModal({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Report Drawer (denunciar usuário / denunciar flow) */}
+      <ReportDrawer
+        open={reportDrawerOpen}
+        onOpenChange={setReportDrawerOpen}
+        type={reportType}
+        target={
+          story
+            ? {
+                id: story.id,
+                userId: story.user_id,
+                userName: story.userNickname,
+                description: story.description,
+              }
+            : null
+        }
+      />
     </>
   );
 }

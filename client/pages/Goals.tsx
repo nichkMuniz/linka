@@ -29,6 +29,7 @@ import {
   createCheckInDb,
   awardBadgesForCheckInsDb,
   incrementGoalProgressDb,
+  unlinkCompletedGoalRoutinesDb,
   toggleUserDietCompletionDb,
   toggleUserHabitCompletionDb,
   saveDietHistoryDb,
@@ -144,12 +145,25 @@ function computeRecordStreak(history: Array<{ check_in_date: string }>): number 
   return best;
 }
 
+/**
+ * `date_completed` vem de `user_workouts_hist`, coluna `timestamp` SEM fuso —
+ * o Supabase devolve sem sufixo `Z`, mas os dígitos são UTC (gravados via
+ * `toISOString()`; mesma pegadinha de `formatTimeAgo` em `client/lib/utils.ts`).
+ * Sem apendar o `Z`, `new Date(...)` trata a string como hora LOCAL — os
+ * mesmos dígitos, sem converter nada. Ver o mesmo helper em `goals-helpers.ts`
+ * e `today-dashboard.tsx`.
+ */
+function localDateFromUtcNaive(raw: string): string {
+  const iso = raw.endsWith("Z") || raw.includes("+") ? raw : `${raw}Z`;
+  return localDateStr(new Date(iso));
+}
+
 /** última execução do card de treino = data mais recente entre seus itens */
 function cardLastDate(card: RoutineCard, lastDates: Record<string, string>): string | null {
   const dates = card.items
     .map((i) => lastDates[i.id])
     .filter(Boolean)
-    .map((d) => d.slice(0, 10))
+    .map((d) => localDateFromUtcNaive(d))
     .sort();
   return dates.pop() ?? null;
 }
@@ -240,6 +254,10 @@ export default function Goals() {
   const [pendingBadges, setPendingBadges] = React.useState<Badge[]>([]);
   const [pendingGoal, setPendingGoal] = React.useState<UserGoal | null>(null);
   const [sessionCardKey, setSessionCardKey] = React.useState<string | null>(null);
+  // Compartilhar o resumo no feed navega para "/" imediatamente — mas isso
+  // desmonta a página ANTES de badge/meta pendentes conseguirem aparecer. Só
+  // navega depois que os diálogos de celebração (se houver) forem fechados.
+  const [navigateToFeedAfterCelebration, setNavigateToFeedAfterCelebration] = React.useState(false);
 
   // ─── Recarga em FATIAS ────────────────────────────────────────────────────
   //
@@ -305,6 +323,12 @@ export default function Goals() {
    */
   const loadData = React.useCallback(async () => {
     if (!user) return;
+    // Metas que bateram 100% ONTEM ou antes soltam as rotinas vinculadas — dá
+    // ao usuário o dia da conquista inteiro pra compartilhar antes de "soltar"
+    // a rotina no dia seguinte (ver `unlinkCompletedGoalRoutinesDb`). Roda
+    // ANTES de reloadRoutines()/reloadGoals() para os cards já nascerem sem o
+    // vínculo velho; falhar aqui não pode travar o resto do carregamento.
+    await unlinkCompletedGoalRoutinesDb(user.id).catch(() => {});
     try {
       await Promise.all([
         reloadRoutines(),
@@ -416,6 +440,21 @@ export default function Goals() {
       setWorkoutModalOpen(true);
     }
   }, [pendingReopen, setPendingReopen, setWorkoutModalOpen]);
+
+  // Compartilhar o resumo no feed adiou a navegação para deixar a celebração de
+  // badge/meta aparecer primeiro (ver `navigateToFeedAfterCelebration`); navega
+  // assim que os dois diálogos estiverem fechados.
+  React.useEffect(() => {
+    if (
+      navigateToFeedAfterCelebration &&
+      unlockedBadges.length === 0 &&
+      !completedGoal &&
+      !goalToShare // "Compartilhar conquista" abre este drawer a partir do diálogo de meta
+    ) {
+      setNavigateToFeedAfterCelebration(false);
+      navigate("/", { state: { refreshFeed: true } });
+    }
+  }, [navigateToFeedAfterCelebration, unlockedBadges, completedGoal, goalToShare, navigate]);
 
   // Chegando de outra tela (ex.: Novo Post) pedindo para já abrir o wizard de criação de meta
   React.useEffect(() => {
@@ -1206,13 +1245,32 @@ export default function Goals() {
         <WorkoutSummaryOverlay
           data={summaryData}
           onSharedToFeed={() => {
-            // Publicou no feed → fecha o resumo e leva direto ao feed para ver o post.
-            // O flag refreshFeed faz o Index recarregar ao montar, ignorando o cache,
+            // Publicou no feed → fecha o resumo e leva ao feed para ver o post. O
+            // flag refreshFeed faz o Index recarregar ao montar, ignorando o cache,
             // para que a publicação recém-criada já apareça no topo.
+            //
+            // Insígnia/meta pendentes NÃO podem ser só descartadas aqui: elas
+            // viviam nesta página, e `navigate` desmonta o componente antes de
+            // qualquer diálogo conseguir aparecer — o usuário batia a meta e
+            // nunca via a comemoração. Em vez de descartar, promovemos ao mesmo
+            // estado que o fechamento normal do resumo usa (`completedGoal`/
+            // `unlockedBadges`) e só navegamos depois que o usuário fechar os
+            // diálogos (ver o efeito de `navigateToFeedAfterCelebration`).
             setSummaryData(null);
-            setPendingBadges([]);
-            setPendingGoal(null);
-            navigate("/", { state: { refreshFeed: true } });
+            const hasCelebration = pendingBadges.length > 0 || !!pendingGoal;
+            if (pendingBadges.length > 0) {
+              setUnlockedBadges(pendingBadges);
+              setPendingBadges([]);
+            }
+            if (pendingGoal) {
+              setCompletedGoal(pendingGoal);
+              setPendingGoal(null);
+            }
+            if (hasCelebration) {
+              setNavigateToFeedAfterCelebration(true);
+            } else {
+              navigate("/", { state: { refreshFeed: true } });
+            }
           }}
           onClose={() => {
             setSummaryData(null);

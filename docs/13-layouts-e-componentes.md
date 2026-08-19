@@ -688,19 +688,21 @@ Bloqueia o envio quando `!navigator.onLine` (senão o relato se perderia em sil�
 
 ### ReportDrawer (denúncia de conteúdo)
 **Arquivo:** `client/components/shared/report-drawer.tsx`
+**Usado em:** Feed, Shots e os **dois viewers de flow** (`FlowViewer.tsx` e `flow-viewer-modal.tsx`, ver `docs/01-feed.md`)
 
-Drawer único de denúncia usado pelo Feed e pela tela de Shots. Seletor de motivo (radio) + botões Cancelar / Enviar denúncia.
+Drawer único de denúncia. Seletor de motivo (radio) + botões Cancelar / Enviar denúncia.
 
 | Prop | Descrição |
 |---|---|
-| `type` | `"user"` \| `"post"` \| `"shot"` — define título, subtítulo e a tabela de destino |
-| `target` | `{ id, userId, userName, description? }` — `id` é o post/shot denunciado, `userId` é o autor |
+| `type` | `"user"` \| `"post"` \| `"shot"` \| `"flow"` — define título, subtítulo e a tabela de destino |
+| `target` | `{ id, userId, userName, description? }` — `id` é o post/shot/flow denunciado, `userId` é o autor |
 
 | `type` | Título | Função DB | Tabela |
 |---|---|---|---|
 | `user` | Denunciar usuário | `reportUserDb(userId, reason)` | `user_complaint` |
 | `post` | Denunciar post | `reportPostDb(postId, reason)` | `post_complaint` |
 | `shot` | Denunciar shots | `reportShotDb(shotId, reason)` | `shots_complaint` |
+| `flow` | Denunciar flow (2026-08-17) | `reportFlowDb(flowId, reason)` | `flow_complaint` |
 
 - Motivos: Conteúdo inadequado, Spam, Assédio ou bullying, Violação de direitos autorais, Outro
 - **Rótulos traduzidos (PT/EN), valor gravado sempre em PT** — a fila de moderação do Admin (`admin_complaints_view`) precisa de `reason` comparável entre usuários de idiomas diferentes

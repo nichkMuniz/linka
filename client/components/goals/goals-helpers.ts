@@ -68,7 +68,7 @@ export function computeSequentialWorkoutDue(
     const dates = c.items
       .map((i) => routineLastDates[i.id])
       .filter(Boolean)
-      .map((d) => d.slice(0, 10))
+      .map((d) => localDateFromUtcNaive(d))
       .sort();
     return dates.pop() ?? null;
   };
@@ -218,6 +218,20 @@ export function buildRoutineCards(
   return cards;
 }
 
+/**
+ * `date_completed`/`routineLastDates` vêm de `user_workouts_hist`, coluna
+ * `timestamp` SEM fuso — o Supabase devolve sem sufixo `Z`, mas os dígitos são
+ * UTC (gravados via `toISOString()` ao finalizar o treino; mesma pegadinha de
+ * `formatTimeAgo` em `client/lib/utils.ts`). Sem apendar o `Z`, `new Date(...)`
+ * trata a string como hora LOCAL — os mesmos dígitos, sem converter nada — e
+ * comparar com uma data local de verdade (`today`/`weekStartStr()`) erra
+ * sempre que o treino termina à noite num fuso atrás de UTC.
+ */
+function localDateFromUtcNaive(raw: string): string {
+  const iso = raw.endsWith("Z") || raw.includes("+") ? raw : `${raw}Z`;
+  return localDateStr(new Date(iso));
+}
+
 function localDateStr(d: Date): string {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
@@ -305,7 +319,7 @@ export function isRoutineCompleted(
     const lastDate = card.items
       .map((i) => routineLastDates[i.id])
       .filter(Boolean)
-      .map((d) => d.slice(0, 10))
+      .map((d) => localDateFromUtcNaive(d))
       .sort()
       .pop();
     return !!lastDate && lastDate >= weekStartStr();

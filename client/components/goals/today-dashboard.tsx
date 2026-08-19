@@ -41,6 +41,11 @@ type TodaySlide =
 /** Cada slide do carrossel troca a cada X segundos */
 const AUTO_ADVANCE_MS = 5000;
 
+/** Cor do texto/tags do banner "em foco" — grafite suave em vez de preto puro, menos pesado sobre fotos claras. */
+const TEXT_ON_GLASS = "#23242c";
+/** Auréola clara atrás do texto do banner — dá contraste sobre a foto sem precisar de faixa/painel visível. */
+const TEXT_GLOW = "0 1px 2px rgba(255,255,255,.85), 0 1px 10px rgba(255,255,255,.6)";
+
 function localDateStr(d: Date): string {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
@@ -48,12 +53,27 @@ function localDateStr(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
+/**
+ * `date_completed` vem de `user_workouts_hist`, coluna `timestamp` SEM fuso —
+ * o Supabase devolve o valor sem sufixo `Z`, mas os dígitos são UTC (gravados
+ * via `toISOString()` ao finalizar o treino; mesma pegadinha de `formatTimeAgo`
+ * em `client/lib/utils.ts`). Sem apendar o `Z`, `new Date(...)` interpreta a
+ * string como hora LOCAL — os mesmos dígitos, sem converter nada — e comparar
+ * com `today` (data local de verdade) erra sempre que o treino termina à noite
+ * num fuso atrás de UTC (ex.: Brasil, ~21h-23h59 local vira "amanhã" em UTC).
+ * Card com 1 exercício só não tem outro item pra mascarar esse desvio.
+ */
+function localDateFromUtcNaive(raw: string): string {
+  const iso = raw.endsWith("Z") || raw.includes("+") ? raw : `${raw}Z`;
+  return localDateStr(new Date(iso));
+}
+
 /** última execução do card = data mais recente entre os itens */
 function cardLastDate(card: RoutineCard, lastDates: Record<string, string>): string | null {
   const dates = card.items
     .map((i) => lastDates[i.id])
     .filter(Boolean)
-    .map((d) => d.slice(0, 10))
+    .map((d) => localDateFromUtcNaive(d))
     .sort();
   return dates.pop() ?? null;
 }
@@ -350,12 +370,10 @@ export function TodayDashboard({
             </div>
           </div>
         )}
-        <div className="absolute inset-0" style={{ background: "linear-gradient(to top,rgba(0,0,0,.6),transparent 55%)" }} />
-
         {linkedGoal && (
           <span
-            className="absolute top-3.5 left-3.5 text-[11px] font-semibold text-white px-3 py-1.5 backdrop-blur-sm"
-            style={{ borderRadius: "14px", background: "rgba(255,255,255,.16)", border: "1px solid rgba(255,255,255,.2)" }}
+            className="absolute top-3.5 left-3.5 text-[11px] font-semibold px-3 py-1.5 backdrop-blur-md"
+            style={{ borderRadius: "14px", background: "rgba(255,255,255,.55)", border: "1px solid rgba(255,255,255,.5)", color: TEXT_ON_GLASS }}
           >
             🎯 {linkedGoal.description} · {Math.min(100, Math.round(linkedGoal.perc))}%
           </span>
@@ -374,13 +392,13 @@ export function TodayDashboard({
         </span>
 
         <div className="absolute left-4 right-4 bottom-3.5">
-          <p className="text-[13px] font-semibold text-white/80 mb-0.5 truncate">
+          <p className="text-[13px] font-semibold mb-0.5 truncate" style={{ color: "rgba(28,29,36,.7)", textShadow: TEXT_GLOW }}>
             {typeTopLabel(card)}
           </p>
-          <p className="text-[22px] font-bold text-white tracking-tight leading-tight truncate mb-1">
+          <p className="text-[22px] font-bold tracking-tight leading-tight truncate mb-1" style={{ color: TEXT_ON_GLASS, textShadow: TEXT_GLOW }}>
             {label}
           </p>
-          <p className="text-xs text-white/70 mb-3 truncate">{subtitle}</p>
+          <p className="text-xs mb-3 truncate" style={{ color: "rgba(28,29,36,.62)", textShadow: TEXT_GLOW }}>{subtitle}</p>
           <button
             onClick={(e) => {
               e.stopPropagation();

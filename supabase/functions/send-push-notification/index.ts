@@ -85,6 +85,7 @@ const TITLE_BY_TYPE: Record<number, string> = {
   15: "Check-in desclassificado ⛔",
   16: "Você foi marcado 📸",
   17: "Resposta ao seu flow 🎞️",
+  18: "Responderam no flow 💬",
 };
 
 // Mesmos nomes exibidos no app (INCENTIVE_CONFIG / i18n)
@@ -224,6 +225,10 @@ async function buildBody(
     // descobria o contexto abrindo a conversa.
     case 17:
       return `${name} respondeu ao seu flow.`;
+    // O flow NÃO é do destinatário — ele só comentou lá. Por isso "um flow que
+    // você comentou" e não "no seu flow": quem recebe o type 3 é o dono.
+    case 18:
+      return `${name} também comentou em um flow que você comentou.`;
     default:
       return "Você tem uma nova notificação no LinKa.";
   }
