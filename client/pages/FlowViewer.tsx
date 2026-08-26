@@ -24,6 +24,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ReportDrawer } from "@/components/shared/report-drawer";
+import { FlowElementView } from "@/components/shared/flow-workout-sticker";
 import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
 import {
   getActiveStoriesDb,
@@ -1100,46 +1101,7 @@ export default function FlowViewer() {
                     <div className="relative w-full h-full" style={{ background: story.background_color }}>
                       {Array.isArray(story.text_elements) && story.text_elements.length > 0 ? (
                         story.text_elements.map((el, idx) => (
-                          <div
-                            key={idx}
-                            className="absolute"
-                            style={{
-                              left: `${el.x}%`,
-                              top: `${el.y}%`,
-                              transform: "translate(-50%, -50%)",
-                              width: "max-content",
-                              maxWidth: "80vw",
-                              padding: "0 0.5rem",
-                            }}
-                          >
-                            <p
-                              className="leading-relaxed break-words whitespace-pre-wrap"
-                              style={{
-                                textShadow: el.style?.backgroundColor ? "none" : "0 1px 6px rgba(0,0,0,0.5)",
-                                fontFamily: el.style?.fontFamily ?? "system-ui, sans-serif",
-                                fontWeight: el.style?.fontWeight ?? 800,
-                                fontSize: el.style?.fontSize ?? 30,
-                                textAlign: el.style?.align ?? "center",
-                                color: el.style?.color ?? "#ffffff",
-                              }}
-                            >
-                              {el.style?.backgroundColor ? (
-                                <span
-                                  style={{
-                                    background: el.style.backgroundColor,
-                                    boxDecorationBreak: "clone",
-                                    WebkitBoxDecorationBreak: "clone",
-                                    padding: "0.08em 0.26em",
-                                    borderRadius: "0.28em",
-                                  }}
-                                >
-                                  {el.text}
-                                </span>
-                              ) : (
-                                el.text
-                              )}
-                            </p>
-                          </div>
+                          <FlowElementView key={idx} el={el} />
                         ))
                       ) : (
                         <div
@@ -1243,46 +1205,7 @@ export default function FlowViewer() {
                     story.text_elements.length > 0 && (
                       <div className="absolute inset-0 pointer-events-none z-[5]">
                         {story.text_elements.map((el, idx) => (
-                          <div
-                            key={idx}
-                            className="absolute"
-                            style={{
-                              left: `${el.x}%`,
-                              top: `${el.y}%`,
-                              transform: "translate(-50%, -50%)",
-                              width: "max-content",
-                              maxWidth: "80vw",
-                              padding: "0 0.5rem",
-                            }}
-                          >
-                            <p
-                              className="leading-relaxed break-words whitespace-pre-wrap"
-                              style={{
-                                textShadow: el.style?.backgroundColor ? "none" : "0 1px 6px rgba(0,0,0,0.5)",
-                                fontFamily: el.style?.fontFamily ?? "system-ui, sans-serif",
-                                fontWeight: el.style?.fontWeight ?? 800,
-                                fontSize: el.style?.fontSize ?? 30,
-                                textAlign: el.style?.align ?? "center",
-                                color: el.style?.color ?? "#ffffff",
-                              }}
-                            >
-                              {el.style?.backgroundColor ? (
-                                <span
-                                  style={{
-                                    background: el.style.backgroundColor,
-                                    boxDecorationBreak: "clone",
-                                    WebkitBoxDecorationBreak: "clone",
-                                    padding: "0.08em 0.26em",
-                                    borderRadius: "0.28em",
-                                  }}
-                                >
-                                  {el.text}
-                                </span>
-                              ) : (
-                                el.text
-                              )}
-                            </p>
-                          </div>
+                          <FlowElementView key={idx} el={el} />
                         ))}
                       </div>
                     )}

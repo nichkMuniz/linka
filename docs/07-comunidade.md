@@ -382,6 +382,7 @@ Fluxo em 4 etapas com barra de progresso visual no topo.
   - Série e volume total preenchidos automaticamente do histórico
   - **Rotina já postada neste grupo (2026-07-02):** se a mesma rotina (nome + dia) já tiver um check-in nesse grupo, a opção aparece **desabilitada** (opacidade reduzida, `cursor-not-allowed`) com o rótulo "Já postado neste grupo" ao lado do horário; tocar nela mostra um toast em vez de selecionar. O botão "Adicionar Check-in" também bloqueia no submit (checagem redundante caso o estado fique desatualizado). Chave de deduplicação: `nome-da-rotina (lowercase/trim) + dia do calendário` calculada a partir dos check-ins já carregados do grupo (`groupCheckIns`) comparados com `routine.completedAt`. **Escopo por grupo** — a mesma rotina pode ser compartilhada normalmente em outro grupo do qual o usuário participa (cada duelo tem pontuação própria); a regra só impede inflar a pontuação de **um** grupo postando o mesmo treino nele mais de uma vez. Essa checagem existe apenas no drawer manual da tela de Duelos — o botão "Compartilhar no Duelo" do resumo de treino (`workout-summary-overlay.tsx`) não passa por ela.
 - Séries/Volume são salvos da tabela `user_workouts_hist` (reais, não zeros)
+  - **Calorias vêm preenchidas (2026-08-21):** em duelo com `scoringType === "calories"`, escolher um treino recente **pré-preenche** o campo obrigatório "Calorias queimadas" com o gasto registrado naquela sessão (`CompletedRoutine.caloriesKcal` — o **MAX** de `user_workouts_hist.calories` das linhas da sessão, já que a coluna é gravada em uma linha só). Continua editável. No caminho automático — botão **"Compartilhar no Duelo"** do resumo de treino —, `addGroupCheckInDb` passava `calories: null` **sempre**: um duelo pontuado por calorias dava **0** para quem treinava pelo app e só pontuava quem fazia o check-in manual. Agora o número da sessão vai junto. Ver `docs/05-metas.md` → "Calorias gastas".
 - `muscle_group`, `muscle_groups` e `exercises` (JSON) são salvos no check-in para exibição no detalhe
 
 > **Data/horário do check-in segue a rotina, não o momento da postagem (2026-07-02):** Como a rotina selecionada pode ter sido concluída em um dia anterior (janela de 7 dias), o check-in é gravado com `created_at` igual ao `completedAt` da rotina escolhida (`addGroupCheckInDb(..., workoutCompletedAt)`), em vez do horário em que o usuário efetivamente tocou em "Adicionar Check-in". Isso garante que o check-in apareça agrupado no dia correto no histórico (Hoje/Ontem/data), na contagem de "dias ativos" e em qualquer ordenação por data — mesmo quando o usuário só lembra de postar depois.
@@ -506,11 +507,54 @@ Dados carregados via `getRankingDb()`
 
 ## Observações Técnicas
 
-> **Refatoração incremental (2026-07-13):** `Community.tsx` era um monolito de ~5.000 linhas (quase tudo dentro de um único componente). Primeira fatia **segura** de extração, sem mudança de comportamento: helpers puros e constantes (`specialMessageLabel`, `formatTimeAgo`, `DEFAULT_CHECKIN_PHOTO`, `DUEL_SCORING_TYPE_OPTIONS`, tipo `ViewMode`) foram para `client/components/community/community-helpers.ts`, e a **aba Ranking** (puramente apresentacional) virou `client/components/community/ranking-tab.tsx` (`<RankingTab ranking followers currentUserId onScroll />`). As abas **Mensagens** e **Duelos** continuam inline por serem profundamente acopladas ao estado do componente — sua extração deve ser feita de forma incremental e validada em device (o app é iOS/Capacitor, sem verificação de runtime local).
+## Arquitetura: uma pasta por aba (2026-08-21)
+
+`Community.tsx` era um monolito de **5.470 linhas com 93 `useState`** — mexer no chat
+obrigava a ler duelos, ranking e solicitações no mesmo arquivo. Hoje a tela é só a
+**casca** (254 linhas) e cada aba é um módulo com o estado dela.
+
+| Arquivo | Linhas | Papel |
+|---|---|---|
+| `client/pages/Community.tsx` | 254 | Casca: abas, carga compartilhada e roteamento entre elas |
+| `client/components/community/messages/use-messages.ts` | 778 | Estado da aba Mensagens: lista, conversa, envio, realtime, reações, exclusão |
+| `client/components/community/messages/conversation-view.tsx` | 625 | Conversa em tela cheia (portal) |
+| `client/components/community/messages/messages-tab.tsx` | 292 | Lista de conversas + overlays (nova conversa, excluir) |
+| `client/components/community/duels/use-duels.ts` | 913 | Estado da aba Duelos: grupos, check-ins, votos, comentários, participantes, convites |
+| `client/components/community/duels/duels-overlays.tsx` | 2.317 | Todos os drawers e modais de duelo |
+| `client/components/community/duels/duel-group-view.tsx` | 799 | Vista de um duelo em tela cheia (portal) |
+| `client/components/community/duels/duels-tab.tsx` | 328 | Lista de duelos (seus e disponíveis) |
+| `client/components/community/duels/duels-constants.ts` | 16 | `toGroupCard`, paginação do histórico |
+| `client/components/community/requests-tab.tsx` | 245 | Aba Solicitações |
+| `client/components/community/ranking-tab.tsx` | 91 | Aba Ranking (extraída em 2026-07-13) |
+
+### Como o estado foi dividido
+
+Cada domínio tem um **hook dono do estado** (`useMessages`, `useDuels`) e componentes
+que consomem o controlador via uma prop única `ctl`. Os componentes **desestruturam**
+`ctl` no topo, então o JSX ficou idêntico ao que era — nenhuma linha de marcação foi
+reescrita, o que era a maior fonte de risco desta refatoração.
+
+O que **continua na casca**, e por quê:
+
+- `conversations`, `followers`, `ranking`, `loading` — a carga inicial é um único
+  `Promise.all` que alimenta três abas e é ela quem decide quando esconder o skeleton.
+  Quebrá-la em três mudaria o momento do primeiro paint.
+- `activeTab` — a casca é quem troca de aba; os hooks recebem `isActive`/`activeTab`.
+- `searchQuery` — pertence à busca de conversas, passada como prop para a aba.
+
+`pendingInvites` e `pendingGroupRequests` moram no `useDuels`, **não** na aba
+Solicitações: quem as carrega é o `loadGroupsAndRequests` do domínio de duelos, e o
+badge do ícone de Solicitações depende das duas.
+
+> **Validação:** `tsc --noEmit` limpo e `vite build` com o chunk da Comunidade em
+> **167,83 kB** (era 167,88 kB antes da refatoração) — a estabilidade do tamanho é a
+> evidência de que nada se perdeu nem foi duplicado. Como não há runtime local
+> (iOS/Capacitor), **o comportamento ainda precisa ser conferido no TestFlight**:
+> conversa (envio de texto/foto/áudio, realtime, toque longo), duelo (criar, check-in,
+> votar, participantes) e os deep links `?user=`, `?checkin=`, `?group=`, `?tab=`.
 
 - `viewMode` controla se exibe lista de conversas ou uma conversa individual
 - Tab ativa pode ser controlada via `searchParams` (ex: `?tab=duelos`)
-- `useLayoutMode()` detecta mobile/desktop para ajustes de layout
 - Grupos têm notificações enviadas ao criador quando alguém pede para entrar (`sendGroupJoinRequestNotificationDb`)
 - **Mensagem privada gera push, e só push (tipo 10, 2026-07-13; push-only desde 2026-07-21):** `sendMessageDb` insere uma linha em `notifications` (fire-and-forget) — ela existe unicamente para disparar o push, e é **filtrada na leitura**, então não vira card na tela de Notificações nem conta no badge do sino. Quem sinaliza mensagem não lida dentro do app é o badge da Comunidade (`getUnreadMessageCountDb`, que lê a tabela `messages`). O toque no push leva a `/comunidade?user=<remetente>`. Ver `docs/10-notificacoes.md`
   - **(2026-08-17)** `sendMessageDb` aceita um 3º parâmetro opcional (`SendMessageContext`) que troca o tipo dessa linha para **17** quando a mensagem é uma **resposta a flow** — só para o push dizer "{nome} respondeu ao seu flow" em vez do genérico. Tudo o mais é idêntico ao tipo 10 (mesmo destino, mesma exclusão da lista e do badge). Qualquer tipo usado ali precisa entrar em `NOTIF_TYPES_PUSH_ONLY`, senão a mensagem vira card na tela de Notificações

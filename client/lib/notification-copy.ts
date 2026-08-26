@@ -49,6 +49,7 @@ const TITLE_KEY_BY_TYPE: Record<number, TranslationKey> = {
   16: "notif_title_16",
   17: "notif_title_17",
   18: "notif_title_18",
+  19: "notif_title_19",
 };
 
 const INCENTIVE_KEY_BY_TYPE: Record<number, TranslationKey> = {
@@ -188,6 +189,11 @@ export function notificationBody(
     // flow não é dele, então nada de "no seu flow" — o contexto é o comentário.
     case 18:
       return t("notif_desc_flow_comment_followup").replace("{name}", name);
+    // 19 = convite para treinar junto. O banner é o fallback: com o app aberto
+    // quem avisa é o diálogo do convite (AppLayout), que já traz os exercícios
+    // e os botões de aceitar/recusar.
+    case 19:
+      return t("notif_desc_workout_party").replace("{name}", name);
     default:
       return t("notif_body_default");
   }
@@ -220,6 +226,10 @@ export function notificationDeepLink(row: NotificationRow): string {
     case 12:
     case 13:
       return "/vitrine";
+    // Convite de treino: Metas é onde a sessão nasce, e o diálogo do convite
+    // aparece sozinho ao abrir (busca o pendente na montagem do layout).
+    case 19:
+      return "/metas";
     default:
       return "/notificacoes";
   }

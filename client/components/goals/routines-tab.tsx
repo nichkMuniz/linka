@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Bell, CalendarDays, ChevronRight, Dumbbell, Play, Shield, Sparkles, Target } from "lucide-react";
+import { Bell, CalendarDays, ChevronRight, Dumbbell, Play, Shield, Sparkles, Target, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/lib/language-context";
 import { formatScheduledTime } from "@/hooks/use-routine-notifications";
@@ -24,6 +24,12 @@ interface RoutinesTabProps {
   routineLastDates: Record<string, string>;
   activeWorkoutName: string | null;
   onStartWorkout: (card: RoutineCard) => void;
+  /**
+   * "Treinar junto" — abre o seletor de quem chamar antes de iniciar. Botão
+   * satélite ao lado do "Iniciar", nunca um passo no meio do caminho: quem
+   * treina sozinho (a maioria) continua a um toque de distância.
+   */
+  onTrainTogether?: (card: RoutineCard) => void;
   onOpenCard: (card: RoutineCard) => void;
   onCreateRoutine: () => void;
   onOpenSuggestions: () => void;
@@ -113,6 +119,7 @@ export function RoutinesTab({
   routineLastDates,
   activeWorkoutName,
   onStartWorkout,
+  onTrainTogether,
   onOpenCard,
   onCreateRoutine,
   onOpenSuggestions,
@@ -283,15 +290,30 @@ export function RoutinesTab({
             </button>
 
             {card.type === 1 && (
-              <Button
-                size="sm"
-                variant={isActive ? "outline" : "default"}
-                className="w-full rounded-full mt-3"
-                onClick={() => onStartWorkout(card)}
-              >
-                <Play className="h-4 w-4 mr-1" />
-                {isActive ? t("goals_session_resume") : t("goals_session_start")}
-              </Button>
+              <div className="flex items-center gap-2 mt-3">
+                <Button
+                  size="sm"
+                  variant={isActive ? "outline" : "default"}
+                  className="flex-1 rounded-full"
+                  onClick={() => onStartWorkout(card)}
+                >
+                  <Play className="h-4 w-4 mr-1" />
+                  {isActive ? t("goals_session_resume") : t("goals_session_start")}
+                </Button>
+                {/* Chamar alguém para fazer este treino agora. Fora do botão
+                    principal para não cobrar a decisão de quem só quer começar. */}
+                {onTrainTogether && !isActive && (
+                  <button
+                    type="button"
+                    onClick={() => onTrainTogether(card)}
+                    aria-label={t("goals_party_invite_cta")}
+                    className="h-9 w-9 shrink-0 rounded-full flex items-center justify-center text-white active:scale-90 transition-transform"
+                    style={{ background: "rgba(255,255,255,.1)", border: "1px solid rgba(255,255,255,.16)" }}
+                  >
+                    <UserPlus className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
             )}
           </div>
         );

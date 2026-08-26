@@ -24,6 +24,8 @@ interface RoutineListDrawerProps {
   routineLastDates: Record<string, string>;
   activeWorkoutName: string | null;
   onStartWorkout: (card: RoutineCard) => void;
+  /** "Treinar junto" — repassado ao card da rotina (ver `RoutinesTab`). */
+  onTrainTogether?: (card: RoutineCard) => void;
   onOpenCard: (card: RoutineCard) => void;
   /** botão "+" — criar nova rotina deste tipo */
   onCreate: () => void;
@@ -49,6 +51,7 @@ export function RoutineListDrawer({
   routineLastDates,
   activeWorkoutName,
   onStartWorkout,
+  onTrainTogether,
   onOpenCard,
   onCreate,
 }: RoutineListDrawerProps) {
@@ -109,6 +112,7 @@ export function RoutineListDrawer({
             routineLastDates={routineLastDates}
             activeWorkoutName={activeWorkoutName}
             onStartWorkout={onStartWorkout}
+            onTrainTogether={onTrainTogether}
             onOpenCard={onOpenCard}
             onCreateRoutine={onCreate}
             onOpenSuggestions={onCreate}

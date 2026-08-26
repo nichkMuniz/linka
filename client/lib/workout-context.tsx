@@ -5,7 +5,12 @@ import { Capacitor } from "@capacitor/core";
 // `ritmofit-db`. Este provider é montado no App.tsx, então uma importação de
 // valor aqui prenderia o módulo inteiro no chunk de entrada — e daqui só saem
 // tipos, que não existem em runtime.
-import type { SetKind, UserWorkoutWithDetails } from "@/lib/ritmofit-db";
+import type {
+  SetKind,
+  UserWorkoutWithDetails,
+  WorkoutPartyInvite,
+  WorkoutPartySnapshot,
+} from "@/lib/ritmofit-db";
 
 // ID da notificação local de "tempo de descanso terminou". Exportado para que
 // o listener genérico de notificações (use-routine-notifications) saiba
@@ -85,6 +90,48 @@ interface WorkoutContextValue {
   // minimizar/recarregar — o swipe seria em vão. Array para serializar.
   dismissedWarmupIds: string[];
   setDismissedWarmupIds: React.Dispatch<React.SetStateAction<string[]>>;
+  // Ordem escolhida na tela de reordenar (workout_id, na sequência em que os
+  // exercícios devem aparecer). Vazio = ordem natural da rotina
+  // (`user_workouts.order_index`, com fallback na ordem de chegada). Existe
+  // separado do banco porque a sessão precisa refletir o arraste NA HORA: o
+  // prop `items` só é recarregado num loadData() da tela de Metas, e o avulso
+  // adicionado durante o treino nem tem linha em `user_workouts` ainda.
+  workoutOrder: string[];
+  setWorkoutOrder: React.Dispatch<React.SetStateAction<string[]>>;
+  // Calorias gastas na sessão, em kcal, QUANDO O USUÁRIO CONFIRMOU um valor.
+  // `null` = ainda não mexeu, e a tela mostra a estimativa viva (ver
+  // `client/lib/calorie-estimate.ts`) — é o que distingue "não informado" de
+  // "informou 0". Persistido para sobreviver a minimizar/recarregar: o número
+  // costuma ser lido no aparelho no meio do treino.
+  workoutCaloriesKcal: number | null;
+  setWorkoutCaloriesKcal: React.Dispatch<React.SetStateAction<number | null>>;
+  // ── Treinar junto (workout party) ──────────────────────────────────────────
+  // Party desta sessão (`workout_parties.id`) e o papel do usuário nela. Null =
+  // treino solo, que é o caso da esmagadora maioria das sessões. Persistidos
+  // com o resto do estado para sobreviver a minimizar/recarregar: sem isso o
+  // header perderia os parceiros e o convidado perderia a chance de salvar a
+  // rotina no fim.
+  workoutPartyId: string | null;
+  setWorkoutPartyId: (v: string | null) => void;
+  workoutPartyRole: "host" | "guest" | null;
+  setWorkoutPartyRole: (v: "host" | "guest" | null) => void;
+  /**
+   * Cópia do treino recebida no convite. Só o CONVIDADO carrega — é a única
+   * fonte do treino dele (não existe rotina salva) e é o que a pergunta
+   * "salvar essa rotina?" grava no fim. `null` no host e no treino solo.
+   */
+  workoutPartySnapshot: WorkoutPartySnapshot | null;
+  setWorkoutPartySnapshot: (v: WorkoutPartySnapshot | null) => void;
+  /** Apelido de quem convidou — o "de {host}" da oferta de salvar a rotina. */
+  workoutPartyHostName: string | null;
+  setWorkoutPartyHostName: (v: string | null) => void;
+  /**
+   * Convite JÁ ACEITO, esperando a tela de Metas montar para virar sessão. O
+   * diálogo de convite vive no AppLayout (chega em qualquer tela), mas quem
+   * sabe iniciar um treino é a tela de Metas — mesmo padrão de `pendingReopen`.
+   */
+  pendingPartyJoin: WorkoutPartyInvite | null;
+  setPendingPartyJoin: (v: WorkoutPartyInvite | null) => void;
   // Reset all workout state
   resetWorkoutState: () => void;
   // Rest timer (shared so FAB can display it)
@@ -131,6 +178,20 @@ const WorkoutContext = React.createContext<WorkoutContextValue>({
   setMaxedExerciseIds: () => {},
   dismissedWarmupIds: [],
   setDismissedWarmupIds: () => {},
+  workoutOrder: [],
+  setWorkoutOrder: () => {},
+  workoutCaloriesKcal: null,
+  setWorkoutCaloriesKcal: () => {},
+  workoutPartyId: null,
+  setWorkoutPartyId: () => {},
+  workoutPartyRole: null,
+  setWorkoutPartyRole: () => {},
+  workoutPartySnapshot: null,
+  setWorkoutPartySnapshot: () => {},
+  workoutPartyHostName: null,
+  setWorkoutPartyHostName: () => {},
+  pendingPartyJoin: null,
+  setPendingPartyJoin: () => {},
   resetWorkoutState: () => {},
   globalRestTimerRemaining: 0,
   setGlobalRestTimerRemaining: () => {},
@@ -161,6 +222,12 @@ function loadPersistedWorkout() {
       workoutExpandedId?: string | null;
       maxedExerciseIds?: string[];
       dismissedWarmupIds?: string[];
+      workoutOrder?: string[];
+      workoutCaloriesKcal?: number | null;
+      workoutPartyId?: string | null;
+      workoutPartyRole?: "host" | "guest" | null;
+      workoutPartySnapshot?: WorkoutPartySnapshot | null;
+      workoutPartyHostName?: string | null;
     };
   } catch {
     return null;
@@ -208,6 +275,27 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
   const [dismissedWarmupIds, setDismissedWarmupIds] = React.useState<string[]>(
     () => persisted?.dismissedWarmupIds ?? []
   );
+  const [workoutOrder, setWorkoutOrder] = React.useState<string[]>(
+    () => persisted?.workoutOrder ?? []
+  );
+  const [workoutCaloriesKcal, setWorkoutCaloriesKcal] = React.useState<number | null>(
+    () => persisted?.workoutCaloriesKcal ?? null
+  );
+  const [workoutPartyId, setWorkoutPartyId] = React.useState<string | null>(
+    () => persisted?.workoutPartyId ?? null
+  );
+  const [workoutPartyRole, setWorkoutPartyRole] = React.useState<"host" | "guest" | null>(
+    () => persisted?.workoutPartyRole ?? null
+  );
+  const [workoutPartySnapshot, setWorkoutPartySnapshot] = React.useState<WorkoutPartySnapshot | null>(
+    () => persisted?.workoutPartySnapshot ?? null
+  );
+  const [workoutPartyHostName, setWorkoutPartyHostName] = React.useState<string | null>(
+    () => persisted?.workoutPartyHostName ?? null
+  );
+  // Fora do localStorage de propósito: é um repasse de segundos entre o
+  // AppLayout (onde o convite é aceito) e a tela de Metas (que inicia a sessão).
+  const [pendingPartyJoin, setPendingPartyJoin] = React.useState<WorkoutPartyInvite | null>(null);
   const [globalRestTimerRemaining, setGlobalRestTimerRemaining] = React.useState(0);
   const [globalRestTimerActive, setGlobalRestTimerActive] = React.useState(false);
   const [globalRestTimerPaused, setGlobalRestTimerPaused] = React.useState(false);
@@ -228,9 +316,15 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
         workoutExpandedId,
         maxedExerciseIds,
         dismissedWarmupIds,
+        workoutOrder,
+        workoutCaloriesKcal,
+        workoutPartyId,
+        workoutPartyRole,
+        workoutPartySnapshot,
+        workoutPartyHostName,
       }));
     }
-  }, [workoutSeries, workoutStartTime, selectedRoutineName, workoutExerciseRestTimes, workoutExerciseNotes, workoutExtraItems, workoutRemovedIds, workoutExpandedId, maxedExerciseIds, dismissedWarmupIds, workoutModalOpen, workoutMinimized]);
+  }, [workoutSeries, workoutStartTime, selectedRoutineName, workoutExerciseRestTimes, workoutExerciseNotes, workoutExtraItems, workoutRemovedIds, workoutExpandedId, maxedExerciseIds, dismissedWarmupIds, workoutOrder, workoutCaloriesKcal, workoutPartyId, workoutPartyRole, workoutPartySnapshot, workoutPartyHostName, workoutModalOpen, workoutMinimized]);
 
   // Workout duration timer — calculates from startTime so background/lock doesn't break it
   React.useEffect(() => {
@@ -376,6 +470,15 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
     setWorkoutExpandedId(null);
     setMaxedExerciseIds([]);
     setDismissedWarmupIds([]);
+    setWorkoutOrder([]);
+    setWorkoutCaloriesKcal(null);
+    // A party morre junto com a sessão. Quem precisa do snapshot depois do fim
+    // (a pergunta "salvar essa rotina?") já o copiou para o resumo ANTES de
+    // chamar este reset — ver `handleWorkoutFinished` em Goals.tsx.
+    setWorkoutPartyId(null);
+    setWorkoutPartyRole(null);
+    setWorkoutPartySnapshot(null);
+    setWorkoutPartyHostName(null);
     setWorkoutMinimized(false);
     setWorkoutModalOpen(false);
     setGlobalRestTimerRemaining(0);
@@ -401,6 +504,13 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
       workoutExpandedId, setWorkoutExpandedId,
       maxedExerciseIds, setMaxedExerciseIds,
       dismissedWarmupIds, setDismissedWarmupIds,
+      workoutOrder, setWorkoutOrder,
+      workoutCaloriesKcal, setWorkoutCaloriesKcal,
+      workoutPartyId, setWorkoutPartyId,
+      workoutPartyRole, setWorkoutPartyRole,
+      workoutPartySnapshot, setWorkoutPartySnapshot,
+      workoutPartyHostName, setWorkoutPartyHostName,
+      pendingPartyJoin, setPendingPartyJoin,
       resetWorkoutState,
       globalRestTimerRemaining, setGlobalRestTimerRemaining,
       globalRestTimerActive, setGlobalRestTimerActive,

@@ -2,6 +2,7 @@ import { getUserSafe, hasSupabaseConfig, supabase, registerViewerCacheInvalidato
 import type { PostWorkoutSummary } from "@/lib/workout-summary-types";
 import { SHARE_BASE_URL } from "@/lib/share-url";
 import { estimateOneRepMax } from "@/lib/one-rep-max";
+import { getHabitKind, type HabitKind } from "@/lib/habit-kinds";
 import { compressImageFile } from "@/lib/image-compress";
 import {
   getNetworkStatus,
@@ -2435,19 +2436,34 @@ export async function bulkUpsertCatalogWorkoutsDb(
  */
 export async function getWorkoutNameIdIndexDb(): Promise<Map<string, string>> {
   if (!hasSupabaseConfig || !supabase) return new Map();
-  const { data } = await supabase
-    .from("workouts")
-    .select("id, name, name_eng, created_by_user");
-  const map = new Map<string, string>();
-  for (const row of (data ?? []) as Array<{ id: string; name: string | null; name_eng: string | null; created_by_user: boolean | null }>) {
-    if (row.created_by_user === true) continue;
-    const id = String(row.id);
-    const pt = row.name?.trim().toLowerCase();
-    const en = row.name_eng?.trim().toLowerCase();
-    if (pt && !map.has(pt)) map.set(pt, id);
-    if (en && !map.has(en)) map.set(en, id);
+  try {
+    // Cacheado como objeto puro, não como Map: a camada de persistência do
+    // `cached` serializa em JSON, e um Map viraria `{}` ao voltar do disco.
+    // Erro de rede vira `throw` para NÃO gravar um índice vazio por 12h.
+    const rec = await cached<Record<string, string>>(
+      "workoutNameIdIndex",
+      CACHE_TTL_STATIC,
+      async () => {
+        const { data, error } = await supabase!
+          .from("workouts")
+          .select("id, name, name_eng, created_by_user");
+        if (error) throw error;
+        const out: Record<string, string> = {};
+        for (const row of (data ?? []) as Array<{ id: string; name: string | null; name_eng: string | null; created_by_user: boolean | null }>) {
+          if (row.created_by_user === true) continue;
+          const id = String(row.id);
+          const pt = row.name?.trim().toLowerCase();
+          const en = row.name_eng?.trim().toLowerCase();
+          if (pt && out[pt] === undefined) out[pt] = id;
+          if (en && out[en] === undefined) out[en] = id;
+        }
+        return out;
+      },
+    );
+    return new Map(Object.entries(rec));
+  } catch {
+    return new Map();
   }
-  return map;
 }
 
 export async function getCatalogWorkoutsFromDb(): Promise<Array<{
@@ -2786,6 +2802,13 @@ export function toTrainingMode(value: unknown): TrainingMode {
 export type SetKind = "warmup" | "normal" | "failure" | "drop";
 
 /**
+ * Os mesmos valores de {@link SetKind} em runtime — usado para validar o que
+ * chega de fora do TypeScript (payload da fila offline). Manter em sincronia
+ * com o tipo **e** com o CHECK de `user_workouts_hist.set_kind`.
+ */
+export const SET_KINDS: readonly SetKind[] = ["warmup", "normal", "failure", "drop"];
+
+/**
  * Séries que podem virar MARCA (recorde/progressão) — tudo que não é
  * aquecimento. Não confundir com "conta como série": para contagem e volume o
  * aquecimento entra normalmente (ver `countsAsSeries`, na tela de treino).
@@ -2891,6 +2914,12 @@ export type RoutineLastSummary = {
     newE1rm?: number;
   }>;
   machinedExercises: Array<{ name: string; kg: number }>;
+  /**
+   * Gasto calórico da sessão (kcal) — estimado pelo app e ajustável pela
+   * pessoa. Ausente nos snapshots gravados antes de 21/08/2026 e em sessões em
+   * que a estimativa não tinha base (treino sem tempo registrado).
+   */
+  caloriesKcal?: number | null;
   completedAt: string;
 };
 
@@ -3217,6 +3246,60 @@ export async function getUserRoutinesDb(userId: string): Promise<Routine[]> {
   }));
   offlineCopyWrite(`userRoutines:${userId}`, rows);
   return rows;
+}
+
+/**
+ * Sessão de treino recente do usuário — o snapshot que cada rotina guarda do
+ * seu último "Finalizar" (`routines.last_summary`), mais recente primeiro.
+ *
+ * É a fonte do mini frame de treino citado no flow. Vem de `getUserRoutinesDb`
+ * (uma única query, com cópia offline), então é sempre **a última execução de
+ * cada rotina** — não o histórico série a série de `user_workouts_hist`.
+ */
+export type RecentWorkoutSession = {
+  routineId: string;
+  routineName: string;
+  /** ISO da finalização */
+  completedAt: string;
+  totalSeries: number;
+  totalVolume: number;
+  durationSecs: number;
+  /** recordes pessoais batidos na sessão */
+  prCount: number;
+  /** calorias gastas (kcal); null = sessão anterior à feature ou sem estimativa */
+  caloriesKcal: number | null;
+  exercises: Array<{ name: string; sets: number; kg: number; isCardio?: boolean }>;
+};
+
+export async function getRecentWorkoutSessionsDb(
+  userId: string,
+  limit = 12,
+): Promise<RecentWorkoutSession[]> {
+  const routines = await getUserRoutinesDb(userId);
+
+  return routines
+    .filter((r) => r.type === 1 && r.last_summary?.completedAt)
+    .map((r) => {
+      const s = r.last_summary as RoutineLastSummary;
+      return {
+        routineId: r.id,
+        routineName: s.routineName || r.name || "Treino",
+        completedAt: s.completedAt,
+        totalSeries: Number(s.totalSeries ?? 0),
+        totalVolume: Number(s.totalVolume ?? 0),
+        durationSecs: Number(s.durationSecs ?? 0),
+        prCount: Array.isArray(s.prExercises) ? s.prExercises.length : 0,
+        caloriesKcal: s.caloriesKcal != null ? Number(s.caloriesKcal) : null,
+        exercises: (s.completedExercises ?? []).map((e) => ({
+          name: e.name,
+          sets: Number(e.totalSets ?? 0),
+          kg: Number(e.bestKg ?? 0),
+          isCardio: e.isCardio || undefined,
+        })),
+      };
+    })
+    .sort((a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime())
+    .slice(0, limit);
 }
 
 /**
@@ -3782,6 +3865,51 @@ export async function deleteRoutineItemDb(
   invalidateHistDerivedCaches();
 }
 
+/**
+ * Tira exercícios da rotina **preservando o histórico** — o que "remover do
+ * treino" durante a sessão passa a fazer ao finalizar (ver `docs/05-metas.md`
+ * → "A rotina é o que foi executado").
+ *
+ * Diferente de {@link deleteRoutineItemDb}, que apaga as linhas de
+ * `user_workouts_hist` antes do item: ali a intenção é sumir com a rotina
+ * inteira, aqui é só **parar de propor** aquele exercício no próximo treino. Os
+ * treinos que a pessoa já fez continuam existindo — e continuam contando para
+ * PR e progressão, que leem por `workout_id` (`getPreviousBestKgDb`,
+ * `getExerciseProgressionDb`), não por `user_workout_id`.
+ *
+ * O histórico daquelas linhas fica com `user_workout_id` NULL (a FK é
+ * ON DELETE SET NULL) mas **mantém `routine_id`** — ou seja, não vira órfão de
+ * verdade e segue alcançável por quem apagar a rotina depois.
+ *
+ * Devolve quantos itens saíram. **Zero com a lista não vazia é sinal de RLS**:
+ * um DELETE que não casa com nenhuma linha permitida volta 200 com 0 linhas, sem
+ * erro (ver `docs/migrations/20260716-hist-delete-rls.sql`) — por isso o
+ * chamador precisa do número, e não de um `void`.
+ */
+export async function removeRoutineItemsKeepHistoryDb(
+  userId: string,
+  userWorkoutIds: string[],
+): Promise<number> {
+  if (!hasSupabaseConfig || !supabase || userWorkoutIds.length === 0) return 0;
+
+  const numericIds = userWorkoutIds
+    .map((id) => Number(id))
+    .filter((id) => Number.isFinite(id));
+  if (numericIds.length === 0) return 0;
+
+  const { data, error } = await supabase
+    .from("user_workouts")
+    .delete()
+    .eq("user_id", userId)
+    .in("id", numericIds)
+    .select("id");
+
+  if (error) throw error;
+
+  invalidateHistDerivedCaches();
+  return (data ?? []).length;
+}
+
 // Get items for a specific routine (by routineId when available, falling back to userId + routineName + type)
 export async function getRoutineItemsForViewDb(
   userId: string,
@@ -4296,6 +4424,46 @@ export async function updateRoutineTechniquesDb(
         order_index: patch.order_index,
       };
     }), []);
+}
+
+/**
+ * Grava a ORDEM dos exercícios de uma rotina (`user_workouts.order_index`).
+ *
+ * Irmã enxuta de {@link updateRoutineTechniquesDb}: a tela de treino reordena
+ * pela lista de arrastar, e ali não há técnica nem bloco para renegociar — só a
+ * posição. Update por linha (o Supabase não faz UPDATE em lote com valor
+ * diferente por linha), em paralelo, e uma rotina tem poucos exercícios.
+ *
+ * Best-effort do ponto de vista da UI: quem chama já reordenou a sessão em
+ * memória, então uma falha aqui só significa "a ordem não valeu para os
+ * próximos treinos" — nunca desfaz o que está na tela.
+ */
+export async function updateRoutineOrderDb(
+  userId: string,
+  entries: Array<{ userWorkoutId: string; orderIndex: number }>,
+): Promise<void> {
+  if (!hasSupabaseConfig || !supabase || entries.length === 0) return;
+
+  const results = await Promise.all(
+    entries.map(({ userWorkoutId, orderIndex }) =>
+      supabase!
+        .from("user_workouts")
+        .update({ order_index: orderIndex })
+        .eq("id", userWorkoutId)
+        .eq("user_id", userId),
+    ),
+  );
+  const failed = results.find((r) => r.error);
+  if (failed?.error) {
+    console.error("Error saving routine order:", failed.error.message || failed.error);
+    throw failed.error;
+  }
+
+  // Espelha na cópia offline — reabrir o treino sem rede mantém a ordem nova.
+  const byId = new Map(entries.map((e) => [e.userWorkoutId, e.orderIndex]));
+  offlineCopyPatch<UserWorkoutWithDetails[]>(`userWorkouts:${userId}`, (rows) =>
+    rows.map((r) => (byId.has(r.id) ? { ...r, order_index: byId.get(r.id)! } : r)), []);
+  invalidateQueryCache("userWorkouts");
 }
 
 export async function getUserWorkoutsDb(
@@ -5412,7 +5580,45 @@ export type StoryTextStyle = {
   fontSize?: number; // px; ausente em flows antigos → cai para 30 (equivalente ao text-3xl)
   backgroundColor?: string | null; // realce de fundo estilo Instagram; ausente/null = sem fundo
 };
-export type StoryTextElement = { text: string; x: number; y: number; style?: StoryTextStyle }; // x/y in %
+/**
+ * Mini frame do treino citado no flow (estilo "repost" do Instagram): um
+ * snapshot ENXUTO da sessão, gravado dentro de `flow.text_elements` (jsonb) —
+ * sem migração e sem depender da rotina continuar existindo depois.
+ */
+export type StoryWorkoutSticker = {
+  /** nome da rotina executada */
+  name: string;
+  /** ISO de quando a sessão foi finalizada (`RoutineLastSummary.completedAt`) */
+  date: string;
+  totalSeries: number;
+  /** volume total em kg */
+  totalVolume: number;
+  durationSecs: number;
+  /** quantos recordes pessoais a sessão bateu (0 = nenhum) */
+  prCount?: number;
+  /** calorias gastas na sessão (kcal); ausente = não registrado */
+  caloriesKcal?: number | null;
+  /** exercícios da sessão, já cortados no máximo exibido pelo card */
+  exercises: Array<{ name: string; sets: number; kg: number; isCardio?: boolean }>;
+  /** quantos exercícios ficaram de fora de `exercises` (vira "+N exercícios") */
+  extraCount?: number;
+};
+
+/**
+ * Elemento sobreposto ao flow. `kind` ausente ou `"text"` = frase (formato
+ * original, mantido para todos os flows já publicados); `"workout"` = mini
+ * frame do treino, cujo conteúdo vem em `workout`.
+ */
+export type StoryTextElement = {
+  text: string;
+  x: number;
+  y: number;
+  style?: StoryTextStyle;
+  kind?: "text" | "workout";
+  /** escala do mini frame de treino (1 = tamanho base) */
+  scale?: number;
+  workout?: StoryWorkoutSticker;
+}; // x/y in %
 // Enquadramento da mídia (vídeo): scale unitário, x/y em % do tamanho do elemento
 export type StoryMediaTransform = { scale: number; x: number; y: number };
 
@@ -9462,6 +9668,7 @@ async function insertWorkoutHistRowDb(p: {
   routineId: string | null;
   dateCompleted: string;
   setKind?: SetKind | null;
+  calories?: number | null;
 }): Promise<void> {
   const { error } = await supabase!
     .from("user_workouts_hist")
@@ -9477,6 +9684,11 @@ async function insertWorkoutHistRowDb(p: {
         // NULL no modo simplificado (que não tipa séries) — a leitura trata
         // NULL como 'normal', então nada muda para quem já usava o app.
         set_kind: p.setKind ?? null,
+        // Gasto calórico da SESSÃO, não desta série: vem preenchido em UMA
+        // linha por finalização (a primeira) e NULL em todas as outras. Somar
+        // a coluna multiplicaria o valor pelo nº de séries — a leitura por
+        // sessão é sempre um MAX (ver getRecentCompletedRoutinesDb).
+        calories: p.calories ?? null,
       },
     ]);
   if (error) throw error;
@@ -9497,11 +9709,14 @@ export async function saveWorkoutHistoryDb(
   // Tipo da série (modo expert). NULL/omitido = modo simplificado → lido como
   // 'normal'. Ver {@link SetKind}.
   setKind: SetKind | null = null,
+  // Calorias gastas na SESSÃO inteira (kcal). Deve ser passado em UMA única
+  // série por finalização — as demais gravam NULL. Ver o comentário do insert.
+  calories: number | null = null,
 ): Promise<void> {
   if (!hasSupabaseConfig || !supabase) return;
 
   const stamp = dateCompleted ?? new Date().toISOString();
-  const payload = { userId, userWorkoutId, workoutId, kilos, volume, routineId, dateCompleted: stamp, setKind };
+  const payload = { userId, userWorkoutId, workoutId, kilos, volume, routineId, dateCompleted: stamp, setKind, calories };
 
   // Offline: a série vai para a fila (com a data original) e a rotina passa a
   // constar como executada agora na cópia local — Hub do Hoje, anel semanal e
@@ -10006,6 +10221,98 @@ export async function getWorkoutHistoryDb(
  * Each series is returned as { kg, reps } in the order they were saved.
  * Used to pre-populate the workout modal with the user's last performance.
  */
+/** Uma execução isolada de UM exercício: as séries daquela sessão e quando foi. */
+export type ExerciseSessionSnapshot = {
+  /** Séries da sessão, na ordem em que foram registradas. Cardio: kg = MIN, reps = KM. */
+  sets: Array<{ kg: number; reps: number }>;
+  /** `date_completed` da sessão (ISO) — o carimbo da primeira série. */
+  date: string;
+};
+
+// Agrupa por workout_id e isola APENAS a sessão mais recente de cada um.
+// Uma sessão = as séries gravadas em um mesmo "Finalizar", carimbadas em
+// rajada (base + índice em ms), portanto a poucos ms umas das outras.
+// Finalizações distintas estão sempre a segundos/minutos/dias de distância.
+// Uma janela curta separa as sessões com segurança, então a contagem de
+// séries é sempre exatamente a da última execução — nunca a soma de
+// execuções anteriores. (Antes, uma janela de 2h misturava finalizações
+// próximas e inflava a contagem.)
+//
+// Espera `rows` já ordenado por date_completed DESC e restrito ao usuário.
+// Compartilhado pelo pré-preenchimento da coluna ANTERIOR
+// (getLastWorkoutSessionSeriesDb) e pela comparação de treino
+// (getLastExerciseSessionsDb) — as duas leem a mesma "última execução".
+const SESSION_WINDOW_MS = 2000; // 2s: > rajada de uma execução, << intervalo entre execuções
+
+function groupLastSessionByWorkout(
+  rows: any[],
+  workoutIds: string[],
+): Record<string, ExerciseSessionSnapshot> {
+  const result: Record<string, ExerciseSessionSnapshot> = {};
+
+  for (const workoutId of workoutIds) {
+    // Linhas deste exercício, mais recentes primeiro (date_completed desc)
+    const mine = rows.filter((r) => String(r.workout_id) === workoutId);
+    if (mine.length === 0) continue;
+
+    const latestTime = new Date(mine[0].date_completed).getTime();
+    const sessionRows = mine.filter(
+      (r) => latestTime - new Date(r.date_completed).getTime() <= SESSION_WINDOW_MS,
+    );
+
+    // Ordena por date_completed ascendente para restaurar a ordem das séries
+    // (1..N) — cada série recebeu um carimbo crescente na gravação.
+    sessionRows.sort((a, b) =>
+      new Date(a.date_completed).getTime() - new Date(b.date_completed).getTime(),
+    );
+
+    result[workoutId] = {
+      date: String(sessionRows[0]?.date_completed ?? mine[0].date_completed),
+      sets: sessionRows.map((r) => {
+        const kg = r.kilos != null ? Number(r.kilos) : 0;
+        // `volume` guarda as repetições como texto ("10 reps").
+        const repsRaw = r.volume ? String(r.volume).replace(/[^0-9.]/g, "") : "0";
+        const reps = repsRaw ? Number(repsRaw) : 0;
+        return { kg, reps };
+      }),
+    };
+  }
+
+  return result;
+}
+
+/**
+ * Última execução de cada exercício da lista, **com a data** — o lado "eu" da
+ * comparação de treino (`workout-compare-dialog`). Mesma definição de sessão do
+ * pré-preenchimento (ver {@link groupLastSessionByWorkout}), só que devolvendo
+ * também quando foi, para a UI mostrar "há 3 dias".
+ *
+ * Só séries de trabalho: comparar o aquecimento de um contra a série pesada do
+ * outro daria uma derrota falsa. Sem cópia offline — a comparação nasce de um
+ * post do feed, que já exige rede.
+ */
+export async function getLastExerciseSessionsDb(
+  userId: string,
+  workoutIds: string[],
+): Promise<Record<string, ExerciseSessionSnapshot>> {
+  if (!hasSupabaseConfig || !supabase || workoutIds.length === 0) return {};
+  try {
+    const { data, error } = await supabase
+      .from("user_workouts_hist")
+      .select("id, workout_id, kilos, volume, date_completed")
+      .eq("user_id", userId)
+      .in("workout_id", workoutIds)
+      .or(WORKING_SETS_FILTER)
+      .order("date_completed", { ascending: false })
+      .order("id", { ascending: false })
+      .limit(workoutIds.length * 20);
+    if (error || !data) return {};
+    return groupLastSessionByWorkout(data as any[], workoutIds);
+  } catch {
+    return {};
+  }
+}
+
 export async function getLastWorkoutSessionSeriesDb(
   userId: string,
   workoutIds: string[],
@@ -10038,40 +10345,9 @@ export async function getLastWorkoutSessionSeriesDb(
       return {};
     }
 
-    // Agrupa por workout_id e isola APENAS a sessão mais recente de cada um.
-    // Uma sessão = as séries gravadas em um mesmo "Finalizar", carimbadas em
-    // rajada (base + índice em ms), portanto a poucos ms umas das outras.
-    // Finalizações distintas estão sempre a segundos/minutos/dias de distância.
-    // Uma janela curta separa as sessões com segurança, então a contagem de
-    // séries é sempre exatamente a da última execução — nunca a soma de
-    // execuções anteriores. (Antes, uma janela de 2h misturava finalizações
-    // próximas e inflava a contagem.)
-    const SESSION_WINDOW_MS = 2000; // 2s: > rajada de uma execução, << intervalo entre execuções
+    const grouped = groupLastSessionByWorkout(data as any[], workoutIds);
     const result: Record<string, Array<{ kg: number; reps: number }>> = {};
-
-    for (const workoutId of workoutIds) {
-      // Linhas deste exercício, mais recentes primeiro (date_completed desc)
-      const rows = (data as any[]).filter((r) => String(r.workout_id) === workoutId);
-      if (rows.length === 0) continue;
-
-      const latestTime = new Date(rows[0].date_completed).getTime();
-      const sessionRows = rows.filter(
-        (r) => latestTime - new Date(r.date_completed).getTime() <= SESSION_WINDOW_MS,
-      );
-
-      // Ordena por date_completed ascendente para restaurar a ordem das séries
-      // (1..N) — cada série recebeu um carimbo crescente na gravação.
-      sessionRows.sort((a, b) =>
-        new Date(a.date_completed).getTime() - new Date(b.date_completed).getTime(),
-      );
-
-      result[workoutId] = sessionRows.map((r) => {
-        const kg = r.kilos != null ? Number(r.kilos) : 0;
-        const repsRaw = r.volume ? String(r.volume).replace(/[^0-9.]/g, "") : "0";
-        const reps = repsRaw ? Number(repsRaw) : 0;
-        return { kg, reps };
-      });
-    }
+    for (const [workoutId, snap] of Object.entries(grouped)) result[workoutId] = snap.sets;
 
     offlineCopyWrite(offKey, result);
     return result;
@@ -10325,6 +10601,13 @@ export type CompletedRoutine = {
   totalSeries: number;
   /** primary muscle group (most common) */
   primaryMuscleGroup: string | null;
+  /**
+   * Calorias da sessão (kcal), quando registradas ao finalizar o treino. É o
+   * MAIOR valor entre as linhas da sessão — a coluna é preenchida em uma linha
+   * só e fica NULL nas demais (ver insertWorkoutHistRowDb). `null` = treino
+   * anterior à feature ou sem estimativa.
+   */
+  caloriesKcal: number | null;
   completedAt: string;
 };
 
@@ -10352,6 +10635,7 @@ export async function getRecentCompletedRoutinesDb(userId: string): Promise<Comp
         workout_id,
         kilos,
         volume,
+        calories,
         date_completed,
         workouts (name, name_eng, muscle_group)
       `)
@@ -10437,7 +10721,7 @@ export async function getRecentCompletedRoutinesDb(userId: string): Promise<Comp
 
     // Sessões da mesma rotina no mesmo dia local viram um card só — é o
     // mesmo par (rotina, dia) que o check-in usa como chave de duplicidade.
-    const sessionMap: Record<string, { userWorkoutId: string; routineName: string; exercises: CompletedRoutineExercise[]; completedAt: string }> = {};
+    const sessionMap: Record<string, { userWorkoutId: string; routineName: string; exercises: CompletedRoutineExercise[]; caloriesKcal: number | null; completedAt: string }> = {};
 
     for (const session of sessions) {
       const namedItem = session.rows.find((r: any) => r.user_workout_id && itemNameMap[String(r.user_workout_id)]);
@@ -10456,8 +10740,18 @@ export async function getRecentCompletedRoutinesDb(userId: string): Promise<Comp
             : "__none__",
           routineName,
           exercises: [],
+          caloriesKcal: null,
           completedAt,
         };
+      }
+      // Calorias: uma linha da sessão carrega o valor e as outras vêm NULL, e
+      // duas sessões do mesmo dia caem no mesmo card — daí o MAIOR valor, não a
+      // soma (que dobraria a mesma sessão se ela fosse regravada).
+      for (const row of session.rows) {
+        const kcal = row.calories != null ? Number(row.calories) : null;
+        if (kcal != null && Number.isFinite(kcal) && kcal > (sessionMap[key].caloriesKcal ?? 0)) {
+          sessionMap[key].caloriesKcal = kcal;
+        }
       }
       // Cards mesclados guardam o horário da execução mais recente do dia.
       if (new Date(completedAt).getTime() >= new Date(sessionMap[key].completedAt).getTime()) {
@@ -10504,6 +10798,7 @@ export async function getRecentCompletedRoutinesDb(userId: string): Promise<Comp
           totalVolume,
           totalSeries,
           primaryMuscleGroup,
+          caloriesKcal: session.caloriesKcal,
           completedAt: session.completedAt,
         };
       });
@@ -12287,17 +12582,17 @@ export type BadgeConditionType =
   | 'nutrition_no_ultra'    // sem ultraprocessados
   | 'nutrition_no_sugar'    // sem açúcar
   | 'nutrition_protein'     // meta de proteína
-  | 'nutrition_home_food'   // comida caseira
-  | 'nutrition_fruits'      // consumo de frutas
-  | 'habit_sleep'           // sono regulado
-  | 'habit_no_alcohol'      // sem álcool
-  | 'habit_meditation'      // meditação
-  | 'habit_steps'           // 10k passos
-  | 'habit_perfect_week'    // semana perfeita de hábitos
-  | 'habit_perfect_day'     // dia perfeito de hábitos
-  | 'habit_perfect_30d'     // 30 dias perfeitos
+  | 'nutrition_home_food'   // prato preparado + zero ultraprocessado no dia (diets.category)
+  | 'nutrition_fruits'      // fruta no dia (diets.category = 'Frutas e derivados')
+  | 'habit_sleep'           // hábito de sono concluído (user_habits_hist)
+  | 'habit_no_alcohol'      // hábito de evitar álcool concluído
+  | 'habit_meditation'      // hábito de meditação/respiração concluído
+  | 'habit_steps'           // hábito de caminhada/passos concluído
+  | 'habit_perfect_week'    // dias seguidos de check-in (streak)
+  | 'habit_perfect_day'     // um dia com treino + hábito + alimentação
+  | 'habit_perfect_30d'     // dias seguidos de check-in (streak longo)
   | 'app_usage'             // dias de uso do app
-  | 'challenge_count';      // desafios completados
+  | 'challenge_count';      // duelos distintos em que entrou (accepted)
 
 export type Badge = {
   id: string;
@@ -12920,19 +13215,101 @@ async function _getPreviousCheckinDateDb(userId: string): Promise<Date | null> {
   return new Date(data[1].check_in_date + "T12:00:00");
 }
 
-/** Conta treinos na semana atual (usando workout_histories). */
-async function _getWeekWorkoutCountDb(userId: string): Promise<number> {
-  if (!supabase) return 0;
-  const today = new Date();
-  const dow = today.getDay();
-  const sunday = new Date(today);
-  sunday.setDate(today.getDate() - dow);
-  const { count } = await supabase
-    .from("workout_histories")
-    .select("id", { count: "exact", head: true })
+/**
+ * Uma linha do histórico de treino reduzida ao que as insígnias precisam:
+ * o DIA LOCAL da execução e o grupo muscular do exercício executado.
+ */
+type WorkoutHistDay = { day: string; muscleGroup: string };
+
+/**
+ * Grupos musculares que NÃO contam como treino de FORÇA: cardio tem insígnia
+ * própria, e alongamento/mobilidade são complemento — quem só alongou a semana
+ * inteira não fez 3 treinos de força.
+ */
+const NON_STRENGTH_MUSCLE_GROUPS = new Set(["cardio", "alongamento", "mobilidade"]);
+
+/** Grupo muscular sem acento e em minúsculas, para comparar com as listas acima. */
+function normalizeMuscleGroup(raw: unknown): string {
+  return String(raw ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+/**
+ * Histórico de treino do usuário como pares (dia local, grupo muscular) — base
+ * de TODAS as insígnias de treino (`workout_week` e `workout_type`).
+ *
+ * Duas coisas que já erraram aqui e não podem voltar:
+ *
+ * 1. **A tabela é `user_workouts_hist`.** Até 21/08/2026 estas leituras
+ *    apontavam para uma `workout_histories` que nunca existiu no banco: a
+ *    query falhava em silêncio, o count vinha 0 e NENHUMA insígnia de treino
+ *    (cardio, força, 3 treinos na semana) podia ser conquistada, por mais
+ *    cardio que a pessoa fizesse.
+ * 2. **O tipo do treino sai do `muscle_group`**, não de uma coluna
+ *    `workout_type` (que também não existe). É a mesma fonte que o resto do app
+ *    usa para decidir o que é cardio (ver `client/lib/cardio-exercises.ts`) —
+ *    inclusive os cardios estacionários (burpee, polichinelo), que são cardio
+ *    de verdade e só se registram em KG×REPS.
+ *
+ * O histórico grava **uma linha por série**, então contar linhas contaria
+ * séries: um único treino de 20 séries estouraria "3 treinos na semana"
+ * sozinho. Por isso quem conta são os DIAS DISTINTOS (ver as funções abaixo).
+ */
+async function _getWorkoutHistDaysDb(userId: string): Promise<WorkoutHistDay[]> {
+  if (!supabase) return [];
+  // Teto alinhado com as outras leituras de insígnia (check-ins, uso do app).
+  // Quem tem mais de 3000 séries já conquistou tudo isso há muito tempo, e as
+  // mais recentes continuam cobrindo dias distintos de sobra.
+  const { data } = await supabase
+    .from("user_workouts_hist")
+    .select("date_completed, workouts!inner(muscle_group)")
     .eq("user_id", userId)
-    .gte("created_at", sunday.toISOString());
-  return count ?? 0;
+    .order("date_completed", { ascending: false })
+    .limit(3000);
+  if (!data) return [];
+  return (data as any[])
+    .map((r) => {
+      const d = new Date(String(r.date_completed));
+      if (isNaN(d.getTime())) return null;
+      // FK simples volta como objeto, mas o supabase-js tipa o embed como array.
+      const w = Array.isArray(r.workouts) ? r.workouts[0] : r.workouts;
+      return { day: fmtLocalDate(d), muscleGroup: normalizeMuscleGroup(w?.muscle_group) };
+    })
+    .filter((r): r is WorkoutHistDay => r !== null);
+}
+
+/** Dias distintos com treino na semana atual (Domingo→hoje, data local). */
+function countWeekWorkoutDays(rows: WorkoutHistDay[]): number {
+  const today = new Date();
+  const sunday = new Date(today);
+  sunday.setDate(today.getDate() - today.getDay());
+  // Zerar a hora importa: sem isso o domingo só passava a contar depois do
+  // horário atual, e o treino feito de manhã sumia da semana.
+  sunday.setHours(0, 0, 0, 0);
+  const from = fmtLocalDate(sunday);
+  const days = new Set<string>();
+  for (const r of rows) if (r.day >= from) days.add(r.day); // YYYY-MM-DD ordena como string
+  return days.size;
+}
+
+/**
+ * Dias distintos com treino do tipo pedido (`condition_metadata.type`).
+ * `forca` = qualquer grupo muscular que não seja cardio/alongamento/mobilidade;
+ * qualquer outro valor casa direto com o `muscle_group` (`cardio`, `pernas`…).
+ */
+function countWorkoutTypeDays(rows: WorkoutHistDay[], type: string): number {
+  const wanted = normalizeMuscleGroup(type);
+  if (!wanted) return 0;
+  const matches =
+    wanted === "forca"
+      ? (g: string) => g !== "" && !NON_STRENGTH_MUSCLE_GROUPS.has(g)
+      : (g: string) => g === wanted;
+  const days = new Set<string>();
+  for (const r of rows) if (matches(r.muscleGroup)) days.add(r.day);
+  return days.size;
 }
 
 /**
@@ -12954,6 +13331,104 @@ async function _getCheckinHoursDb(userId: string): Promise<number[]> {
     .filter((h) => Number.isFinite(h));
 }
 
+/**
+ * Dias consecutivos que satisfazem `ok`, contados de hoje para trás.
+ *
+ * Se HOJE ainda não satisfaz, a sequência vale até ontem — o dia não acabou e
+ * ninguém perde uma sequência de 20 dias por abrir o app às 8h da manhã.
+ */
+function _dayStreak(ok: (date: string) => boolean): number {
+  const cursor = new Date();
+  if (!ok(fmtLocalDate(cursor))) cursor.setDate(cursor.getDate() - 1);
+  let streak = 0;
+  while (ok(fmtLocalDate(cursor))) {
+    streak++;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return streak;
+}
+
+/** Um hábito concluído: o DIA LOCAL da conclusão e o tipo do hábito. */
+type HabitHistDay = { day: string; kind: HabitKind };
+
+/**
+ * Hábitos concluídos pelo usuário nos últimos 120 dias, como pares
+ * (dia local, tipo) — base das insígnias `habit_sleep`, `habit_meditation`,
+ * `habit_no_alcohol` e `habit_steps`.
+ *
+ * A prova é `user_habits_hist`: uma linha é gravada a cada vez que a pessoa
+ * MARCA o hábito como feito (`saveHabitHistoryDb`). O tipo sai do NOME do
+ * hábito (ver `client/lib/habit-kinds.ts`), porque o catálogo não tem coluna de
+ * categoria e o hábito custom criado pela pessoa precisa contar igual.
+ *
+ * 120 dias cobrem com folga a maior sequência exigida (7) e mantêm a leitura
+ * barata — sequência mais antiga que isso já teria concedido a insígnia.
+ */
+async function _getHabitHistDaysDb(userId: string): Promise<HabitHistDay[]> {
+  if (!supabase) return [];
+  const since = new Date();
+  since.setDate(since.getDate() - 120);
+  const { data } = await supabase
+    .from("user_habits_hist")
+    .select("created_at, habits!inner(name, name_eng)")
+    .eq("user_id", userId)
+    .gte("created_at", since.toISOString())
+    .order("created_at", { ascending: false })
+    .limit(3000);
+  if (!data) return [];
+  return (data as any[])
+    .map((r) => {
+      const d = new Date(String(r.created_at));
+      if (isNaN(d.getTime())) return null;
+      const h = Array.isArray(r.habits) ? r.habits[0] : r.habits;
+      // O nome em inglês só entra quando o hábito é do catálogo e a pessoa usa
+      // o app em EN; classificar os dois cobre os dois casos sem depender do
+      // idioma ativo no momento do check-in.
+      const kind = getHabitKind(h?.name);
+      return {
+        day: fmtLocalDate(d),
+        kind: kind !== "other" ? kind : getHabitKind(h?.name_eng),
+      };
+    })
+    .filter((r): r is HabitHistDay => r !== null);
+}
+
+/** Dias LOCAIS distintos em que a pessoa registrou algo no diário alimentar. */
+async function _getFoodLogDaysDb(userId: string): Promise<Set<string>> {
+  if (!supabase) return new Set();
+  const since = new Date();
+  since.setDate(since.getDate() - 120);
+  const { data } = await supabase
+    .from("user_food_logs")
+    .select("log_date")
+    .eq("user_id", userId)
+    .gte("log_date", fmtLocalDate(since))
+    .limit(3000);
+  // `log_date` já é gravado em DIA LOCAL pelo app (ver o schema) — não passa por Date.
+  return new Set(((data ?? []) as any[]).map((r) => String(r.log_date)));
+}
+
+/** Duelos distintos em que o usuário entrou de fato (convite aceito). */
+async function _getDuelCountDb(userId: string): Promise<number> {
+  if (!supabase) return 0;
+  const { data } = await supabase
+    .from("duel_group_participants")
+    .select("group_id")
+    .eq("user_id", userId)
+    .eq("status", "accepted")
+    .limit(500);
+  if (!data) return 0;
+  // Distinto por grupo: entrar, sair e voltar no mesmo duelo é UM desafio.
+  return new Set((data as any[]).map((r) => String(r.group_id))).size;
+}
+
+/** Dias distintos em que a pessoa concluiu um hábito do tipo pedido. */
+function habitKindDays(rows: HabitHistDay[], kind: HabitKind): Set<string> {
+  const days = new Set<string>();
+  for (const r of rows) if (r.kind === kind) days.add(r.day);
+  return days;
+}
+
 /** Conta dias distintos em que o usuário abriu o app (access_sessions). */
 async function _getAppUsageDaysDb(userId: string): Promise<number> {
   if (!supabase) return 0;
@@ -12966,16 +13441,33 @@ async function _getAppUsageDaysDb(userId: string): Promise<number> {
   return new Set(data.map((r: any) => String(r.session_date))).size;
 }
 
-/** Conta treinos de um tipo específico ('forca' | 'cardio' | …) no total. */
-async function _getWorkoutTypeCountDb(userId: string, type: string): Promise<number> {
-  if (!supabase) return 0;
-  const { count } = await supabase
-    .from("workout_histories")
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", userId)
-    .eq("workout_type", type);
-  return count ?? 0;
-}
+/**
+ * Limiar mínimo por tipo de condição, usado quando `badges.required_checkins`
+ * está zerado/1 na linha.
+ *
+ * Por que existe: as insígnias de hábito, comida e desafio foram cadastradas
+ * direto no painel do Supabase (não há migração de seed para elas) e várias
+ * ficaram com `required_checkins = 0`. Como o avaliador faz
+ * `Math.max(1, required_checkins)`, ativar esses tipos sem um piso entregaria
+ * "Sono 7 dias" na PRIMEIRA noite marcada — a mesma classe de bug do Madrugador
+ * em 14/07/2026. O número aqui é o que o próprio `key` da insígnia promete
+ * (`sono_7d` → 7, `meditacao_5d` → 5, `modo_monge` → 30).
+ *
+ * A migração `20260821-badge-thresholds.sql` grava esses valores no banco; este
+ * mapa é a rede de segurança para quem ainda não rodou.
+ */
+const CONDITION_MIN_THRESHOLD: Partial<Record<BadgeConditionType, number>> = {
+  habit_sleep: 7,
+  habit_meditation: 5,
+  habit_no_alcohol: 7,
+  habit_steps: 7,
+  habit_perfect_week: 7,
+  habit_perfect_30d: 30,
+  habit_perfect_day: 1,
+  nutrition_fruits: 7,
+  nutrition_home_food: 5,
+  challenge_count: 3,
+};
 
 /**
  * Avalia se uma insígnia foi desbloqueada dado o contexto do check-in atual.
@@ -12997,10 +13489,17 @@ async function _evaluateBadgeCondition(
     prevCheckinDate?: Date | null;
     weekWorkouts?: number;
     checkinHours?: number[];
+    workoutDays?: WorkoutHistDay[];
+    habitDays?: HabitHistDay[];
+    foodLogDays?: Set<string>;
+    duelCount?: number;
   }
 ): Promise<boolean> {
   const { condition_type, condition_metadata, required_checkins } = badge;
-  const threshold = Math.max(1, required_checkins ?? 1);
+  const threshold = Math.max(
+    1,
+    required_checkins > 1 ? required_checkins : CONDITION_MIN_THRESHOLD[condition_type] ?? required_checkins ?? 1
+  );
 
   switch (condition_type) {
     case "checkin_total":
@@ -13048,7 +13547,9 @@ async function _evaluateBadgeCondition(
     case "workout_type": {
       const wType: string = condition_metadata?.type ?? "";
       if (!wType) return false;
-      const typeCount = await _getWorkoutTypeCountDb(userId, wType);
+      // Dias de treino daquele tipo — o histórico já veio no contexto (uma
+      // leitura por check-in, não uma por insígnia).
+      const typeCount = countWorkoutTypeDays(context.workoutDays ?? [], wType);
       return typeCount >= threshold;
     }
 
@@ -13057,18 +13558,72 @@ async function _evaluateBadgeCondition(
       return days >= threshold;
     }
 
-    // Sem tracking dedicado ainda: nutrition_* (hidratação, sem açúcar, proteína…),
-    // habit_* (sono, meditação, passos…) e challenge_count. Não há como verificar a
-    // condição, então NUNCA são concedidas — jamais liberar por contagem de check-ins,
-    // que foi exatamente o bug de 14/07/2026 (Madrugador saía sem treino de manhã).
+    // ── Hábitos (21/08/2026) ────────────────────────────────────────────────
+    // A prova é `user_habits_hist`: só conta o hábito que a pessoa MARCOU como
+    // feito. O app não mede sono, meditação nem passos por sensor — quem prova
+    // é o registro do próprio usuário, exatamente como no diário alimentar.
+    case "habit_sleep":
+    case "habit_meditation":
+    case "habit_no_alcohol":
+    case "habit_steps": {
+      const kind: HabitKind =
+        condition_type === "habit_sleep"
+          ? "sleep"
+          : condition_type === "habit_meditation"
+            ? "meditation"
+            : condition_type === "habit_no_alcohol"
+              ? "no_alcohol"
+              : "steps";
+      const days = habitKindDays(context.habitDays ?? [], kind);
+      return _dayStreak((d) => days.has(d)) >= threshold;
+    }
+
+    // Semana perfeita / Modo monge: dias SEGUIDOS de check-in — a mesma
+    // sequência do anel de streak da tela de Metas (rotina concluída no dia).
+    case "habit_perfect_week":
+    case "habit_perfect_30d":
+      return (context.streak ?? 0) >= threshold;
+
+    // Super dia: um dia em que a pessoa fechou os TRÊS pilares do app —
+    // treino, hábito e alimentação. Um dia só (o `threshold` é 1), mas tem que
+    // ser o dia inteiro.
+    case "habit_perfect_day": {
+      const workoutDaySet = new Set((context.workoutDays ?? []).map((r) => r.day));
+      const habitDaySet = new Set((context.habitDays ?? []).map((r) => r.day));
+      const foodDays = context.foodLogDays ?? new Set<string>();
+      let perfect = 0;
+      for (const day of workoutDaySet) {
+        if (habitDaySet.has(day) && foodDays.has(day)) perfect++;
+      }
+      return perfect >= threshold;
+    }
+
+    // Desafio 3x: duelos distintos em que a pessoa entrou de fato.
+    case "challenge_count":
+      return (context.duelCount ?? 0) >= threshold;
+
+    // Insígnias de nutrição não passam por aqui: são avaliadas em
+    // `awardNutritionBadgesDb`, que já tem o diário alimentar em mãos.
     default:
       return false;
   }
 }
 
 /**
- * Avalia as condições de cada insígnia no momento de um check-in,
- * concede as que foram desbloqueadas e retorna as recém-ganhas (para exibir popup).
+ * Avalia as condições das insígnias de ATIVIDADE, concede as desbloqueadas e
+ * devolve as recém-ganhas (para o popup).
+ *
+ * Roda em dois momentos, ambos na tela de Metas: ao concluir um treino/rotina
+ * (junto com o check-in) e ao marcar um HÁBITO como feito — sem o segundo, a
+ * insígnia de sono só sairia no dia em que a rotina inteira fosse fechada.
+ *
+ * As insígnias de nutrição têm avaliador próprio (`awardNutritionBadgesDb`),
+ * que já carrega o diário alimentar.
+ *
+ * **Duas fases de propósito:** primeiro descobrimos o que ainda FALTA conquistar
+ * e só então buscamos as métricas que esses candidatos exigem. Quem já tem as
+ * insígnias de treino não paga mais a leitura do histórico a cada check-in, e
+ * marcar um hábito não dispara as consultas de treino/duelo.
  *
  * @param userId - ID do usuário
  * @param checkinAt - Timestamp do check-in (default: agora)
@@ -13084,19 +13639,12 @@ export async function awardBadgesForCheckInsDb(
   // persistir nada. Sem rede, a avaliação fica para o replay do check-in.
   if (isLikelyOffline()) return [];
   try {
-    // Buscar dados em paralelo para minimizar latência
-    const [totalCheckIns, allBadges, existingRows, weekCount, streak, prevCheckinDate, weekWorkouts, checkinHours, isPremium] =
-      await Promise.all([
-        getTotalCheckInsDb(userId),
-        getAllBadgesDb(),
-        supabase.from("user_badges").select("badge_id").eq("user_id", userId),
-        _getWeekCheckinCountDb(userId),
-        _getCheckinStreakDb(userId),
-        _getPreviousCheckinDateDb(userId),
-        _getWeekWorkoutCountDb(userId),
-        _getCheckinHoursDb(userId),
-        getPremiumStatusDb(),
-      ]);
+    // ── Fase 1: o que ainda falta conquistar ────────────────────────────────
+    const [allBadges, existingRows, isPremium] = await Promise.all([
+      getAllBadgesDb(),
+      supabase.from("user_badges").select("badge_id").eq("user_id", userId),
+      getPremiumStatusDb(),
+    ]);
 
     // Falha ao ler as badges existentes (ex.: rede caiu no meio) → aborta em
     // vez de tratar como "nenhuma conquistada" e premiar duplicado.
@@ -13106,8 +13654,8 @@ export async function awardBadgesForCheckInsDb(
       ((existingRows.data ?? []) as any[]).map((r) => String(r.badge_id))
     );
 
-    // Badges que o usuário ainda não tem e cujo condition_type é elegível neste check-in
-    const CHECKIN_CONDITIONS: BadgeConditionType[] = [
+    // Tipos avaliáveis aqui. Os de nutrição ficam de fora (ver doc acima).
+    const ACTIVITY_CONDITIONS: BadgeConditionType[] = [
       "checkin_total",
       "checkin_week",
       "checkin_streak",
@@ -13117,19 +13665,72 @@ export async function awardBadgesForCheckInsDb(
       "workout_week",
       "workout_type",
       "app_usage",
+      "habit_sleep",
+      "habit_meditation",
+      "habit_no_alcohol",
+      "habit_steps",
+      "habit_perfect_week",
+      "habit_perfect_day",
+      "habit_perfect_30d",
+      "challenge_count",
     ];
 
     const candidates = allBadges.filter(
       (b) =>
         !alreadyEarnedIds.has(String(b.id)) &&
-        CHECKIN_CONDITIONS.includes(b.condition_type) &&
+        ACTIVITY_CONDITIONS.includes(b.condition_type) &&
         // Insígnia premium só é concedida a assinante ativo (is_premium → tabela
         // subscriptions). As 2 premium são checkin_total com required_checkins=0,
         // então SEM este gate qualquer check-in as liberava para todo mundo.
         !(b.premium && !isPremium)
     );
 
-    const context = { totalCheckIns, weekCount, streak, prevCheckinDate, weekWorkouts, checkinHours };
+    if (candidates.length === 0) return [];
+
+    // ── Fase 2: só as métricas que os candidatos exigem ─────────────────────
+    const pending = new Set(candidates.map((b) => b.condition_type));
+    const needs = (...types: BadgeConditionType[]) => types.some((t) => pending.has(t));
+
+    const needsWorkoutDays = needs("workout_week", "workout_type", "habit_perfect_day");
+    const needsHabitDays = needs(
+      "habit_sleep",
+      "habit_meditation",
+      "habit_no_alcohol",
+      "habit_steps",
+      "habit_perfect_day"
+    );
+    const needsStreak = needs("checkin_streak", "habit_perfect_week", "habit_perfect_30d");
+
+    const [totalCheckIns, weekCount, streak, prevCheckinDate, checkinHours, workoutDays, habitDays, foodLogDays, duelCount] =
+      await Promise.all([
+        needs("checkin_total") ? getTotalCheckInsDb(userId) : Promise.resolve(0),
+        needs("checkin_week") ? _getWeekCheckinCountDb(userId) : Promise.resolve(0),
+        needsStreak ? _getCheckinStreakDb(userId) : Promise.resolve(0),
+        needs("checkin_comeback") ? _getPreviousCheckinDateDb(userId) : Promise.resolve(null),
+        needs("checkin_after_midnight", "checkin_before_time")
+          ? _getCheckinHoursDb(userId)
+          : Promise.resolve([] as number[]),
+        needsWorkoutDays ? _getWorkoutHistDaysDb(userId) : Promise.resolve([] as WorkoutHistDay[]),
+        needsHabitDays ? _getHabitHistDaysDb(userId) : Promise.resolve([] as HabitHistDay[]),
+        needs("habit_perfect_day") ? _getFoodLogDaysDb(userId) : Promise.resolve(new Set<string>()),
+        needs("challenge_count") ? _getDuelCountDb(userId) : Promise.resolve(0),
+      ]);
+
+    // Uma leitura do histórico alimenta as duas famílias de insígnia de treino.
+    const weekWorkouts = countWeekWorkoutDays(workoutDays);
+
+    const context = {
+      totalCheckIns,
+      weekCount,
+      streak,
+      prevCheckinDate,
+      weekWorkouts,
+      checkinHours,
+      workoutDays,
+      habitDays,
+      foodLogDays,
+      duelCount,
+    };
 
     const newBadges: Badge[] = [];
     for (const badge of candidates) {
@@ -13158,6 +13759,51 @@ export async function awardBadgesForCheckInsDb(
 }
 
 /**
+ * Categoria do alimento (`diets.category`) sem acento e em minúsculas.
+ * O catálogo mistura duas fontes com convenções próprias, então a comparação é
+ * sempre sobre a string normalizada.
+ */
+function normalizeFoodCategory(raw: unknown): string {
+  return String(raw ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+/**
+ * Fruta = categoria "Frutas e derivados" (Tabela TACO). É um PREFIXO, e não um
+ * `includes("frut")`, porque "Frutos do Mar" e "Pescados e frutos do mar"
+ * também contêm "frut" — casar por dentro daria a insígnia de fruta a quem
+ * comeu camarão.
+ */
+const FRUIT_CATEGORY_PREFIX = "frutas";
+
+/**
+ * Categorias de PRATO PREPARADO — comida que alguém cozinhou, não ingrediente
+ * solto. São as categorias de receita do TheMealDB (a outra origem do catálogo,
+ * que é um banco de receitas) mais "Alimentos preparados" da TACO.
+ *
+ * O que fica de FORA é o ponto: as categorias de ingrediente da TACO
+ * ("Carnes e derivados", "Cereais e derivados", "Miscelâneas"…) descrevem o
+ * insumo cru, não a refeição — daí "carne bovina" (receita) entrar e
+ * "carnes e derivados" (ingrediente) não.
+ */
+const PREPARED_DISH_CATEGORIES = new Set([
+  "alimentos preparados",
+  "carne bovina",
+  "frango",
+  "porco",
+  "cordeiro",
+  "frutos do mar",
+  "massas",
+  "sobremesa",
+  "entrada",
+  "cafe da manha",
+  "vegetariano",
+]);
+
+/**
  * Concede as insígnias de NUTRIÇÃO avaliáveis a partir do diário alimentar
  * (`user_food_logs`). Chamada após registrar um alimento.
  *
@@ -13167,11 +13813,12 @@ export async function awardBadgesForCheckInsDb(
  *   • nutrition_week     → N dias com registro na semana atual (Dom–Sáb)
  *   • nutrition_no_sugar → N dias seguidos com açúcar ≤ limite (metadata.max_sugar_g)
  *   • nutrition_hydration→ N dias seguidos batendo a meta de água
+ *   • nutrition_fruits   → N dias seguidos comendo fruta (`diets.category`)
+ *   • nutrition_home_food→ N dias seguidos com prato preparado e zero ultraprocessado
  *
- * `nutrition_fruits` e `nutrition_home_food` continuam sem tracking — o diário
- * não classifica fruta nem "comida caseira" — e por isso NUNCA são concedidas.
- * Não inventar heurística por nome do alimento: liberar sem provar a condição é
- * o bug que estamos consertando.
+ * As duas últimas entraram em 21/08/2026 e saem da CATEGORIA do alimento no
+ * catálogo (`diets.category`), nunca do nome digitado — ver
+ * `FRUIT_CATEGORY_PREFIX` e `PREPARED_DISH_CATEGORIES`.
  *
  * **Desconhecido nunca conta como zero.** Qualidade e açúcar vêm do catálogo
  * (`diets.food_quality` / `sugar_g`) — entradas manuais sem esse dado tornam o
@@ -13193,7 +13840,7 @@ export async function awardNutritionBadgesDb(userId?: string): Promise<Badge[]> 
     const [logsRes, waterRes, allBadges, existingRows, goals, isPremium] = await Promise.all([
       supabase
         .from("user_food_logs")
-        .select("log_date, protein_g, sugar_g, diet_id, diets(food_quality)")
+        .select("log_date, protein_g, sugar_g, diet_id, diets(food_quality, category)")
         .eq("user_id", uid)
         .gte("log_date", sinceISO),
       supabase
@@ -13216,6 +13863,8 @@ export async function awardNutritionBadgesDb(userId?: string): Promise<Badge[]> 
       hasUnknownQuality: boolean;
       hasUnknownSugar: boolean;
       hasUltra: boolean;
+      hasFruit: boolean;
+      hasPreparedDish: boolean;
     };
     const newDay = (): Day => ({
       protein: 0,
@@ -13223,6 +13872,8 @@ export async function awardNutritionBadgesDb(userId?: string): Promise<Badge[]> 
       hasUnknownQuality: false,
       hasUnknownSugar: false,
       hasUltra: false,
+      hasFruit: false,
+      hasPreparedDish: false,
     });
     const days = new Map<string, Day>();
     for (const row of (logsRes.data ?? []) as any[]) {
@@ -13234,6 +13885,9 @@ export async function awardNutritionBadgesDb(userId?: string): Promise<Badge[]> 
       const quality = (row.diets as any)?.food_quality ?? null;
       if (!quality) day.hasUnknownQuality = true;
       else if (quality === "ultraprocessado") day.hasUltra = true;
+      const category = normalizeFoodCategory((row.diets as any)?.category);
+      if (category.startsWith(FRUIT_CATEGORY_PREFIX)) day.hasFruit = true;
+      if (PREPARED_DISH_CATEGORIES.has(category)) day.hasPreparedDish = true;
       days.set(date, day);
     }
 
@@ -13242,18 +13896,8 @@ export async function awardNutritionBadgesDb(userId?: string): Promise<Badge[]> 
       water.set(String(row.log_date), Number(row.ml ?? 0));
     }
 
-    /** Dias consecutivos que satisfazem `ok`, contados de hoje (ou ontem) para trás. */
-    const streakOf = (ok: (date: string) => boolean): number => {
-      const cursor = new Date();
-      // Ainda não bateu a condição hoje → a sequência vale até ontem (o dia não acabou).
-      if (!ok(fmtLocalDate(cursor))) cursor.setDate(cursor.getDate() - 1);
-      let streak = 0;
-      while (ok(fmtLocalDate(cursor))) {
-        streak++;
-        cursor.setDate(cursor.getDate() - 1);
-      }
-      return streak;
-    };
+    // Sequência de dias: mesma regra das insígnias de hábito (ver `_dayStreak`).
+    const streakOf = _dayStreak;
 
     /** Dia com comida registrada que satisfaz `ok` — sem registro não prova nada. */
     const onDay = (ok: (d: Day) => boolean) => (date: string) => {
@@ -13276,6 +13920,16 @@ export async function awardNutritionBadgesDb(userId?: string): Promise<Badge[]> 
     const waterStreakFor = (targetMl: number) =>
       targetMl > 0 ? streakOf((date) => (water.get(date) ?? 0) >= targetMl) : 0;
 
+    // Fruta: basta UMA no dia (a insígnia é "comer fruta", não "só fruta").
+    const fruitStreak = streakOf(onDay((d) => d.hasFruit));
+
+    // Comida caseira: um prato preparado no dia E nenhum ultraprocessado. O
+    // prato sozinho não bastaria (dá para "preparar" em cima de industrializado)
+    // e a ausência de ultraprocessado sozinha é outra insígnia.
+    const homeFoodStreak = streakOf(
+      onDay((d) => d.hasPreparedDish && !d.hasUnknownQuality && !d.hasUltra)
+    );
+
     // Dias com registro na semana atual (Dom–Sáb)
     const now = new Date();
     const sunday = new Date(now);
@@ -13295,7 +13949,12 @@ export async function awardNutritionBadgesDb(userId?: string): Promise<Badge[]> 
       if (alreadyEarned.has(String(b.id))) return false;
       // Premium só para assinante ativo (mesmo gate do award de check-in).
       if (b.premium && !isPremium) return false;
-      const threshold = Math.max(1, b.required_checkins ?? 1);
+      const threshold = Math.max(
+        1,
+        b.required_checkins > 1
+          ? b.required_checkins
+          : CONDITION_MIN_THRESHOLD[b.condition_type] ?? b.required_checkins ?? 1
+      );
       switch (b.condition_type) {
         case "nutrition_no_ultra":
           return noUltraStreak >= threshold;
@@ -13313,8 +13972,12 @@ export async function awardNutritionBadgesDb(userId?: string): Promise<Badge[]> 
           );
           return waterStreakFor(targetMl) >= threshold;
         }
+        case "nutrition_fruits":
+          return fruitStreak >= threshold;
+        case "nutrition_home_food":
+          return homeFoodStreak >= threshold;
         default:
-          return false; // frutas e comida caseira: sem tracking
+          return false; // tipos de hábito/treino: avaliados no outro award
       }
     });
 
@@ -15003,9 +15666,14 @@ registerOutboxExecutor("workout_hist", async (p: any) => {
     // Payloads enfileirados antes de 05/08/2026 não têm a chave — `undefined`
     // vira NULL no insert (= série do modo simplificado), então um treino que
     // ficou na fila durante o deploy continua sincronizando normalmente.
-    setKind: p.setKind === "warmup" || p.setKind === "normal" || p.setKind === "failure"
-      ? p.setKind
-      : null,
+    //
+    // A lista tem que cobrir os QUATRO valores de `SetKind`: `drop` ficou de
+    // fora até 21/08/2026 e virava NULL no replay — a série emendada voltava
+    // como 'normal' e passava a ser contada como série própria (`countsAsSeries`
+    // só exclui o drop), inflando o total do treino sincronizado offline.
+    setKind: SET_KINDS.includes(p.setKind) ? (p.setKind as SetKind) : null,
+    // Idem: payloads enfileirados antes da feature de calorias não têm a chave.
+    calories: p.calories != null ? Number(p.calories) : null,
   });
   invalidateQueryCache("workoutHistory");
   // Mesma origem (user_workouts_hist): o gráfico de progressão e a cobertura
@@ -15099,4 +15767,417 @@ if (typeof window !== "undefined") {
   setTimeout(() => {
     if (!isLikelyOffline()) void flushOutbox();
   }, 1500);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Treinar junto (workout party)
+//
+// Um usuário chama N amigos/seguidores para fazer o MESMO treino agora. Quem
+// convida (`host`) começa a sessão imediatamente — o convite é fire-and-forget
+// e nunca bloqueia o treino dele. Cada convidado que aceita entra numa sessão
+// ESPELHO montada a partir do `snapshot` congelado no convite.
+//
+// A regra que orienta todo este bloco: **o convidado não ganha rotina ao
+// aceitar**. Nenhuma linha em `routines`/`user_workouts` é criada para ele; a
+// sessão é efêmera e o histórico grava com `user_workout_id`/`routine_id`
+// nulos (mesmo caminho dos exercícios avulsos). Só no fim do treino o app
+// pergunta se ele quer salvar — e aí `saveRoutineFromWorkoutPartyDb` roda.
+//
+// Migração: docs/migrations/20260826-workout-party.sql
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Um exercício congelado no convite — tudo que a sessão espelho precisa. */
+export type WorkoutPartySnapshotItem = {
+  workoutId: string;
+  name: string;
+  muscleGroup: string | null;
+  photo: string | null;
+  /** Séries sugeridas (o plano da rotina do host, não o que ele executou). */
+  series: number;
+  /** Repetições sugeridas por série. */
+  reps: number;
+  restSecs: number | null;
+  technique?: WorkoutTechnique;
+  techniqueGroup?: string | null;
+};
+
+export type WorkoutPartySnapshot = {
+  routineName: string;
+  trainingMode: TrainingMode;
+  items: WorkoutPartySnapshotItem[];
+};
+
+export type WorkoutPartyMemberStatus = "pending" | "accepted" | "declined" | "left";
+
+export type WorkoutPartyMember = {
+  userId: string;
+  nickname: string;
+  photo: string | null;
+  role: "host" | "guest";
+  status: WorkoutPartyMemberStatus;
+  /** Exercícios concluídos / total — o "Ana · 3/6" do header da sessão. */
+  progressDone: number;
+  progressTotal: number;
+};
+
+export type WorkoutPartyInvite = {
+  partyId: string;
+  hostId: string;
+  hostNickname: string;
+  hostPhoto: string | null;
+  routineName: string;
+  snapshot: WorkoutPartySnapshot;
+  expiresAt: string;
+};
+
+/** Notificação de "te chamou pra treinar" (ver docs/10-notificacoes.md). */
+const WORKOUT_PARTY_NOTIF_TYPE = 19;
+
+/**
+ * Cria a party e dispara os convites. Devolve o `party_id`.
+ *
+ * **Sem limite de convidados**: `inviteeIds` é uma lista, e cada id vira uma
+ * linha `pending` em `workout_party_members` + uma notificação. Um grupo de 5
+ * percorre exatamente o mesmo caminho de código de uma dupla.
+ */
+export async function createWorkoutPartyDb(params: {
+  snapshot: WorkoutPartySnapshot;
+  routineId: string | null;
+  inviteeIds: string[];
+}): Promise<string | null> {
+  if (!hasSupabaseConfig || !supabase) return null;
+  const viewer = await getViewer();
+  if (!viewer) return null;
+
+  const { data, error } = await supabase
+    .from("workout_parties")
+    .insert({
+      host_id: viewer.id,
+      routine_id: params.routineId ? Number(params.routineId) : null,
+      routine_name: params.snapshot.routineName || null,
+      snapshot: params.snapshot,
+    })
+    .select("id")
+    .single();
+
+  if (error || !data?.id) {
+    console.error("Error creating workout party:", error?.message || error);
+    throw error ?? new Error("Falha ao criar o treino em grupo");
+  }
+
+  const partyId = String(data.id);
+
+  // Host entra já aceito: ele é quem está treinando, não há o que responder.
+  const { error: hostError } = await supabase.from("workout_party_members").insert({
+    party_id: partyId,
+    user_id: viewer.id,
+    role: "host",
+    status: "accepted",
+    progress_total: params.snapshot.items.length,
+    responded_at: new Date().toISOString(),
+  });
+  if (hostError) {
+    console.error("Error inserting workout party host:", hostError.message);
+    throw hostError;
+  }
+
+  await inviteToWorkoutPartyDb(partyId, params.inviteeIds);
+  return partyId;
+}
+
+/**
+ * Convida mais gente para uma party existente — é o mesmo caminho do convite
+ * inicial e o que o botão de convidar DENTRO da sessão usa (o cenário real da
+ * academia: o amigo aparece quando o treino já começou).
+ *
+ * Ignora quem já está na party (`ignoreDuplicates`): reconvidar alguém que
+ * recusou não deve ressuscitar o convite nem duplicar a linha, e o host não tem
+ * como lembrar quem já convidou numa lista longa.
+ */
+export async function inviteToWorkoutPartyDb(
+  partyId: string,
+  inviteeIds: string[],
+): Promise<void> {
+  if (!hasSupabaseConfig || !supabase || inviteeIds.length === 0) return;
+  const viewer = await getViewer();
+  if (!viewer) return;
+
+  const targets = [...new Set(inviteeIds)].filter((id) => id && id !== viewer.id);
+  if (targets.length === 0) return;
+
+  const { error } = await supabase
+    .from("workout_party_members")
+    .upsert(
+      targets.map((userId) => ({
+        party_id: partyId,
+        user_id: userId,
+        role: "guest",
+        status: "pending",
+      })),
+      { onConflict: "party_id,user_id", ignoreDuplicates: true },
+    );
+
+  if (error) {
+    console.error("Error inviting to workout party:", error.message);
+    throw error;
+  }
+
+  // Push + banner: é o convite em si. `post_id` guarda o id da party — mesma
+  // convenção dos tipos de duelo (4/5/11), que guardam ali o id do grupo.
+  const { error: notifError } = await supabase.from("notifications").insert(
+    targets.map((userId) => ({
+      user_id: userId,
+      follower_id: viewer.id,
+      type: WORKOUT_PARTY_NOTIF_TYPE,
+      post_id: partyId,
+      read: false,
+    })),
+  );
+  if (notifError) {
+    // Best-effort: a linha de convite já existe, então o convidado ainda o vê
+    // ao abrir o app. Só o aviso imediato se perdeu.
+    console.error("Error sending workout party notifications:", notifError.message);
+  }
+}
+
+/**
+ * Convite de treino aberto para o usuário atual — o mais recente que ainda não
+ * expirou e cuja party não foi encerrada. `null` quando não há nenhum.
+ *
+ * Sempre sem cache: um convite para treinar AGORA que chega com 30s de atraso
+ * já não serve para nada.
+ */
+export async function getPendingWorkoutPartyInviteDb(): Promise<WorkoutPartyInvite | null> {
+  if (!hasSupabaseConfig || !supabase) return null;
+  const viewer = await getViewer();
+  if (!viewer) return null;
+
+  try {
+    const { data: rows, error } = await supabase
+      .from("workout_party_members")
+      .select("party_id")
+      .eq("user_id", viewer.id)
+      .eq("status", "pending")
+      .order("updated_at", { ascending: false })
+      .limit(5);
+
+    if (error || !rows || rows.length === 0) return null;
+
+    const { data: parties, error: partyError } = await supabase
+      .from("workout_parties")
+      .select("id, host_id, routine_name, snapshot, expires_at, ended_at")
+      .in("id", rows.map((r: any) => String(r.party_id)))
+      .is("ended_at", null)
+      .gt("expires_at", new Date().toISOString())
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    if (partyError || !parties || parties.length === 0) return null;
+    return await hydrateWorkoutParty(parties[0]);
+  } catch (err) {
+    console.error("Error loading workout party invite:", err);
+    return null;
+  }
+}
+
+/** Busca uma party específica — usado pelo toque no push, que traz o id. */
+export async function getWorkoutPartyInviteByIdDb(
+  partyId: string,
+): Promise<WorkoutPartyInvite | null> {
+  if (!hasSupabaseConfig || !supabase) return null;
+
+  try {
+    const { data: party, error } = await supabase
+      .from("workout_parties")
+      .select("id, host_id, routine_name, snapshot, expires_at, ended_at")
+      .eq("id", partyId)
+      .maybeSingle();
+
+    if (error || !party || (party as any).ended_at) return null;
+    return await hydrateWorkoutParty(party);
+  } catch (err) {
+    console.error("Error loading workout party by id:", err);
+    return null;
+  }
+}
+
+/** Completa a linha da party com apelido e foto de quem convidou. */
+async function hydrateWorkoutParty(row: any): Promise<WorkoutPartyInvite> {
+  let nickname = "Usuário";
+  let photo: string | null = null;
+  if (supabase && row.host_id) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("nickname, photo")
+      .eq("user_id", String(row.host_id))
+      .maybeSingle();
+    if (profile?.nickname) nickname = String(profile.nickname);
+    if (profile?.photo) photo = String(profile.photo);
+  }
+  return {
+    partyId: String(row.id),
+    hostId: String(row.host_id),
+    hostNickname: nickname,
+    hostPhoto: photo,
+    routineName: row.routine_name ? String(row.routine_name) : "",
+    snapshot: row.snapshot as WorkoutPartySnapshot,
+    expiresAt: String(row.expires_at),
+  };
+}
+
+/**
+ * Aceita ou recusa um convite. Aceitar já grava o total de exercícios para o
+ * progresso do header nascer completo ("0/6", não "0/0").
+ */
+export async function respondWorkoutPartyInviteDb(
+  partyId: string,
+  accept: boolean,
+  totalExercises = 0,
+): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+  const viewer = await getViewer();
+  if (!viewer) return;
+
+  const { error } = await supabase
+    .from("workout_party_members")
+    .update({
+      status: accept ? "accepted" : "declined",
+      progress_total: accept ? totalExercises : 0,
+      responded_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("party_id", partyId)
+    .eq("user_id", viewer.id);
+
+  if (error) {
+    console.error("Error responding to workout party invite:", error.message);
+    throw error;
+  }
+  invalidateQueryCache(`workoutPartyMembers:${partyId}`);
+}
+
+/**
+ * Participantes da party com apelido e foto. `fresh` para o header, que precisa
+ * refletir quem acabou de aceitar (é como o realtime recarrega).
+ */
+export async function getWorkoutPartyMembersDb(
+  partyId: string,
+  opts?: { fresh?: boolean },
+): Promise<WorkoutPartyMember[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+  return cached(`workoutPartyMembers:${partyId}`, CACHE_TTL_SHORT, async () => {
+    try {
+      const { data, error } = await supabase!
+        .from("workout_party_members")
+        .select("user_id, role, status, progress_done, progress_total")
+        .eq("party_id", partyId);
+
+      if (error || !data || data.length === 0) return [];
+
+      const { data: profiles } = await supabase!
+        .from("profiles")
+        .select("user_id, nickname, photo")
+        .in("user_id", data.map((r: any) => String(r.user_id)));
+
+      const byId = new Map((profiles ?? []).map((p: any) => [String(p.user_id), p]));
+
+      return data.map((row: any) => {
+        const profile = byId.get(String(row.user_id));
+        const member: WorkoutPartyMember = {
+          userId: String(row.user_id),
+          nickname: profile?.nickname ? String(profile.nickname) : "Usuário",
+          photo: profile?.photo ? String(profile.photo) : null,
+          role: row.role === "host" ? "host" : "guest",
+          status: String(row.status ?? "pending") as WorkoutPartyMemberStatus,
+          progressDone: Number(row.progress_done ?? 0),
+          progressTotal: Number(row.progress_total ?? 0),
+        };
+        return member;
+      });
+    } catch (err) {
+      console.error("Error loading workout party members:", err);
+      return [];
+    }
+  }, { fresh: opts?.fresh });
+}
+
+/**
+ * Reporta o progresso do usuário atual. Chamado a cada EXERCÍCIO concluído, e
+ * não a cada série: o header mostra "3/6", e uma escrita por série seriam
+ * dezenas de writes por treino para um número que nem muda na tela.
+ *
+ * Silencioso em qualquer falha — perder um tick de progresso não pode
+ * atrapalhar quem está treinando.
+ */
+export async function updateWorkoutPartyProgressDb(
+  partyId: string,
+  done: number,
+  total: number,
+): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+  const viewer = await getViewer();
+  if (!viewer) return;
+
+  await supabase
+    .from("workout_party_members")
+    .update({ progress_done: done, progress_total: total, updated_at: new Date().toISOString() })
+    .eq("party_id", partyId)
+    .eq("user_id", viewer.id);
+
+  invalidateQueryCache(`workoutPartyMembers:${partyId}`);
+}
+
+/** Sai da party — finalizou o treino, desistiu, ou o convite virou pó. */
+export async function leaveWorkoutPartyDb(partyId: string): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+  const viewer = await getViewer();
+  if (!viewer) return;
+
+  await supabase
+    .from("workout_party_members")
+    .update({ status: "left", updated_at: new Date().toISOString() })
+    .eq("party_id", partyId)
+    .eq("user_id", viewer.id);
+
+  invalidateQueryCache(`workoutPartyMembers:${partyId}`);
+}
+
+/**
+ * Encerra a party (só o host consegue, por RLS). Convites pendentes deixam de
+ * valer na hora — sem isto alguém aceitaria, 40 min depois, um treino que já
+ * acabou.
+ */
+export async function endWorkoutPartyDb(partyId: string): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+  await supabase
+    .from("workout_parties")
+    .update({ ended_at: new Date().toISOString() })
+    .eq("id", partyId);
+  invalidateQueryCache(`workoutPartyMembers:${partyId}`);
+}
+
+/**
+ * Salva o treino do amigo como rotina PRÓPRIA — a escolha que aparece no fim do
+ * treino para quem foi convidado. Só aqui o convidado ganha linhas em
+ * `user_workouts`/`routines`; até este ponto a sessão dele foi efêmera.
+ *
+ * A linha em `routines` nasce de trigger no insert dos itens; o backfill é o
+ * que os liga a ela (mesmo caminho do wizard de criação).
+ */
+export async function saveRoutineFromWorkoutPartyDb(
+  userId: string,
+  snapshot: WorkoutPartySnapshot,
+  routineName: string,
+): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) throw new Error("Supabase not configured");
+
+  const workoutIds = snapshot.items.map((i) => i.workoutId).filter(Boolean);
+  if (workoutIds.length === 0) throw new Error("Treino sem exercícios");
+
+  const name = routineName.trim() || snapshot.routineName;
+  const inserted = await createUserWorkoutsDb(userId, workoutIds, { name });
+  await backfillRoutineIdOnItemsDb(userId, 1, name, inserted.map((i) => i.id)).catch(() => {});
+  // `getUserRoutinesDb`/`getUserWorkoutsDb` não passam por `cached()` (têm a
+  // própria cópia offline), então não há cache a derrubar aqui — quem recarrega
+  // a lista é a tela de Metas, via `reloadRoutines()`.
 }

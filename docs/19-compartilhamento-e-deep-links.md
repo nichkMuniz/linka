@@ -85,7 +85,7 @@ Existe porque navegadores embutidos (o do WhatsApp, o do Instagram) frequentemen
 | `https://linkafit.com.br/post/123` | `linkafit.com.br` | `/post/123` |
 | `com.linka.meuapp://post/123` | `post` | `/123` |
 
-`parseDeepLinkUrl` reconcatena o host ao caminho nesse caso. Ler `pathname` direto navegava para `/123` e caía no NotFound.
+`parseDeepLinkUrl` reconcatena o host ao caminho nesse caso. Ler `pathname` direto navegava para `/123`, que não casa com rota nenhuma — antes caía na tela 404 e, desde 21/08/2026, é redirecionado silenciosamente ao Feed. Nos dois casos o post pedido nunca abria: a reconcatenação é o que conserta.
 
 ### `DeepLinkHandler` (`client/App.tsx`)
 

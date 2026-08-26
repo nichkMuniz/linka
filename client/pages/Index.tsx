@@ -28,6 +28,7 @@ import {
   getAllUsersDb,
   type SearchUser,
   type PostIncentiveType,
+  type StoryTextElement,
   type StoryWithUser,
   invalidateProfileCache,
   invalidateQueryCache,
@@ -563,7 +564,7 @@ export default function Index() {
       description: string,
       backgroundColor?: string | null,
       textPosition?: { x: number; y: number } | null,
-      textElements?: { text: string; x: number; y: number }[] | null,
+      textElements?: StoryTextElement[] | null,
       mediaTransform?: { scale: number; x: number; y: number } | null,
       taggedUserIds?: string[],
     ) => {

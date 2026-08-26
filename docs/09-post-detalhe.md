@@ -76,9 +76,10 @@ Como a tela sempre exibe exatamente **1 post**, ela não tem scroll de página �
 - Quando o post tem pessoas marcadas (`post.taggedUsers`, carregado por `getPostByIdDb` a partir de `post_tags`), uma linha "👥 com {nick}" (ícone `UsersRound`) aparece no overlay inferior, **acima da descrição** — mesmo padrão do feed
 - 1 pessoa marcada → toque navega direto para `/usuario/:id`; 2+ → rótulo "com {nick} e mais {n}" e o toque abre o `FollowListDrawer` (título "Pessoas marcadas", cada linha navega ao perfil e tem `FollowButton`)
 
-### Pill "Ver treino" (só em posts de resumo de treino)
+### Pill "Ver treino" + comparação (só em posts de resumo de treino)
 - Quando o post carrega um `workout_summary`, renderiza o `WorkoutDetailButton` (`client/components/shared/workout-detail-dialog.tsx`) no overlay inferior, acima do indicador de carrossel
 - Tocar abre o drawer simplificado com a lista de exercícios (miniatura do exercício + grupo muscular + séries em chips `{kg}kg × {reps}`) — mesmo componente do feed e do Perfil. Ver `docs/01-feed.md` (Detalhe do treino)
+- **Dentro** desse drawer, acima da lista, aparece o botão **"Comparar com o meu treino"** (`WorkoutCompareContent` em `client/components/shared/workout-compare-dialog.tsx`) — **oculto no meu próprio post**. Troca o conteúdo do sheet pelo confronto exercício a exercício entre o treino do post e a minha última execução de cada exercício (placar + indicador de quem fez mais). Ver `docs/01-feed.md` (Comparar treino)
 
 ### Indicador de Carrossel
 - Dots centralizados logo acima da barra de ações, quando o post tem mais de uma foto

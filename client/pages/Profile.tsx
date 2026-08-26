@@ -65,6 +65,7 @@ import { UserInsignias } from "@/components/profile/user-insignias";
 import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
 import { PostCarousel } from "@/components/post/post-carousel";
 import { WorkoutDetailButton } from "@/components/shared/workout-detail-dialog";
+import { isWorkoutCanvasPost } from "@/lib/workout-summary-types";
 import { FlowViewerModal } from "@/components/modals/flow-viewer-modal";
 import { PostIncentiveButton } from "@/components/shared/post-incentive-button";
 import { FollowButton } from "@/components/shared/follow-button";
@@ -227,6 +228,20 @@ export default function Profile() {
         (a, b) => Number(a.perc >= 100) - Number(b.perc >= 100),
       ),
     [userGoals],
+  );
+
+  // A aba "Treinos" recebe os posts que são só o CARD de resumo gerado pelo app
+  // (canvas puro); assim que a pessoa anexa uma foto da galeria/câmera, o post
+  // volta a ser uma publicação comum. Split derivado da mesma lista carregada
+  // por `getUserPostsDb` — nenhuma query extra, e apagar/editar um post segue
+  // atualizando as duas abas de uma vez (ver `setPosts`).
+  const workoutPosts = React.useMemo(
+    () => posts.filter((p) => isWorkoutCanvasPost(p)),
+    [posts],
+  );
+  const feedPosts = React.useMemo(
+    () => posts.filter((p) => !isWorkoutCanvasPost(p)),
+    [posts],
   );
 
   // Edit form state
@@ -1282,14 +1297,21 @@ export default function Profile() {
 
       {/* Posts, Shots and Store Tabs */}
       <Tabs defaultValue="posts" className="w-full px-4">
-        {/* Com 4 abas (Publicações, Clipes, Marcações e Vitrine) a linha não cabe
-            na largura do iPhone — rola na horizontal em vez de quebrar/comprimir. */}
+        {/* Com 5 abas (Publicações, Treinos, Clipes, Marcações e Vitrine) a linha
+            não cabe na largura do iPhone — rola na horizontal em vez de
+            quebrar/comprimir. */}
         <TabsList className="w-full justify-start gap-5 !h-auto !bg-transparent !rounded-none !p-0 border-b border-white/10 overflow-x-auto no-scrollbar">
           <TabsTrigger
             value="posts"
             className="shrink-0 whitespace-nowrap !rounded-none !bg-transparent !shadow-none !px-0 pb-3 -mb-px border-b-2 border-transparent !text-white/45 data-[state=active]:!border-white data-[state=active]:!text-white text-[14px] font-[640]"
           >
-            {t("profile_posts")} ({stats.postsCount})
+            {t("profile_posts")} ({feedPosts.length})
+          </TabsTrigger>
+          <TabsTrigger
+            value="treinos"
+            className="shrink-0 whitespace-nowrap !rounded-none !bg-transparent !shadow-none !px-0 pb-3 -mb-px border-b-2 border-transparent !text-white/45 data-[state=active]:!border-white data-[state=active]:!text-white text-[14px] font-[640]"
+          >
+            {t("profile_workouts")} ({workoutPosts.length})
           </TabsTrigger>
           <TabsTrigger
             value="shots"
@@ -1321,9 +1343,9 @@ export default function Profile() {
               <p className="text-sm font-medium text-white">{t("profile_posts_private")}</p>
               <p className="text-xs text-white/50">{t("profile_posts_private_desc")}</p>
             </div>
-          ) : posts.length > 0 ? (
+          ) : feedPosts.length > 0 ? (
             <div className="grid gap-[5px] grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
-              {posts.map((post) => (
+              {feedPosts.map((post) => (
                 <button
                   key={post.id}
                   onClick={() => handleViewPost(post)}
@@ -1351,6 +1373,47 @@ export default function Profile() {
             <div className="rounded-xl p-6 text-center" style={{ background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.08)" }}>
               <p className="text-sm text-white/50">
                 {t("profile_no_posts")}
+              </p>
+            </div>
+          )}
+        </TabsContent>
+
+        {/* Treinos Tab — só os posts de resumo de treino em que a pessoa NÃO
+            anexou foto da galeria/câmera (canvas puro). Mantém a aba
+            Publicações limpa, com as fotos de verdade. O tile mostra sempre o
+            card gerado (`workoutSummary.imageUrl`), que numa corrida com GPS
+            não é a primeira imagem do post — a primeira é o mapa do trajeto.
+            Abre o MESMO Post Viewer da aba Publicações. */}
+        <TabsContent value="treinos" className="space-y-4">
+          {isViewingOtherProfile && profile?.hide_posts_from_non_followers && !viewerFollowsProfile ? (
+            <div className="rounded-xl p-8 text-center flex flex-col items-center gap-2" style={{ background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.08)" }}>
+              <Lock className="h-6 w-6" style={{ color: "rgba(255,255,255,.5)" }} />
+              <p className="text-sm font-medium text-white">{t("profile_posts_private")}</p>
+              <p className="text-xs text-white/50">{t("profile_posts_private_desc")}</p>
+            </div>
+          ) : workoutPosts.length > 0 ? (
+            <div className="grid gap-[5px] grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
+              {workoutPosts.map((post) => (
+                <button
+                  key={post.id}
+                  onClick={() => handleViewPost(post)}
+                  className="group relative aspect-square overflow-hidden rounded-[14px] bg-muted transition-all cursor-pointer"
+                >
+                  <img
+                    src={post.workoutSummary?.imageUrl || post.photo}
+                    alt={post.workoutSummary?.routineName || post.description}
+                    loading="lazy"
+                    decoding="async"
+                    className="h-full w-full object-cover group-hover:scale-110 transition-transform"
+                  />
+                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl p-6 text-center" style={{ background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.08)" }}>
+              <p className="text-sm text-white/50">
+                {t("profile_no_workouts")}
               </p>
             </div>
           )}
@@ -1759,9 +1822,15 @@ export default function Profile() {
                       })()
                     )}
 
-                    {/* Workout summary — "Ver treino" pill opens the detail modal */}
+                    {/* Workout summary — "Ver treino" abre o detalhe; os dados do
+                        autor habilitam o botão "Comparar" DENTRO do drawer. */}
                     {!isEditingPost && selectedPost.workoutSummary && (
-                      <WorkoutDetailButton summary={selectedPost.workoutSummary} />
+                      <WorkoutDetailButton
+                        summary={selectedPost.workoutSummary}
+                        authorId={selectedPost.user_id}
+                        authorNickname={selectedPost.userNickname ?? null}
+                        authorPhoto={selectedPost.userPhoto ?? null}
+                      />
                     )}
 
                     {/* Goal */}

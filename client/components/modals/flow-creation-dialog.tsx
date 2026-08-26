@@ -4,12 +4,22 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
 import { TagPeopleDrawer } from "@/components/shared/tag-people-drawer";
+import {
+  FlowWorkoutSticker,
+  WORKOUT_STICKER_WIDTH,
+  MIN_STICKER_SCALE,
+  MAX_STICKER_SCALE,
+  formatStickerDate,
+  formatStickerDuration,
+  formatStickerVolume,
+} from "@/components/shared/flow-workout-sticker";
+import { WorkoutStickerPickerDrawer } from "@/components/modals/workout-sticker-picker-drawer";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { useLanguage } from "@/lib/language-context";
 import { saveMediaToPhotos, SaveMediaError, compressVideoBlob } from "@/lib/native-media";
 import { hapticLight } from "@/lib/haptics";
 import { motion } from "framer-motion";
-import type { SearchUser } from "@/lib/ritmofit-db";
+import type { SearchUser, StoryTextElement, StoryWorkoutSticker } from "@/lib/ritmofit-db";
 import {
   X,
   Image as ImageIcon,
@@ -24,6 +34,7 @@ import {
   AtSign,
   Lock,
   Download,
+  Dumbbell,
 } from "lucide-react";
 
 const GRADIENT_PRESETS = [
@@ -456,6 +467,239 @@ function drawTextsOnCanvas(
   }
 }
 
+/* -------------------------------------------------------------------------- */
+/*  Mini frame do treino (sticker) — desenho no canvas do rascunho            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Mini frame de treino posicionado, no formato mínimo que o desenho no canvas
+ * precisa. Os textos traduzidos chegam prontos: esta função vive fora do
+ * componente e não tem acesso ao `t()`.
+ */
+type DrawableSticker = {
+  data: StoryWorkoutSticker;
+  /** px de tela, centro do card (igual às frases) */
+  x: number;
+  y: number;
+  scale: number;
+  labels: { title: string; series: string; prs: string; more: string; date: string };
+};
+
+const STICKER_FONT = "-apple-system, system-ui, 'Segoe UI', sans-serif";
+// Alturas em px de CSS — espelham o layout do <FlowWorkoutSticker>.
+const STICKER_PAD = 12;
+const STICKER_HEADER_H = 28;
+const STICKER_CHIPS_H = 18;
+const STICKER_ROW_H = 13;
+const STICKER_ROW_GAP = 4;
+
+/**
+ * Chips de números da sessão, na MESMA ordem do `<FlowWorkoutSticker>` — é o
+ * que mantém o rascunho no canvas idêntico ao preview em React.
+ */
+function stickerChips(
+  data: StoryWorkoutSticker,
+  labels: DrawableSticker["labels"],
+): Array<{ text: string; accent: boolean }> {
+  const chips: Array<{ text: string; accent: boolean }> = [
+    { text: `${data.totalSeries} ${labels.series}`, accent: false },
+  ];
+  if (data.totalVolume > 0) chips.push({ text: formatStickerVolume(data.totalVolume), accent: false });
+  if (data.durationSecs > 0) chips.push({ text: formatStickerDuration(data.durationSecs), accent: false });
+  if (Number(data.caloriesKcal ?? 0) > 0) {
+    chips.push({ text: `${Math.round(Number(data.caloriesKcal))} kcal`, accent: false });
+  }
+  if (Number(data.prCount ?? 0) > 0) chips.push({ text: `${data.prCount} ${labels.prs}`, accent: true });
+  return chips;
+}
+
+/**
+ * Em quantas linhas os chips cabem na largura do card. O componente React usa
+ * `flex-wrap`, então o canvas precisa quebrar igual — senão o rascunho fica com
+ * altura menor que o preview e os últimos chips somem do card gerado.
+ */
+function stickerChipLines(
+  ctx: CanvasRenderingContext2D,
+  chips: Array<{ text: string }>,
+  contentW: number,
+): number {
+  ctx.save();
+  ctx.font = `700 9.5px ${STICKER_FONT}`;
+  let lines = 1;
+  let x = 0;
+  for (const chip of chips) {
+    const w = ctx.measureText(chip.text).width + 14;
+    if (x > 0 && x + w > contentW) { lines++; x = 0; }
+    x += w + 6;
+  }
+  ctx.restore();
+  return lines;
+}
+
+function stickerCardHeight(data: StoryWorkoutSticker, chipLines = 1): number {
+  const rows = data.exercises?.length ?? 0;
+  let h = STICKER_PAD + STICKER_HEADER_H + 9 + STICKER_CHIPS_H
+    + (chipLines - 1) * (STICKER_CHIPS_H + 6);
+  if (rows > 0) {
+    h += 9 + 1 + 8 + rows * STICKER_ROW_H + (rows - 1) * STICKER_ROW_GAP;
+    if (data.extraCount) h += STICKER_ROW_GAP + 12;
+  }
+  return h + STICKER_PAD;
+}
+
+// Corta o texto com reticências quando não cabe na largura disponível.
+function ellipsize(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string {
+  if (ctx.measureText(text).width <= maxWidth) return text;
+  let cut = text.length;
+  while (cut > 1 && ctx.measureText(`${text.slice(0, cut)}…`).width > maxWidth) cut--;
+  return `${text.slice(0, cut)}…`;
+}
+
+function drawStickerChip(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number,
+  accent: boolean,
+): number {
+  ctx.font = `700 9.5px ${STICKER_FONT}`;
+  const w = ctx.measureText(text).width + 14;
+  roundRectPath(ctx, x, y, w, STICKER_CHIPS_H, STICKER_CHIPS_H / 2);
+  ctx.fillStyle = accent ? "rgba(255,196,60,.16)" : "rgba(255,255,255,.09)";
+  ctx.fill();
+  ctx.strokeStyle = accent ? "rgba(255,196,60,.3)" : "rgba(255,255,255,.12)";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.fillStyle = accent ? "#ffc43c" : "rgba(255,255,255,.85)";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, x + w / 2, y + STICKER_CHIPS_H / 2 + 0.5);
+  return w;
+}
+
+/**
+ * Desenha o mini frame de treino no canvas do rascunho, no mesmo lugar e
+ * tamanho do preview. `s` converte px de tela em px do canvas; o desenho em si
+ * acontece no sistema de coordenadas do card (px de CSS, origem no canto
+ * superior esquerdo), como no componente React.
+ */
+function drawWorkoutStickerOnCanvas(
+  ctx: CanvasRenderingContext2D,
+  item: DrawableSticker,
+  s: number,
+): void {
+  const { data } = item;
+  const W = WORKOUT_STICKER_WIDTH;
+  const chips = stickerChips(data, item.labels);
+  const chipLines = stickerChipLines(ctx, chips, W - STICKER_PAD * 2 - 2);
+  const H = stickerCardHeight(data, chipLines);
+
+  ctx.save();
+  ctx.translate(item.x * s, item.y * s);
+  ctx.scale(s * item.scale, s * item.scale);
+  ctx.translate(-W / 2, -H / 2);
+
+  // Fundo + borda
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, "rgba(32,30,44,.95)");
+  bg.addColorStop(1, "rgba(13,12,19,.97)");
+  roundRectPath(ctx, 0, 0, W, H, 20);
+  ctx.fillStyle = bg;
+  ctx.fill();
+  ctx.strokeStyle = "rgba(255,255,255,.16)";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  const contentW = W - STICKER_PAD * 2 - 2;
+  const left = 13;
+
+  // Ícone da marca (quadrado arredondado com um halter simplificado)
+  const iconTop = STICKER_PAD;
+  const icon = ctx.createLinearGradient(left, iconTop, left + 28, iconTop + 28);
+  icon.addColorStop(0, "#5b8cff");
+  icon.addColorStop(1, "#9d6bff");
+  roundRectPath(ctx, left, iconTop, 28, 28, 10);
+  ctx.fillStyle = icon;
+  ctx.fill();
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(left + 8, iconTop + 11, 12, 2.4);
+  ctx.fillRect(left + 6.5, iconTop + 8.5, 2.6, 7.5);
+  ctx.fillRect(left + 18.9, iconTop + 8.5, 2.6, 7.5);
+
+  // Data (à direita) — mede primeiro para o nome saber quanto espaço sobra
+  ctx.textBaseline = "middle";
+  ctx.font = `600 9.5px ${STICKER_FONT}`;
+  const dateW = item.labels.date ? ctx.measureText(item.labels.date).width + 6 : 0;
+  if (item.labels.date) {
+    ctx.textAlign = "right";
+    ctx.fillStyle = "rgba(255,255,255,.55)";
+    ctx.fillText(item.labels.date, W - 13, iconTop + 14);
+  }
+
+  // Rótulo + nome da rotina
+  const textLeft = left + 28 + 8;
+  const textMaxW = W - 13 - textLeft - dateW;
+  ctx.textAlign = "left";
+  ctx.font = `700 8.5px ${STICKER_FONT}`;
+  ctx.fillStyle = "rgba(255,255,255,.55)";
+  ctx.fillText(ellipsize(ctx, item.labels.title.toUpperCase(), textMaxW), textLeft, iconTop + 6);
+  ctx.font = `800 13px ${STICKER_FONT}`;
+  ctx.fillStyle = "#fff";
+  ctx.fillText(ellipsize(ctx, data.name, textMaxW), textLeft, iconTop + 20);
+
+  // Chips com os números da sessão (quebram de linha como no preview React)
+  let chipX = left;
+  let chipY = iconTop + STICKER_HEADER_H + 9;
+  ctx.font = `700 9.5px ${STICKER_FONT}`;
+  for (const chip of chips) {
+    const w = ctx.measureText(chip.text).width + 14;
+    if (chipX > left && chipX + w > left + contentW) {
+      chipX = left;
+      chipY += STICKER_CHIPS_H + 6;
+    }
+    drawStickerChip(ctx, chip.text, chipX, chipY, chip.accent);
+    chipX += w + 6;
+  }
+
+  // Exercícios da sessão
+  const rows = data.exercises ?? [];
+  if (rows.length > 0) {
+    const lineY = chipY + STICKER_CHIPS_H + 9;
+    ctx.fillStyle = "rgba(255,255,255,.1)";
+    ctx.fillRect(left, lineY, contentW, 1);
+    let rowY = lineY + 1 + 8;
+    for (const ex of rows) {
+      const value = ex.isCardio
+        ? `${ex.kg} min`
+        : ex.kg > 0
+          ? `${ex.sets}× ${ex.kg}kg`
+          : `${ex.sets}×`;
+      ctx.font = `700 10.5px ${STICKER_FONT}`;
+      const valueW = ctx.measureText(value).width;
+      ctx.textAlign = "right";
+      ctx.fillStyle = "rgba(255,255,255,.6)";
+      ctx.fillText(value, left + contentW, rowY + STICKER_ROW_H / 2);
+      ctx.font = `600 10.5px ${STICKER_FONT}`;
+      ctx.textAlign = "left";
+      ctx.fillStyle = "rgba(255,255,255,.9)";
+      ctx.fillText(
+        ellipsize(ctx, ex.name, contentW - valueW - 8),
+        left,
+        rowY + STICKER_ROW_H / 2,
+      );
+      rowY += STICKER_ROW_H + STICKER_ROW_GAP;
+    }
+    if (data.extraCount) {
+      ctx.font = `600 9.5px ${STICKER_FONT}`;
+      ctx.textAlign = "left";
+      ctx.fillStyle = "rgba(255,255,255,.45)";
+      ctx.fillText(item.labels.more, left, rowY + 6);
+    }
+  }
+
+  ctx.restore();
+}
+
 function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
   return new Promise((resolve, reject) => {
     canvas.toBlob(
@@ -474,7 +718,7 @@ interface FlowCreationDialogProps {
     description: string,
     backgroundColor?: string | null,
     textPosition?: { x: number; y: number } | null,
-    textElements?: { text: string; x: number; y: number }[] | null,
+    textElements?: StoryTextElement[] | null,
     mediaTransform?: { scale: number; x: number; y: number } | null,
     taggedUserIds?: string[],
   ) => Promise<void>;
@@ -501,6 +745,16 @@ export function FlowCreationDialog({
   // Pessoas marcadas no flow (estilo Instagram) + drawer de seleção.
   const [taggedUsers, setTaggedUsers] = React.useState<SearchUser[]>([]);
   const [tagPeopleOpen, setTagPeopleOpen] = React.useState(false);
+  // Mini frame do último treino citado no flow (estilo "repost"): um único
+  // sticker por flow, arrastável e redimensionável como as frases. `null` = o
+  // usuário não citou treino nenhum.
+  const [workoutSticker, setWorkoutSticker] = React.useState<{
+    data: StoryWorkoutSticker;
+    x: number;
+    y: number;
+    scale: number;
+  } | null>(null);
+  const [workoutPickerOpen, setWorkoutPickerOpen] = React.useState(false);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   // "Salvar rascunho": grava o flow como ele está na galeria do celular.
   const [isSavingDraft, setIsSavingDraft] = React.useState(false);
@@ -1486,6 +1740,7 @@ export function FlowCreationDialog({
     setMediaFromGallery(false);
     setDescription("");
     setTaggedUsers([]);
+    setWorkoutSticker(null);
     setTexts([]);
     setEditingId(null);
     setEditingValue("");
@@ -1504,6 +1759,30 @@ export function FlowCreationDialog({
       y: item.y,
       style: item.style,
     }));
+    // O mini frame de treino também entra no rascunho, no mesmo lugar/tamanho
+    // do preview (os textos dele chegam prontos — o desenho não tem `t()`).
+    const drawableSticker: DrawableSticker | null = workoutSticker
+      ? {
+          data: workoutSticker.data,
+          x: workoutSticker.x,
+          y: workoutSticker.y,
+          scale: workoutSticker.scale,
+          labels: {
+            title: t("flow_workout_sticker_label"),
+            series: t("flow_workout_series"),
+            prs: t("flow_workout_prs"),
+            more: t("flow_workout_more_exercises").replace(
+              "{n}",
+              String(workoutSticker.data.extraCount ?? 0),
+            ),
+            date: formatStickerDate(
+              workoutSticker.data.date,
+              t("flow_workout_today"),
+              t("flow_workout_yesterday"),
+            ),
+          },
+        }
+      : null;
 
     if (step === "create") {
       // Modo texto: o gradiente ocupa a tela toda, então o frame é a viewport.
@@ -1517,6 +1796,7 @@ export function FlowCreationDialog({
       if (!ctx) return null;
       paintCssGradient(ctx, selectedGradient, canvas.width, canvas.height);
       drawTextsOnCanvas(ctx, drawables, fw, canvas.width / fw);
+      if (drawableSticker) drawWorkoutStickerOnCanvas(ctx, drawableSticker, canvas.width / fw);
       return canvas;
     }
 
@@ -1536,7 +1816,10 @@ export function FlowCreationDialog({
     );
     if (!canvas) return null;
     const ctx = canvas.getContext("2d");
-    if (ctx) drawTextsOnCanvas(ctx, drawables, fw, canvas.width / fw);
+    if (ctx) {
+      drawTextsOnCanvas(ctx, drawables, fw, canvas.width / fw);
+      if (drawableSticker) drawWorkoutStickerOnCanvas(ctx, drawableSticker, canvas.width / fw);
+    }
     return canvas;
   };
 
@@ -1598,6 +1881,31 @@ export function FlowCreationDialog({
     </button>
   );
 
+  /**
+   * Elementos sobrepostos que vao para `flow.text_elements`: as frases e, se
+   * houver, o mini frame do treino citado. Tudo em % da viewport, para o viewer
+   * reposicionar em qualquer aparelho.
+   */
+  const buildElementsPayload = (): StoryTextElement[] | null => {
+    const els: StoryTextElement[] = texts.map((item) => ({
+      text: item.text,
+      x: Math.round((item.x / window.innerWidth) * 1000) / 10,
+      y: Math.round((item.y / window.innerHeight) * 1000) / 10,
+      style: item.style,
+    }));
+    if (workoutSticker) {
+      els.push({
+        kind: "workout",
+        text: "",
+        x: Math.round((workoutSticker.x / window.innerWidth) * 1000) / 10,
+        y: Math.round((workoutSticker.y / window.innerHeight) * 1000) / 10,
+        scale: Math.round(workoutSticker.scale * 100) / 100,
+        workout: workoutSticker.data,
+      });
+    }
+    return els.length > 0 ? els : null;
+  };
+
   const handleSubmitMedia = async () => {
     if (!mediaPreview) return;
     setIsSubmitting(true);
@@ -1639,17 +1947,9 @@ export function FlowCreationDialog({
           mediaTransformPayload = percentTransform;
         }
       }
-      // Frases posicionadas sobre a foto (renderizadas ao vivo no FlowViewer,
-      // mantendo o texto nítido — não são "queimadas" na imagem)
-      const elementsPercent =
-        texts.length > 0
-          ? texts.map((t) => ({
-              text: t.text,
-              x: Math.round((t.x / window.innerWidth) * 1000) / 10,
-              y: Math.round((t.y / window.innerHeight) * 1000) / 10,
-              style: t.style,
-            }))
-          : null;
+      // Frases e mini frame de treino posicionados sobre a foto (renderizados ao
+      // vivo no FlowViewer, mantendo tudo nítido — não são "queimados" na imagem)
+      const elementsPercent = buildElementsPayload();
       await onCreateStory(mediaToShare, description, null, null, elementsPercent, mediaTransformPayload, taggedUsers.map((u) => u.id));
       resetForm();
       onOpenChange(false);
@@ -1669,7 +1969,7 @@ export function FlowCreationDialog({
   };
 
   const handleSubmitCreate = async () => {
-    if (texts.length === 0) {
+    if (texts.length === 0 && !workoutSticker) {
       toast({
         title: "Erro",
         description: "Adicione pelo menos uma frase ao seu flow",
@@ -1679,13 +1979,11 @@ export function FlowCreationDialog({
     }
     setIsSubmitting(true);
     try {
-      const elementsPercent = texts.map((t) => ({
-        text: t.text,
-        x: Math.round((t.x / window.innerWidth) * 1000) / 10,
-        y: Math.round((t.y / window.innerHeight) * 1000) / 10,
-        style: t.style,
-      }));
-      const joinedDescription = texts.map((t) => t.text).join("\n");
+      const elementsPercent = buildElementsPayload();
+      const joinedDescription =
+        texts.length > 0
+          ? texts.map((t) => t.text).join("\n")
+          : (workoutSticker?.data.name ?? "");
       await onCreateStory("", joinedDescription, selectedGradient, null, elementsPercent, null, taggedUsers.map((u) => u.id));
       resetForm();
       onOpenChange(false);
@@ -1720,6 +2018,7 @@ export function FlowCreationDialog({
     setIsSavingDraft(false);
     setDescription("");
     setTaggedUsers([]);
+    setWorkoutSticker(null);
     setSelectedGradient(GRADIENT_PRESETS[0].value);
     setTexts([]);
     setEditingId(null);
@@ -1867,6 +2166,101 @@ export function FlowCreationDialog({
     const wasTap = !g.moved && !g.pinched;
     textGestureRef.current = null;
     if (wasTap) beginEditText(item);
+  };
+
+  /* ── Gestos do mini frame de treino ───────────────────────────────────────
+     O sticker fica ACIMA da camada de gestos da mídia e trata os próprios
+     ponteiros (1 dedo arrasta, 2 pinçam) — por isso arrastá-lo nunca reenquadra
+     a foto nem cria uma frase nova. */
+  const stickerGestureRef = React.useRef<{
+    pointers: Map<number, { x: number; y: number }>;
+    origX: number;
+    origY: number;
+    origScale: number;
+    anchorX: number;
+    anchorY: number;
+    startDist: number;
+  } | null>(null);
+
+  const rebaseStickerGesture = () => {
+    const g = stickerGestureRef.current;
+    if (!g || !workoutSticker) return;
+    const pts = Array.from(g.pointers.values());
+    g.origX = workoutSticker.x;
+    g.origY = workoutSticker.y;
+    g.origScale = workoutSticker.scale;
+    if (pts.length >= 2) {
+      g.startDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1;
+    } else if (pts.length === 1) {
+      g.anchorX = pts[0].x;
+      g.anchorY = pts[0].y;
+    }
+  };
+
+  const handleStickerPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!workoutSticker) return;
+    e.stopPropagation();
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+    let g = stickerGestureRef.current;
+    if (!g) {
+      g = {
+        pointers: new Map(),
+        origX: workoutSticker.x,
+        origY: workoutSticker.y,
+        origScale: workoutSticker.scale,
+        anchorX: 0,
+        anchorY: 0,
+        startDist: 0,
+      };
+      stickerGestureRef.current = g;
+    }
+    g.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    rebaseStickerGesture();
+  };
+
+  const handleStickerPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const g = stickerGestureRef.current;
+    if (!g || !g.pointers.has(e.pointerId)) return;
+    e.stopPropagation();
+    g.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const pts = Array.from(g.pointers.values());
+    if (pts.length >= 2) {
+      const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+      const ratio = g.startDist ? dist / g.startDist : 1;
+      const nextScale = Math.min(
+        MAX_STICKER_SCALE,
+        Math.max(MIN_STICKER_SCALE, g.origScale * ratio),
+      );
+      setWorkoutSticker((prev) => (prev ? { ...prev, scale: nextScale } : prev));
+    } else {
+      const nx = g.origX + (pts[0].x - g.anchorX);
+      const ny = g.origY + (pts[0].y - g.anchorY);
+      setWorkoutSticker((prev) => (prev ? { ...prev, x: nx, y: ny } : prev));
+    }
+  };
+
+  const handleStickerPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    const g = stickerGestureRef.current;
+    if (!g || !g.pointers.has(e.pointerId)) return;
+    e.stopPropagation();
+    (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+    g.pointers.delete(e.pointerId);
+    if (g.pointers.size > 0) {
+      rebaseStickerGesture();
+      return;
+    }
+    stickerGestureRef.current = null;
+  };
+
+  // Escolha no drawer → o mini frame nasce um pouco abaixo do centro (onde não
+  // cobre o rosto da selfie nem a descrição), pronto para ser arrastado.
+  const handlePickWorkout = (data: StoryWorkoutSticker) => {
+    setWorkoutSticker({
+      data,
+      x: window.innerWidth / 2,
+      y: window.innerHeight * 0.45,
+      scale: 1,
+    });
   };
 
   const handleClose = () => {
@@ -2062,6 +2456,55 @@ export function FlowCreationDialog({
       {renderTextInner(item)}
     </div>
   ));
+
+  // Mini frame do treino citado — mesma camada nas duas etapas de compartilhar
+  // (legenda sobre a mídia e modo texto). Fica acima das frases e da camada de
+  // gestos da mídia, com ponteiros próprios.
+  const workoutStickerLayer = workoutSticker ? (
+    <div
+      className="absolute z-[8] touch-none select-none"
+      style={{
+        left: workoutSticker.x,
+        top: workoutSticker.y,
+        transform: `translate(-50%, -50%) scale(${workoutSticker.scale})`,
+        transformOrigin: "center",
+      }}
+      onPointerDown={handleStickerPointerDown}
+      onPointerMove={handleStickerPointerMove}
+      onPointerUp={handleStickerPointerUp}
+      onPointerCancel={handleStickerPointerUp}
+    >
+      <div className="relative">
+        <FlowWorkoutSticker data={workoutSticker.data} />
+        <button
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            setWorkoutSticker(null);
+          }}
+          className="absolute -top-2 -right-2 h-6 w-6 rounded-full bg-black/80 border border-white/25 flex items-center justify-center text-white active:opacity-70"
+          aria-label={t("flow_workout_remove")}
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    </div>
+  ) : null;
+
+  // Botão que abre o seletor de treino — mesmo visual nas duas etapas.
+  const workoutStickerButton = (
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        hapticLight();
+        setWorkoutPickerOpen(true);
+      }}
+      className="h-10 px-3 rounded-full bg-black/40 backdrop-blur flex items-center text-white text-sm font-semibold gap-1"
+      aria-label={t("flow_workout_button")}
+    >
+      <Dumbbell className="h-4 w-4" />
+    </button>
+  );
 
   if (!open) return null;
 
@@ -2301,6 +2744,9 @@ export function FlowCreationDialog({
             {/* Committed text items (draggable, tappable to re-edit) */}
             {!isEditingText && committedTextItems}
 
+            {/* Mini frame do treino citado */}
+            {!isEditingText && workoutStickerLayer}
+
             {/* Hint when there is no text yet */}
             {!isEditingText && texts.length === 0 && (
               <div
@@ -2380,14 +2826,17 @@ export function FlowCreationDialog({
                   Pronto
                 </button>
               ) : (
-                <button
-                  onClick={beginNewText}
-                  className="h-10 px-3 rounded-full bg-black/40 backdrop-blur flex items-center text-white text-sm font-semibold gap-1"
-                  aria-label="Adicionar texto"
-                >
-                  <Type className="h-4 w-4" />
-                  + Aa
-                </button>
+                <div className="flex items-center gap-2">
+                  {workoutStickerButton}
+                  <button
+                    onClick={beginNewText}
+                    className="h-10 px-3 rounded-full bg-black/40 backdrop-blur flex items-center text-white text-sm font-semibold gap-1"
+                    aria-label="Adicionar texto"
+                  >
+                    <Type className="h-4 w-4" />
+                    + Aa
+                  </button>
+                </div>
               )}
             </div>
 
@@ -2437,12 +2886,12 @@ export function FlowCreationDialog({
                     e.stopPropagation();
                     handleSubmitCreate();
                   }}
-                  disabled={texts.length === 0 || isSubmitting || isLoading}
+                  disabled={(texts.length === 0 && !workoutSticker) || isSubmitting || isLoading}
                   className="w-full rounded-full"
                 >
                   {isSubmitting || isLoading ? "Enviando..." : "Compartilhar flow"}
                 </Button>
-                {texts.length > 0 && saveDraftButton}
+                {(texts.length > 0 || workoutSticker) && saveDraftButton}
               </div>
             )}
           </>
@@ -2552,6 +3001,7 @@ export function FlowCreationDialog({
               {/* Frases posicionadas sobre a foto — pointer-events-none: TODOS os gestos
                   passam para a camada de gestos da mídia, que decide legenda vs foto. */}
               {!isEditingText && captionTextItems}
+              {!isEditingText && workoutStickerLayer}
             </div>
 
             {/* Camada de edição de texto (sobre a foto) */}
@@ -2633,6 +3083,7 @@ export function FlowCreationDialog({
                     <AtSign className="h-4 w-4" />
                     {taggedUsers.length > 0 ? taggedUsers.length : ""}
                   </button>
+                  {workoutStickerButton}
                   <button
                     onClick={beginNewText}
                     className="h-10 px-3 rounded-full bg-black/40 backdrop-blur flex items-center text-white text-sm font-semibold gap-1"
@@ -2719,6 +3170,12 @@ export function FlowCreationDialog({
         onOpenChange={setTagPeopleOpen}
         selected={taggedUsers}
         onChange={setTaggedUsers}
+      />
+
+      <WorkoutStickerPickerDrawer
+        open={workoutPickerOpen}
+        onOpenChange={setWorkoutPickerOpen}
+        onSelect={handlePickWorkout}
       />
     </>
   );

@@ -26,8 +26,12 @@ export function BadgeUnlockedDialog({ badges, onClose }: BadgeUnlockedDialogProp
     }
   };
 
+  // "N check-ins" só é verdade nas insígnias de `checkin_total`. Nos outros
+  // tipos `required_checkins` é o limiar de OUTRA métrica (dias seguidos de
+  // sono, treinos de cardio, duelos…) e o rótulo mentiria — a condição real já
+  // está na descrição da insígnia. Mesma regra da barra do InsigniasDrawer.
   const checkinsLabel =
-    badge.required_checkins > 0
+    badge.condition_type === "checkin_total" && badge.required_checkins > 0
       ? t("badge_dialog_checkins")
           .replace("{n}", String(badge.required_checkins))
           .replace("{s}", badge.required_checkins !== 1 ? "s" : "")

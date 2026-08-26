@@ -64,6 +64,7 @@ Cada item exibe:
 | 16 `flow_tag` | `AtSign` | Ciano | Alguém marcou você em um **flow** (tabela `flow_tags`, trigger `trg_notify_flow_tag`). Ao tocar, abre o flow (`openFlow`); a pessoa marcada pode repostá-lo |
 | 17 `flow_reply` | — | — | Alguém **respondeu ao seu flow** em privado (botão de mensagem na doca do viewer). É uma **mensagem privada** com texto de push próprio — **só push, nunca aparece nesta lista**, igual ao tipo 10 |
 | 18 `flow_comment_followup` | `MessagesSquare` | Índigo | **Comentaram num flow em que você também comentou** (tabela `flow_comments`, trigger `trg_notify_flow_comment_followup`). Vale tanto para o dono do flow respondendo quanto para um terceiro comentando. O dono do flow **não** recebe este tipo — para ele a mesma inserção já gera o tipo 3 |
+| 19 `workout_party` | — | — | **Convite para treinar junto** (26/08/2026) — alguém chamou você para fazer o mesmo treino agora. `post_id` = `workout_parties.id`. Com o app aberto o banner local é **suprimido de propósito**: o aviso é o diálogo do convite (`workout-party-invite-dialog.tsx`, montado no `app-layout.tsx`), que já traz os exercícios e os botões de aceitar/recusar. Ver `docs/05-metas.md` |
 
 ### Tipos de Incentivo (subtipo)
 Quando o tipo é incentivo, o ícone exibido é o do incentivo específico (não um ícone genérico):
@@ -213,10 +214,11 @@ O corpo do push é montado em runtime por `buildBody()`, com os dados reais da n
 | 15 | "{nome} desclassificou seu check-in no duelo." | `profiles` |
 | 16 | "{nome} marcou você em um flow." | `profiles` |
 | 17 | "{nome} respondeu ao seu flow." | `profiles` |
+| 19 | "{nome} te chamou pra treinar agora." | `profiles` |
 
 - Cada nome livre (apelido, grupo, título) passa por `short()` para o push não virar um parágrafo; quando o lookup não encontra o registro, o texto cai numa variante sem o nome ("{nome} curtiu sua promoção.") em vez de ficar vazio.
 - Falha em qualquer lookup **não derruba o push**: `buildBody` é chamada com `.catch()` e volta ao texto genérico.
-- **Deep link:** `deepLinkFor` monta a URL por tipo — tipos 3/6/7/11/14/15 **com `duel_check_in_id`** → `/comunidade?checkin=<id>`, tipos 10 e 17 → `/comunidade?user=<remetente>`, tipo 11 sem check-in → `/comunidade?group=<grupo>`, tipos 8/12/13 → `/vitrine`, demais → `/notificacoes`.
+- **Deep link:** `deepLinkFor` monta a URL por tipo — tipos 3/6/7/11/14/15 **com `duel_check_in_id`** → `/comunidade?checkin=<id>`, tipos 10 e 17 → `/comunidade?user=<remetente>`, tipo 11 sem check-in → `/comunidade?group=<grupo>`, tipos 8/12/13 → `/vitrine`, tipo 19 → `/metas` (onde a sessão nasce; o app procura o convite pendente ao abrir), demais → `/notificacoes`.
 - ⚠️ **A edge function só muda em produção com redeploy.** Editar o arquivo no repo não basta: enquanto a versão publicada for antiga, o push continua com o texto genérico dela (`supabase functions deploy send-push-notification`).
 
 ---

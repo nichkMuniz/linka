@@ -392,10 +392,16 @@ export default function PostDetail() {
               </p>
             )}
 
-            {/* Workout summary — "Ver treino" pill opens the detail modal */}
+            {/* Workout summary — "Ver treino" abre o detalhe; os dados do autor
+                habilitam o botão "Comparar" DENTRO do drawer. */}
             {post.workoutSummary && (
               <div className="mb-2.5 px-1">
-                <WorkoutDetailButton summary={post.workoutSummary} />
+                <WorkoutDetailButton
+                  summary={post.workoutSummary}
+                  authorId={post.user_id}
+                  authorNickname={post.userNickname ?? null}
+                  authorPhoto={post.userPhoto ?? null}
+                />
               </div>
             )}
 

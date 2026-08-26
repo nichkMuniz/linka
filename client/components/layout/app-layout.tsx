@@ -42,7 +42,9 @@ import { showIncomingMessageToast } from "@/lib/incoming-message-toast";
 import { RoutineCompletedToast } from "@/components/shared/routine-completed-toast";
 import { PaywallDrawer } from "@/components/shared/paywall-drawer";
 import { usePremium } from "@/lib/premium-context";
-import { getUnreadMessageCountDb, getUnreadNotificationsCountDb, getUserProfileDb, subscribeToUnreadNotificationsDb, recordAccessSessionDb, bufferScreenTime, flushScreenTimeDb, invalidateQueryCache } from "@/lib/ritmofit-db";
+import { getUnreadMessageCountDb, getUnreadNotificationsCountDb, getUserProfileDb, subscribeToUnreadNotificationsDb, recordAccessSessionDb, bufferScreenTime, flushScreenTimeDb, invalidateQueryCache, getPendingWorkoutPartyInviteDb, getWorkoutPartyInviteByIdDb, respondWorkoutPartyInviteDb, type WorkoutPartyInvite } from "@/lib/ritmofit-db";
+import { WorkoutPartyInviteDialog } from "@/components/goals/workout-party-invite-dialog";
+import { reportHandledError } from "@/lib/monitoring";
 import {
   fetchNotificationCopyData,
   notificationBody,
@@ -57,7 +59,6 @@ import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
 import { useRoutineNotifications } from "@/hooks/use-routine-notifications";
 import { useEdgeSwipeBack } from "@/hooks/use-edge-swipe-back";
-import { useLayoutMode } from "@/hooks/useLayoutMode";
 import { useLanguage } from "@/lib/language-context";
 import { useWorkout } from "@/lib/workout-context";
 import { useNavigate } from "react-router-dom";
@@ -82,7 +83,6 @@ export function AppLayout() {
   // Agenda as notificações locais das rotinas com horário (treino/dieta/hábito).
   // Sincroniza no mount, ao voltar pro app e via evento "ritmofit-routines-changed".
   useRoutineNotifications(user?.id ?? null);
-  const { layoutMode } = useLayoutMode();
   const { t } = useLanguage();
   const { isPremium } = usePremium();
   const [premiumPaywallOpen, setPremiumPaywallOpen] = React.useState(false);
@@ -90,7 +90,50 @@ export function AppLayout() {
     workoutMinimized, setWorkoutMinimized, pendingReopen, setPendingReopen,
     globalRestTimerRemaining, globalRestTimerActive, globalRestTimerTotal, setGlobalRestTimerTotal,
     workoutSeries, resetWorkoutState,
+    workoutModalOpen, workoutStartTime, setPendingPartyJoin,
   } = useWorkout();
+
+  // ── Treinar junto: convite recebido ───────────────────────────────────────
+  // O diálogo mora AQUI, e não na tela de Metas, porque o convite é para agora:
+  // quem está no feed ou no perfil precisa vê-lo na hora, não ao abrir Metas.
+  // Aceitar só repassa o convite (`pendingPartyJoin`) e navega — quem sabe
+  // iniciar um treino é a tela de Metas.
+  const [partyInvite, setPartyInvite] = React.useState<WorkoutPartyInvite | null>(null);
+  const isTrainingNow = workoutStartTime !== null && (workoutModalOpen || workoutMinimized);
+
+  // Convite que chegou com o app fechado (ou pelo toque no push): ao montar,
+  // procura um pendente que ainda não expirou.
+  React.useEffect(() => {
+    if (!user) return;
+    getPendingWorkoutPartyInviteDb()
+      .then((invite) => { if (invite) setPartyInvite(invite); })
+      .catch(() => { /* sem convite — silencioso */ });
+  }, [user?.id]);
+
+  const handleAcceptPartyInvite = React.useCallback(async () => {
+    const invite = partyInvite;
+    if (!invite) return;
+    setPartyInvite(null);
+    try {
+      await respondWorkoutPartyInviteDb(invite.partyId, true, invite.snapshot.items.length);
+      setPendingPartyJoin(invite);
+      if (window.location.pathname !== "/metas") navigate("/metas");
+    } catch (err: any) {
+      reportHandledError(err, "app-layout:accept-workout-party");
+      toast({ title: t("goals_party_join_error"), description: err?.message, variant: "destructive" });
+    }
+  }, [partyInvite, navigate, setPendingPartyJoin, t]);
+
+  const handleDeclinePartyInvite = React.useCallback(async () => {
+    const invite = partyInvite;
+    if (!invite) return;
+    setPartyInvite(null);
+    try {
+      await respondWorkoutPartyInviteDb(invite.partyId, false);
+    } catch {
+      /* recusar é best-effort: o convite expira sozinho em 1h */
+    }
+  }, [partyInvite]);
 
   const [endWorkoutConfirmOpen, setEndWorkoutConfirmOpen] = React.useState(false);
 
@@ -398,6 +441,19 @@ export function AppLayout() {
           // só ele tem o TEXTO para montar o pop up com preview real. Sair aqui
           // (antes da vibração) é o que impede a mesma mensagem avisar duas vezes.
           if (type === 10 || type === 17) return;
+          // Convite de treino (19): o aviso é o DIÁLOGO, com os exercícios e os
+          // botões de aceitar/recusar — um banner genérico faria a pessoa abrir
+          // o app para descobrir o que fazer, e o convite vale por uma hora.
+          if (type === 19) {
+            hapticSuccess();
+            const partyId = row.post_id ? String(row.post_id) : null;
+            if (partyId) {
+              getWorkoutPartyInviteByIdDb(partyId)
+                .then((invite) => { if (invite) setPartyInvite(invite); })
+                .catch(() => { /* cai no fallback da próxima abertura do app */ });
+            }
+            return;
+          }
           // Vibrate for every incoming notification, regardless of which screen the user is on
           hapticSuccess();
           // Don't fire the visual/local notification if user is already on the notifications page
@@ -866,7 +922,7 @@ export function AppLayout() {
                 : cn(
                     // Mobile: no horizontal padding (each page/card controls its own), glass header top offset
                     "px-0",
-                    layoutMode === "default" && !hideNav
+                    !hideNav
                       ? "pb-[calc(env(safe-area-inset-bottom)+100px)]"
                       : "pb-6",
                   ),
@@ -887,7 +943,7 @@ export function AppLayout() {
       </div>
 
       {/* ── MOBILE BOTTOM NAV (< md) — floating glass pill ── */}
-      {layoutMode === "default" && !hideNav && !isFullscreenPage && (
+      {!hideNav && !isFullscreenPage && (
         <nav
           className="md:hidden fixed z-50"
           style={{
@@ -1065,6 +1121,16 @@ export function AppLayout() {
 
       {/* Pop up de mensagem privada recebida com o app aberto (qualquer tela) */}
       <IncomingMessageToast />
+
+      {/* Convite para treinar junto — chega em qualquer tela porque o treino é
+          AGORA; deixar só na aba de notificações seria o mesmo que não avisar. */}
+      <WorkoutPartyInviteDialog
+        invite={partyInvite}
+        busyWithOtherWorkout={isTrainingNow}
+        onAccept={handleAcceptPartyInvite}
+        onDecline={handleDeclinePartyInvite}
+        onDismiss={() => setPartyInvite(null)}
+      />
 
       {/* Timer Expired Full-Screen Block */}
       {timerBlockVisible && (

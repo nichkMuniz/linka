@@ -25,8 +25,8 @@ Página de perfil do usuário. Exibe informações pessoais, estatísticas, cont
 ├──────────────────────────────────┤
 │  🎯 Metas (scroll horizontal)    │  ← condicional: só aparece se há metas públicas
 ├──────────────────────────────────┤
-│  Tabs: [Posts][Shots][Marcações] │  ← + [Vitrine], só se há ofertas ativas
-│         [Vitrine]                │    (a linha rola na horizontal)
+│  Tabs: [Posts][Treinos][Shots]   │  ← + [Marcações] e [Vitrine] (esta só se
+│         [Marcações][Vitrine]     │    há ofertas ativas; a linha rola)
 ├──────────────────────────────────┤
 │  Conteúdo da Tab ativa           │
 └──────────────────────────────────┘
@@ -42,7 +42,7 @@ Página de perfil do usuário. Exibe informações pessoais, estatísticas, cont
 > - **Ações à direita** na mesma linha do avatar: próprio perfil → botão circular de engrenagem (42px) + pílula branca "Editar perfil"; outro perfil → `FollowButton` + botões circulares de mensagem e compartilhar.
 > - **Nome/handle/bio alinhados à esquerda** (nome 21px peso 740, handle 13px branco .5, bio 13.5px branco .82).
 > - **Stats em 3 cards** (Posts, Seguidores, Seguindo) com `rounded-18px`, fundo `rgba(255,255,255,.05)`, número 17px peso 740.
-> - **Tabs em estilo underline** (transparente, indicador `border-b-2` branco no ativo) em vez do `TabsList` boxed. Com a aba **Marcações** são até 4 abas, que não cabem na largura do iPhone — o `TabsList` ganhou `overflow-x-auto no-scrollbar` (gap reduzido para `gap-5`) e cada `TabsTrigger` é `shrink-0 whitespace-nowrap`, então a linha **rola na horizontal** em vez de comprimir/quebrar os rótulos.
+> - **Tabs em estilo underline** (transparente, indicador `border-b-2` branco no ativo) em vez do `TabsList` boxed. Com as abas **Treinos** e **Marcações** são até 5 abas, que não cabem na largura do iPhone — o `TabsList` ganhou `overflow-x-auto no-scrollbar` (gap reduzido para `gap-5`) e cada `TabsTrigger` é `shrink-0 whitespace-nowrap`, então a linha **rola na horizontal** em vez de comprimir/quebrar os rótulos.
 > - **Grids de posts/shots** em 3 colunas, `gap-[5px]`, itens `rounded-[14px]`.
 > - **Back chip** circular no topo-esquerdo apenas ao visualizar o perfil de outro usuário.
 > - O trigger do `SettingsDrawer` agora é externo (props `open`/`onOpenChange`/`hideTrigger`); a engrenagem e o botão "Editar perfil" abrem o mesmo drawer.
@@ -112,7 +112,9 @@ Exibe conquistas e badges desbloqueadas pelo usuário:
 
 ## Tab: Posts
 
-Grade de imagens dos posts do usuário.
+Grade de imagens dos posts do usuário — **exceto** os resumos de treino sem foto do usuário, que vivem na aba **Treinos** (ver abaixo).
+
+> **Contagem no rótulo (26/08/2026):** `Posts (n)` passou a usar `feedPosts.length` (a lista já filtrada) em vez de `stats.postsCount`. O card de stats do cabeçalho continua mostrando o total de publicações — `Posts (n) + Treinos (n)` é que fecha com ele.
 
 **Layout:** Grid 3 colunas (mobile) / 4–6 colunas (telas maiores), `gap-[5px]`, itens `rounded-[14px]`
 
@@ -126,15 +128,47 @@ Cada post na grade:
 
 **Ao expandir um post:**
 - Ao salvar uma edição, o `selectedPost` local também é atualizado — a descrição/meta novas aparecem imediatamente no modo visualização (antes ficava o texto antigo até reabrir)
-- Ao excluir, o contador de posts (stats + rótulo da tab) é decrementado localmente e o cache `userPosts`/`userStats` é invalidado no banco (`deletePostDb`)
+- Ao excluir, o post sai da lista `posts` (e com ela do rótulo da aba Posts **ou** da aba Treinos, conforme o caso), o contador de stats é decrementado localmente e o cache `userPosts`/`userStats` é invalidado no banco (`deletePostDb`)
 - Incentivos são **não-bloqueantes**: o toque atualiza a UI na hora (optimistic) e a escrita/refetch rodam em segundo plano com guard de sequência — os 6 botões não ficam mais desabilitados durante o toggle
 - O contador de comentários é sincronizado em tempo real via prop `onCountChange` do `PostCommentsDialog`
 - Carrossel de imagens (`PostCarousel`)
 - Descrição — truncada em até 30 caracteres ou 1 linha; exibe `...` + botão clicável **"mais"** (chave i18n `feed_description_more`) para expandir o texto completo, e botão **"menos"** (`feed_description_less`) para recolher. Estado de expansão é resetado ao abrir um novo post
 - **Pill "Ver treino"** (`WorkoutDetailButton`) — só em posts de **resumo de treino** (com `workout_summary`), abaixo da descrição em modo visualização. Abre o drawer simplificado com a lista de exercícios (miniatura + grupo + séries em chips `{kg}kg × {reps}`; mesmo componente do feed/PostDetail). Ver `docs/01-feed.md` (Detalhe do treino)
+- **Botão "Comparar com o meu treino"** — **dentro** desse mesmo drawer, acima da lista de exercícios, **só em posts de outra pessoa** (some nos meus). Troca o conteúdo do sheet pelo confronto exercício a exercício com a minha última execução de cada exercício. Ver `docs/01-feed.md` (Comparar treino)
 - Botões de incentivo interativos (`PostIncentiveButton` × 6 tipos) — visíveis em modo visualização e edição
 - Botão comentários (`PostCommentsDialog`) — visível apenas em modo visualização (oculto ao editar)
 - Contador de incentivos clicável → abre `PostLikesModal`
+
+---
+
+## Tab: Treinos
+
+Grade dos **cards de resumo de treino** publicados pelo usuário — os canvas gerados pelo `WorkoutSummaryOverlay` (ver `docs/05-metas.md`) ao terminar um treino.
+
+**Por que a aba existe (26/08/2026):** o resumo de treino é o post mais frequente de quem usa o app com constância, e ele afogava as fotos de verdade na aba Posts. Separando os dois, a aba **Posts** volta a ser o álbum de fotos da pessoa e a **Treinos** vira o histórico visual do que ela treinou.
+
+**Critério de separação** (`isWorkoutCanvasPost`, em `client/lib/workout-summary-types.ts`):
+
+| Post | Aba |
+|---|---|
+| Resumo de treino, **só o card gerado** (com ou sem o mapa da corrida GPS) | **Treinos** |
+| Resumo de treino **com foto da galeria/câmera anexada** | Posts |
+| Post comum (foto/texto), sem `workout_summary` | Posts |
+
+O que decide é o campo **`userPhotoCount`** do `posts.workout_summary` — quantas fotos **da pessoa** entraram no post (o card gerado e o mapa do trajeto **não** contam), gravado por `buildPostWorkoutSummary` no momento do compartilhamento. Para posts publicados **antes de 26/08/2026** (sem o campo) vale um fallback baseado na **ordem** em que o overlay monta as URLs — fotos do usuário → mapa → canvas: se a **primeira** imagem do post é o próprio canvas (`workout_summary.imageUrl`), não havia foto do usuário. Consequência conhecida: um resumo **antigo** de corrida com mapa começa pelo mapa e permanece na aba Posts (degradação graciosa; resumos novos caem na aba certa).
+
+**Layout:** mesmo grid das outras abas — 3 colunas (mobile) / 4–6 (telas maiores), `gap-[5px]`, itens `rounded-[14px]`
+
+Cada item na grade:
+- Thumbnail = **`workout_summary.imageUrl`** (o card gerado), com fallback para `post.photo`. Usar o `imageUrl` em vez da primeira foto importa nas corridas com GPS, em que a primeira imagem do post é o **mapa do trajeto** — a aba mostraria um mapa onde deveria mostrar o card
+- Sem indicador de carrossel: o post pode ter 2 imagens (mapa + card), mas as duas são geradas pelo app
+- Ao clicar → abre o **mesmo** Post Viewer da aba Posts (`handleViewPost`), com o pill "Ver treino" e todos os incentivos/comentários
+
+**Privacidade:** mesma regra das abas Posts, Shots e Marcações — com `hide_posts_from_non_followers` ligado, um não seguidor vê o estado bloqueado ("Publicações privadas" + cadeado).
+
+**Sem query nova:** as duas listas são derivadas (`React.useMemo`) do mesmo `getUserPostsDb` do batch 1, então editar/excluir um post continua atualizando as duas abas de uma vez e a contagem `(n)` aparece junto com a tela (não espera o batch 2, como Shots e Marcações).
+
+**Estado vazio:** "Nenhum treino publicado ainda." (`profile_no_workouts`).
 
 ---
 

@@ -23,6 +23,14 @@ export type WorkoutSummarySet = {
 
 export type WorkoutSummaryExercise = {
   name: string;
+  /**
+   * ID do exercício no catálogo `workouts` — a chave que permite comparar o
+   * mesmo exercício entre duas pessoas (ver `workout-compare-dialog`), já que
+   * o `name` vem no idioma de quem treinou. Ausente nos resumos publicados
+   * antes de 26/08/2026: nesses posts a comparação cai no casamento por nome
+   * via `getWorkoutNameIdIndexDb` (que indexa `name` e `name_eng`).
+   */
+  workoutId?: string;
   muscleGroup: string | null;
   bestKg: number;
   /** Exercise photo URL — rendered as a thumbnail next to the name (may be null). */
@@ -68,4 +76,45 @@ export type PostWorkoutSummary = {
   }>;
   machinedExercises?: Array<{ name: string; kg: number }>;
   badges?: string[];
+  /**
+   * Gasto calórico da sessão (kcal). Estimado pelo app a partir de tempo, tipo
+   * de exercício e peso corporal, e ajustável pela pessoa antes de finalizar —
+   * ver `client/lib/calorie-estimate.ts`. Ausente nos posts publicados antes de
+   * 21/08/2026 e quando não houve base para estimar.
+   */
+  caloriesKcal?: number | null;
+  /**
+   * Quantas fotos da GALERIA/CÂMERA a pessoa anexou ao publicar o resumo
+   * (o card gerado e o mapa do trajeto NÃO contam). `0` = post de canvas puro,
+   * que o perfil lista na aba "Treinos" em vez da aba "Publicações".
+   * Ausente nos posts publicados antes de 26/08/2026 → ver
+   * `isWorkoutCanvasPost`, que cai no formato das fotos para decidir.
+   */
+  userPhotoCount?: number;
 };
+
+/**
+ * Um post é um "canvas de treino puro" quando carrega um resumo de treino e a
+ * pessoa NÃO anexou nenhuma foto própria — só o card gerado (e, numa corrida
+ * GPS, o mapa do trajeto, que também é desenhado pelo app). É o critério da
+ * aba "Treinos" do perfil: post com foto da galeria/câmera continua nascendo
+ * na aba "Publicações".
+ *
+ * Posts antigos não têm `userPhotoCount`; para eles vale a ORDEM em que o
+ * compartilhamento monta as URLs (workout-summary-overlay: fotos do usuário →
+ * mapa → canvas). Sem foto do usuário, a primeira imagem do post é o próprio
+ * canvas (`imageUrl`) — a comparação abaixo. Um resumo antigo de corrida com
+ * mapa começa pelo mapa e, sem o contador, permanece na aba "Publicações".
+ */
+export function isWorkoutCanvasPost(post: {
+  photo?: string | null;
+  photos?: string[] | null;
+  workoutSummary?: PostWorkoutSummary | null;
+}): boolean {
+  const summary = post.workoutSummary;
+  if (!summary) return false;
+  if (typeof summary.userPhotoCount === "number") return summary.userPhotoCount === 0;
+
+  const first = post.photos?.[0] ?? post.photo ?? null;
+  return !!summary.imageUrl && !!first && first === summary.imageUrl;
+}

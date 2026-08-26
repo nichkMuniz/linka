@@ -86,6 +86,7 @@ const TITLE_BY_TYPE: Record<number, string> = {
   16: "Você foi marcado 📸",
   17: "Resposta ao seu flow 🎞️",
   18: "Responderam no flow 💬",
+  19: "Convite para treinar 💪",
 };
 
 // Mesmos nomes exibidos no app (INCENTIVE_CONFIG / i18n)
@@ -229,6 +230,10 @@ async function buildBody(
     // você comentou" e não "no seu flow": quem recebe o type 3 é o dono.
     case 18:
       return `${name} também comentou em um flow que você comentou.`;
+    // Convite para treinar junto: `post_id` guarda o id da party. O treino é
+    // AGORA — o texto precisa dizer isso, senão o push some no meio dos outros.
+    case 19:
+      return `${name} te chamou pra treinar agora.`;
     default:
       return "Você tem uma nova notificação no LinKa.";
   }
@@ -260,6 +265,10 @@ function deepLinkFor(type: number, record: NotifRecord): string {
     case 12:
     case 13:
       return "/vitrine";
+    // 19 = convite de treino. Metas é onde a sessão nasce; o app procura o
+    // convite pendente ao abrir e mostra o diálogo de aceitar/recusar.
+    case 19:
+      return "/metas";
     default:
       return "/notificacoes";
   }

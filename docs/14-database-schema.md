@@ -425,7 +425,7 @@ Check-ins realizados dentro de um grupo de duelo.
 | `duration_minutes` | integer | — | — | Duração do treino em minutos (scoring type `duration`) |
 | `distance_km` | numeric(8,2) | — | — | Distância percorrida em km (scoring type `distance`) |
 | `steps` | integer | — | — | Passos dados (scoring type `steps`) |
-| `calories` | integer | — | — | Calorias queimadas (scoring type `calories`) |
+| `calories` | integer | — | — | Calorias queimadas (scoring type `calories`). Preenchido pelo check-in manual da Comunidade **e**, desde 21/08/2026, pelo resumo do treino compartilhado no duelo (antes ia sempre `null` e o treino feito pelo app valia 0 num duelo de calorias) |
 
 ---
 
@@ -503,7 +503,7 @@ Posts de Flow (formato Stories, mídia efêmera).
 | `duration_ms` | integer | — | `null` | **Duração real do vídeo em ms**, medida no cliente ao postar. O MediaRecorder do iOS grava MP4 **fragmentado**, cujo cabeçalho não traz a duração: no viewer `video.duration` fica `Infinity` até o arquivo **inteiro** baixar, e a barra de progresso trava em 0. Com este valor a barra sincroniza desde o 1º frame. `null` em imagens/texto e em flows anteriores à migração (caem no seek-trick antigo). Migração `20260812-flow-duration.sql`. |
 | `background_color` | text | — | `null` | Gradient CSS de fundo para Flows somente-texto. |
 | `text_position` | jsonb | — | `null` | **Legado**. Posição única em flows antigos de texto: `{ "x": number, "y": number }` em % (0–100). Substituído por `text_elements`. |
-| `text_elements` | jsonb | — | `null` | Lista de textos posicionados: `[{ "text": string, "x": number, "y": number, "style"?: StoryTextStyle }]` com x/y em % (0–100). `style` = `{ fontFamily?, fontWeight?, align?, color?, fontSize?, backgroundColor? }` — cor, fonte, alinhamento, tamanho e **realce de fundo** (estilo Instagram; `null`/ausente = sem fundo). Cada elemento pode ser arrastado/redimensionado independentemente pelo autor. |
+| `text_elements` | jsonb | — | `null` | Lista de textos posicionados: `[{ "text": string, "x": number, "y": number, "style"?: StoryTextStyle }]` com x/y em % (0–100). `style` = `{ fontFamily?, fontWeight?, align?, color?, fontSize?, backgroundColor? }` — cor, fonte, alinhamento, tamanho e **realce de fundo** (estilo Instagram; `null`/ausente = sem fundo). Cada elemento pode ser arrastado/redimensionado independentemente pelo autor. **Desde 2026-08-21 o mesmo array também carrega o mini frame de treino citado no flow**: `{ "kind": "workout", "x", "y", "scale", "workout": StoryWorkoutSticker }`, onde `StoryWorkoutSticker` = `{ name, date, totalSeries, totalVolume, durationSecs, prCount?, caloriesKcal?, exercises: [{ name, sets, kg, isCardio? }], extraCount? }` — snapshot enxuto da sessão (fonte: `routines.last_summary`), sem migração por ser jsonb. Elemento sem `kind` (ou `kind: "text"`) = frase, o formato original. |
 | `media_transform` | jsonb | — | `null` | Enquadramento da **mídia em vídeo** ajustado na criação (pinça/arraste): `{ "scale": number, "x": number, "y": number }`, onde `x`/`y` são translação em **% do tamanho do elemento** (resolução-independente). Aplicado via CSS `transform` no viewer. Imagens **não** usam este campo (o ajuste é composto no canvas antes do upload). |
 | `reposted_from` | bigint | — | `null` | FK → `flow.id`. Flow original quando este flow é um **repost** (marcado repostou). Migração `20260729-flow-tags.sql`. |
 | `reposted_from_user` | uuid | — | `null` | FK → `auth.users`. Autor do flow original (atribuição do repost). |
@@ -707,7 +707,7 @@ Notificações geradas para os usuários (follows, likes, comentários, duelos).
 | `id` | bigint | PK (identity) | — | Identificador único |
 | `user_id` | uuid | — | `gen_random_uuid()` | Destinatário da notificação |
 | `follower_id` | uuid | — | `gen_random_uuid()` | Quem originou a notificação |
-| `type` | bigint | — | — | Tipo da notificação (1–18 — ver `docs/10-notificacoes.md`). **Sem check constraint**: adicionar um tipo novo não precisa de migração, só de redeploy da `send-push-notification` para o push ter texto próprio. Os tipos **10 e 17** (mensagem privada / resposta a flow) são filtrados na leitura — existem só para disparar o push |
+| `type` | bigint | — | — | Tipo da notificação (1–19 — ver `docs/10-notificacoes.md`). **Sem check constraint**: adicionar um tipo novo não precisa de migração, só de redeploy da `send-push-notification` para o push ter texto próprio. Os tipos **10 e 17** (mensagem privada / resposta a flow) são filtrados na leitura — existem só para disparar o push |
 | `created_at` | timestamptz | ✓ | `now()` | Data de criação |
 | `post_id` | uuid | — | — | Post relacionado; guarda o **id do grupo de duelo** quando type=4, 5 ou 11, e o **id da promoção** quando type=8, 12 ou 13 |
 | `read` | boolean | — | `false` | Notificação lida ou não |
@@ -732,6 +732,7 @@ Notificações geradas para os usuários (follows, likes, comentários, duelos).
 | 16 | Marcado em um flow | `follower_id` (autor do flow), `flow_id` |
 | 17 | **Resposta privada a um flow** (mensagem, não card) | `follower_id` (quem respondeu), `flow_id` |
 | 18 | **Comentaram num flow em que o destinatário também comentou** | `follower_id` (quem comentou agora), `flow_id` |
+| 19 | **Convite para treinar junto** (26/08/2026) | `follower_id` (quem convidou), `post_id` (= `workout_parties.id`) |
 | 14 | Check-in **classificado** (aprovado) por um participante | `follower_id` (quem votou), `duel_check_in_id` |
 | 15 | Check-in **desclassificado** (reprovado) por um participante | `follower_id` (quem votou), `duel_check_in_id` |
 
@@ -839,7 +840,7 @@ Posts publicados no feed principal.
 | `user_goal_id` | bigint | — | — | Meta vinculada ao post |
 | `updated_at` | timestamp | — | `now()` | Data de atualização |
 | `photos` | jsonb | — | — | Array JSON de fotos adicionais |
-| `workout_summary` | jsonb | — | `NULL` | **(2026-07-06)** Snapshot estruturado do treino quando um "resumo do treino" é compartilhado no feed (rotina, duração, séries, volume, `imageUrl` do card gerado e a lista de exercícios com `sets: {kg, reps}` por série). Formato = `PostWorkoutSummary` (`client/lib/workout-summary-types.ts`). Habilita o pill "Ver treino" + o modal de detalhe no feed/Perfil/PostDetail. `NULL` em posts comuns de imagem/texto. Herda as policies RLS de `posts`. Ver `docs/migrations/20260706-post-workout-summary.sql` |
+| `workout_summary` | jsonb | — | `NULL` | **(2026-07-06)** Snapshot estruturado do treino quando um "resumo do treino" é compartilhado no feed (rotina, duração, séries, volume, `caloriesKcal` (kcal da sessão, desde 21/08/2026), `imageUrl` do card gerado e a lista de exercícios com `sets: {kg, reps}` por série). Formato = `PostWorkoutSummary` (`client/lib/workout-summary-types.ts`). Habilita o pill "Ver treino" + o modal de detalhe no feed/Perfil/PostDetail. Desde **26/08/2026** traz também **`userPhotoCount`** — quantas fotos da galeria/câmera a pessoa anexou ao resumo (o card gerado e o mapa do trajeto não contam); `0` manda o post para a aba **Treinos** do perfil em vez da aba Posts (ver `docs/08-perfil.md`). Sem migração: é só mais uma chave do jsonb, e posts antigos caem no fallback de `isWorkoutCanvasPost`. Desde **26/08/2026** cada exercício da lista traz também **`workoutId`** (o id no catálogo `workouts`), que é a chave usada pela **comparação de treino** para casar o mesmo exercício entre duas pessoas — posts antigos caem no casamento por nome (ver `docs/01-feed.md` → Comparar treino). Também sem migração. `NULL` em posts comuns de imagem/texto. Herda as policies RLS de `posts`. Ver `docs/migrations/20260706-post-workout-summary.sql` |
 
 ---
 
@@ -923,7 +924,7 @@ Rotinas de treino dos usuários (estrutura de programação).
 | `updated_at` | timestamp | — | `now()` | Data de atualização |
 | `goal_id` | bigint | — | — | Meta vinculada à rotina (id do catálogo `goals`, não `user_goals.id`). Zerado automaticamente pelo próprio app no dia seguinte a essa meta chegar a 100% (`unlinkCompletedGoalRoutinesDb`, ver `docs/05-metas.md`) — não é RLS nem trigger, é uma checagem no carregamento da tela de Metas. |
 | `name` | text | — | — | Nome da rotina |
-| `last_summary` | jsonb | — | — | Snapshot do resumo do **último treino finalizado** desta rotina (mesmo formato de `WorkoutSummaryData`, sem `userId`/`userGroups` — resolvidos de novo ao reabrir): `routineName`, `totalSeries`, `totalVolume`, `durationSecs`, `badges`, `completedExercises`, `prExercises`, `machinedExercises`, `completedAt`. Sobrescrito a cada "Finalizar" (`updateRoutineLastSummaryDb`) — nunca há mais de um snapshot por rotina, sempre o mais recente. `NULL` = rotina nunca executada. Gateia o ícone de "resumo do treino" no `routine-detail-drawer.tsx` (só aparece quando não-nulo). Migration: `docs/migrations/20260702-routine-last-summary.sql`. |
+| `last_summary` | jsonb | — | — | Snapshot do resumo do **último treino finalizado** desta rotina (mesmo formato de `WorkoutSummaryData`, sem `userId`/`userGroups` — resolvidos de novo ao reabrir): `routineName`, `totalSeries`, `totalVolume`, `durationSecs`, `badges`, `completedExercises`, `prExercises`, `machinedExercises`, `caloriesKcal` (kcal da sessão, desde 21/08/2026 — ausente nos snapshots anteriores), `completedAt`. Sobrescrito a cada "Finalizar" (`updateRoutineLastSummaryDb`) — nunca há mais de um snapshot por rotina, sempre o mais recente. `NULL` = rotina nunca executada. Gateia o ícone de "resumo do treino" no `routine-detail-drawer.tsx` (só aparece quando não-nulo). Migration: `docs/migrations/20260702-routine-last-summary.sql`. |
 | `training_mode` | text | ✓ | `'simple'` | **(2026-08-05)** Modo da experiência de treino desta rotina — a escolha do usuário no passo `routine-mode` do wizard. `'simple'` = tela clássica de registro (tabela KG × REPS); `'expert'` = série tipada (aquecimento/válida/falha), com o aquecimento contando no volume e na contagem de séries mas fora do PR e da progressão (ver `docs/05-metas.md`). `CHECK (training_mode IN ('simple','expert'))`. É **por rotina**, não por conta: o mesmo usuário pode ter "Peito/Tríceps" no expert e "Corrida de domingo" no simplificado. Só rotinas de treino (`type = 1`) perguntam; dieta/hábito ficam no default. Lido em `getUserRoutinesDb` → `RoutineCard.trainingMode` → prop `trainingMode` do `WorkoutSessionDialog`. Gravado por `updateRoutineTrainingModeDb` (por id, caminho do quiz) e `updateRoutineTrainingModeByNameDb` (por `user_id`+`type`+`name`, caminho "do zero", onde a linha nasce de trigger). Migration: `docs/migrations/20260805-training-mode.sql`. |
 | `program_meta` | jsonb | — | — | **(2026-07-08)** Metadados do programa que criou a rotina via o **quiz de personalização** do "Sugerido pelo app": `{ origin: "quiz", exercises: [{ name, muscleGroup, series, reps }] }` (formato `RoutineProgramMeta` em `ritmofit-db.ts`, nomes brutos PT do catálogo). Programas gerados são únicos por usuário e não existem no catálogo estático (`suggested-routines-data.ts`), então o **pré-preenchimento de séries×reps** na primeira execução (`getSuggestedSetsForCard` em `goals-helpers.ts`) lê daqui — rotinas antigas/sem meta caem no fallback por nome (`getSuggestedSetsForRoutine`). `NULL` = rotina criada do zero. Gravado por `updateRoutineProgramMetaDb`. Migration: `docs/migrations/20260708-fitness-profile-and-program-meta.sql`. |
 
@@ -1145,19 +1146,24 @@ Catálogo de insígnias disponíveis na plataforma.
 | `checkin_after_midnight` | Check-ins feitos entre 00:00 e 05:59 (hora local) ≥ `required_checkins` | `noturno` |
 | `checkin_before_time` | Check-ins feitos antes de `condition_metadata.hour` (hora local) ≥ `required_checkins` | `treino_manha` (antes das 9h) |
 | `checkin_comeback` | Primeiro check-in após ≥ 7 dias sem atividade | `comeback` |
-| `workout_week` | Treinos realizados na semana atual ≥ `required_checkins` | `treino_3_semana` |
-| `workout_type` | Treinos do tipo `condition_metadata.type` ≥ `required_checkins` | `treino_forca_10`, `treino_cardio_10` |
+| `workout_week` | **DIAS distintos** com treino na semana atual (Dom–hoje, data local) em `user_workouts_hist` ≥ `required_checkins` | `treino_3_semana` |
+| `workout_type` | **DIAS distintos** com treino do tipo `condition_metadata.type` em `user_workouts_hist` ≥ `required_checkins`. O tipo sai de `workouts.muscle_group` (não existe coluna `workout_type`): `cardio` casa com o grupo `Cardio`, `forca` = qualquer grupo que **não** seja `Cardio`/`Alongamento`/`Mobilidade`. Conta **dias**, não linhas — o histórico grava uma linha por SÉRIE. **Corrigido em 21/08/2026**: as duas leituras apontavam para uma tabela `workout_histories` inexistente e nunca concediam nada | `treino_forca_10`, `treino_cardio_10` |
 | `app_usage` | Dias distintos com sessão em `access_sessions` ≥ `required_checkins` | `app_7dias`, `app_30dias` |
 | `nutrition_no_ultra` | Dias **seguidos** sem ultraprocessado no diário ≥ `required_checkins` | `sem_ultraprocessado_7d` |
 | `nutrition_protein` | Dias **seguidos** batendo `user_nutrition_goals.protein_target_g` ≥ `required_checkins` | `proteina_7d` |
 | `nutrition_week` | Dias com registro no diário na semana atual (Dom–Sáb) ≥ `required_checkins` | `semana_nutritiva` |
 | `nutrition_no_sugar` | Dias **seguidos** com açúcar total ≤ `condition_metadata.max_sugar_g` (25 g, OMS) ≥ `required_checkins` | `sem_acucar_7d` |
 | `nutrition_hydration` | Dias **seguidos** batendo a meta de água (`user_nutrition_goals.water_target_ml`, ou `condition_metadata.ml` = 2000) ≥ `required_checkins` | `hidratacao_7dias` |
-| `nutrition_fruits` / `nutrition_home_food` | ⚠️ **Sem tracking — nunca concedida.** O diário não classifica fruta nem "comida caseira" | `frutas_7d`, `comida_caseira_5d` |
-| `habit_*` | ⚠️ **Sem tracking — nunca concedida.** | `sono_7d`, `meditacao_5d` |
-| `challenge_count` | ⚠️ **Sem tracking — nunca concedida.** | `desafio_3x` |
+| `nutrition_fruits` | **(21/08/2026)** Dias **seguidos** com ao menos uma fruta no diário — `diets.category` começando com `Frutas` (é prefixo: `Frutos do Mar` também contém "frut") | `frutas_7d` |
+| `nutrition_home_food` | **(21/08/2026)** Dias **seguidos** com **prato preparado** no diário **e** nenhum ultraprocessado. Prato preparado = `diets.category` na lista `PREPARED_DISH_CATEGORIES` (categorias de receita do TheMealDB + `Alimentos preparados` da TACO) — categorias de **ingrediente** da TACO (`Carnes e derivados`, `Cereais e derivados`) ficam de fora | `comida_caseira_5d` |
+| `habit_sleep` / `habit_meditation` / `habit_no_alcohol` / `habit_steps` | **(21/08/2026)** Dias **seguidos** com um hábito daquele tipo **marcado como feito** (`user_habits_hist`). O tipo sai do **nome** do hábito (`client/lib/habit-kinds.ts`), não do `habits.id` — hábito custom criado pela pessoa conta igual | `sono_7d`, `meditacao_5d`, `sem_alcool_7d`, `passos_10k_7d` |
+| `habit_perfect_week` / `habit_perfect_30d` | **(21/08/2026)** Dias **seguidos** de check-in (mesma sequência do anel de streak) ≥ `required_checkins` | `semana_perfeita` (7), `modo_monge` (30) |
+| `habit_perfect_day` | **(21/08/2026)** Um dia com os **três pilares**: treino (`user_workouts_hist`) + hábito (`user_habits_hist`) + alimentação (`user_food_logs`) | `super_dia` |
+| `challenge_count` | **(21/08/2026)** Duelos distintos em que o usuário entrou de fato (`duel_group_participants` com `status = 'accepted'`) | `desafio_3x` |
 
-**Insígnias de nutrição** (`awardNutritionBadgesDb`, chamada ao registrar um alimento **ou água**) são avaliadas sobre `user_food_logs` + `user_water_logs`.
+**Insígnias de nutrição** (`awardNutritionBadgesDb`, chamada ao registrar um alimento **ou água** — e, desde 21/08/2026, também ao concluir um item de dieta na rotina) são avaliadas sobre `user_food_logs` + `user_water_logs`. As demais (`checkin_*`, `workout_*`, `habit_*`, `app_usage`, `challenge_count`) ficam em `awardBadgesForCheckInsDb`, chamada ao concluir um treino/rotina **e** ao marcar um hábito.
+
+> ⚠️ **`required_checkins` precisa estar preenchido.** As insígnias de hábito, comida e desafio foram cadastradas pelo painel e ficaram com `0` — inofensivo enquanto elas nunca eram concedidas, fatal depois de 21/08/2026 (`Math.max(1, 0)` = 1 → "Sono 7 dias" na primeira noite). A migração `docs/migrations/20260821-badge-thresholds.sql` grava os valores certos; o cliente ainda tem o piso `CONDITION_MIN_THRESHOLD` como rede de segurança.
 
 > **Desconhecido nunca conta como zero.** A qualidade vem de `diets.food_quality` via `diet_id` e o açúcar de `user_food_logs.sugar_g`. Um dia com qualquer alimento de valor **desconhecido** (entrada manual sem o campo preenchido, ou item de catálogo com `sugar_g` nulo) **não conta** para `nutrition_no_ultra` / `nutrition_no_sugar`: não há como provar que não houve ultraprocessado ou açúcar, e aceitar o desconhecido entregaria a insígnia a quem registra tudo na mão. Consequência prática: enquanto `diets.sugar_g` não estiver populado no catálogo, `sem_acucar_7d` continua (corretamente) inalcançável.
 
@@ -1466,7 +1472,7 @@ Treinos salvos / atribuídos a um usuário.
 | `time_to_rest` | integer | — | — | Tempo de descanso entre séries (em segundos) escolhido pelo usuário para este exercício |
 | `technique` | text | ✓ | `'straight'` | **(2026-08-05)** Técnica deste exercício **nesta** rotina: `straight` (série direta), `drop` (drop-set), `rest_pause`, `biset`/`triset` (exigem `technique_group`). `CHECK` nesses 5 valores. Vive aqui e não em `workouts` porque "supino reto" não é bi-set — é bi-set *nesta rotina*, pareado com um exercício específico. Escolhida no passo `build-technique` do wizard ou no botão "Técnicas" do `RoutineDetailDrawer`, **só no modo expert**. **Desde 12/08/2026 a coluna muda a tela de registrar treino** (ver `docs/05-metas.md`): `biset`/`triset` renderizam **um card com os exercícios lado a lado** e descanso compartilhado, `drop` ganha o chip "+ queda" (cada queda é uma linha com KG/REPS próprios) e `rest_pause` limita o descanso a 15s. Rotina que voltou ao modo simplificado mantém o valor gravado, mas a sessão dela ignora tudo isso. Migration: `docs/migrations/20260805-workout-techniques.sql` |
 | `technique_group` | text | — | — | **(2026-08-05)** Chave que liga os exercícios de um mesmo bloco de bi-set/tri-set — mesmo valor = mesmo bloco, executados sem descanso entre eles. `NULL` para técnicas individuais e séries diretas. `updateRoutineTechniquesDb` **normaliza**: grupo com menos de 2 membros volta a `straight` (um bi-set órfão não é bi-set). Índice parcial `user_workouts_technique_group_idx` |
-| `order_index` | int | — | — | **(2026-08-05)** Ordem do exercício dentro da rotina (0-based). Existe porque um bloco só funciona com os membros **adjacentes e na ordem** (A1 → A2); `planToAssignments` puxa os membros de cada bloco para junto do primeiro. `NULL` = ordem legada por `created_at`, então rotinas antigas não se reorganizam sozinhas |
+| `order_index` | int | — | — | **(2026-08-05)** Ordem do exercício dentro da rotina (0-based). Existe porque um bloco só funciona com os membros **adjacentes e na ordem** (A1 → A2); `planToAssignments` puxa os membros de cada bloco para junto do primeiro. `NULL` = ordem legada por `created_at`, então rotinas antigas não se reorganizam sozinhas. **Desde 21/08/2026 também é escrita pela tela de treino** (`updateRoutineOrderDb`), quando o usuário reordena os exercícios arrastando — ver `docs/05-metas.md` → "Reordenar exercícios" |
 
 ---
 
@@ -1482,13 +1488,21 @@ Histórico de treinos realizados pelo usuário.
 | `workout_id` | uuid | FK → `workouts.id` | — | Treino do catálogo |
 | `kilos` | numeric | — | — | Carga total (kg) |
 | `volume` | varchar | — | — | Volume (texto livre) |
-| `calories` | numeric | — | — | Calorias gastas |
+| `calories` | numeric | — | — | **(escrita desde 21/08/2026)** Calorias gastas na **SESSÃO** inteira (kcal) — estimadas pelo app e ajustáveis pela pessoa na tela de treino (ver `docs/05-metas.md` → "Calorias gastas"). Como o histórico grava **uma linha por série**, o valor é preenchido na **primeira linha de cada finalização** e fica `NULL` nas demais: **toda leitura por sessão é `MAX(calories)`, nunca `SUM`** (somar multiplicaria o total pelo nº de séries). A coluna já existia e nunca era escrita — **sem migração**. `NULL` = treino anterior à feature ou sem base para estimar. |
 | `date_completed` | timestamp | — | `now()` | Data de realização |
 | `created_at` | timestamp | — | `now()` | Data de criação do registro |
 | `km` | float8 | — | - | quilometros percorridos |
 | `time` | varchar | — | - | tempo decorrido |
 | `routine_id` | bigint | FK → `routines.id` | — | Rotina à qual o treino concluído pertence. Populada ao finalizar o treino a partir de `user_workouts.routine_id`. Usada para gatear a exibição do ícone de resumo da rotina (só aparece se houver ao menos um registro com `routine_id` correspondente). |
 | `set_kind` | text | — | — | **(2026-08-05)** Tipo da série executada, gravado só por rotinas no modo **expert** (`routines.training_mode`): `'warmup'` = aquecimento, `'normal'` = série válida, `'failure'` = série levada à falha, `'drop'` = queda de carga emendada na série anterior (**adicionado em `20260805-workout-techniques.sql`**, que recria o CHECK). `CHECK (set_kind IS NULL OR set_kind IN ('warmup','normal','failure','drop'))`. **`drop` conta como TRABALHO** (volume e PR incluem — é peso levantado de verdade) mas **não conta como SÉRIE** (`countsAsSeries` no `workout-session-dialog.tsx`): quem faz 3×10 com drop na última fez 3 séries, não 4. **`NULL` = série do modo simplificado ou anterior a 05/08/2026 → lida como `'normal'`.** O aquecimento **é gravado** (o registro do treino é fiel ao que foi feito) e **desde 12/08/2026 conta no volume e no contador de séries da sessão** (`countsAsSeries` só exclui o `drop`); o que ele não faz é virar marca — segue filtrado fora de toda leitura de carga/progressão: `getPreviousBestKgDb`, `getExerciseProgressionDb` e `getLastWorkoutSessionSeriesDb` aplicam `WORKING_SETS_FILTER` (`set_kind.is.null,set_kind.neq.warmup` — um `.neq` puro descartaria as linhas NULL, porque `NULL <> 'warmup'` é NULL e não TRUE no Postgres). Índice parcial `user_workouts_hist_working_sets_idx` cobre exatamente essas consultas. Migration: `docs/migrations/20260805-training-mode.sql`. |
+
+**Remover exercício não apaga histórico.** Tirar um exercício da rotina durante o
+treino (`removeRoutineItemsKeepHistoryDb`) apaga só a linha de `user_workouts`;
+as linhas de `user_workouts_hist` ficam com `user_workout_id` **NULL** (FK
+`ON DELETE SET NULL`) e **mantêm `routine_id`** — continuam contando para PR,
+coluna ANTERIOR e progressão, que leem por `workout_id`. Não confundir com
+`deleteRoutineItemDb`, que apaga o histórico primeiro de propósito. Ver
+`docs/05-metas.md` → "A rotina é o que foi executado".
 
 ---
 
@@ -1542,6 +1556,61 @@ Catálogo de treinos disponíveis na plataforma.
 **RLS:** leitura pública, sem policy de escrita — só service role popula (mesma postura de `workouts` e `muscles`).
 
 ---
+
+---
+
+## workout_parties
+
+**(2026-08-26)** Uma sessão de **treinar junto**: alguém convidou N pessoas para
+fazer o mesmo treino agora. Migration: `docs/migrations/20260826-workout-party.sql`.
+
+| Coluna | Tipo | Obrigatório | Padrão | Descrição |
+|---|---|---|---|---|
+| `id` | uuid | PK | `gen_random_uuid()` | Identificador da party. Vai em `notifications.post_id` no tipo 19 (mesma convenção dos tipos de duelo) |
+| `host_id` | uuid | FK → `auth.users` ON DELETE CASCADE | — | Quem convidou |
+| `routine_id` | bigint | FK → `routines.id` ON DELETE SET NULL | — | Rotina de origem (a do host). `NULL` quando ele treina sem rotina salva. `SET NULL` porque apagar a rotina não pode derrubar um treino em curso |
+| `routine_name` | text | — | — | Nome exibido no convite e sugerido ao convidado que decidir salvar |
+| `snapshot` | jsonb | ✓ | — | Cópia **congelada** do treino no momento do convite — formato `WorkoutPartySnapshot` (`ritmofit-db.ts`): `{ routineName, trainingMode, items: [{ workoutId, name, muscleGroup, photo, series, reps, restSecs, technique, techniqueGroup }] }`. Congelado de propósito: o host pode trocar variação ou adicionar exercício depois sem mudar a tela de quem já aceitou no meio de uma série. É também a **única cópia** que o convidado tem do treino antes de decidir salvá-lo |
+| `created_at` | timestamptz | ✓ | `now()` | — |
+| `expires_at` | timestamptz | ✓ | `now() + 60 min` | Treino é um evento do AGORA: uma hora depois, aceitar não faz mais sentido |
+| `ended_at` | timestamptz | — | — | Preenchida quando o **host finaliza** (`endWorkoutPartyDb`). Convites pendentes deixam de valer na hora |
+
+**RLS:** SELECT para membros (via `is_workout_party_member`, `SECURITY DEFINER`
+— sem ele a policy de `workout_party_members` consultaria a própria tabela e o
+Postgres entraria em recursão de policy); INSERT/UPDATE/DELETE só do host.
+
+---
+
+## workout_party_members
+
+**(2026-08-26)** Participantes de uma party — **1:N, sem limite**: treinar em
+grupo de quatro é tão comum quanto em dupla.
+
+| Coluna | Tipo | Obrigatório | Padrão | Descrição |
+|---|---|---|---|---|
+| `party_id` | uuid | PK (composta), FK → `workout_parties` ON DELETE CASCADE | — | — |
+| `user_id` | uuid | PK (composta), FK → `auth.users` ON DELETE CASCADE | — | — |
+| `role` | text | ✓ | `'guest'` | `CHECK (role IN ('host','guest'))`. O host entra já `accepted` — ele é quem está treinando, não há o que responder |
+| `status` | text | ✓ | `'pending'` | `CHECK (status IN ('pending','accepted','declined','left'))`. `left` = finalizou o treino, desistiu ou saiu |
+| `progress_done` | integer | ✓ | `0` | Exercícios concluídos — o "Ana 3/6" da faixa da sessão. Atualizado **por exercício**, nunca por série (seriam dezenas de writes por treino para um número que nem muda na tela) |
+| `progress_total` | integer | ✓ | `0` | Total de exercícios da sessão daquela pessoa |
+| `responded_at` | timestamptz | — | — | Quando aceitou/recusou |
+| `updated_at` | timestamptz | ✓ | `now()` | Ordena a busca do convite pendente mais recente |
+
+**RLS:** SELECT para qualquer membro da party (é o que alimenta os avatares da
+faixa); **INSERT só do host** — é o que impede alguém de se auto-adicionar numa
+party alheia para ler o treino dos outros; UPDATE só da própria linha (responder
+ao convite e reportar progresso).
+
+**Realtime:** publicada em `supabase_realtime` — a faixa da sessão mostra quem
+aceitou e em que exercício cada um está sem ninguém recarregar nada.
+
+**O convidado não ganha rotina.** Aceitar não cria linha em
+`routines`/`user_workouts`: a sessão dele é efêmera e o histórico grava com
+`user_workout_id` e `routine_id` **nulos** (mesmo caminho dos exercícios
+avulsos). Só se ele responder "salvar" à pergunta do resumo é que
+`saveRoutineFromWorkoutPartyDb` cria a rotina. Ver `docs/05-metas.md`.
+
 
 ## muscles
 

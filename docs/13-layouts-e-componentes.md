@@ -7,9 +7,10 @@
 ```
 client/components/
 ├── ui/             ← Shadcn UI (não mexer)
-├── layout/         ← Componentes estruturais globais (AppLayout, ShotsLayout, ThemeProvider, FloatingActionMenu)
+├── layout/         ← Componentes estruturais globais (AppLayout, PageTransition, ThemeProvider)
 ├── shared/         ← Componentes reutilizáveis em 2+ domínios (ImageWithFallback, AnimatedLoading, PostIncentiveButton, ExerciseImage, DietImage, EmojiPicker, InlineCropPreview, RouteMap, RunSplitsList, CheckInCalendarGrid, ReportDrawer, ReportProblemDrawer, IncomingMessageToast, ShotThumb)
 ├── modals/         ← Modais e Dialogs globais (PostCommentsDialog, PostLikesModal, FlowViewerModal, FlowCreationDialog)
+├── community/      ← Comunidade, uma pasta por aba: messages/ (useMessages, ConversationView, MessagesTab), duels/ (useDuels, DuelsTab, DuelGroupView, DuelsOverlays), requests-tab, ranking-tab e os drawers compartilhados
 ├── post/           ← Componentes de post (PostCarousel)
 ├── shots/          ← Componentes de shots/flows (FlowCarousel)
 └── profile/        ← Componentes de perfil (UserInsignias)
@@ -48,6 +49,7 @@ client/components/
 - **Limite diário atingido:** o botão "Ignorar hoje" é `variant="ghost"` (ação terciária). Como ele derrota o propósito do limite, não pode ser o CTA em destaque — os botões de adiar (5/10/30 min) são os `outline`
 - **Vibração ao receber notificação:** A subscription realtime (`app-layout-notif-push`, canal `notifications`) dispara `hapticSuccess()` (`client/lib/haptics.ts`) para qualquer INSERT na tabela `notifications` do usuário logado — independentemente do tipo (follow, incentivo, comentário, duelo, reação) e da tela em que o usuário está, inclusive na própria tela de Notificações. Roda antes da checagem que pula a notificação local visual (`LocalNotifications.schedule`) quando o usuário já está em `/notificacoes`, então a vibração sempre ocorre mesmo quando o banner é suprimido. Sem efeito fora do runtime nativo (Capacitor) — `hapticSuccess()` é no-op no browser. **Exceção: mensagem privada (`type 10`)** sai do handler antes da vibração — quem avisa DM em primeiro plano é o canal de `messages` (item seguinte), e vibrar nos dois seria aviso duplo da mesma mensagem
 - **Pop up de mensagem recebida (2026-08-06):** a subscription `app-layout-messages` (INSERT em `messages` com `following_id = usuário logado`) dispara `hapticLight()` — vibração leve, em qualquer tela — e publica no pub/sub `client/lib/incoming-message-toast.ts`, exibido pelo `IncomingMessageToast` montado ao lado dos outros overlays globais. O banner mostra avatar, apelido e preview da mensagem; toque abre `/comunidade?user=<remetente>`. **Suprimido** (só vibra) quando a conversa daquele remetente já está aberta na tela — `getActiveConversationUserId()`. Disparado **fora** do debounce de 1s que existe nesse handler: o debounce protege só a query do badge, o aviso precisa ser instantâneo. Detalhes em `docs/10-notificacoes.md`
+- **Convite para treinar junto (2026-08-26):** a mesma subscription `app-layout-notif-push` trata o **tipo 19** de forma própria: vibra, busca a party (`getWorkoutPartyInviteByIdDb`, id em `post_id`) e abre o `WorkoutPartyInviteDialog` — **sem** o banner local, que seria um aviso genérico para algo que precisa dos exercícios e dos botões de aceitar/recusar à vista. O diálogo mora no layout (e não na tela de Metas) porque o convite é para **agora**: quem está no feed tem de vê-lo na hora. Ao montar, o layout ainda procura um convite pendente (`getPendingWorkoutPartyInviteDb`), cobrindo o toque no push e o app aberto do zero. Aceitar só repassa o convite (`pendingPartyJoin` no `workout-context`) e navega para `/metas`, que é quem sabe iniciar um treino — mesmo padrão do `pendingReopen`. Ver `docs/05-metas.md`
 - **Refetch de badges no refresh do feed:** contadores são carregados no mount e mantidos via subscription realtime do Supabase (que pode cair silenciosamente em background no iOS). Para evitar badge desatualizado, o `AppLayout` também escuta os eventos `ritmofit-refresh-feed` (toque no logo/home) e `ritmofit-refresh-badges` (disparado pelo pull-to-refresh em `Index.tsx`) e refaz o fetch de `getUnreadMessageCountDb`/`getUnreadNotificationsCountDb` a cada um deles
 - **Invalidação no realtime dos badges (performance):** os handlers realtime chamam `invalidateQueryCache("unreadMsgCount"/"conversations")` **antes** de reler o contador. `getUnreadMessageCountDb`/`getUnreadNotificationsCountDb` são cacheadas (30s); sem invalidar, o evento realtime relia a própria entrada em cache e o badge só acertava quando o TTL vencia — o realtime virava no-op
 - **Tempo de tela bufferizado (performance):** a troca de rota **não vai mais ao banco**. `bufferScreenTime(tela, segundos)` acumula em `localStorage` (somado por dia+tela) e `flushScreenTimeDb(userId)` envia tudo num **único insert em lote** quando o app vai para background (`appStateChange`/`visibilitychange`), no logout (`settings-drawer`, antes do `signOut` por causa do RLS) e na abertura seguinte (resíduo de sessão encerrada abruptamente). Antes: 1 INSERT por navegação
@@ -111,7 +113,27 @@ Dialog para criar um novo story:
 - **Enquadramento da mídia na tela de compartilhar:** pinça para redimensionar + arraste para mover (estilo Instagram). Imagem → composta via canvas (`bakeTransformedImage`); vídeo → enquadramento persistido em `flow.media_transform` (%), reaplicado no `FlowViewer`. A camada de gestos também bloqueia gestos nativos do iOS sobre o `<video>`
 - Preview/legenda antes de publicar
 - **Salvar rascunho** (botão abaixo de "Compartilhar flow"): grava o flow como ele está na **galeria do celular**, sem publicar. Imagem/gradiente são compostos num canvas (`buildDraftCanvas` → `bakeTransformedCanvas` + `drawTextsOnCanvas` / `paintCssGradient`); vídeo é salvo como está, sem as frases. A escrita usa `saveMediaToPhotos` (`client/lib/native-media.ts`)
+- **Citar um treino (mini frame, 2026-08-21):** botão `Dumbbell` na etapa de compartilhar → `WorkoutStickerPickerDrawer` → cola um `FlowWorkoutSticker` arrastável/redimensionável sobre o flow, salvo em `flow.text_elements` como `{ kind: "workout", ... }` (ver `docs/01-feed.md`)
 - Botão confirmar: chama `createStoryDb`
+
+---
+
+### FlowWorkoutSticker / FlowElementView (2026-08-21)
+**Arquivo:** `client/components/shared/flow-workout-sticker.tsx`
+**Usado em:** `FlowCreationDialog`, `WorkoutStickerPickerDrawer`, `FlowViewer`, `FlowViewerModal`
+
+- `FlowWorkoutSticker` — o **mini frame do treino citado** no flow (estilo "repost" do Instagram): rotina, dia, chips de séries/volume/duração/**calorias** (🔥, desde 21/08/2026)/recordes e a lista de exercícios com `séries × carga`. Os chips **quebram linha** (`flex-wrap`) — o desenho no canvas do rascunho (`drawWorkoutStickerOnCanvas`, no `FlowCreationDialog`) passou a quebrar igual e a somar as linhas extras na altura do card, senão o rascunho ficava mais baixo que o preview e os últimos chips sumiam. Largura FIXA em px (`WORKOUT_STICKER_WIDTH`) escalada por `transform: scale()`, então autor e espectador veem o mesmo tamanho em qualquer aparelho. **Sem `backdrop-filter`** de propósito (fica sobre vídeo em reprodução — ver `docs/15-design-system.md` §0.3)
+- `FlowElementView` — renderiza **um elemento de `flow.text_elements`** já posicionado (x/y em %), decidindo entre **frase** e **mini frame** (`kind: "workout"`). Fonte única dos dois viewers, que antes duplicavam o mesmo JSX em 4 lugares
+- Helpers exportados (`formatStickerVolume`, `formatStickerDuration`, `formatStickerDate`, `MIN/MAX_STICKER_SCALE`, `MAX_STICKER_EXERCISES`) são reusados pelo desenho do rascunho no canvas (`drawWorkoutStickerOnCanvas`, no `FlowCreationDialog`)
+
+---
+
+### WorkoutStickerPickerDrawer (2026-08-21)
+**Arquivo:** `client/components/modals/workout-sticker-picker-drawer.tsx`
+**Usado em:** `FlowCreationDialog`
+
+- Drawer glass que lista os **treinos recentes finalizados** (`getRecentWorkoutSessionsDb`, que lê `routines.last_summary`), cada linha já renderizada como o próprio mini frame (seleção WYSIWYG)
+- Estado vazio para quem ainda não finalizou treino; a escolha volta ao pai como `StoryWorkoutSticker` via `onSelect`
 
 ---
 
@@ -320,7 +342,23 @@ Props: `splits`, `accent` (cor das barras/destaques — quem chama passa a cor d
 **Arquivo:** `client/components/shared/workout-detail-dialog.tsx`
 **Usado em:** Feed (`PostCard`), Perfil (viewer de post), PostDetail
 
-Pill **"Ver treino"** + drawer glass **simplificado** de detalhe do treino, renderizado apenas em posts que carregam um `workout_summary` (posts de resumo de treino compartilhados no feed). Props: `summary: PostWorkoutSummary` (tipo em `client/lib/workout-summary-types.ts`) e `className` (posicionamento do pill). O drawer (padrão glass §9.4) mostra **só** a lista de exercícios: cada linha com a **miniatura do exercício** (`ExerciseImage`, fallback gradiente/emoji por grupo quando sem foto), nome + grupo muscular e as **séries em chips `{kg}kg × {reps}`** — sem stats/banners (o overlay completo é o `WorkoutSummaryOverlay` na tela de Metas). Optou-se por pill dedicado em vez de tornar a imagem inteira clicável, para não conflitar com o duplo-toque de incentivo, o pinch-zoom e o swipe de carrossel já existentes na imagem do post. Ver `docs/01-feed.md` (Detalhe do treino) e `docs/14-database-schema.md` (`posts.workout_summary`).
+Pill **"Ver treino"** + drawer glass **simplificado** de detalhe do treino, renderizado apenas em posts que carregam um `workout_summary` (posts de resumo de treino compartilhados no feed). Props: `summary: PostWorkoutSummary` (tipo em `client/lib/workout-summary-types.ts`), `className` (posicionamento do pill) e — desde 26/08/2026 — `authorId`/`authorNickname`/`authorPhoto`, que habilitam o botão **"Comparar com o meu treino"** dentro do drawer (ver `WorkoutCompareContent` abaixo); sem eles, ou quando o autor é o próprio usuário, o drawer segue sendo só a lista. O drawer (padrão glass §9.4) mostra **só** a lista de exercícios: cada linha com a **miniatura do exercício** (`ExerciseImage`, fallback gradiente/emoji por grupo quando sem foto), nome + grupo muscular e as **séries em chips `{kg}kg × {reps}`** — sem stats/banners (o overlay completo é o `WorkoutSummaryOverlay` na tela de Metas). **Única exceção (21/08/2026):** um chip `🔥 {n} kcal` no canto direito do cabeçalho quando o snapshot tem `caloriesKcal` — duração/séries/volume continuam de fora (estão no card gerado que acompanha o post), mas o gasto calórico é o número que as pessoas comparam e vale ter em texto, não só queimado na imagem. Optou-se por pill dedicado em vez de tornar a imagem inteira clicável, para não conflitar com o duplo-toque de incentivo, o pinch-zoom e o swipe de carrossel já existentes na imagem do post. Ver `docs/01-feed.md` (Detalhe do treino) e `docs/14-database-schema.md` (`posts.workout_summary`).
+
+---
+
+### WorkoutCompareContent
+**Arquivo:** `client/components/shared/workout-compare-dialog.tsx` (regra pura em `client/lib/workout-compare.ts`)
+**Usado em:** exclusivamente **dentro** do drawer do `WorkoutDetailButton` — logo, no Feed, no Perfil (viewer de post) e no PostDetail
+
+View de **confronto exercício a exercício** entre o resumo de treino de um post e a **minha última execução** de cada um daqueles exercícios (26/08/2026). Não tem shell próprio: é o corpo que o drawer "Ver treino" renderiza no lugar da lista quando a pessoa toca em **"Comparar com o meu treino"**. Props: `active` (dispara a leitura de banco — uma vez só, quando a view fica visível), `summary`, `authorNickname`, `authorPhoto`. O helper `canCompareWorkout(summary, authorId, viewerId)` é exportado junto e concentra a regra de quando o botão aparece: precisa de sessão, de exercícios no resumo e de o autor ser **outra** pessoa.
+
+- **Por que não é um segundo drawer:** empilhar dois `Drawer` do vaul deixaria duas alças na tela e faria os dois sheets disputarem o scroll-lock do `body` no iOS. Uma `view` dentro do mesmo `DrawerContent` mantém um scroll, uma alça e um `‹` explícito de volta. Fechar o drawer reseta para a lista.
+- **Casamento estrito por exercício:** `workout_id` do catálogo (campo `workoutId` de cada exercício do snapshot), com fallback por **nome normalizado** (`getWorkoutNameIdIndexDb`, que indexa `name` e `name_eng`) para posts anteriores a 26/08/2026. Exercício que não resolve para um id é descartado — supino nunca compara com leg press.
+- **Meu lado:** `getLastExerciseSessionsDb` (última sessão registrada daquele exercício, só séries de trabalho, mesma janela de 2s do pré-preenchimento — `groupLastSessionByWorkout`).
+- **Veredito:** força → carga → volume → repetições; cardio → distância → tempo. O chip `+Xkg` só aparece quando a **primeira** métrica decidiu.
+- **Layout:** placar com os dois avatares (`3 × 2`) no topo; por exercício, um card com miniatura + nome + chip de veredito e duas colunas (dele | minha), cada uma com a melhor série em destaque e `séries · volume` embaixo; coluna vencedora em verde. Exercício que eu nunca fiz vai para a seção **"Sem comparação"** com placeholder tracejado e **não** entra no placar.
+
+Ver `docs/01-feed.md` (Comparar treino) e `docs/14-database-schema.md` (`posts.workout_summary`).
 
 ---
 
@@ -473,13 +511,22 @@ Componentes de estado de loading:
 
 ---
 
-### FloatingActionMenu
-**Arquivo:** `client/components/layout/floating-action-menu.tsx`
+### ~~FloatingActionMenu~~ (removido em 21/08/2026)
 
-Menu de ação flutuante para mobile:
-- Botão arrastável (posição salva em localStorage)
-- Ao clicar, expande com atalhos de navegação
-- Permite acesso rápido às principais telas sem usar a bottom nav
+Menu de ação flutuante e arrastável que duplicava os atalhos da bottom nav.
+**Apagado junto com o hook `useLayoutMode`.**
+
+Era **código inalcançável**: só renderizava com `layoutMode === "novo"`, e nada
+no app chamava `setLayoutMode`/`toggleLayoutMode` — o único jeito de ligá-lo era
+escrever `ritmofit-layout-mode` na mão no localStorage. Além disso ainda listava
+a navegação antiga (com Vitrine, sem Comunidade) em português fixo, e o
+`useLayoutMode` era um `useState` comum, não um contexto: as três chamadas
+(`App.tsx`, `app-layout.tsx`, o próprio menu) tinham estado independente e
+dessincronizariam se o toggle voltasse a existir.
+
+Com o hook fora, as duas condições `layoutMode === "default"` do `AppLayout`
+(padding inferior do `<main>` e exibição da bottom nav) passaram a depender só
+de `!hideNav`.
 
 ---
 
@@ -511,12 +558,12 @@ Gerencia estado de autenticação:
 
 ---
 
-### useLayoutMode
-**Arquivo:** `client/hooks/useLayoutMode.ts`
+### ~~useLayoutMode~~ (removido em 21/08/2026)
 
-Detecta o modo de layout:
-- `layoutMode` — `"mobile"` ou `"desktop"`
-- Posição do FAB (Floating Action Menu)
+Guardava o modo de layout e a posição do FAB em localStorage
+(`ritmofit-layout-mode`, `ritmofit-fab-position`). Apagado junto com o
+`FloatingActionMenu` — ver a seção dele acima. Para detectar mobile, use
+`use-mobile` logo abaixo.
 
 ---
 
@@ -713,9 +760,18 @@ Drawer único de denúncia. Seletor de motivo (radio) + botões Cancelar / Envia
 ### i18n.ts / language-context.tsx
 **Arquivos:** `client/lib/i18n.ts`, `client/lib/language-context.tsx`
 
-Sistema de internacionalização:
-- Hook `useLanguage()` → retorna função `t(key)` para traduções
-- Suporte a múltiplos idiomas (configurável)
+Sistema de internacionalização (PT e EN):
+- Hook `useLanguage()` → `{ language, setLanguage, t }`; `t(key)` traduz
+- As chaves ficam em `translations.pt` e `translations.en` — **sempre nas duas**
+- A escolha do usuário persiste em `localStorage["ritmofit-language"]` e é feita
+  em **Perfil → Configurações** (portanto só existe depois do login)
+
+**Idioma da primeira abertura (21/08/2026):** sem valor salvo, `detectDeviceLanguage()`
+lê `navigator.languages`/`navigator.language` — variantes de português ficam em `pt`,
+o resto cai em `en`. Antes o padrão era `"pt"` fixo, o que tornava a tradução do
+Login e do cadastro **inalcançável**: são as telas anteriores ao login, e o seletor
+de idioma mora atrás dele. O valor salvo é checado primeiro, então a escolha manual
+sempre vence.
 
 ---
 

@@ -26,13 +26,18 @@ import {
 } from "@/lib/canvas-card";
 import type { CardioKind } from "@/lib/cardio-exercises";
 import {
-  cardioMinutesFromInput,
+  sumCardioSets,
   formatCardioKm,
   formatCardioMinutes,
   formatElevationPct,
   getCardioKind,
 } from "@/lib/cardio-exercises";
 import type { TranslationKey } from "@/lib/i18n";
+
+// `sumCardioSets` mora em `@/lib/cardio-exercises` (é só leitura do contrato
+// MIN × KM, sem nada de canvas) — reexportado aqui para não quebrar quem já
+// importava deste módulo.
+export { sumCardioSets } from "@/lib/cardio-exercises";
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -202,27 +207,6 @@ export const CARDIO_KIND_META: Record<CardioKind, CardioKindMeta> = {
 };
 
 // ─── Agregação ───────────────────────────────────────────────────────────────
-
-/**
- * Soma minutos (kg) e km (reps) das séries de um exercício de cardio.
- *
- * O minuto de cada série passa por `cardioMinutesFromInput` **antes** da soma:
- * a pessoa pode ter escrito "1,30" (= 1h30) numa série e "20" na outra, e somar
- * os números crus daria 21,3 em vez de 110 minutos. Daqui para cima (cards,
- * listas, ritmo, velocidade) tudo já trabalha com minutos reais.
- */
-export function sumCardioSets(sets?: Array<{ kg: number; reps: number }>): {
-  minutes: number;
-  km: number;
-} {
-  let minutes = 0;
-  let km = 0;
-  (sets ?? []).forEach((s) => {
-    minutes += cardioMinutesFromInput(s.kg || 0);
-    km += s.reps || 0;
-  });
-  return { minutes, km };
-}
 
 /**
  * Agrupa os exercícios de cardio da sessão por modalidade (corrida na esteira e

@@ -297,3 +297,44 @@ Cadastro
 | Email já cadastrado | Indicador inline no campo |
 | Sem conexão | Badge de status + botão desabilitado |
 | Cadastro concluído | Navega automaticamente para o feed |
+
+---
+
+## Internacionalização (21/08/2026)
+
+A tela era a **única do app 100% fixa em português** — `Login.tsx` não importava
+`useLanguage` nenhuma vez em 2.358 linhas. Agora todo texto visível passa por
+`t()`: **211 chaves `login_*`** em `client/lib/i18n.ts`, nos dois idiomas.
+
+Cobre a autenticação, as cinco etapas do cadastro (conta, perfil, wizard
+comercial, dados físicos, objetivos), o fluxo de recuperação de senha, o diálogo
+de biometria, todos os toasts e as validações inline.
+
+### Detalhes que valem lembrar
+
+- **`FITNESS_SEGMENTS` guarda `labelKey`, não texto.** É uma constante de módulo
+  e não alcança o `t()`, que só existe dentro do componente — a tradução acontece
+  no render (`t(segment.labelKey)`). O mesmo vale para qualquer lista nova ali.
+- **Strings com variável** usam `{placeholder}` + `.replace()`:
+  `login_step_of` (`{step}`/`{total}`), `login_forgot_code_sent_to` (`{email}`),
+  `login_plan_n` (`{n}`) e as três de biometria (`{method}`).
+- **O que segue em português de propósito:** mensagens de `console.error` (são
+  dev-facing, e o resto do código loga em PT), o símbolo `R$` e a máscara de
+  telefone `(11) 9 9999-9999` — ambos amarrados ao formato brasileiro que o
+  `formatPhoneDisplay` aplica.
+
+### Idioma inicial vem do aparelho
+
+Antes o padrão era `"pt"` fixo em `language-context.tsx`. Como a troca manual de
+idioma vive em **Perfil → Configurações** — ou seja, **só depois do login** —,
+quem instalasse o app não tinha como escolher inglês antes de ver o Login e o
+cadastro inteiro: a tradução destas telas seria inalcançável.
+
+`detectDeviceLanguage()` resolve isso: sem escolha salva em
+`localStorage["ritmofit-language"]`, o idioma sai de `navigator.languages` /
+`navigator.language`. Qualquer variante de português (`pt`, `pt-BR`, `pt-PT`)
+fica em `pt`; todo o resto cai em `en`. **A escolha do usuário sempre vence** — o
+valor salvo é consultado primeiro.
+
+> Como o app roda em WKWebView, `navigator.language` reflete o idioma do iOS.
+> Vale conferir no TestFlight com o aparelho em inglês.

@@ -66,6 +66,27 @@ export function cardioMinutesFromInput(raw: number): number {
   return hours * 60 + minutes;
 }
 
+/**
+ * Soma minutos (kg) e km (reps) das séries de um exercício de cardio.
+ *
+ * O minuto de cada série passa por `cardioMinutesFromInput` **antes** da soma:
+ * a pessoa pode ter escrito "1,30" (= 1h30) numa série e "20" na outra, e somar
+ * os números crus daria 21,3 em vez de 110 minutos. Daqui para cima (cards,
+ * listas, ritmo, velocidade) tudo já trabalha com minutos reais.
+ */
+export function sumCardioSets(sets?: Array<{ kg: number; reps: number }>): {
+  minutes: number;
+  km: number;
+} {
+  let minutes = 0;
+  let km = 0;
+  (sets ?? []).forEach((s) => {
+    minutes += cardioMinutesFromInput(s.kg || 0);
+    km += s.reps || 0;
+  });
+  return { minutes, km };
+}
+
 // ── Formatação ───────────────────────────────────────────────────────────────
 // Formatadores puros do contrato de cardio (MIN × KM), fora do módulo de canvas
 // para poderem ser usados também por telas comuns (ex.: o modal "Ver treino" do

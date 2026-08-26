@@ -4,6 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useLanguage } from "@/lib/language-context";
 import { useWorkout } from "@/lib/workout-context";
 import { toast } from "@/components/ui/use-toast";
+import { reportHandledError } from "@/lib/monitoring";
 import { showRoutineCompleteToast } from "@/lib/routine-complete-toast";
 import {
   getUserRoutinesDb,
@@ -28,6 +29,7 @@ import {
   backfillRoutineIdOnItemsDb,
   createCheckInDb,
   awardBadgesForCheckInsDb,
+  awardNutritionBadgesDb,
   incrementGoalProgressDb,
   unlinkCompletedGoalRoutinesDb,
   toggleUserDietCompletionDb,
@@ -61,6 +63,10 @@ import {
   type TrainingMode,
   type WeightLog,
   type FoodLog,
+  createWorkoutPartyDb,
+  respondWorkoutPartyInviteDb,
+  getWorkoutPartyMembersDb,
+  type WorkoutPartyInvite,
 } from "@/lib/ritmofit-db";
 import {
   buildRoutineCards,
@@ -97,6 +103,12 @@ import {
   WorkoutSummaryOverlay,
   type WorkoutSummaryData,
 } from "@/components/goals/workout-summary-overlay";
+import { WorkoutPartyDrawer } from "@/components/goals/workout-party-drawer";
+import {
+  buildPartySnapshot,
+  partySnapshotToSessionItems,
+  partySnapshotToSeries,
+} from "@/components/goals/workout-party-helpers";
 import { BadgeUnlockedDialog } from "@/components/goals/badge-unlocked-dialog";
 import { GoalCompletedDialog } from "@/components/shared/goal-completed-dialog";
 import { InsigniasDrawer } from "@/components/profile/insignias-drawer";
@@ -189,6 +201,16 @@ export default function Goals() {
     resetWorkoutState,
     pendingReopen,
     setPendingReopen,
+    workoutPartyId,
+    setWorkoutPartyId,
+    workoutPartyRole,
+    setWorkoutPartyRole,
+    workoutPartySnapshot,
+    setWorkoutPartySnapshot,
+    workoutPartyHostName,
+    setWorkoutPartyHostName,
+    pendingPartyJoin,
+    setPendingPartyJoin,
   } = useWorkout();
 
   const [loading, setLoading] = React.useState(true);
@@ -254,6 +276,10 @@ export default function Goals() {
   const [pendingBadges, setPendingBadges] = React.useState<Badge[]>([]);
   const [pendingGoal, setPendingGoal] = React.useState<UserGoal | null>(null);
   const [sessionCardKey, setSessionCardKey] = React.useState<string | null>(null);
+  // Rotina cujo botão "treinar junto" foi tocado — abre o seletor de quem
+  // convidar ANTES de começar. `null` = seletor fechado (o caso normal: quem
+  // toca em "Iniciar" nunca passa por aqui).
+  const [partyInviteCard, setPartyInviteCard] = React.useState<RoutineCard | null>(null);
   // Compartilhar o resumo no feed navega para "/" imediatamente — mas isso
   // desmonta a página ANTES de badge/meta pendentes conseguirem aparecer. Só
   // navega depois que os diálogos de celebração (se houver) forem fechados.
@@ -518,7 +544,37 @@ export default function Goals() {
         : null,
     [editRoutineCard],
   );
+  /**
+   * Sessão de CONVIDADO ("treinar junto"): um card montado na hora a partir do
+   * snapshot do convite. Não existe em `cards` porque não existe rotina — o
+   * convidado só decide se quer salvá-la no fim do treino.
+   *
+   * Derivado do contexto (que é persistido) em vez de estado próprio: assim
+   * minimizar o treino, navegar para outra aba ou recarregar o app reconstrói o
+   * card sozinho, sem nenhum passo extra.
+   */
+  const partyGuestCard = React.useMemo<RoutineCard | null>(() => {
+    if (workoutPartyRole !== "guest" || !workoutPartySnapshot || !user) return null;
+    return {
+      key: `party::${workoutPartyId ?? "guest"}`,
+      type: 1,
+      name: workoutPartySnapshot.routineName || null,
+      routineId: null,
+      goalId: null,
+      items: partySnapshotToSessionItems(workoutPartySnapshot, user.id),
+      scheduledTime: null,
+      scheduledDays: null,
+      lastSummary: null,
+      programMeta: null,
+      trainingMode: workoutPartySnapshot.trainingMode ?? "simple",
+    };
+  }, [workoutPartyRole, workoutPartySnapshot, workoutPartyId, user]);
+
+  // O card do convidado tem PRIORIDADE: o casamento por nome logo abaixo poderia
+  // encontrar uma rotina própria homônima ("Peito e Tríceps" é um nome comum) e
+  // trocar o treino do amigo pela rotina dele no meio da sessão.
   const activeWorkoutCard =
+    partyGuestCard ??
     cards.find((c) => c.key === sessionCardKey) ??
     workoutCards.find((c) => (c.name ?? "__unnamed__") === selectedRoutineName) ??
     null;
@@ -639,8 +695,121 @@ export default function Goals() {
     [user, workoutStartTime, setSelectedRoutineName, setWorkoutExerciseNotes, setCurrentWorkoutIndex, setWorkoutSeries, setWorkoutModalOpen],
   );
 
+  // ── Treinar junto ─────────────────────────────────────────────────────────
+
+  /**
+   * Convida (quantas pessoas quiserem) e começa o treino na mesma ação. O
+   * convite é fire-and-forget: se a criação da party falhar, o treino começa
+   * assim mesmo — não faz sentido bloquear quem já está na academia porque a
+   * rede caiu.
+   */
+  const handleInviteAndStart = React.useCallback(
+    async (card: RoutineCard, userIds: string[]) => {
+      const snapshot = buildPartySnapshot({
+        routineName: card.name ?? t("goals_rt_exercises"),
+        trainingMode: card.trainingMode,
+        items: card.items as UserWorkoutWithDetails[],
+        suggested: getSuggestedSetsForCard(card),
+      });
+      try {
+        const partyId = await createWorkoutPartyDb({
+          snapshot,
+          routineId: card.routineId,
+          inviteeIds: userIds,
+        });
+        if (partyId) {
+          setWorkoutPartyId(partyId);
+          setWorkoutPartyRole("host");
+          setWorkoutPartySnapshot(null);
+          setWorkoutPartyHostName(null);
+        }
+        toast({
+          title: t("goals_party_invites_sent"),
+          description: t("goals_party_invites_sent_desc").replace("{n}", String(userIds.length)),
+        });
+      } catch (err: any) {
+        reportHandledError(err, "goals:party-invite-and-start", { count: userIds.length });
+        toast({
+          title: t("goals_party_invite_error"),
+          description: err?.message,
+          variant: "destructive",
+        });
+      }
+      setPartyInviteCard(null);
+      await handleStartWorkout(card);
+    },
+    [t, handleStartWorkout, setWorkoutPartyId, setWorkoutPartyRole, setWorkoutPartySnapshot, setWorkoutPartyHostName],
+  );
+
+  /**
+   * Entra no treino de quem convidou. Monta a sessão a partir do snapshot —
+   * **sem criar rotina nenhuma**: a pergunta "salvar essa rotina?" só aparece
+   * no resumo, depois de finalizar.
+   *
+   * O que vem do amigo é o plano (exercícios, nº de séries, reps). A CARGA é
+   * pessoal: vem do histórico do próprio convidado, como em qualquer sessão
+   * dele — herdar o peso do amigo colocaria alguém embaixo de uma barra que não
+   * é sua.
+   */
+  const startPartyGuestSession = React.useCallback(
+    async (invite: WorkoutPartyInvite) => {
+      if (!user) return;
+      setWorkoutPartyId(invite.partyId);
+      setWorkoutPartyRole("guest");
+      setWorkoutPartySnapshot(invite.snapshot);
+      setWorkoutPartyHostName(invite.hostNickname);
+      setSessionCardKey(null);
+      setSelectedCardKey(null);
+      setSelectedRoutineName(invite.snapshot.routineName || "__unnamed__");
+      setCurrentWorkoutIndex(0);
+      setWorkoutExerciseNotes({});
+
+      const series = partySnapshotToSeries(invite.snapshot);
+      try {
+        const last = await getLastWorkoutSessionSeriesDb(
+          user.id,
+          invite.snapshot.items.map((i) => i.workoutId),
+        );
+        for (const [workoutId, entries] of Object.entries(last)) {
+          const planned = series[workoutId];
+          if (!planned || entries.length === 0) continue;
+          series[workoutId] = planned.map((s, index) => {
+            // Mais séries no plano do amigo do que histórico próprio → repete a
+            // última carga conhecida, que é melhor referência do que zero.
+            const prev = entries[Math.min(index, entries.length - 1)];
+            return prev
+              ? { ...s, kg: prev.kg, prevKg: prev.kg, prevReps: prev.reps }
+              : s;
+          });
+        }
+      } catch {
+        /* sem histórico (ou offline): começa com carga zerada */
+      }
+      setWorkoutSeries(series);
+      setWorkoutModalOpen(true);
+    },
+    [user, setWorkoutPartyId, setWorkoutPartyRole, setWorkoutPartySnapshot, setWorkoutPartyHostName, setSelectedRoutineName, setCurrentWorkoutIndex, setWorkoutExerciseNotes, setWorkoutSeries, setWorkoutModalOpen],
+  );
+
+  // Convite aceito em outra tela (o diálogo vive no AppLayout, para chegar em
+  // qualquer lugar do app) — a sessão só pode nascer aqui, que é quem sabe
+  // iniciar um treino. Mesmo padrão de `pendingReopen`.
+  React.useEffect(() => {
+    if (!pendingPartyJoin || !user) return;
+    const invite = pendingPartyJoin;
+    setPendingPartyJoin(null);
+    void startPartyGuestSession(invite);
+  }, [pendingPartyJoin, user, startPartyGuestSession, setPendingPartyJoin]);
+
   const handleWorkoutFinished = async (summary: WorkoutSessionSummary) => {
     const card = activeWorkoutCard;
+    // Treinar junto: copiado ANTES do `resetWorkoutState()` abaixo, que limpa o
+    // estado da party. É o que alimenta a pergunta "salvar essa rotina?" no
+    // resumo — a única cópia do treino que o convidado tem.
+    const partyId = workoutPartyId;
+    const partyRole = workoutPartyRole;
+    const partySnapshot = workoutPartySnapshot;
+    const partyHostName = workoutPartyHostName;
     // Mostra o resumo IMEDIATAMENTE com os dados síncronos que já temos, sem
     // esperar nenhuma chamada de rede — assim não há piscar da tela de baixo
     // (feed/metas) entre fechar o modal e abrir o resumo.
@@ -665,6 +834,21 @@ export default function Goals() {
       completedExercises: summary.completedExercises,
       prExercises: summary.prExercises,
       machinedExercises: summary.machinedExercises,
+      // Gasto calórico informado/estimado na sessão — segue para o card
+      // gerado, o post do feed e o check-in de duelo.
+      caloriesKcal: summary.caloriesKcal,
+      // Só o CONVIDADO recebe a oferta: o host já tem a rotina salva. A lista
+      // de quem treinou junto chega logo abaixo, junto do enriquecimento.
+      // `summary.partyRoutineSnapshot` é o treino COMO EXECUTADO (com adições e
+      // remoções da sessão) — é ele que a oferta grava. O snapshot do convite
+      // só entra como rede de segurança.
+      partySaveOffer:
+        partyRole === "guest" && (summary.partyRoutineSnapshot ?? partySnapshot)
+          ? {
+              hostNickname: partyHostName ?? "",
+              snapshot: (summary.partyRoutineSnapshot ?? partySnapshot)!,
+            }
+          : null,
       userGroups: [],
       // Corrida GPS da sessão (se houve) — vira o slide de mapa compartilhável
       // no resumo. Não entra no snapshot persistido (updateRoutineLastSummaryDb):
@@ -686,12 +870,28 @@ export default function Goals() {
         completedExercises: summary.completedExercises,
         prExercises: summary.prExercises,
         machinedExercises: summary.machinedExercises,
+        caloriesKcal: summary.caloriesKcal,
         completedAt: new Date().toISOString(),
       }).catch(() => { /* resumo persistido é best-effort */ });
     };
     persistSummary([]);
 
     if (!user) return;
+
+    // Quem treinou junto — vira a linha "Treino em grupo com …" no topo do
+    // resumo. Fora do caminho crítico: o resumo já está na tela, e uma falha
+    // aqui só omite a linha.
+    if (partyId) {
+      getWorkoutPartyMembersDb(partyId, { fresh: true })
+        .then((members) => {
+          const names = members
+            .filter((m) => m.status === "accepted" && m.userId !== user.id)
+            .map((m) => m.nickname);
+          if (names.length === 0) return;
+          setSummaryData((prev) => (prev ? { ...prev, partyMemberNames: names } : prev));
+        })
+        .catch(() => { /* linha some, o resumo continua íntegro */ });
+    }
 
     // Enriquecimento em segundo plano: check-in, badges e duelos. Quando
     // chegarem, atualizamos o resumo já aberto (badges + botão de duelo).
@@ -780,6 +980,19 @@ export default function Goals() {
    * tela. A recarga completa agora só acontece quando ela de fato traz algo novo:
    * ao fechar a rotina do dia (check-in, insígnias e progresso de meta).
    */
+  /**
+   * Celebra insígnias ganhas dentro do `RoutineDetailDrawer`.
+   *
+   * O `BadgeUnlockedDialog` é Radix e abriria ATRÁS do drawer (vaul) — mesmo
+   * motivo do adiamento no diário alimentar e no resumo do treino. Com o drawer
+   * aberto a conquista fica em `pendingBadges` e aparece quando ele fecha.
+   */
+  const celebrateBadges = (awarded: Badge[]) => {
+    if (awarded.length === 0) return;
+    if (selectedCardKey !== null) setPendingBadges((prev) => [...prev, ...awarded]);
+    else setUnlockedBadges(awarded);
+  };
+
   const handleToggleItem = async (card: RoutineCard, item: RoutineItem, completed: boolean) => {
     if (!user) return;
 
@@ -817,6 +1030,15 @@ export default function Goals() {
             await deleteFoodLogForDietItemDb(item.id, foodDate);
           }
           setFoodDiaryVersion((v) => v + 1);
+          // O item da rotina alimenta o MESMO diário que o drawer de comida, e
+          // as insígnias de nutrição (fruta, comida caseira, sem ultra…) saem
+          // dele — sem avaliar aqui, quem come pela rotina só ganharia a
+          // insígnia ao abrir o diário depois.
+          if (completed) {
+            awardNutritionBadgesDb(user.id)
+              .then(celebrateBadges)
+              .catch(() => { /* insígnia é bônus: nunca derruba o registro */ });
+          }
         } catch {
           /* diário indisponível (ex.: migração não rodada) — check continua válido */
         }
@@ -838,6 +1060,19 @@ export default function Goals() {
       return;
     }
 
+    // Hábito marcado → avalia as insígnias de hábito (Sono 7d, Meditação 5d,
+    // Sem álcool 7d, 10k passos 7d). Precisa ser AQUI e não só no check-in de
+    // rotina completa: quem tem 4 hábitos no dia e fecha só o do sono ficaria
+    // sem a insígnia até completar a rotina inteira. Best-effort — insígnia não
+    // desfaz o check do item.
+    if (completed && item.kind === "habit") {
+      try {
+        celebrateBadges(await awardBadgesForCheckInsDb(user.id, new Date()));
+      } catch {
+        /* insígnia é bônus — o hábito já está registrado */
+      }
+    }
+
     // Concluir todos os itens da rotina hoje → check-in + progresso de meta
     if (!completed) return;
     const others = card.items.filter((i) => i.id !== item.id);
@@ -847,8 +1082,7 @@ export default function Goals() {
     try {
       showRoutineCompleteToast({ type: card.type, name: card.name });
       await createCheckInDb(user.id);
-      const awarded = await awardBadgesForCheckInsDb(user.id, new Date());
-      if (awarded.length > 0) setUnlockedBadges(awarded);
+      celebrateBadges(await awardBadgesForCheckInsDb(user.id, new Date()));
       if (card.goalId) {
         const ug = userGoals.find((g) => g.goal_id === card.goalId);
         if (ug) {
@@ -1173,6 +1407,7 @@ export default function Goals() {
         routineLastDates={routineLastDates}
         activeWorkoutName={activeWorkoutName}
         onStartWorkout={(card) => { setListType(null); handleStartWorkout(card); }}
+        onTrainTogether={(card) => { setListType(null); setPartyInviteCard(card); }}
         onOpenCard={(card) => { setListType(null); setSelectedCardKey(card.key); }}
         onCreate={() => { const tp = listType ?? 1; setListType(null); setCreateGoalFlow(false); setCreateType(tp); setCreateOpen(true); }}
       />
@@ -1180,8 +1415,17 @@ export default function Goals() {
       <RoutineDetailDrawer
         card={selectedCard}
         userGoals={userGoals}
-        onClose={() => setSelectedCardKey(null)}
+        onClose={() => {
+          setSelectedCardKey(null);
+          // Insígnia ganha dentro do drawer (hábito marcado, rotina fechada) é
+          // celebrada agora que ele saiu da frente — ver `celebrateBadges`.
+          if (pendingBadges.length > 0) {
+            setUnlockedBadges(pendingBadges);
+            setPendingBadges([]);
+          }
+        }}
         onStartWorkout={handleStartWorkout}
+        onTrainTogether={(card) => setPartyInviteCard(card)}
         onViewSummary={handleViewRoutineSummary}
         onAddItems={(card) => { setCreateGoalFlow(false); setEditRoutineCard(card); }}
         onToggleItem={handleToggleItem}
@@ -1224,6 +1468,26 @@ export default function Goals() {
         streakCount={streak}
       />
 
+      {/* Treinar junto — seleção de quem chamar ANTES de começar. Sem limite de
+          convidados: o mesmo caminho serve para uma dupla e para um grupo. */}
+      <WorkoutPartyDrawer
+        open={partyInviteCard !== null}
+        onClose={() => setPartyInviteCard(null)}
+        routineName={partyInviteCard?.name ?? ""}
+        exerciseCount={partyInviteCard?.items.length ?? 0}
+        mode="start"
+        onConfirm={(userIds) => {
+          const card = partyInviteCard;
+          if (!card) return;
+          return handleInviteAndStart(card, userIds);
+        }}
+        onSkip={() => {
+          const card = partyInviteCard;
+          setPartyInviteCard(null);
+          if (card) void handleStartWorkout(card);
+        }}
+      />
+
       {user && activeWorkoutCard && (
         <WorkoutSessionDialog
           open={workoutModalOpen}
@@ -1244,6 +1508,7 @@ export default function Goals() {
       {summaryData && (
         <WorkoutSummaryOverlay
           data={summaryData}
+          onPartyRoutineSaved={() => { void reloadRoutines(); }}
           onSharedToFeed={() => {
             // Publicou no feed → fecha o resumo e leva ao feed para ver o post. O
             // flag refreshFeed faz o Index recarregar ao montar, ignorando o cache,

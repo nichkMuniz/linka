@@ -13,6 +13,8 @@ import { RunSplitsList } from "@/components/shared/run-splits";
 import { ExerciseImage } from "@/components/shared/exercise-image";
 import { ExerciseAnatomy } from "@/components/shared/exercise-anatomy";
 import { TechniqueInfoOverlay } from "@/components/goals/technique-info-overlay";
+import { WorkoutPartyBar } from "@/components/goals/workout-party-bar";
+import { buildPartySnapshot } from "@/components/goals/workout-party-helpers";
 import { getCoachingAdaptations, getExerciseCoaching } from "@/lib/exercise-coaching";
 import {
   buildCoachProfile,
@@ -29,7 +31,15 @@ import {
   isCardioExercise,
   isTreadmillExercise,
   parseElevationPct,
+  sumCardioSets,
 } from "@/lib/cardio-exercises";
+import { estimateWorkoutCalories } from "@/lib/calorie-estimate";
+import {
+  WorkoutReorderOverlay,
+  type ReorderUnit,
+} from "@/components/goals/workout-reorder-overlay";
+import { hapticMedium } from "@/lib/haptics";
+import { GripVertical } from "lucide-react";
 import { beatsE1rm, estimateOneRepMax, roundE1rm } from "@/lib/one-rep-max";
 import { toast } from "@/components/ui/use-toast";
 import {
@@ -39,12 +49,16 @@ import {
   getUserProfileDb,
   getWorkoutsDb,
   getWorkoutGroupsDb,
+  getMusclesDb,
+  getWorkoutsByMuscleDb,
+  type Muscle,
   updateUserWorkoutExerciseDb,
   getLastWorkoutSessionSeriesDb,
   type WorkoutGroup,
   createCustomWorkoutDb,
   createUserWorkoutsDb,
   linkSessionWorkoutsToRoutineDb,
+  updateRoutineOrderDb,
   updateUserWorkoutNotesDb,
   updateUserWorkoutRestDb,
   uploadCustomExercisePhotoDb,
@@ -54,12 +68,18 @@ import {
   isWorkingSet,
   isBlockTechnique,
   getExercisePersonalRecordsDb,
+  createWorkoutPartyDb,
+  inviteToWorkoutPartyDb,
+  leaveWorkoutPartyDb,
+  endWorkoutPartyDb,
   type ExercisePersonalRecords,
   type SetKind,
   type TrainingMode,
   type WorkoutTechnique,
   type UserWorkoutWithDetails,
   type Workout,
+  type WorkoutPartySnapshot,
+  removeRoutineItemsKeepHistoryDb,
 } from "@/lib/ritmofit-db";
 
 /**
@@ -81,6 +101,10 @@ export type WorkoutSessionSummary = {
   durationSecs: number;
   completedExercises: Array<{
     name: string;
+    // ID no catálogo `workouts` — viaja até `posts.workout_summary` para que a
+    // comparação de treino case exercício com exercício sem depender do nome
+    // (que muda com o idioma de quem treinou).
+    workoutId: string;
     totalSets: number;
     bestKg: number;
     muscleGroup: string | null;
@@ -118,6 +142,20 @@ export type WorkoutSessionSummary = {
   }>;
   // PR where bestKg >= 100 — "zerando a máquina"
   machinedExercises: Array<{ name: string; kg: number }>;
+  /**
+   * Gasto calórico da sessão (kcal): a estimativa do app (ver
+   * `client/lib/calorie-estimate.ts`) ou o valor que a pessoa digitou no lugar
+   * dela. `null` quando não houve base para estimar e ninguém informou nada —
+   * aí nenhuma superfície mostra o dado, em vez de mostrar "0 kcal".
+   */
+  caloriesKcal: number | null;
+  /**
+   * Treinar junto — o treino **como foi executado** (com o que a pessoa
+   * adicionou e sem o que ela removeu no meio da sessão), para a oferta de
+   * "salvar essa rotina?" no resumo. Só o CONVIDADO preenche: é a única forma
+   * de ele levar para casa a rotina que de fato fez, e não a que foi proposta.
+   */
+  partyRoutineSnapshot?: WorkoutPartySnapshot;
   // Corrida GPS concluída nesta sessão (Corrida ao Ar Livre) — alimenta o
   // slide de mapa compartilhável no resumo do treino. null quando não correu.
   run: {
@@ -188,6 +226,17 @@ function fmtDur(totalSecs: number): string {
   const s = totalSecs % 60;
   if (h > 0) return `${h}h ${m}m`;
   return `${m}m ${s}s`;
+}
+
+/**
+ * Volume da barra de números. Com o card de calorias a fileira passou a ter
+ * CINCO colunas (≈68px cada num iPhone), e "12345 kg" quebrava em duas linhas
+ * e desalinhava a barra. Acima de 1 tonelada mostra em `t`, a mesma regra que o
+ * resumo do treino e o mini frame do flow já usam.
+ */
+function fmtVolume(kg: number): string {
+  if (kg >= 1000) return `${(kg / 1000).toFixed(1).replace(".", ",")} t`;
+  return `${kg} kg`;
 }
 
 function fmtRest(secs: number): string {
@@ -1124,13 +1173,26 @@ export function WorkoutSessionDialog({
     workoutExpandedId: expandedId, setWorkoutExpandedId: setExpandedId,
     maxedExerciseIds, setMaxedExerciseIds,
     dismissedWarmupIds, setDismissedWarmupIds,
+    workoutOrder, setWorkoutOrder,
+    workoutCaloriesKcal, setWorkoutCaloriesKcal,
     globalRestTimerRemaining, setGlobalRestTimerRemaining,
     globalRestTimerActive, setGlobalRestTimerActive,
     globalRestTimerPaused, setGlobalRestTimerPaused,
     globalRestTimerTotal, setGlobalRestTimerTotal,
     globalRestTimerKey, setGlobalRestTimerKey,
+    workoutPartyId, setWorkoutPartyId,
+    workoutPartyRole, setWorkoutPartyRole,
     resetWorkoutState,
   } = useWorkout();
+
+  /**
+   * Sessão de CONVIDADO: o treino veio de um convite e não existe rotina dele
+   * por trás. Nenhuma escrita em `user_workouts`/`routines` pode acontecer aqui
+   * — salvar a rotina é uma escolha que aparece no resumo, depois de finalizar.
+   * O histórico do treino é gravado normalmente, sem vínculo (é o mesmo caminho
+   * dos exercícios avulsos).
+   */
+  const isPartyGuest = workoutPartyRole === "guest";
 
   // Corpo do usuário — alimenta as adaptações da ficha técnica ("como você
   // marcou cuidado com o joelho…"). Best-effort e uma vez por sessão: sem ele,
@@ -1200,6 +1262,14 @@ export function WorkoutSessionDialog({
   // Navegação do picker: lista x grupo muscular + seleção múltipla
   const [pickerBrowseMode, setPickerBrowseMode] = React.useState<"list" | "group">("list");
   const [pickerMuscleFilter, setPickerMuscleFilter] = React.useState<string | null>(null);
+  // Porção muscular escolhida dentro do grupo (Peito → Peitoral superior).
+  // Quando preenchida, a lista deixa de vir do catálogo e passa a vir da
+  // consulta inversa em `workout_muscles`, já ordenada por ênfase.
+  const [pickerAnatomyMuscleId, setPickerAnatomyMuscleId] = React.useState<string | null>(null);
+  // Catálogo de músculos (porções) — praticamente imutável, cache de 12h.
+  const [muscles, setMuscles] = React.useState<Muscle[]>([]);
+  const [muscleWorkouts, setMuscleWorkouts] = React.useState<Workout[]>([]);
+  const [muscleWorkoutsLoading, setMuscleWorkoutsLoading] = React.useState(false);
   const [pickerSelected, setPickerSelected] = React.useState<Set<string>>(new Set());
   // Detalhe (foto ampliada + "como executar") de um exercício do catálogo
   const [pickerInfo, setPickerInfo] = React.useState<Workout | null>(null);
@@ -1219,6 +1289,7 @@ export function WorkoutSessionDialog({
     setPickerSearch("");
     setPickerBrowseMode("list");
     setPickerMuscleFilter(null);
+    setPickerAnatomyMuscleId(null);
     setPickerSelected(new Set());
     setPickerInfo(null);
     setCreateOpen(false);
@@ -1276,6 +1347,12 @@ export function WorkoutSessionDialog({
     [setWorkoutRemovedIds, setWorkoutExtraItems, setWorkoutSeries],
   );
 
+  /** workout_id → posição escolhida no arraste (vazio = ordem natural). */
+  const draggedOrder = React.useMemo(
+    () => new Map(workoutOrder.map((id, index) => [id, index])),
+    [workoutOrder],
+  );
+
   // Lista completa de itens da sessão.
   // Dedup por workout_id: um exercício criado/adicionado durante a sessão entra
   // em `workoutExtraItems` E é vinculado à rotina (`createUserWorkoutsDb`); quando
@@ -1311,17 +1388,30 @@ export function WorkoutSessionDialog({
             }
           : i;
       })
-      // Ordem explícita da rotina (definida ao montar blocos de bi-set) tem
-      // prioridade; sem ela, mantém a ordem de chegada de sempre. Sem isto os
-      // membros de um bloco poderiam aparecer separados na tela.
+      // Ordem, em duas camadas:
+      //  1. o que o usuário arrastou NESTA sessão (`workoutOrder`) manda — o
+      //     prop `items` só recarrega num loadData() da tela de Metas, e o
+      //     avulso do treino nem tem linha em `user_workouts` para ordenar;
+      //  2. sem arraste, a ordem explícita da rotina (`order_index`, definida
+      //     ao montar blocos de bi-set ou numa reordenação anterior); sem ela,
+      //     a ordem de chegada de sempre.
+      // Sem isto os membros de um bloco poderiam aparecer separados na tela.
       .sort((a, b) => {
+        const ad = draggedOrder.get(a.workout_id);
+        const bd = draggedOrder.get(b.workout_id);
+        if (ad != null || bd != null) {
+          // Exercício fora da ordem arrastada (adicionado depois) vai para o fim.
+          if (ad == null) return 1;
+          if (bd == null) return -1;
+          return ad - bd;
+        }
         const ai = a.order_index, bi = b.order_index;
         if (ai == null && bi == null) return 0;
         if (ai == null) return 1;
         if (bi == null) return -1;
         return ai - bi;
       });
-  }, [items, workoutExtraItems, workoutRemovedIds, editedExercises, swappedVariations]);
+  }, [items, workoutExtraItems, workoutRemovedIds, editedExercises, swappedVariations, draggedOrder]);
 
   /**
    * Blocos de bi-set/tri-set desta sessão: `technique_group` → workout_ids na
@@ -1483,6 +1573,26 @@ export function WorkoutSessionDialog({
       .catch(() => setCatalogLoading(false));
   }, [pickerOpen, catalog.length]);
 
+  // Catálogo de porções musculares — carregado junto com o picker. Sem ele (ou
+  // sem a migração de anatomia) a fileira de chips simplesmente não aparece.
+  React.useEffect(() => {
+    if (!pickerOpen || muscles.length > 0) return;
+    getMusclesDb().then(setMuscles).catch(() => {});
+  }, [pickerOpen, muscles.length]);
+
+  // Exercícios da porção escolhida, já ordenados por ênfase (consulta inversa
+  // em `workout_muscles`).
+  React.useEffect(() => {
+    if (!pickerAnatomyMuscleId) { setMuscleWorkouts([]); return; }
+    let alive = true;
+    setMuscleWorkoutsLoading(true);
+    getWorkoutsByMuscleDb(pickerAnatomyMuscleId)
+      .then((rows) => { if (alive) setMuscleWorkouts(rows); })
+      .catch(() => { if (alive) setMuscleWorkouts([]); })
+      .finally(() => { if (alive) setMuscleWorkoutsLoading(false); });
+    return () => { alive = false; };
+  }, [pickerAnatomyMuscleId]);
+
   // ── Variações do exercício (grupos) ──────────────────────────────────────
   // O catálogo tem 13 supinos; o grupo diz que todos são "Supino". A rotina
   // guarda a variação escolhida por último (`user_workouts.workout_id`) e aqui
@@ -1613,6 +1723,9 @@ export function WorkoutSessionDialog({
     setWorkoutExerciseRestTimes((p) => (p[oldId] == null ? p : { ...p, [target.id]: p[oldId] }));
     setWorkoutExerciseNotes((p) => (p[oldId] ? { ...p, [target.id]: p[oldId] } : p));
     setDismissedWarmupIds((p) => (p.includes(oldId) ? [...p, target.id] : p));
+    // A posição escolhida no arraste é do LUGAR na sequência, não da variação:
+    // sem trocar o id aqui, o exercício sairia da ordem e pularia para o fim.
+    setWorkoutOrder((p) => (p.includes(oldId) ? p.map((id) => (id === oldId ? target.id : id)) : p));
     prevBestRef.current.delete(oldId);
 
     const swapFields = {
@@ -1722,6 +1835,186 @@ export function WorkoutSessionDialog({
     });
     return { volume: Math.round(volume), totalDone, doneEx };
   }, [workoutSeries, allItems]);
+
+  // ── Calorias da sessão ──────────────────────────────────────────────────
+  // Estimativa VIVA (tempo do cronômetro × tipo de exercício × peso corporal),
+  // que a pessoa pode substituir pelo número do aparelho/relógio a qualquer
+  // momento — inclusive no meio do treino, ao descer da esteira. Ver
+  // `client/lib/calorie-estimate.ts` para a fórmula e o que ela assume.
+  const calorieEstimate = React.useMemo(
+    () =>
+      estimateWorkoutCalories({
+        durationSecs: workoutDuration,
+        weightKg: coachProfile?.weightKg ?? null,
+        exercises: allItems.map((item) => {
+          const isCardio = isCardioExercise(item.muscle_group, item.workout_id);
+          const done = (workoutSeries[item.workout_id] ?? []).filter((x) => x.completed);
+          // `sumCardioSets` converte o campo MIN ("1,30" = 1h30) antes de somar.
+          const totals = isCardio
+            ? sumCardioSets(done.map((x) => ({ kg: x.kg || 0, reps: x.reps || 0 })))
+            : { minutes: 0, km: 0 };
+          return {
+            name: item.workoutName,
+            muscleGroup: item.muscle_group ?? null,
+            isCardio,
+            minutes: totals.minutes,
+            km: totals.km,
+          };
+        }),
+      }),
+    [allItems, workoutSeries, workoutDuration, coachProfile?.weightKg],
+  );
+  /** kcal que valem agora: o valor confirmado pela pessoa ou, na falta, a estimativa. */
+  const sessionCalories =
+    workoutCaloriesKcal ?? (calorieEstimate.kcal > 0 ? calorieEstimate.kcal : null);
+  /** true = o número na tela é palpite do app (mostrado com "~"), não escolha da pessoa. */
+  const caloriesAreEstimated = workoutCaloriesKcal == null;
+  const [caloriesModalOpen, setCaloriesModalOpen] = React.useState(false);
+  // Texto cru do input enquanto digita (o valor só vira número ao salvar).
+  const [caloriesDraft, setCaloriesDraft] = React.useState("");
+  const openCaloriesModal = () => {
+    setCaloriesDraft(sessionCalories != null ? String(sessionCalories) : "");
+    setCaloriesModalOpen(true);
+  };
+  const saveCalories = () => {
+    const raw = caloriesDraft.replace(",", ".").trim();
+    const num = raw ? Number(raw) : NaN;
+    // Campo vazio (ou inválido) devolve o controle à estimativa — é o "desfazer"
+    // do ajuste manual, e evita gravar 0 kcal por engano ao apagar o campo.
+    setWorkoutCaloriesKcal(Number.isFinite(num) && num > 0 ? Math.round(num) : null);
+    setCaloriesModalOpen(false);
+  };
+
+  // ── Reordenar exercícios ────────────────────────────────────────────────
+  // Toque longo em qualquer card (ou o item do menu ⋯) abre a lista de
+  // arrastar. Quem treina em sequência precisava remover e readicionar
+  // exercícios para mudar a ordem — não havia outro caminho.
+  const [reorderOpen, setReorderOpen] = React.useState(false);
+
+  /**
+   * As linhas da tela de reordenar: **todos** os exercícios da sessão (sem o
+   * filtro de músculo/busca — a ordem é do treino inteiro), com o bloco de
+   * bi-set/tri-set condensado numa linha só. Mesma montagem de `renderUnits`.
+   */
+  const reorderUnits = React.useMemo<ReorderUnit[]>(() => {
+    const out: ReorderUnit[] = [];
+    const placed = new Set<string>();
+    for (const item of allItems) {
+      if (placed.has(item.workout_id)) continue;
+      const info = isExpert ? blockInfo.get(item.workout_id) : undefined;
+      const members = info
+        ? (blocks.get(info.group) ?? [])
+            .map((id) => allItems.find((i) => i.workout_id === id))
+            .filter((m): m is UserWorkoutWithDetails => !!m)
+        : [item];
+      for (const m of members) placed.add(m.workout_id);
+
+      let doneSets = 0;
+      let totalSets = 0;
+      for (const m of members) {
+        const series = workoutSeries[m.workout_id] ?? [];
+        totalSets += series.length;
+        doneSets += series.filter((x) => x.completed).length;
+      }
+
+      const isBlock = members.length > 1;
+      out.push({
+        key: info ? `block:${info.group}` : item.workout_id,
+        workoutIds: members.map((m) => m.workout_id),
+        title: members.map((m) => m.workoutName ?? "").join(" + "),
+        subtitle: isBlock
+          ? t(members.length >= 3 ? "goals_technique_triset" : "goals_technique_biset")
+          : item.muscle_group ?? null,
+        photo: members[0]?.workoutPhoto ?? null,
+        muscleGroup: members[0]?.muscle_group ?? null,
+        doneSets,
+        totalSets,
+      });
+    }
+    return out;
+  }, [allItems, blocks, blockInfo, isExpert, workoutSeries, t]);
+
+  /**
+   * Aplica a ordem escolhida: vale na hora para a sessão (contexto, persistido)
+   * e é gravada na rotina (`user_workouts.order_index`) para os próximos
+   * treinos. A gravação é best-effort — o avulso adicionado nesta sessão nem
+   * tem linha em `user_workouts` ainda (ela nasce no "Finalizar"), então ele
+   * fica só com a ordem local até lá.
+   */
+  const applyReorder = async (orderedKeys: string[]) => {
+    const byKey = new Map(reorderUnits.map((u) => [u.key, u]));
+    const ids = orderedKeys.flatMap((k) => byKey.get(k)?.workoutIds ?? []);
+    if (ids.length === 0) { setReorderOpen(false); return; }
+    setWorkoutOrder(ids);
+    setReorderOpen(false);
+
+    const entries = ids
+      .map((workoutId, index) => {
+        const row = allItems.find((i) => i.workout_id === workoutId);
+        const rawId = String(row?.id ?? "");
+        // Avulso da sessão tem id sintético (`session_<workout_id>`) — sem
+        // linha no banco para receber a posição.
+        if (!rawId || rawId.startsWith(SESSION_ITEM_ID_PREFIX)) return null;
+        return { userWorkoutId: rawId, orderIndex: index };
+      })
+      .filter((e): e is { userWorkoutId: string; orderIndex: number } => e !== null);
+    if (entries.length === 0) return;
+
+    try {
+      await updateRoutineOrderDb(userId, entries);
+    } catch (err) {
+      reportHandledError(err, "workout-session:reorder");
+      showNotice({ kind: "warn", title: t("goals_reorder_save_error"), desc: "" });
+    }
+  };
+
+  // Toque longo (500ms, o mesmo tempo do menu de contexto do iOS) no card →
+  // abre a tela de reordenar. Cancela ao rolar (10px de folga) e ignora toques
+  // que nasceram em algo interativo — campo de série, botão de check, menu ⋯ —
+  // para não sequestrar o gesto de ninguém.
+  const longPressTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Depois de disparar, o `click` do pointerup ainda viria e expandiria/
+  // recolheria o card por baixo da tela nova.
+  const longPressFired = React.useRef(false);
+  const longPressOrigin = React.useRef<{ x: number; y: number } | null>(null);
+  const cancelLongPress = () => {
+    if (longPressTimer.current) clearTimeout(longPressTimer.current);
+    longPressTimer.current = null;
+    longPressOrigin.current = null;
+  };
+  React.useEffect(() => () => cancelLongPress(), []);
+  const cardLongPressProps = {
+    onPointerDown: (e: React.PointerEvent) => {
+      // Com um exercício só não há o que reordenar — abrir a tela seria só um
+      // beco sem saída depois de um gesto que a pessoa nem quis fazer.
+      if (reorderOpen || pickerOpen || reorderUnits.length < 2) return;
+      const target = e.target as HTMLElement | null;
+      if (target?.closest("button, input, textarea, select, a, [data-no-longpress]")) return;
+      longPressFired.current = false;
+      longPressOrigin.current = { x: e.clientX, y: e.clientY };
+      longPressTimer.current = setTimeout(() => {
+        longPressFired.current = true;
+        void hapticMedium();
+        setMenuId(null);
+        setReorderOpen(true);
+      }, 500);
+    },
+    onPointerMove: (e: React.PointerEvent) => {
+      const origin = longPressOrigin.current;
+      if (!origin) return;
+      if (Math.abs(e.clientX - origin.x) > 10 || Math.abs(e.clientY - origin.y) > 10) {
+        cancelLongPress();
+      }
+    },
+    onPointerUp: cancelLongPress,
+    onPointerCancel: cancelLongPress,
+    onClickCapture: (e: React.MouseEvent) => {
+      if (!longPressFired.current) return;
+      longPressFired.current = false;
+      e.preventDefault();
+      e.stopPropagation();
+    },
+  };
 
   // Avisos da sessão (PR/recorde e validações) — renderizados DENTRO do overlay
   // porque o overlay é `position:fixed z-9999` portado ao body; um toast global
@@ -2065,6 +2358,22 @@ export function WorkoutSessionDialog({
   const removeFromSession = (workoutId: string) => {
     // Se a corrida GPS ativa pertence a este exercício, encerra o watch junto
     if (getRunState().workoutId === workoutId) void stopRun();
+    // Remover deixou de ser só "esconder nesta sessão": ao finalizar, o
+    // exercício sai da rotina (ver a finalização). O aviso existe porque a
+    // consequência é permanente e acontece depois — sem ele a pessoa só
+    // descobriria no treino seguinte, quando o exercício não aparecesse mais.
+    // Não vale para o CONVIDADO (não tem rotina) nem para item avulso, que
+    // nunca chegou a fazer parte de uma.
+    const isRoutineItem = items.some(
+      (i) => i.workout_id === workoutId && !String(i.id ?? "").startsWith(SESSION_ITEM_ID_PREFIX),
+    );
+    if (isRoutineItem && !isPartyGuest) {
+      showNotice({
+        kind: "warn",
+        title: t("goals_remove_leaves_routine_title"),
+        desc: t("goals_remove_leaves_routine_desc"),
+      });
+    }
     setWorkoutRemovedIds((prev) => [...new Set([...prev, workoutId])]);
     setMenuId(null);
     if (expandedId === workoutId) setExpandedId(null);
@@ -2120,10 +2429,18 @@ export function WorkoutSessionDialog({
       // sem isto o exercício só existiria no estado local e sumiria ao reabrir.
       // `name` = nome da rotina (mesmo agrupador usado por buildRoutineCards/groupByName),
       // para o exercício cair no card correto (ex.: rotina "Peitos").
-      await createUserWorkoutsDb(userId, [created.id], {
-        routine_id: routineId,
-        name: routineName ?? undefined,
-      });
+      //
+      // No CONVIDADO não há rotina para vincular — e criar uma aqui seria criar,
+      // pelas costas, exatamente a rotina que ele só decide salvar no resumo. O
+      // exercício entra na sessão como avulso e o treino dele é gravado
+      // normalmente; o que a oferta do resumo salva é a rotina DO AMIGO (o
+      // snapshot do convite), não a sessão com os acréscimos.
+      if (!isPartyGuest) {
+        await createUserWorkoutsDb(userId, [created.id], {
+          routine_id: routineId,
+          name: routineName ?? undefined,
+        });
+      }
       setCatalog((prev) => [created, ...prev]);
       setPickerSelected((prev) => new Set(prev).add(created.id));
       setCreateOpen(false);
@@ -2458,6 +2775,50 @@ export function WorkoutSessionDialog({
     setConfirmOpen(true);
   };
 
+  // ── Treinar junto ───────────────────────────────────────────
+  /**
+   * Convida gente para esta sessão. Na primeira vez cria a party (congelando o
+   * treino como está AGORA na tela); depois só adiciona convidados à mesma.
+   *
+   * O snapshot é congelado de propósito: o host pode trocar variação ou
+   * adicionar exercício depois sem que a tela de quem já aceitou mude embaixo
+   * dele no meio de uma série.
+   */
+  const handlePartyInvite = async (userIds: string[]) => {
+    try {
+      if (workoutPartyId) {
+        await inviteToWorkoutPartyDb(workoutPartyId, userIds);
+      } else {
+        const snapshot = buildPartySnapshot({
+          routineName: routineName ?? routineLabel,
+          trainingMode: isExpert ? "expert" : "simple",
+          items: allItems,
+          seriesByWorkout: workoutSeries,
+        });
+        const partyId = await createWorkoutPartyDb({
+          snapshot,
+          routineId: routineId ?? null,
+          inviteeIds: userIds,
+        });
+        if (partyId) {
+          setWorkoutPartyId(partyId);
+          setWorkoutPartyRole("host");
+        }
+      }
+      toast({
+        title: t("goals_party_invites_sent"),
+        description: t("goals_party_invites_sent_desc").replace("{n}", String(userIds.length)),
+      });
+    } catch (err: any) {
+      reportHandledError(err, "workout-session:party-invite", { count: userIds.length });
+      toast({
+        title: t("goals_party_invite_error"),
+        description: err?.message || t("goals_create_error_retry"),
+        variant: "destructive",
+      });
+    }
+  };
+
   const handleConfirmFinish = async () => {
     setIsSaving(true);
     setSaveError(null);
@@ -2478,6 +2839,65 @@ export function WorkoutSessionDialog({
       const prExercises: WorkoutSessionSummary["prExercises"] = [];
       const machinedExercises: WorkoutSessionSummary["machinedExercises"] = [];
 
+      // ── Exercícios removidos → saem da rotina ───────────────────────────
+      // "Remover do treino" durante a sessão deixou de ser só uma marca visual:
+      // ao finalizar, o exercício sai da rotina de verdade e não volta a ser
+      // proposto no próximo treino. A regra é a mesma dos avulsos, na direção
+      // oposta — **a rotina é o que foi executado**.
+      //
+      // O que NÃO acontece é apagar histórico: quem treinou aquilo continua com
+      // os treinos, o PR e a progressão (que leem por `workout_id`). Por isso
+      // `removeRoutineItemsKeepHistoryDb`, e não `deleteRoutineItemDb`.
+      //
+      // A resolução espelha o filtro de `allItems`: a troca de variação é
+      // aplicada ANTES de casar com `workoutRemovedIds`, senão remover um card
+      // já trocado não acharia a linha (o prop `items` ainda traz o workout_id
+      // antigo). Itens sintéticos ficam de fora — não existem no banco.
+      if (workoutRemovedIds.length > 0 && !isPartyGuest) {
+        const removedRoutineItemIds = [...new Set(
+          [...items, ...workoutExtraItems]
+            .map((i) => {
+              const swapped = swappedVariations[i.id];
+              return swapped ? { ...i, ...swapped } : i;
+            })
+            .filter((i) => workoutRemovedIds.includes(i.workout_id))
+            .map((i) => String(i.id ?? ""))
+            .filter((id) => id && !id.startsWith(SESSION_ITEM_ID_PREFIX)),
+        )];
+        if (removedRoutineItemIds.length > 0) {
+          try {
+            const deleted = await removeRoutineItemsKeepHistoryDb(userId, removedRoutineItemIds);
+            // 0 linhas SEM erro = RLS barrando em silêncio (o mesmo modo de
+            // falha do histórico em 16/07/2026). Sem este aviso, o exercício
+            // reapareceria no próximo treino e ninguém saberia por quê.
+            if (deleted === 0) {
+              reportHandledError(
+                new Error("removeRoutineItemsKeepHistoryDb removeu 0 linhas"),
+                "workout-session:remove-items-noop",
+                { count: removedRoutineItemIds.length },
+              );
+              toast({
+                title: t("goals_removed_exercises_not_saved_title"),
+                description: t("goals_removed_exercises_not_saved_desc"),
+                variant: "destructive",
+              });
+            }
+          } catch (err) {
+            // Best-effort como as notas e o descanso: o treino executado é o
+            // dado importante e não pode ser perdido porque a rotina não pôde
+            // ser atualizada (offline, por exemplo).
+            reportHandledError(err, "workout-session:remove-items", {
+              count: removedRoutineItemIds.length,
+            });
+            toast({
+              title: t("goals_removed_exercises_not_saved_title"),
+              description: t("goals_removed_exercises_not_saved_desc"),
+              variant: "destructive",
+            });
+          }
+        }
+      }
+
       // ── Exercícios avulsos → itens da rotina ────────────────────────────
       // O que foi adicionado pelo "+ Adicionar exercício" durante o treino só
       // vivia em `workoutExtraItems` (id sintético `session_<workout_id>`) e
@@ -2495,7 +2915,11 @@ export function WorkoutSessionDialog({
       // workout_id → user_workouts.id, para as séries destes exercícios
       // gravarem histórico VINCULADO (antes iam com user_workout_id nulo).
       let linkedExtraIds = new Map<string, string>();
-      if (extraWorkoutIds.length > 0) {
+      // Convidado: TODOS os itens são sintéticos (o treino veio do amigo, não de
+      // uma rotina dele). Vinculá-los aqui criaria a rotina sem perguntar —
+      // exatamente o contrário do fluxo, em que salvar é uma escolha feita no
+      // resumo. O histórico grava sem vínculo, como qualquer avulso.
+      if (extraWorkoutIds.length > 0 && !isPartyGuest) {
         try {
           linkedExtraIds = await linkSessionWorkoutsToRoutineDb(userId, extraWorkoutIds, {
             routine_id: routineId,
@@ -2517,6 +2941,33 @@ export function WorkoutSessionDialog({
         }
       }
 
+      // ── Ordem arrastada → rotina ────────────────────────────────────────
+      // A reordenação já gravou `order_index` para os itens que existiam no
+      // banco na hora do arraste. Os AVULSOS só ganharam linha em
+      // `user_workouts` agora (acima), então a posição deles se perderia: sem
+      // isto, um exercício adicionado no meio do treino e arrastado para a 2ª
+      // posição voltaria para o fim da rotina no treino seguinte.
+      if (workoutOrder.length > 0 && !isPartyGuest) {
+        const orderEntries = allItemsForSave
+          .slice()
+          .sort((a, b) => {
+            const ai = workoutOrder.indexOf(a.workout_id);
+            const bi = workoutOrder.indexOf(b.workout_id);
+            return (ai === -1 ? Number.MAX_SAFE_INTEGER : ai) - (bi === -1 ? Number.MAX_SAFE_INTEGER : bi);
+          })
+          .map((item, index) => {
+            const isExtraItem = String(item.id).startsWith(SESSION_ITEM_ID_PREFIX);
+            const rawId = isExtraItem ? linkedExtraIds.get(item.workout_id) : String(item.id ?? "");
+            return rawId ? { userWorkoutId: rawId, orderIndex: index } : null;
+          })
+          .filter((e): e is { userWorkoutId: string; orderIndex: number } => e !== null);
+        // Best-effort como as notas e o descanso: o treino executado é o dado
+        // importante e não pode falhar porque a ordem não pôde ser gravada.
+        await updateRoutineOrderDb(userId, orderEntries).catch((err) => {
+          reportHandledError(err, "workout-session:reorder-on-finish");
+        });
+      }
+
       // Collect exercises with completed series
       const exerciseEntries = Object.entries(workoutSeries).filter(
         ([, series]) => series.some((s) => s.completed),
@@ -2529,6 +2980,11 @@ export function WorkoutSessionDialog({
       // de séries desta execução — nunca a soma de execuções anteriores.
       const sessionBaseMs = Date.now();
       let seriesSaveIndex = 0;
+      // Calorias são um total da SESSÃO, mas o histórico grava uma linha por
+      // série: o valor vai na PRIMEIRA linha e NULL em todas as outras, e a
+      // leitura por sessão usa MAX (nunca soma). Ver insertWorkoutHistRowDb.
+      const sessionCaloriesToSave = sessionCalories;
+      let caloriesSaved = false;
 
       // Query previous bests before saving (so we compare against pre-session records).
       // Offline, getPreviousBestKgDb devolveria 0 e TODO exercício com carga
@@ -2606,7 +3062,9 @@ export function WorkoutSessionDialog({
             // Só o modo expert classifica séries; no simplificado vai NULL e a
             // leitura trata como 'normal'.
             isExpert ? kind : null,
+            caloriesSaved ? null : sessionCaloriesToSave,
           );
+          caloriesSaved = true;
         }
 
         // Sem nenhuma série concluída não há o que reportar. O exercício que só
@@ -2616,6 +3074,7 @@ export function WorkoutSessionDialog({
 
         completedExercises.push({
           name: row?.workoutName ?? workoutId,
+          workoutId,
           // "4 séries" no resumo = séries contadas (aquecimento incluído, drops
           // fora — o peso deles já está no volume e nos `sets` abaixo).
           totalSets: completed.filter((s) => countsAsSeries(setKindOf(s))).length,
@@ -2717,7 +3176,11 @@ export function WorkoutSessionDialog({
 
       // Persiste as notas dos exercícios (user_workouts.notes) antes de limpar o
       // estado — sem isto a nota digitada na sessão era perdida ao finalizar.
-      const sessionWorkoutIds = new Set(allItemsForSave.map((w) => w.workout_id));
+      // No convidado não há linha em `user_workouts` para receber nada disso —
+      // a preferência dele vale a partir do momento em que ele SALVAR a rotina.
+      const sessionWorkoutIds = new Set(
+        isPartyGuest ? [] : allItemsForSave.map((w) => w.workout_id),
+      );
       await Promise.all(
         Object.entries(workoutExerciseNotes)
           .filter(([workoutId]) => sessionWorkoutIds.has(workoutId))
@@ -2740,6 +3203,17 @@ export function WorkoutSessionDialog({
       );
 
       setConfirmOpen(false);
+      // Treinar junto: sai da party ao finalizar (o avatar some do header de
+      // quem continua treinando). O HOST ainda encerra a party — convites
+      // pendentes deixam de valer, senão alguém aceitaria daqui a meia hora um
+      // treino que já acabou. Best-effort: nada disso pode derrubar o registro
+      // do treino, que é o dado que importa.
+      if (workoutPartyId) {
+        const partyToClose = workoutPartyId;
+        const wasHost = workoutPartyRole === "host";
+        void leaveWorkoutPartyDb(partyToClose).catch(() => {});
+        if (wasHost) void endWorkoutPartyDb(partyToClose).catch(() => {});
+      }
       // Corrida GPS ainda ativa não pode sobreviver ao fim do treino (o watch
       // de localização vazaria) — encerra sem registrar, no-op quando idle.
       void stopRun();
@@ -2751,6 +3225,20 @@ export function WorkoutSessionDialog({
         completedExercises,
         prExercises,
         machinedExercises,
+        caloriesKcal: sessionCaloriesToSave,
+        // Convidado: o que a oferta de "salvar essa rotina?" vai gravar é o
+        // treino COMO EXECUTADO — `allItemsForSave` já é a lista final, com os
+        // exercícios que ele adicionou e sem os que removeu. Salvar a proposta
+        // original faria a rotina nascer diferente do treino que ele acabou de
+        // fazer.
+        partyRoutineSnapshot: isPartyGuest
+          ? buildPartySnapshot({
+              routineName: routineName ?? routineLabel,
+              trainingMode: isExpert ? "expert" : "simple",
+              items: allItemsForSave,
+              seriesByWorkout: workoutSeries,
+            })
+          : undefined,
         run: lastRunRef.current,
       });
       lastRunRef.current = null;
@@ -2768,8 +3256,19 @@ export function WorkoutSessionDialog({
   const pickerMuscleGroups = [
     ...new Set(catalog.map((w) => w.muscle_group).filter(Boolean) as string[]),
   ].sort((a, b) => a.localeCompare(b));
-  const catalogMatches = catalog.filter((w) => {
-    if (pickerBrowseMode === "group" && pickerMuscleFilter && w.muscle_group !== pickerMuscleFilter) return false;
+  /**
+   * Porções do grupo aberto (Peito → Peitoral superior/médio/…), na ordem do
+   * banco. Vazio quando o grupo não tem anatomia semeada (Alongamento, Core…)
+   * ou quando a migração de anatomia não rodou — aí os chips não aparecem.
+   */
+  const pickerMuscleParts = pickerMuscleFilter
+    ? muscles.filter((m) => m.groupName === pickerMuscleFilter)
+    : [];
+  // Porção escolhida: a lista JÁ vem do banco ordenada por ênfase (o mais
+  // específico primeiro), então só a busca se aplica — reordenar aqui jogaria
+  // fora justamente o que se foi buscar.
+  const catalogMatches = (pickerAnatomyMuscleId ? muscleWorkouts : catalog).filter((w) => {
+    if (!pickerAnatomyMuscleId && pickerBrowseMode === "group" && pickerMuscleFilter && w.muscle_group !== pickerMuscleFilter) return false;
     if (!matchesCatalogSearch(w, pickerSearch)) return false;
     return true;
   });
@@ -2835,6 +3334,7 @@ export function WorkoutSessionDialog({
     return (
       <div
         key={`block:${group}`}
+        {...cardLongPressProps}
         style={{
           background: CARD, borderRadius: 24, overflow: "hidden",
           marginBottom: 20, position: "relative",
@@ -3348,6 +3848,20 @@ export function WorkoutSessionDialog({
         </button>
       </div>
 
+      {/* ── TREINAR JUNTO ────────────────────────────────────── */}
+      {/* Sem party, encolhe para um botão discreto: quem treina sozinho (a
+          maioria) não perde espaço, e quem quer chamar alguém depois de já ter
+          começado tem onde tocar. */}
+      <WorkoutPartyBar
+        partyId={workoutPartyId}
+        currentUserId={userId}
+        routineName={routineName ?? routineLabel}
+        exerciseCount={allItems.length}
+        progressDone={stats.doneEx}
+        canInvite={!isPartyGuest}
+        onInvite={handlePartyInvite}
+      />
+
       {/* ── STATS ROW ────────────────────────────────────────── */}
       <div style={{
         flexShrink: 0,
@@ -3356,23 +3870,59 @@ export function WorkoutSessionDialog({
         borderBottom: `1px solid ${BORDER}`,
       }}>
         {[
-          { label: "Duração",    value: fmtDur(workoutDuration), color: PRIMARY },
-          { label: "Volume",     value: `${stats.volume} kg`,    color: FG },
-          { label: "Séries",     value: String(stats.totalDone), color: FG },
-          { label: "Exercícios", value: String(stats.doneEx),    color: FG },
-        ].map(({ label, value, color }) => (
-          <div key={label} style={{ flex: 1, textAlign: "center" }}>
-            <div style={{ fontSize: 11, color: MUTED_FG, fontWeight: 500, marginBottom: 3 }}>
-              {label}
+          { label: t("goals_stat_duration"),  value: fmtDur(workoutDuration), color: PRIMARY, onClick: undefined },
+          { label: t("goals_stat_volume"),    value: fmtVolume(stats.volume), color: FG,      onClick: undefined },
+          { label: t("goals_stat_series"),    value: String(stats.totalDone), color: FG,      onClick: undefined },
+          { label: t("goals_stat_exercises"), value: String(stats.doneEx),    color: FG,      onClick: undefined },
+          // Calorias: único card TOCÁVEL da barra. Mora aqui porque é um total
+          // da sessão como os outros quatro, vale igual para cardio e
+          // musculação, e a barra fica fora do scroll — dá para registrar o
+          // número do aparelho na hora, sem esperar o fim do treino.
+          {
+            label: t("goals_stat_calories"),
+            value:
+              sessionCalories == null
+                ? "—"
+                : caloriesAreEstimated ? `~${sessionCalories}` : String(sessionCalories),
+            // Estimativa fica em tom secundário; o valor confirmado pela pessoa
+            // ganha o mesmo peso dos outros números.
+            color: sessionCalories == null || caloriesAreEstimated ? MUTED_FG : ORANGE,
+            onClick: openCaloriesModal,
+          },
+        ].map(({ label, value, color, onClick }) => {
+          const inner = (
+            <>
+              <div style={{ fontSize: 11, color: MUTED_FG, fontWeight: 500, marginBottom: 3 }}>
+                {label}
+              </div>
+              <div style={{
+                fontSize: 17, fontWeight: 800, color,
+                fontVariantNumeric: "tabular-nums", lineHeight: 1,
+                whiteSpace: "nowrap",
+              }}>
+                {value}
+              </div>
+            </>
+          );
+          return onClick ? (
+            <button
+              key={label}
+              onClick={onClick}
+              aria-label={t("goals_calories_title")}
+              style={{
+                flex: 1, textAlign: "center", cursor: "pointer",
+                background: "none", border: "none", padding: 0,
+                fontFamily: "'Inter', system-ui",
+              }}
+            >
+              {inner}
+            </button>
+          ) : (
+            <div key={label} style={{ flex: 1, textAlign: "center" }}>
+              {inner}
             </div>
-            <div style={{
-              fontSize: 17, fontWeight: 800, color,
-              fontVariantNumeric: "tabular-nums", lineHeight: 1,
-            }}>
-              {value}
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* ── MUSCLE FILTER CHIPS ──────────────────────────────── */}
@@ -3437,7 +3987,7 @@ export function WorkoutSessionDialog({
                   cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0,
                 }}
               >
-                Todos
+                {t("goals_filter_all_muscles")}
               </button>
 
               {muscleGroups.map((group) => (
@@ -3540,6 +4090,9 @@ export function WorkoutSessionDialog({
           return (
             <div
               key={item.id}
+              // Toque longo em qualquer ponto "morto" do card abre a tela de
+              // reordenar (ver cardLongPressProps).
+              {...cardLongPressProps}
               style={{
                 background: CARD, borderRadius: 24, overflow: "hidden",
                 marginBottom: 20,
@@ -3946,6 +4499,24 @@ export function WorkoutSessionDialog({
                           </svg>
                           {noteOpen ? t("goals_note_close") : t("goals_note_add")}
                         </button>
+                        {/* Reordenar — o toque longo no card faz o mesmo, mas
+                            ninguém descobre um gesto invisível sozinho. Some
+                            com um exercício só, como o toque longo. */}
+                        {reorderUnits.length > 1 && (
+                        <button
+                          onClick={() => { setMenuId(null); setReorderOpen(true); }}
+                          style={{
+                            width: "100%", background: "none", border: "none",
+                            padding: "12px 16px", textAlign: "left", cursor: "pointer",
+                            fontSize: 14, fontWeight: 500, color: FG,
+                            display: "flex", alignItems: "center", gap: 10,
+                            borderBottom: `1px solid ${BORDER}`,
+                          }}
+                        >
+                          <GripVertical className="h-3.5 w-3.5" />
+                          {t("goals_reorder_open")}
+                        </button>
+                        )}
                         <button
                           onClick={() => removeFromSession(item.workout_id)}
                           style={{
@@ -3958,7 +4529,7 @@ export function WorkoutSessionDialog({
                           <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
                             <path d="M2 3.5h10M5.5 3.5V2.5a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v1M6 6.5v4M8 6.5v4M3 3.5l.5 8a1 1 0 0 0 1 1h5a1 1 0 0 0 1-1l.5-8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
                           </svg>
-                          Remover exercício
+                          {t("goals_program_remove_exercise")}
                         </button>
                       </div>
                     )}
@@ -4631,7 +5202,7 @@ export function WorkoutSessionDialog({
                   return (
                     <button
                       key={mode}
-                      onClick={() => { setPickerBrowseMode(mode); setPickerMuscleFilter(null); setPickerSearch(""); }}
+                      onClick={() => { setPickerBrowseMode(mode); setPickerMuscleFilter(null); setPickerAnatomyMuscleId(null); setPickerSearch(""); }}
                       style={{
                         flex: 1, height: 36, borderRadius: 12, border: "none", cursor: "pointer",
                         fontSize: 13, fontWeight: 600, transition: "all .15s",
@@ -4703,7 +5274,7 @@ export function WorkoutSessionDialog({
               <div style={{ flexShrink: 0, padding: "12px 16px", borderBottom: `1px solid ${BORDER}` }}>
                 {pickerBrowseMode === "group" && pickerMuscleFilter && (
                   <button
-                    onClick={() => { setPickerMuscleFilter(null); setPickerSearch(""); }}
+                    onClick={() => { setPickerMuscleFilter(null); setPickerAnatomyMuscleId(null); setPickerSearch(""); }}
                     style={{
                       display: "flex", alignItems: "center", gap: 6, marginBottom: 10,
                       background: "none", border: "none", cursor: "pointer", padding: 0,
@@ -4716,6 +5287,58 @@ export function WorkoutSessionDialog({
                     {pickerMuscleFilter}
                   </button>
                 )}
+
+                {/* Porções do grupo aberto (Peito → Peitoral superior/médio…).
+                    Refina o mesmo filtro em vez de virar uma aba paralela:
+                    escolher a porção troca a fonte da lista para a consulta por
+                    ênfase em `workout_muscles`.
+
+                    Rolagem horizontal (nunca quebra linha): os nomes de porção
+                    são longos ("Reto abdominal superior") e em 2–3 linhas a
+                    fileira empurraria a lista de exercícios para fora da tela. */}
+                {pickerBrowseMode === "group" && pickerMuscleFilter && pickerMuscleParts.length > 0 && (
+                  <div style={{ marginBottom: 10 }}>
+                    <div style={{
+                      fontSize: 11, fontWeight: 600, letterSpacing: ".06em",
+                      textTransform: "uppercase", color: "rgba(255,255,255,.4)", marginBottom: 6,
+                    }}>
+                      {t("goals_browse_parts_label")}
+                    </div>
+                    <div
+                      data-vaul-no-drag
+                      className="no-scrollbar"
+                      style={{ display: "flex", gap: 6, overflowX: "auto", padding: "2px 0" }}
+                    >
+                      {[{ id: null as string | null, name: t("goals_browse_parts_all") }, ...pickerMuscleParts].map((m) => {
+                        const active = pickerAnatomyMuscleId === m.id;
+                        return (
+                          <button
+                            key={m.id ?? "all"}
+                            onClick={() => setPickerAnatomyMuscleId(active ? null : m.id)}
+                            style={{
+                              flexShrink: 0, whiteSpace: "nowrap", cursor: "pointer",
+                              borderRadius: 999, padding: "7px 12px",
+                              fontSize: 12, fontWeight: 600, transition: "all .15s",
+                              background: active
+                                ? "linear-gradient(rgba(255,255,255,.95),rgba(255,255,255,.84))"
+                                : "rgba(255,255,255,.06)",
+                              border: active ? "1px solid transparent" : "1px solid rgba(255,255,255,.12)",
+                              color: active ? "#0a0b12" : "rgba(255,255,255,.65)",
+                            }}
+                          >
+                            {m.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {pickerAnatomyMuscleId && (
+                      <div style={{ fontSize: 12, color: "rgba(255,255,255,.4)", marginTop: 6 }}>
+                        {t("goals_browse_anatomy_sorted")}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div style={{
                   display: "flex", alignItems: "center", gap: 10,
                   background: SURFACE, borderRadius: 12, padding: "10px 14px",
@@ -4756,7 +5379,7 @@ export function WorkoutSessionDialog({
                 paddingBottom: "calc(32px + var(--keyboard-height, 0px))",
                 display: "flex", flexDirection: "column", gap: 8,
               }}>
-                {catalogLoading ? (
+                {catalogLoading || muscleWorkoutsLoading ? (
                   <div style={{ textAlign: "center", padding: "48px 16px", color: MUTED_FG }}>
                     {t("goals_picker_loading")}
                   </div>
@@ -4876,7 +5499,7 @@ export function WorkoutSessionDialog({
                 )}
 
                 {/* Criar exercício próprio — sempre acessível ao fim da lista */}
-                {!catalogLoading && catalogFiltered.length > 0 && (
+                {!catalogLoading && !muscleWorkoutsLoading && catalogFiltered.length > 0 && (
                   <button
                     onClick={() => {
                       setCreateName(pickerSearch.trim());
@@ -5526,6 +6149,117 @@ export function WorkoutSessionDialog({
       {/* ── CONFIRM FINISH ───────────────────────────────────── */}
       {/* Overlay inline (z-index acima do dialog) porque AlertDialog/Radix
           porta para body com z-index 50, ficando escondido atrás deste overlay 9999. */}
+      {/* ── Reordenar exercícios ────────────────────────────────
+          Camada por cima da sessão (como o picker), aberta por toque longo no
+          card ou pelo menu ⋯. */}
+      <WorkoutReorderOverlay
+        open={reorderOpen}
+        units={reorderUnits}
+        onClose={() => setReorderOpen(false)}
+        onSave={applyReorder}
+      />
+
+      {/* ── Calorias gastas ─────────────────────────────────────
+          Aberto pelo card "Calorias" da barra de stats. O input já vem
+          preenchido com a estimativa: quem não tem o número exato só confirma,
+          quem tem (relógio, painel da esteira) sobrescreve. Apagar tudo devolve
+          o controle à estimativa — ver `saveCalories`. */}
+      {caloriesModalOpen && (
+        <div
+          style={{
+            position: "absolute", inset: 0, zIndex: 82,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)",
+            paddingTop: "max(1rem, env(safe-area-inset-top))",
+            // O teclado do iOS não cobre o campo: a var é publicada pelo
+            // keyboard.ts (0px no web/fechado) e sobe o modal junto com ele.
+            paddingBottom: "calc(max(1rem, env(safe-area-inset-bottom)) + var(--keyboard-height, 0px))",
+            paddingLeft: "max(1rem, env(safe-area-inset-left))",
+            paddingRight: "max(1rem, env(safe-area-inset-right))",
+          }}
+        >
+          <div style={{
+            width: "100%", maxWidth: 320,
+            background: "linear-gradient(rgba(40,38,54,0.92),rgba(18,16,28,0.96))",
+            backdropFilter: GLASS_BLUR, WebkitBackdropFilter: GLASS_BLUR,
+            border: `1px solid ${BORDER}`,
+            borderRadius: 24,
+            padding: "24px 20px 20px",
+            boxShadow: "0 24px 64px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.1)",
+          }}>
+            <div style={{ fontSize: 17, fontWeight: 800, color: FG, marginBottom: 8 }}>
+              {t("goals_calories_title")}
+            </div>
+            <div style={{ fontSize: 13, color: MUTED_FG, marginBottom: 18, lineHeight: 1.5 }}>
+              {calorieEstimate.usedDefaultWeight
+                ? t("goals_calories_hint_no_weight")
+                : t("goals_calories_hint")}
+            </div>
+
+            <div style={{
+              display: "flex", alignItems: "center", gap: 10,
+              background: SURFACE, borderRadius: 14, padding: "12px 16px",
+              border: `1px solid ${BORDER}`,
+            }}>
+              <input
+                type="text"
+                inputMode="numeric"
+                autoFocus
+                value={caloriesDraft}
+                onChange={(e) => setCaloriesDraft(e.target.value.replace(/[^0-9.,]/g, ""))}
+                placeholder={t("goals_calories_placeholder")}
+                style={{
+                  flex: 1, minWidth: 0, background: "transparent", border: "none", outline: "none",
+                  fontSize: 20, fontWeight: 800, color: FG,
+                  fontVariantNumeric: "tabular-nums",
+                  fontFamily: "'Inter', system-ui",
+                }}
+              />
+              <span style={{ fontSize: 14, fontWeight: 700, color: MUTED_FG, flexShrink: 0 }}>
+                {t("goals_calories_unit")}
+              </span>
+            </div>
+
+            {/* Volta para a estimativa sem precisar apagar o campo na mão. */}
+            {calorieEstimate.kcal > 0 && caloriesDraft.trim() !== String(calorieEstimate.kcal) && (
+              <button
+                onClick={() => setCaloriesDraft(String(calorieEstimate.kcal))}
+                style={{
+                  marginTop: 12, background: "none", border: "none", padding: 0,
+                  cursor: "pointer", fontSize: 13, fontWeight: 700, color: PRIMARY,
+                  fontFamily: "'Inter', system-ui",
+                }}
+              >
+                {t("goals_calories_use_estimate").replace("{n}", String(calorieEstimate.kcal))}
+              </button>
+            )}
+
+            <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+              <button
+                onClick={() => setCaloriesModalOpen(false)}
+                style={{
+                  flex: 1, height: 46, borderRadius: 12,
+                  background: SURFACE, border: "none",
+                  fontSize: 14, fontWeight: 700, color: FG, cursor: "pointer",
+                }}
+              >
+                {t("goals_cancel")}
+              </button>
+              <button
+                onClick={saveCalories}
+                style={{
+                  flex: 1, height: 46, borderRadius: 12,
+                  background: ORANGE, border: "none",
+                  fontSize: 14, fontWeight: 700, color: "#fff", cursor: "pointer",
+                }}
+              >
+                {t("goals_calories_save")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {confirmOpen && (
         <div
           style={{
@@ -5553,6 +6287,33 @@ export function WorkoutSessionDialog({
             <div style={{ fontSize: 14, color: MUTED_FG, marginBottom: hasCompletedSeries ? 24 : 12, lineHeight: 1.5 }}>
               {t("goals_confirm_end_workout_desc")}
             </div>
+            {/* Última chance de corrigir o gasto calórico antes de gravar —
+                quem só descobre o número no relógio ao encerrar o treino não
+                precisa saber que o card da barra de cima era tocável. */}
+            {sessionCalories != null && hasCompletedSeries && (
+              <button
+                onClick={openCaloriesModal}
+                style={{
+                  width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
+                  gap: 10, marginBottom: 20, padding: "12px 14px", borderRadius: 12,
+                  background: SURFACE, border: `1px solid ${BORDER}`, cursor: "pointer",
+                  fontFamily: "'Inter', system-ui",
+                }}
+              >
+                <span style={{ fontSize: 13, fontWeight: 600, color: MUTED_FG }}>
+                  {t("goals_stat_calories")}
+                </span>
+                <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 15, fontWeight: 800, color: caloriesAreEstimated ? MUTED_FG : ORANGE, fontVariantNumeric: "tabular-nums" }}>
+                    {`${caloriesAreEstimated ? "~" : ""}${sessionCalories} ${t("goals_calories_unit")}`}
+                  </span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: PRIMARY }}>
+                    {t("goals_calories_edit")}
+                  </span>
+                </span>
+              </button>
+            )}
+
             {/* Aviso inline quando nenhuma série foi concluída */}
             {!hasCompletedSeries && (
               <div style={{

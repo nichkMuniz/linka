@@ -16,6 +16,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/useAuth";
+import { useLanguage } from "@/lib/language-context";
 import { hasSupabaseConfig, supabase } from "@/lib/supabase";
 import {
   addNetworkStatusListener,
@@ -87,18 +88,21 @@ function BrandHeader() {
   );
 }
 
+// `labelKey` em vez do texto: a constante é de módulo e não alcança o `t()`,
+// que só existe dentro do componente. A tradução acontece no render.
 const FITNESS_SEGMENTS = [
-  { id: "fitness", label: "🏋️ Fitness & Musculação" },
-  { id: "cardio", label: "🏃 Cardio & Corrida" },
-  { id: "diets", label: "🥗 Dietas & Nutrição" },
-  { id: "habits", label: "🎯 Hábitos & Mindfulness" },
-  { id: "yoga", label: "🧘 Yoga & Flexibilidade" },
-  { id: "sports", label: "⚽ Esportes" },
-];
+  { id: "fitness", labelKey: "login_seg_fitness" },
+  { id: "cardio", labelKey: "login_seg_cardio" },
+  { id: "diets", labelKey: "login_seg_diets" },
+  { id: "habits", labelKey: "login_seg_habits" },
+  { id: "yoga", labelKey: "login_seg_yoga" },
+  { id: "sports", labelKey: "login_seg_sports" },
+] as const;
 
 export default function Login() {
   const navigate = useNavigate();
   const { user, loading: authLoading } = useAuth();
+  const { t } = useLanguage();
 
   const [showSplash, setShowSplash] = React.useState(true);
 
@@ -341,8 +345,8 @@ export default function Login() {
           await disableBiometric();
           setBiometricEnabled(false);
           toast({
-            title: "Biometria desativada",
-            description: "Sua senha mudou. Entre com email e senha e reative a biometria.",
+            title: t("login_biometric_disabled_title"),
+            description: t("login_biometric_disabled_desc"),
             variant: "destructive",
           });
         }
@@ -410,9 +414,8 @@ export default function Login() {
   const submit = async (mode: "login" | "signup") => {
     if (!hasSupabaseConfig || !supabase) {
       toast({
-        title: "Supabase não configurado",
-        description:
-          "Defina VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY para habilitar login.",
+        title: t("login_toast_no_supabase_title"),
+        description: t("login_toast_no_supabase_desc"),
       });
       return;
     }
@@ -422,8 +425,8 @@ export default function Login() {
 
     if (trimmedPassword.length < 6) {
       toast({
-        title: "Senha fraca",
-        description: "Use uma senha com pelo menos 6 caracteres.",
+        title: t("login_toast_weak_pwd_title"),
+        description: t("login_toast_weak_pwd_min6"),
       });
       return;
     }
@@ -449,9 +452,8 @@ export default function Login() {
         if (error) {
           if (isEmailNotConfirmed(error.message)) {
             toast({
-              title: "Email não confirmado",
-              description:
-                "Seu Supabase está exigindo confirmação por email. Para desativar: Supabase Dashboard → Authentication → Providers → Email → desmarque \"Confirm email\".",
+              title: t("login_toast_email_unconfirmed_title"),
+              description: t("login_toast_email_unconfirmed_desc"),
             });
             return;
           }
@@ -463,9 +465,9 @@ export default function Login() {
             error.message.toLowerCase().includes("wrong password");
 
           toast({
-            title: "Não foi possível entrar",
+            title: t("login_toast_signin_failed_title"),
             description: isInvalidCredentials
-              ? "Email ou senha incorretos. Verifique os dados e tente novamente."
+              ? t("login_toast_bad_credentials")
               : error.message,
             variant: "destructive",
           });
@@ -482,8 +484,8 @@ export default function Login() {
         }
 
         toast({
-          title: "Login feito",
-          description: "Bem-vindo de volta.",
+          title: t("login_toast_signed_in_title"),
+          description: t("login_toast_signed_in_desc"),
         });
 
         navigate("/", { replace: true });
@@ -494,8 +496,8 @@ export default function Login() {
       if (signupStep === 1) {
         if (!isValidEmail(email)) {
           toast({
-            title: "Email inválido",
-            description: "Informe um endereço de email válido (ex: nome@dominio.com).",
+            title: t("login_toast_invalid_email_title"),
+            description: t("login_toast_invalid_email_desc"),
             variant: "destructive",
           });
           setBusy(false);
@@ -504,8 +506,8 @@ export default function Login() {
 
         if (!isStrongPassword(password)) {
           toast({
-            title: "Senha fraca",
-            description: "Sua senha deve ter ao menos 8 caracteres, 1 letra maiúscula e 1 caractere especial.",
+            title: t("login_toast_weak_pwd_title"),
+            description: t("login_toast_weak_pwd_desc"),
             variant: "destructive",
           });
           setBusy(false);
@@ -515,8 +517,8 @@ export default function Login() {
         // Check password confirmation
         if (password !== confirmPassword) {
           toast({
-            title: "Senhas não conferem",
-            description: "As senhas informadas são diferentes.",
+            title: t("login_toast_pwd_mismatch_title"),
+            description: t("login_toast_pwd_mismatch_desc"),
             variant: "destructive",
           });
           setBusy(false);
@@ -532,9 +534,9 @@ export default function Login() {
       const message = err?.message || err?.error_description || String(err);
       const isNetworkError = !navigator.onLine || message.toLowerCase().includes("fetch") || message.toLowerCase().includes("network");
       toast({
-        title: isNetworkError ? "Falha de conexão" : "Erro ao entrar",
+        title: isNetworkError ? t("login_connection_failed") : t("login_toast_signin_error"),
         description: isNetworkError
-          ? "Verifique sua conexão e tente novamente."
+          ? t("login_toast_check_connection")
           : message,
         variant: "destructive",
       });
@@ -568,30 +570,30 @@ export default function Login() {
   const handleSignupStep2 = () => {
     if (!displayName.trim()) {
       toast({
-        title: "Nome obrigatório",
-        description: "Por favor, informe seu nome.",
+        title: t("login_toast_name_required_title"),
+        description: t("login_toast_name_required_desc"),
       });
       return;
     }
     if (!username.trim()) {
       toast({
-        title: "@usuário obrigatório",
-        description: "Por favor, informe seu @.",
+        title: t("login_toast_handle_required_title"),
+        description: t("login_toast_handle_required_desc"),
       });
       return;
     }
     if (username.trim().length < 3) {
       toast({
-        title: "@usuário muito curto",
-        description: "Use um @ com pelo menos 3 caracteres.",
+        title: t("login_toast_handle_short_title"),
+        description: t("login_toast_handle_short_desc"),
         variant: "destructive",
       });
       return;
     }
     if (signupHandleExists === true) {
       toast({
-        title: "@usuário já em uso",
-        description: "Esse @ já foi escolhido por outra pessoa. Tente outro.",
+        title: t("login_toast_handle_taken_title"),
+        description: t("login_toast_handle_taken_desc"),
         variant: "destructive",
       });
       return;
@@ -608,8 +610,8 @@ export default function Login() {
   const handleCommercialDataComplete = () => {
     if (!commercialData.business_name.trim() || !commercialData.business_segment) {
       toast({
-        title: "Preencha os campos obrigatórios",
-        description: "Segmento e Nome da vitrine são obrigatórios.",
+        title: t("login_toast_required_fields_title"),
+        description: t("login_toast_required_store_desc"),
         variant: "destructive",
       });
       return;
@@ -661,12 +663,12 @@ export default function Login() {
         const signUpErrMsg = signUpError.message?.toLowerCase() || "";
         if (signUpErrMsg.includes("already registered") || signUpErrMsg.includes("user already registered")) {
           toast({
-            title: "Usuário já cadastrado",
-            description: "Este email já está sendo usado. Faça login ou use outro email.",
+            title: t("login_toast_user_exists_title"),
+            description: t("login_toast_user_exists_desc"),
             variant: "destructive",
           });
         } else {
-          toast({ title: "Não foi possível criar a conta", description: signUpError.message });
+          toast({ title: t("login_toast_signup_failed"), description: signUpError.message });
         }
         setIsCompletingSignup(false);
         return;
@@ -681,7 +683,7 @@ export default function Login() {
       );
 
       if (signInError && !isEmailNotConfirmed(signInError.message)) {
-        toast({ title: "Conta criada, mas não foi possível entrar", description: signInError.message });
+        toast({ title: t("login_toast_created_no_signin"), description: signInError.message });
         setIsCompletingSignup(false);
         return;
       }
@@ -698,8 +700,8 @@ export default function Login() {
       if (!resolvedUser) {
         console.error("Cadastro: sessão indisponível — perfil não foi gravado.");
         toast({
-          title: "Conta criada",
-          description: "Não conseguimos salvar sua foto e seus dados agora. Ajuste em Editar perfil.",
+          title: t("login_toast_account_created"),
+          description: t("login_toast_profile_not_saved"),
           variant: "destructive",
         });
       }
@@ -728,8 +730,8 @@ export default function Login() {
             // nenhuma pista de por que a foto não aparecia.
             console.error("Erro ao enviar a foto de perfil no cadastro:", uploadError);
             toast({
-              title: "Não foi possível enviar sua foto",
-              description: "Sua conta foi criada. Tente adicionar a foto em Editar perfil.",
+              title: t("login_toast_photo_failed_title"),
+              description: t("login_toast_photo_failed_desc"),
               variant: "destructive",
             });
           } else {
@@ -786,14 +788,14 @@ export default function Login() {
             // Corrida rara: o handle foi ocupado entre a validação e o envio.
             if (profileError.code === "23505" && String(profileError.message).toLowerCase().includes("handle")) {
               toast({
-                title: "@usuário já em uso",
-                description: "Esse @ acabou de ser escolhido por outra pessoa. Você pode alterá-lo depois no seu perfil.",
+                title: t("login_toast_handle_taken_title"),
+                description: t("login_toast_handle_taken_late"),
                 variant: "destructive",
               });
             } else {
               toast({
-                title: "Não foi possível salvar seu perfil",
-                description: "Sua conta foi criada. Revise seus dados em Editar perfil.",
+                title: t("login_toast_profile_failed_title"),
+                description: t("login_toast_profile_failed_desc"),
                 variant: "destructive",
               });
             }
@@ -817,8 +819,8 @@ export default function Login() {
             if (insertError) {
               console.error("Erro ao criar perfil no cadastro:", insertError);
               toast({
-                title: "Não foi possível salvar seu perfil",
-                description: "Sua conta foi criada. Revise foto e dados em Editar perfil.",
+                title: t("login_toast_profile_failed_title"),
+                description: t("login_toast_profile_failed_desc2"),
                 variant: "destructive",
               });
             }
@@ -880,9 +882,9 @@ export default function Login() {
       const message = err?.message || err?.error_description || String(err);
       const isNetworkError = !navigator.onLine || message.toLowerCase().includes("fetch") || message.toLowerCase().includes("network");
       toast({
-        title: isNetworkError ? "Falha de conexão" : "Erro ao criar conta",
+        title: isNetworkError ? t("login_connection_failed") : t("login_toast_signup_error"),
         description: isNetworkError
-          ? "Verifique sua conexão e tente novamente."
+          ? t("login_toast_check_connection")
           : message,
         variant: "destructive",
       });
@@ -895,8 +897,8 @@ export default function Login() {
   const handleResetPassword = async () => {
     if (!hasSupabaseConfig || !supabase || !forgotPasswordEmail.trim()) {
       toast({
-        title: "Email obrigatório",
-        description: "Por favor, informe seu email.",
+        title: t("login_toast_email_required_title"),
+        description: t("login_toast_email_required_desc"),
         variant: "destructive",
       });
       return;
@@ -907,8 +909,8 @@ export default function Login() {
       const emailExists = await checkEmailExistsDb(forgotPasswordEmail.trim());
       if (!emailExists) {
         toast({
-          title: "Email não encontrado",
-          description: "Não encontramos nenhuma conta com esse email. Verifique e tente novamente.",
+          title: t("login_toast_email_notfound_title"),
+          description: t("login_toast_email_notfound_desc"),
           variant: "destructive",
         });
         return;
@@ -921,7 +923,7 @@ export default function Login() {
 
       if (error) {
         toast({
-          title: "Erro ao enviar código",
+          title: t("login_toast_send_code_error"),
           description: error.message,
           variant: "destructive",
         });
@@ -931,13 +933,13 @@ export default function Login() {
       setForgotStep("otp");
       setForgotOtp("");
       toast({
-        title: "Código enviado!",
-        description: "Verifique seu email e insira o código de 6 dígitos.",
+        title: t("login_toast_code_sent_title"),
+        description: t("login_toast_code_sent_desc"),
       });
     } catch (err: any) {
       toast({
-        title: "Erro de conexão",
-        description: "Não foi possível enviar o código. Tente novamente.",
+        title: t("login_toast_connection_error"),
+        description: t("login_toast_send_code_retry"),
         variant: "destructive",
       });
     } finally {
@@ -956,8 +958,8 @@ export default function Login() {
       });
       if (error) {
         toast({
-          title: "Código inválido",
-          description: "Verifique o código e tente novamente.",
+          title: t("login_toast_invalid_code_title"),
+          description: t("login_toast_invalid_code_desc"),
           variant: "destructive",
         });
         return;
@@ -968,7 +970,7 @@ export default function Login() {
       setForgotOtp("");
       setShowNewPassword(true);
     } catch {
-      toast({ title: "Erro de conexão", description: "Tente novamente.", variant: "destructive" });
+      toast({ title: t("login_toast_connection_error"), description: t("login_toast_retry"), variant: "destructive" });
     } finally {
       setIsResettingPassword(false);
     }
@@ -978,16 +980,16 @@ export default function Login() {
     if (!supabase) return;
     if (!isStrongPassword(newPassword)) {
       toast({
-        title: "Senha fraca",
-        description: "Sua senha deve ter ao menos 8 caracteres, 1 letra maiúscula e 1 caractere especial.",
+        title: t("login_toast_weak_pwd_title"),
+        description: t("login_toast_weak_pwd_desc"),
         variant: "destructive",
       });
       return;
     }
     if (newPassword !== newPasswordConfirm) {
       toast({
-        title: "Senhas não conferem",
-        description: "As senhas informadas são diferentes.",
+        title: t("login_toast_pwd_mismatch_title"),
+        description: t("login_toast_pwd_mismatch_desc"),
         variant: "destructive",
       });
       return;
@@ -997,7 +999,7 @@ export default function Login() {
       const { error } = await supabase.auth.updateUser({ password: newPassword });
       if (error) {
         toast({
-          title: "Erro ao redefinir senha",
+          title: t("login_toast_reset_error"),
           description: error.message,
           variant: "destructive",
         });
@@ -1005,8 +1007,8 @@ export default function Login() {
       }
       await supabase.auth.signOut();
       toast({
-        title: "Senha redefinida!",
-        description: "Faça login com sua nova senha.",
+        title: t("login_toast_reset_done_title"),
+        description: t("login_toast_reset_done_desc"),
       });
       setShowNewPassword(false);
       setNewPassword("");
@@ -1014,8 +1016,8 @@ export default function Login() {
       setTab("login");
     } catch {
       toast({
-        title: "Erro de conexão",
-        description: "Não foi possível redefinir a senha. Tente novamente.",
+        title: t("login_toast_connection_error"),
+        description: t("login_toast_reset_retry"),
         variant: "destructive",
       });
     } finally {
@@ -1035,8 +1037,8 @@ export default function Login() {
 
   const handleSignupComplete = () => {
     toast({
-      title: "Conta criada com sucesso!",
-      description: "Bem-vindo ao LinKa!",
+      title: t("login_toast_signup_success_title"),
+      description: t("login_toast_signup_success_desc"),
     });
 
     // Flag: new user should land on Descobrir tab
@@ -1072,11 +1074,11 @@ export default function Login() {
         <Card className="border-border/60 relative">
           {!showForgotPassword && !showNewPassword && (
             <CardHeader className="space-y-2">
-              <CardTitle className="text-base">Acessar conta</CardTitle>
+              <CardTitle className="text-base">{t("login_card_title")}</CardTitle>
               <CardDescription>
                 {hasSupabaseConfig
-                  ? "Use email e senha."
-                  : "Supabase ainda não foi configurado neste projeto."}
+                  ? t("login_card_desc")
+                  : t("login_no_supabase_desc")}
               </CardDescription>
             </CardHeader>
           )}
@@ -1085,19 +1087,19 @@ export default function Login() {
             {showNewPassword ? (
               <div className="grid gap-4">
                 <div className="grid gap-1">
-                  <p className="text-sm font-semibold">Redefinir senha</p>
-                  <p className="text-xs text-muted-foreground">Crie uma nova senha para sua conta.</p>
+                  <p className="text-sm font-semibold">{t("login_reset_title")}</p>
+                  <p className="text-xs text-muted-foreground">{t("login_reset_desc")}</p>
                 </div>
 
                 <div className="grid gap-2">
-                  <Label htmlFor="new_password">Nova senha</Label>
+                  <Label htmlFor="new_password">{t("login_new_password")}</Label>
                   <div className="relative">
                     <Input
                       id="new_password"
                       type={showNewPwd ? "text" : "password"}
                       value={newPassword}
                       onChange={(e) => setNewPassword(e.target.value)}
-                      placeholder="Crie uma senha forte"
+                      placeholder={t("login_password_placeholder")}
                       className="pr-10"
                     />
                     <button
@@ -1111,9 +1113,9 @@ export default function Login() {
                   {newPassword.length > 0 && (
                     <ul className="grid gap-1 mt-1">
                       {[
-                        { ok: newPassword.length >= 8, label: "Mínimo de 8 caracteres" },
-                        { ok: /[A-Z]/.test(newPassword), label: "Pelo menos 1 letra maiúscula" },
-                        { ok: /[^a-zA-Z0-9]/.test(newPassword), label: "Pelo menos 1 caractere especial (!@#$...)" },
+                        { ok: newPassword.length >= 8, label: t("login_pwd_rule_min") },
+                        { ok: /[A-Z]/.test(newPassword), label: t("login_pwd_rule_upper") },
+                        { ok: /[^a-zA-Z0-9]/.test(newPassword), label: t("login_pwd_rule_special") },
                       ].map(({ ok, label }) => (
                         <li key={label} className={`flex items-center gap-1.5 text-xs ${ok ? "text-green-600" : "text-muted-foreground"}`}>
                           {ok ? <Check className="h-3 w-3 shrink-0" /> : <span className="h-3 w-3 shrink-0 rounded-full border border-current inline-block" />}
@@ -1125,14 +1127,14 @@ export default function Login() {
                 </div>
 
                 <div className="grid gap-2">
-                  <Label htmlFor="new_password_confirm">Confirmar nova senha</Label>
+                  <Label htmlFor="new_password_confirm">{t("login_confirm_new_password")}</Label>
                   <div className="relative">
                     <Input
                       id="new_password_confirm"
                       type={showNewPwdConfirm ? "text" : "password"}
                       value={newPasswordConfirm}
                       onChange={(e) => setNewPasswordConfirm(e.target.value)}
-                      placeholder="Repita a nova senha"
+                      placeholder={t("login_repeat_new_password")}
                       className="pr-10"
                     />
                     <button
@@ -1144,10 +1146,10 @@ export default function Login() {
                     </button>
                   </div>
                   {newPasswordConfirm.length > 0 && newPassword !== newPasswordConfirm && (
-                    <p className="text-xs text-red-600">❌ As senhas não conferem</p>
+                    <p className="text-xs text-red-600">{t("login_passwords_mismatch")}</p>
                   )}
                   {newPasswordConfirm.length > 0 && newPassword === newPasswordConfirm && isStrongPassword(newPassword) && (
-                    <p className="text-xs text-green-600">✓ Senhas conferem</p>
+                    <p className="text-xs text-green-600">{t("login_passwords_match")}</p>
                   )}
                 </div>
 
@@ -1156,16 +1158,16 @@ export default function Login() {
                   disabled={!isStrongPassword(newPassword) || newPassword !== newPasswordConfirm || isSavingNewPassword}
                   onClick={handleSaveNewPassword}
                 >
-                  {isSavingNewPassword ? "Salvando..." : "Salvar nova senha"}
+                  {isSavingNewPassword ? t("login_saving") : t("login_save_new_password")}
                 </Button>
               </div>
             ) : !networkStatus.isOnline ? (
               <div className="rounded-2xl border border-red-200/30 bg-red-50/20 p-4 text-sm text-red-700 dark:border-red-900/30 dark:bg-red-950/20 dark:text-red-200">
-                Você parece estar offline. Verifique sua conexão com a internet.
+                {t("login_offline_banner")}
               </div>
             ) : !networkStatus.isSupabaseReachable ? (
               <div className="rounded-2xl border border-yellow-200/30 bg-yellow-50/20 p-4 text-sm text-yellow-700 dark:border-yellow-900/30 dark:bg-yellow-950/20 dark:text-yellow-200">
-                Não foi possível alcançar o Supabase. Pode ser um problema de CORS ou conectividade. Tente novamente em alguns momentos.
+                {t("login_supabase_unreachable")}
               </div>
             ) : null}
 
@@ -1173,7 +1175,7 @@ export default function Login() {
 
             {!hasSupabaseConfig ? (
               <div className="rounded-2xl border border-border/60 bg-muted/20 p-4 text-sm text-muted-foreground">
-                Para habilitar login, defina as variáveis:
+                {t("login_env_hint")}
                 <div className="mt-2 grid gap-1 font-mono text-[12px]">
                   <div>VITE_SUPABASE_URL</div>
                   <div>VITE_SUPABASE_ANON_KEY</div>
@@ -1183,13 +1185,13 @@ export default function Login() {
 
             {authLoading ? (
               <div className="rounded-2xl border border-border/60 bg-muted/20 p-4 text-sm text-muted-foreground">
-                Verificando sessão...
+                {t("login_checking_session")}
               </div>
             ) : user && !isCompletingSignup ? (
               <div className="grid gap-3">
                 <div className="rounded-2xl border border-border/60 bg-muted/20 p-4">
                   <div className="text-sm font-semibold">
-                    Você já está logado
+                    {t("login_already_signed_in")}
                   </div>
                   <div className="mt-1 text-xs text-muted-foreground">
                     {user.email}
@@ -1202,7 +1204,7 @@ export default function Login() {
                     className="rounded-full"
                     onClick={() => navigate("/", { replace: true })}
                   >
-                    Ir para o app
+                    {t("login_go_to_app")}
                   </Button>
                   <Button
                     type="button"
@@ -1216,24 +1218,23 @@ export default function Login() {
                         const { error } = await supabase.auth.signOut();
                         if (error) {
                           toast({
-                            title: "Não foi possível sair",
+                            title: t("login_signout_error"),
                             description: error.message,
                           });
                           return;
                         }
-                        toast({ title: "Você saiu" });
+                        toast({ title: t("login_signed_out") });
                       } catch {
                         toast({
-                          title: "Falha de conexão",
-                          description:
-                            "Não foi possível conectar ao Supabase. Confira a URL e tente novamente.",
+                          title: t("login_connection_failed"),
+                          description: t("login_supabase_connect_error"),
                         });
                       } finally {
                         setBusy(false);
                       }
                     }}
                   >
-                    Sair
+                    {t("login_sign_out")}
                   </Button>
                 </div>
               </div>
@@ -1258,11 +1259,11 @@ export default function Login() {
                     <ArrowLeft className="h-5 w-5" />
                   </button>
                   <div>
-                    <h2 className="text-lg font-semibold">Redefinir Senha</h2>
+                    <h2 className="text-lg font-semibold">{t("login_forgot_title")}</h2>
                     <p className="text-xs text-muted-foreground">
                       {forgotStep === "email"
-                        ? "Informe seu email para receber um código"
-                        : `Código enviado para ${forgotPasswordEmail}`}
+                        ? t("login_forgot_email_hint")
+                        : t("login_forgot_code_sent_to").replace("{email}", forgotPasswordEmail)}
                     </p>
                   </div>
                 </div>
@@ -1270,18 +1271,18 @@ export default function Login() {
                 {forgotStep === "email" ? (
                   <>
                     <div className="grid gap-2">
-                      <Label htmlFor="forgot_email">Email</Label>
+                      <Label htmlFor="forgot_email">{t("login_email")}</Label>
                       <Input
                         id="forgot_email"
                         type="email"
                         value={forgotPasswordEmail}
                         onChange={(e) => setForgotPasswordEmail(e.target.value)}
-                        placeholder="voce@exemplo.com"
+                        placeholder={t("login_email_placeholder")}
                         autoComplete="email"
                         className={forgotPasswordEmail.length > 0 && !isValidEmail(forgotPasswordEmail) ? "border-red-500" : ""}
                       />
                       {forgotPasswordEmail.length > 0 && !isValidEmail(forgotPasswordEmail) && (
-                        <p className="text-xs text-red-600">❌ Informe um email válido (ex: nome@dominio.com)</p>
+                        <p className="text-xs text-red-600">{t("login_invalid_email_inline")}</p>
                       )}
                     </div>
                     <Button
@@ -1290,13 +1291,13 @@ export default function Login() {
                       onClick={handleResetPassword}
                       disabled={isResettingPassword || !isValidEmail(forgotPasswordEmail)}
                     >
-                      {isResettingPassword ? "Enviando..." : "Enviar código"}
+                      {isResettingPassword ? t("login_sending") : t("login_send_code")}
                     </Button>
                   </>
                 ) : (
                   <>
                     <div className="grid gap-2">
-                      <Label htmlFor="forgot_otp">Código de 6 dígitos</Label>
+                      <Label htmlFor="forgot_otp">{t("login_otp_label")}</Label>
                       <Input
                         id="forgot_otp"
                         type="text"
@@ -1315,14 +1316,14 @@ export default function Login() {
                       onClick={handleVerifyOtp}
                       disabled={isResettingPassword || forgotOtp.length < 6 || forgotOtp.length > 8}
                     >
-                      {isResettingPassword ? "Verificando..." : "Verificar código"}
+                      {isResettingPassword ? t("login_verifying") : t("login_verify_code")}
                     </Button>
                     <button
                       type="button"
                       className="text-xs text-muted-foreground underline w-full text-center"
                       onClick={() => { setForgotStep("email"); setForgotOtp(""); }}
                     >
-                      Reenviar código
+                      {t("login_resend_code")}
                     </button>
                   </>
                 )}
@@ -1334,13 +1335,13 @@ export default function Login() {
                     value="login"
                     className="rounded-full rounded-full data-[state=active]:bg-brand-gradient data-[state=active]:text-white data-[state=active]:shadow-md"
                   >
-                    Entrar
+                    {t("login_tab_signin")}
                   </TabsTrigger>
                   <TabsTrigger
                     value="signup"
                     className="rounded-full rounded-full data-[state=active]:bg-brand-gradient data-[state=active]:text-white data-[state=active]:shadow-md"
                   >
-                    Criar conta
+                    {t("login_tab_signup")}
                   </TabsTrigger>
                 </TabsList>
 
@@ -1353,23 +1354,23 @@ export default function Login() {
                     }}
                   >
                     <div className="grid gap-2">
-                      <Label htmlFor="login_email">Email</Label>
+                      <Label htmlFor="login_email">{t("login_email")}</Label>
                       <Input
                         id="login_email"
                         type="text"
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
-                        placeholder="voce@exemplo.com"
+                        placeholder={t("login_email_placeholder")}
                         autoComplete="email"
                         className={email.length > 0 && !isValidEmail(email) ? "border-red-500" : ""}
                       />
                       {email.length > 0 && !isValidEmail(email) && (
-                        <p className="text-xs text-red-600">❌ Informe um email válido (ex: nome@dominio.com)</p>
+                        <p className="text-xs text-red-600">{t("login_invalid_email_inline")}</p>
                       )}
                     </div>
 
                     <div className="grid gap-2">
-                      <Label htmlFor="login_password">Senha</Label>
+                      <Label htmlFor="login_password">{t("login_password")}</Label>
                       <div className="relative">
                         <Input
                           id="login_password"
@@ -1384,7 +1385,7 @@ export default function Login() {
                           type="button"
                           onClick={() => setShowPassword((v) => !v)}
                           className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                          aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
+                          aria-label={showPassword ? t("login_hide_password") : t("login_show_password")}
                         >
                           {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                         </button>
@@ -1394,7 +1395,7 @@ export default function Login() {
                         className="text-xs font-semibold text-brand hover:underline text-left"
                         onClick={() => setShowForgotPassword(true)}
                       >
-                        Esqueci a senha
+                        {t("login_forgot_link")}
                       </button>
                     </div>
 
@@ -1403,7 +1404,7 @@ export default function Login() {
                       className="mt-1 rounded-full"
                       disabled={!canSubmit}
                     >
-                      {busy ? "Entrando..." : "Entrar"}
+                      {busy ? t("login_signing_in") : t("login_tab_signin")}
                     </Button>
 
                     {biometricSupport.available && biometricEnabled && (
@@ -1415,7 +1416,9 @@ export default function Login() {
                         onClick={handleBiometricLogin}
                       >
                         <ScanFace className="h-4 w-4" />
-                        {biometricBusy ? "Autenticando..." : `Entrar com ${biometricSupport.label}`}
+                        {biometricBusy
+                          ? t("login_authenticating")
+                          : t("login_signin_with").replace("{method}", biometricSupport.label)}
                       </Button>
                     )}
 
@@ -1427,7 +1430,7 @@ export default function Login() {
                         setSignupStep(1);
                       }}
                     >
-                      Ainda não tem conta? Cadastre-se
+                      {t("login_no_account_cta")}
                     </button>
                   </form>
                 </TabsContent>
@@ -1440,7 +1443,7 @@ export default function Login() {
                     return (
                       <div className="mb-4 space-y-1.5">
                         <div className="flex justify-between text-xs text-muted-foreground">
-                          <span>Etapa {step} de {totalSteps}</span>
+                          <span>{t("login_step_of").replace("{step}", String(step)).replace("{total}", String(totalSteps))}</span>
                           <span>{Math.round((step / totalSteps) * 100)}%</span>
                         </div>
                         <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
@@ -1463,13 +1466,13 @@ export default function Login() {
                       }}
                     >
                       <div className="grid gap-2">
-                        <Label htmlFor="signup_email">Email</Label>
+                        <Label htmlFor="signup_email">{t("login_email")}</Label>
                         <Input
                           id="signup_email"
                           type="text"
                           value={email}
                           onChange={(e) => { setEmail(e.target.value); setSignupEmailExists(null); }}
-                          placeholder="voce@exemplo.com"
+                          placeholder={t("login_email_placeholder")}
                           autoComplete="email"
                           className={
                             (email.length > 0 && !isValidEmail(email)) || signupEmailExists === true
@@ -1480,28 +1483,28 @@ export default function Login() {
                           }
                         />
                         {email.length > 0 && !isValidEmail(email) && (
-                          <p className="text-xs text-red-600">❌ Informe um email válido (ex: nome@dominio.com)</p>
+                          <p className="text-xs text-red-600">{t("login_invalid_email_inline")}</p>
                         )}
                         {isValidEmail(email) && checkingSignupEmail && (
-                          <p className="text-xs text-muted-foreground">Verificando email...</p>
+                          <p className="text-xs text-muted-foreground">{t("login_checking_email")}</p>
                         )}
                         {isValidEmail(email) && !checkingSignupEmail && signupEmailExists === true && (
-                          <p className="text-xs text-red-600">❌ Este email já está cadastrado. Faça login ou recupere sua senha.</p>
+                          <p className="text-xs text-red-600">{t("login_email_taken_inline")}</p>
                         )}
                         {isValidEmail(email) && !checkingSignupEmail && signupEmailExists === false && (
-                          <p className="text-xs text-green-600">✓ Email disponível</p>
+                          <p className="text-xs text-green-600">{t("login_email_available")}</p>
                         )}
                       </div>
 
                       <div className="grid gap-2">
-                        <Label htmlFor="signup_password">Senha</Label>
+                        <Label htmlFor="signup_password">{t("login_password")}</Label>
                         <div className="relative">
                           <Input
                             id="signup_password"
                             type={showPassword ? "text" : "password"}
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
-                            placeholder="Crie uma senha forte"
+                            placeholder={t("login_password_placeholder")}
                             autoComplete="new-password"
                             className="pr-10 [&::-ms-reveal]:hidden [&::-webkit-credentials-auto-fill-button]:hidden"
                           />
@@ -1509,7 +1512,7 @@ export default function Login() {
                             type="button"
                             onClick={() => setShowPassword((v) => !v)}
                             className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                            aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
+                            aria-label={showPassword ? t("login_hide_password") : t("login_show_password")}
                           >
                             {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                           </button>
@@ -1517,9 +1520,9 @@ export default function Login() {
                         {password.length > 0 && (
                           <ul className="grid gap-1 mt-1">
                             {[
-                              { ok: password.length >= 8, label: "Mínimo de 8 caracteres" },
-                              { ok: /[A-Z]/.test(password), label: "Pelo menos 1 letra maiúscula" },
-                              { ok: /[^a-zA-Z0-9]/.test(password), label: "Pelo menos 1 caractere especial (!@#$...)" },
+                              { ok: password.length >= 8, label: t("login_pwd_rule_min") },
+                              { ok: /[A-Z]/.test(password), label: t("login_pwd_rule_upper") },
+                              { ok: /[^a-zA-Z0-9]/.test(password), label: t("login_pwd_rule_special") },
                             ].map(({ ok, label }) => (
                               <li key={label} className={`flex items-center gap-1.5 text-xs ${ok ? "text-green-600" : "text-muted-foreground"}`}>
                                 {ok ? <Check className="h-3 w-3 shrink-0" /> : <span className="h-3 w-3 shrink-0 rounded-full border border-current inline-block" />}
@@ -1531,14 +1534,14 @@ export default function Login() {
                       </div>
 
                       <div className="grid gap-2">
-                        <Label htmlFor="signup_confirm_password">Confirmar Senha</Label>
+                        <Label htmlFor="signup_confirm_password">{t("login_confirm_password")}</Label>
                         <div className="relative">
                           <Input
                             id="signup_confirm_password"
                             type={showConfirmPassword ? "text" : "password"}
                             value={confirmPassword}
                             onChange={(e) => setConfirmPassword(e.target.value)}
-                            placeholder="Confirme sua senha"
+                            placeholder={t("login_confirm_password_placeholder")}
                             autoComplete="new-password"
                             className={`pr-10 [&::-ms-reveal]:hidden [&::-webkit-credentials-auto-fill-button]:hidden ${confirmPassword && password !== confirmPassword ? "border-red-500" : ""}`}
                           />
@@ -1546,16 +1549,16 @@ export default function Login() {
                             type="button"
                             onClick={() => setShowConfirmPassword((v) => !v)}
                             className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                            aria-label={showConfirmPassword ? "Ocultar confirmação" : "Mostrar confirmação"}
+                            aria-label={showConfirmPassword ? t("login_hide_confirm") : t("login_show_confirm")}
                           >
                             {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                           </button>
                         </div>
                         {confirmPassword && password !== confirmPassword && (
-                          <p className="text-xs text-red-600">❌ As senhas não conferem</p>
+                          <p className="text-xs text-red-600">{t("login_passwords_mismatch")}</p>
                         )}
                         {confirmPassword && password === confirmPassword && isStrongPassword(password) && (
-                          <p className="text-xs text-green-600">✓ Senhas conferem</p>
+                          <p className="text-xs text-green-600">{t("login_passwords_match")}</p>
                         )}
                       </div>
 
@@ -1564,7 +1567,7 @@ export default function Login() {
                         className="mt-2 rounded-full"
                         disabled={!isValidEmail(email) || signupEmailExists !== false || checkingSignupEmail || !isStrongPassword(password) || password !== confirmPassword || busy}
                       >
-                        {busy ? "Validando..." : "Próximo"}
+                        {busy ? t("login_validating") : t("login_next")}
                       </Button>
                     </form>
                   )}
@@ -1574,19 +1577,19 @@ export default function Login() {
                     <div className="grid gap-3">
 
                       <div className="grid gap-2">
-                        <Label htmlFor="signup_name">Nome completo</Label>
+                        <Label htmlFor="signup_name">{t("login_full_name")}</Label>
                         <Input
                           id="signup_name"
                           type="text"
                           value={displayName}
                           onChange={(e) => setDisplayName(e.target.value)}
-                          placeholder="Seu nome completo"
+                          placeholder={t("login_full_name_placeholder")}
                           autoComplete="name"
                         />
                       </div>
 
                       <div className="grid gap-2">
-                        <Label htmlFor="signup_username">@ de usuário</Label>
+                        <Label htmlFor="signup_username">{t("login_username_label")}</Label>
                         <div className="relative">
                           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm select-none">@</span>
                           <Input
@@ -1598,7 +1601,7 @@ export default function Login() {
                               setUsername(val);
                               setSignupHandleExists(null);
                             }}
-                            placeholder="seunome"
+                            placeholder={t("login_username_placeholder")}
                             autoComplete="off"
                             className={`pl-7 ${
                               signupHandleExists === true
@@ -1610,27 +1613,27 @@ export default function Login() {
                             maxLength={30}
                           />
                         </div>
-                        <p className="text-xs text-muted-foreground">Apenas letras, números, _ e . Sem espaços.</p>
+                        <p className="text-xs text-muted-foreground">{t("login_username_hint")}</p>
                         {username.trim().length > 0 && username.trim().length < 3 && (
-                          <p className="text-xs text-muted-foreground">O @ deve ter ao menos 3 caracteres.</p>
+                          <p className="text-xs text-muted-foreground">{t("login_username_too_short_hint")}</p>
                         )}
                         {username.trim().length >= 3 && checkingSignupHandle && (
-                          <p className="text-xs text-muted-foreground">Verificando disponibilidade...</p>
+                          <p className="text-xs text-muted-foreground">{t("login_checking_availability")}</p>
                         )}
                         {username.trim().length >= 3 && !checkingSignupHandle && signupHandleExists === true && (
-                          <p className="text-xs text-red-600">❌ Esse @ já está em uso. Escolha outro.</p>
+                          <p className="text-xs text-red-600">{t("login_username_taken_inline")}</p>
                         )}
                         {username.trim().length >= 3 && !checkingSignupHandle && signupHandleExists === false && (
-                          <p className="text-xs text-green-600">✓ @ disponível</p>
+                          <p className="text-xs text-green-600">{t("login_username_available")}</p>
                         )}
                       </div>
 
                       <div className="grid gap-2">
-                        <Label>Foto de perfil <span className="text-xs text-muted-foreground font-normal">(opcional)</span></Label>
+                        <Label>{t("login_profile_photo")} <span className="text-xs text-muted-foreground font-normal">{t("login_optional")}</span></Label>
                         <div className="flex items-center gap-3">
                           {photoPreview ? (
                             <div className="relative w-16 h-16 shrink-0">
-                              <img src={photoPreview} alt="Preview" className="w-16 h-16 rounded-full object-cover border-2 border-border/60" />
+                              <img src={photoPreview} alt={t("login_photo_preview_alt")} className="w-16 h-16 rounded-full object-cover border-2 border-border/60" />
                               <button
                                 type="button"
                                 onClick={() => { setPhotoFile(null); setPhotoPreview(""); }}
@@ -1646,7 +1649,7 @@ export default function Login() {
                           )}
                           <label className="relative flex-1">
                             <Button type="button" variant="outline" className="rounded-full w-full" asChild>
-                              <span>{photoFile ? "Mudar foto" : "Adicionar foto"}</span>
+                              <span>{photoFile ? t("login_change_photo") : t("login_add_photo")}</span>
                             </Button>
                             <input type="file" accept="image/*" onChange={handlePhotoChange} className="hidden" />
                           </label>
@@ -1654,12 +1657,12 @@ export default function Login() {
                       </div>
 
                       <div className="grid gap-2">
-                        <Label htmlFor="signup_bio">Bio <span className="text-xs text-muted-foreground font-normal">(opcional)</span></Label>
+                        <Label htmlFor="signup_bio">{t("login_bio")} <span className="text-xs text-muted-foreground font-normal">{t("login_optional")}</span></Label>
                         <Textarea
                           id="signup_bio"
                           value={bio}
                           onChange={(e) => setBio(e.target.value)}
-                          placeholder="Conte um pouco sobre você..."
+                          placeholder={t("login_bio_placeholder")}
                           className="min-h-16 resize-none"
                         />
                       </div>
@@ -1674,9 +1677,9 @@ export default function Login() {
                         />
                         <div className="flex-1">
                           <Label htmlFor="commercial_profile" className="font-medium cursor-pointer">
-                            Tenho perfil comercial
+                            {t("login_has_commercial")}
                           </Label>
-                          <p className="text-xs text-muted-foreground">Academias, nutricionistas, personal trainers, etc</p>
+                          <p className="text-xs text-muted-foreground">{t("login_commercial_hint")}</p>
                         </div>
                       </div>
 
@@ -1687,7 +1690,7 @@ export default function Login() {
                           className="rounded-full flex-1"
                           onClick={() => setSignupStep(1)}
                         >
-                          Voltar
+                          {t("login_back")}
                         </Button>
                         <Button
                           type="button"
@@ -1700,7 +1703,7 @@ export default function Login() {
                             signupHandleExists !== false
                           }
                         >
-                          Próximo
+                          {t("login_next")}
                         </Button>
                       </div>
 
@@ -1710,25 +1713,25 @@ export default function Login() {
                         className="text-xs text-muted-foreground hover:text-foreground text-center transition-colors"
                         onClick={() => {
                           if (!displayName.trim()) {
-                            toast({ title: "Nome obrigatório", description: "Por favor, informe seu nome.", variant: "destructive" });
+                            toast({ title: t("login_toast_name_required_title"), description: t("login_toast_name_required_desc"), variant: "destructive" });
                             return;
                           }
                           if (!username.trim()) {
-                            toast({ title: "@usuário obrigatório", description: "Por favor, informe seu @.", variant: "destructive" });
+                            toast({ title: t("login_toast_handle_required_title"), description: t("login_toast_handle_required_desc"), variant: "destructive" });
                             return;
                           }
                           if (username.trim().length < 3) {
-                            toast({ title: "@usuário muito curto", description: "Use um @ com pelo menos 3 caracteres.", variant: "destructive" });
+                            toast({ title: t("login_toast_handle_short_title"), description: t("login_toast_handle_short_desc"), variant: "destructive" });
                             return;
                           }
                           if (signupHandleExists === true) {
-                            toast({ title: "@usuário já em uso", description: "Esse @ já foi escolhido por outra pessoa. Tente outro.", variant: "destructive" });
+                            toast({ title: t("login_toast_handle_taken_title"), description: t("login_toast_handle_taken_desc"), variant: "destructive" });
                             return;
                           }
                           setSignupStep(2.8);
                         }}
                       >
-                        Personalizar foto e bio depois →
+                        {t("login_skip_photo_bio")}
                       </button>
                     </div>
                   )}
@@ -1738,12 +1741,12 @@ export default function Login() {
                     <div className="grid gap-4">
                       {/* Wizard header */}
                       <div className="text-center space-y-1">
-                        <h3 className="font-semibold text-sm">Perfil Comercial</h3>
+                        <h3 className="font-semibold text-sm">{t("login_commercial_title")}</h3>
                         <p className="text-xs text-muted-foreground">
-                          {commercialWizardStep === 1 && "Informações principais do seu negócio"}
-                          {commercialWizardStep === 2 && "Como seus clientes podem te contatar?"}
-                          {commercialWizardStep === 3 && "Presença online (opcional)"}
-                          {commercialWizardStep === 4 && "Seus planos e serviços (opcional)"}
+                          {commercialWizardStep === 1 && t("login_commercial_step1")}
+                          {commercialWizardStep === 2 && t("login_commercial_step2")}
+                          {commercialWizardStep === 3 && t("login_commercial_step3")}
+                          {commercialWizardStep === 4 && t("login_commercial_step4")}
                         </p>
                       </div>
 
@@ -1766,7 +1769,7 @@ export default function Login() {
                       {commercialWizardStep === 1 && (
                         <div className="grid gap-3">
                           <div className="grid gap-2">
-                            <Label>Segmento do negócio *</Label>
+                            <Label>{t("login_business_segment")}</Label>
                             <select
                               value={commercialData.business_segment}
                               onChange={(e) =>
@@ -1774,37 +1777,37 @@ export default function Login() {
                               }
                               className="w-full px-3 py-2 rounded-lg border border-border/60 bg-background text-foreground"
                             >
-                              <option value="">Selecione um segmento</option>
-                              <option value="academia">Academia / Fitness</option>
-                              <option value="personal_trainer">Personal Trainer</option>
-                              <option value="nutricionista">Nutricionista</option>
-                              <option value="psicologo">Psicólogo</option>
-                              <option value="fisioterapeuta">Fisioterapeuta</option>
-                              <option value="coach">Coach</option>
-                              <option value="outros">Outros</option>
+                              <option value="">{t("login_select_segment")}</option>
+                              <option value="academia">{t("login_seg_gym")}</option>
+                              <option value="personal_trainer">{t("login_seg_personal")}</option>
+                              <option value="nutricionista">{t("login_seg_nutritionist")}</option>
+                              <option value="psicologo">{t("login_seg_psychologist")}</option>
+                              <option value="fisioterapeuta">{t("login_seg_physio")}</option>
+                              <option value="coach">{t("login_seg_coach")}</option>
+                              <option value="outros">{t("login_seg_other")}</option>
                             </select>
                           </div>
 
                           <div className="grid gap-2">
-                            <Label>Nome do negócio *</Label>
+                            <Label>{t("login_business_name")}</Label>
                             <Input
                               value={commercialData.business_name}
                               onChange={(e) =>
                                 setCommercialData({ ...commercialData, business_name: e.target.value })
                               }
-                              placeholder="Ex: Academia Força Total"
+                              placeholder={t("login_business_name_placeholder")}
                             />
                           </div>
 
                           <div className="grid gap-2">
                             <Label>
-                              Logo do negócio{" "}
-                              <span className="text-xs text-muted-foreground font-normal">(opcional)</span>
+                              {t("login_business_logo")}{" "}
+                              <span className="text-xs text-muted-foreground font-normal">{t("login_optional")}</span>
                             </Label>
                             <div className="flex items-center gap-3">
                               {businessLogoPreview ? (
                                 <div className="relative w-16 h-16 shrink-0">
-                                  <img src={businessLogoPreview} alt="Logo preview" className="w-16 h-16 rounded-lg object-cover border-2 border-border/60" />
+                                  <img src={businessLogoPreview} alt={t("login_logo_preview_alt")} className="w-16 h-16 rounded-lg object-cover border-2 border-border/60" />
                                   <button
                                     type="button"
                                     onClick={() => { setBusinessLogoFile(null); setBusinessLogoPreview(""); }}
@@ -1820,7 +1823,7 @@ export default function Login() {
                               )}
                               <label className="relative flex-1">
                                 <Button type="button" variant="outline" className="rounded-full w-full" asChild>
-                                  <span>{businessLogoFile ? "Mudar logo" : "Adicionar logo"}</span>
+                                  <span>{businessLogoFile ? t("login_change_logo") : t("login_add_logo")}</span>
                                 </Button>
                                 <input type="file" accept="image/*" onChange={handleBusinessLogoChange} className="hidden" />
                               </label>
@@ -1829,15 +1832,15 @@ export default function Login() {
 
                           <div className="grid gap-2">
                             <Label>
-                              Descrição{" "}
-                              <span className="text-xs text-muted-foreground font-normal">(opcional)</span>
+                              {t("login_description")}{" "}
+                              <span className="text-xs text-muted-foreground font-normal">{t("login_optional")}</span>
                             </Label>
                             <Textarea
                               value={commercialData.business_description}
                               onChange={(e) =>
                                 setCommercialData({ ...commercialData, business_description: e.target.value })
                               }
-                              placeholder="Conte sobre seu negócio, diferenciais, etc..."
+                              placeholder={t("login_business_desc_placeholder")}
                               className="min-h-20 resize-none"
                             />
                           </div>
@@ -1849,7 +1852,7 @@ export default function Login() {
                               className="rounded-full flex-1"
                               onClick={() => setSignupStep(2)}
                             >
-                              Voltar
+                              {t("login_back")}
                             </Button>
                             <Button
                               type="button"
@@ -1857,8 +1860,8 @@ export default function Login() {
                               onClick={() => {
                                 if (!commercialData.business_name.trim() || !commercialData.business_segment) {
                                   toast({
-                                    title: "Preencha os campos obrigatórios",
-                                    description: "Segmento e Nome do negócio são obrigatórios.",
+                                    title: t("login_toast_required_fields_title"),
+                                    description: t("login_toast_required_business_desc"),
                                     variant: "destructive",
                                   });
                                   return;
@@ -1867,7 +1870,7 @@ export default function Login() {
                               }}
                               disabled={!commercialData.business_name.trim() || !commercialData.business_segment}
                             >
-                              Próximo
+                              {t("login_next")}
                             </Button>
                           </div>
                         </div>
@@ -1878,8 +1881,8 @@ export default function Login() {
                         <div className="grid gap-3">
                           <div className="grid gap-2">
                             <Label>
-                              Telefone comercial{" "}
-                              <span className="text-xs text-muted-foreground font-normal">(opcional)</span>
+                              {t("login_business_phone")}{" "}
+                              <span className="text-xs text-muted-foreground font-normal">{t("login_optional")}</span>
                             </Label>
                             <Input
                               type="tel"
@@ -1895,8 +1898,8 @@ export default function Login() {
 
                           <div className="grid gap-2">
                             <Label>
-                              Email comercial{" "}
-                              <span className="text-xs text-muted-foreground font-normal">(opcional)</span>
+                              {t("login_business_email")}{" "}
+                              <span className="text-xs text-muted-foreground font-normal">{t("login_optional")}</span>
                             </Label>
                             <Input
                               type="email"
@@ -1904,11 +1907,11 @@ export default function Login() {
                               onChange={(e) =>
                                 setCommercialData({ ...commercialData, business_email: e.target.value })
                               }
-                              placeholder="contato@seunegocio.com"
+                              placeholder={t("login_business_email_placeholder")}
                               className={commercialData.business_email && !isValidEmail(commercialData.business_email) ? "border-red-500" : ""}
                             />
                             {commercialData.business_email && !isValidEmail(commercialData.business_email) && (
-                              <p className="text-xs text-red-500">Email inválido. Use o formato nome@dominio.com</p>
+                              <p className="text-xs text-red-500">{t("login_business_email_invalid")}</p>
                             )}
                           </div>
 
@@ -1919,7 +1922,7 @@ export default function Login() {
                               className="rounded-full flex-1"
                               onClick={() => setCommercialWizardStep(1)}
                             >
-                              Voltar
+                              {t("login_back")}
                             </Button>
                             <Button
                               type="button"
@@ -1927,7 +1930,7 @@ export default function Login() {
                               disabled={!!(commercialData.business_email && !isValidEmail(commercialData.business_email))}
                               onClick={() => setCommercialWizardStep(3)}
                             >
-                              Próximo
+                              {t("login_next")}
                             </Button>
                           </div>
 
@@ -1936,7 +1939,7 @@ export default function Login() {
                             className="text-xs text-muted-foreground hover:text-foreground text-center transition-colors"
                             onClick={() => setCommercialWizardStep(3)}
                           >
-                            Pular por agora →
+                            {t("login_skip_for_now")}
                           </button>
                         </div>
                       )}
@@ -1946,8 +1949,8 @@ export default function Login() {
                         <div className="grid gap-3">
                           <div className="grid gap-2">
                             <Label>
-                              Site / Portfolio{" "}
-                              <span className="text-xs text-muted-foreground font-normal">(opcional)</span>
+                              {t("login_business_website")}{" "}
+                              <span className="text-xs text-muted-foreground font-normal">{t("login_optional")}</span>
                             </Label>
                             <Input
                               type="url"
@@ -1955,16 +1958,16 @@ export default function Login() {
                               onChange={(e) =>
                                 setCommercialData({ ...commercialData, business_website: e.target.value })
                               }
-                              placeholder="https://seu-site.com"
+                              placeholder={t("login_business_website_placeholder")}
                               className={commercialData.business_website && !isValidUrl(commercialData.business_website) ? "border-red-500" : ""}
                             />
                             {commercialData.business_website && !isValidUrl(commercialData.business_website) && (
-                              <p className="text-xs text-red-500">URL inválida. Use o formato https://seu-site.com</p>
+                              <p className="text-xs text-red-500">{t("login_business_url_invalid")}</p>
                             )}
                           </div>
 
                           <div className="rounded-lg border border-border/40 bg-muted/20 p-3 text-xs text-muted-foreground">
-                            <p className="font-medium text-foreground mb-1">Resumo do seu perfil comercial:</p>
+                            <p className="font-medium text-foreground mb-1">{t("login_commercial_summary")}</p>
                             <p>📌 {commercialData.business_name} · {commercialData.business_segment}</p>
                             {commercialData.business_phone && <p>📞 {formatPhoneDisplay(commercialData.business_phone)}</p>}
                             {commercialData.business_email && <p>✉️ {commercialData.business_email}</p>}
@@ -1977,7 +1980,7 @@ export default function Login() {
                               className="rounded-full flex-1"
                               onClick={() => setCommercialWizardStep(2)}
                             >
-                              Voltar
+                              {t("login_back")}
                             </Button>
                             <Button
                               type="button"
@@ -1985,7 +1988,7 @@ export default function Login() {
                               disabled={!!(commercialData.business_website && !isValidUrl(commercialData.business_website))}
                               onClick={handleCommercialDataComplete}
                             >
-                              Próximo
+                              {t("login_next")}
                             </Button>
                           </div>
                         </div>
@@ -2002,11 +2005,11 @@ export default function Login() {
                                 {/* Header do card com número e botão remover */}
                                 <div className="flex items-center justify-between">
                                   <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                                    Plano {idx + 1}
+                                    {t("login_plan_n").replace("{n}", String(idx + 1))}
                                   </span>
                                   <button
                                     type="button"
-                                    aria-label="Remover plano"
+                                    aria-label={t("login_remove_plan")}
                                     onClick={() => setServicePlans(servicePlans.filter((_, i) => i !== idx))}
                                     className="text-muted-foreground hover:text-destructive transition-colors p-1 rounded-md hover:bg-destructive/10"
                                   >
@@ -2016,7 +2019,7 @@ export default function Login() {
 
                                 {/* Nome */}
                                 <div className="grid gap-1.5">
-                                  <Label className="text-xs">Nome do plano *</Label>
+                                  <Label className="text-xs">{t("login_plan_name")}</Label>
                                   <Input
                                     value={plan.name}
                                     onChange={(e) => {
@@ -2024,15 +2027,15 @@ export default function Login() {
                                       updated[idx] = { ...updated[idx], name: e.target.value };
                                       setServicePlans(updated);
                                     }}
-                                    placeholder="Ex: Mensal, Trimestral, Aula avulsa…"
+                                    placeholder={t("login_plan_name_placeholder")}
                                   />
                                 </div>
 
                                 {/* Preço */}
                                 <div className="grid gap-1.5">
                                   <Label className="text-xs">
-                                    Preço{" "}
-                                    <span className="text-muted-foreground font-normal">(deixe vazio para "sob consulta")</span>
+                                    {t("login_price")}{" "}
+                                    <span className="text-muted-foreground font-normal">{t("login_price_hint")}</span>
                                   </Label>
                                   <div className="relative">
                                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm select-none">R$</span>
@@ -2055,8 +2058,8 @@ export default function Login() {
                                 {/* Descrição */}
                                 <div className="grid gap-1.5">
                                   <Label className="text-xs">
-                                    O que está incluído{" "}
-                                    <span className="text-muted-foreground font-normal">(opcional)</span>
+                                    {t("login_plan_includes")}{" "}
+                                    <span className="text-muted-foreground font-normal">{t("login_optional")}</span>
                                   </Label>
                                   <Input
                                     value={plan.description ?? ""}
@@ -2065,7 +2068,7 @@ export default function Login() {
                                       updated[idx] = { ...updated[idx], description: e.target.value };
                                       setServicePlans(updated);
                                     }}
-                                    placeholder="Ex: 4 aulas/semana + avaliação física"
+                                    placeholder={t("login_plan_includes_placeholder")}
                                   />
                                 </div>
                               </div>
@@ -2079,7 +2082,7 @@ export default function Login() {
                             onClick={() => setServicePlans([...servicePlans, { name: "", price: null, description: "" }])}
                           >
                             <Plus className="h-4 w-4 mr-2" />
-                            Adicionar plano
+                            {t("login_add_plan")}
                           </Button>
 
                           <div className="flex gap-2">
@@ -2089,14 +2092,14 @@ export default function Login() {
                               className="rounded-full flex-1"
                               onClick={() => setCommercialWizardStep(3)}
                             >
-                              Voltar
+                              {t("login_back")}
                             </Button>
                             <Button
                               type="button"
                               className="rounded-full flex-1"
                               onClick={handleCommercialPlansComplete}
                             >
-                              Concluir
+                              {t("login_finish")}
                             </Button>
                           </div>
 
@@ -2105,7 +2108,7 @@ export default function Login() {
                             className="text-xs text-muted-foreground hover:text-foreground text-center transition-colors"
                             onClick={handleCommercialPlansComplete}
                           >
-                            Adicionar planos depois →
+                            {t("login_add_plans_later")}
                           </button>
                         </div>
                       )}
@@ -2116,17 +2119,17 @@ export default function Login() {
                   {signupStep === 2.8 && (
                     <div className="grid gap-4">
                       <div className="text-center space-y-1 mb-1">
-                        <h3 className="font-semibold text-sm">Dados físicos</h3>
-                        <p className="text-xs text-muted-foreground">Ajuda a personalizar sua experiência <span className="font-medium">(opcional)</span></p>
+                        <h3 className="font-semibold text-sm">{t("login_physical_title")}</h3>
+                        <p className="text-xs text-muted-foreground">{t("login_physical_desc")} <span className="font-medium">{t("login_optional")}</span></p>
                       </div>
 
                       <div className="grid gap-2">
-                        <Label>Sexo</Label>
+                        <Label>{t("login_gender")}</Label>
                         <div className="grid grid-cols-3 gap-2">
                           {[
-                            { value: "male", label: "Masculino" },
-                            { value: "female", label: "Feminino" },
-                            { value: "other", label: "Outro" },
+                            { value: "male", label: t("login_gender_male") },
+                            { value: "female", label: t("login_gender_female") },
+                            { value: "other", label: t("login_gender_other") },
                           ].map((opt) => (
                             <button
                               key={opt.value}
@@ -2156,7 +2159,7 @@ export default function Login() {
                           <>
                             <div className="grid grid-cols-3 gap-3">
                               <div className="grid gap-1">
-                                <Label htmlFor="signup_age">Idade</Label>
+                                <Label htmlFor="signup_age">{t("login_age")}</Label>
                                 <Input
                                   id="signup_age"
                                   type="number"
@@ -2166,15 +2169,15 @@ export default function Login() {
                                   step={1}
                                   value={age}
                                   onChange={(e) => setAge(e.target.value.replace(/[^0-9]/g, ""))}
-                                  placeholder="Ex: 25"
+                                  placeholder={t("login_eg_age")}
                                   className={ageError ? "border-red-500" : ""}
                                 />
                                 {ageError && (
-                                  <p className="text-xs text-red-600">1 a 100 anos</p>
+                                  <p className="text-xs text-red-600">{t("login_age_range")}</p>
                                 )}
                               </div>
                               <div className="grid gap-1">
-                                <Label htmlFor="signup_height">Altura (cm)</Label>
+                                <Label htmlFor="signup_height">{t("login_height")}</Label>
                                 <Input
                                   id="signup_height"
                                   type="number"
@@ -2184,15 +2187,15 @@ export default function Login() {
                                   step={1}
                                   value={height}
                                   onChange={(e) => setHeight(e.target.value.replace(/[^0-9]/g, ""))}
-                                  placeholder="Ex: 175"
+                                  placeholder={t("login_eg_height")}
                                   className={heightError ? "border-red-500" : ""}
                                 />
                                 {heightError && (
-                                  <p className="text-xs text-red-600">100 a 300 cm</p>
+                                  <p className="text-xs text-red-600">{t("login_height_range")}</p>
                                 )}
                               </div>
                               <div className="grid gap-1">
-                                <Label htmlFor="signup_weight">Peso (kg)</Label>
+                                <Label htmlFor="signup_weight">{t("login_weight")}</Label>
                                 <Input
                                   id="signup_weight"
                                   type="number"
@@ -2201,11 +2204,11 @@ export default function Login() {
                                   max={200}
                                   value={weight}
                                   onChange={(e) => setWeight(e.target.value)}
-                                  placeholder="Ex: 70"
+                                  placeholder={t("login_eg_weight")}
                                   className={weightError ? "border-red-500" : ""}
                                 />
                                 {weightError && (
-                                  <p className="text-xs text-red-600">20 a 200 kg</p>
+                                  <p className="text-xs text-red-600">{t("login_weight_range")}</p>
                                 )}
                               </div>
                             </div>
@@ -2217,7 +2220,7 @@ export default function Login() {
                                 className="rounded-full flex-1"
                                 onClick={() => setSignupStep(hasCommercialProfile ? 2.5 : 2)}
                               >
-                                Voltar
+                                {t("login_back")}
                               </Button>
                               <Button
                                 type="button"
@@ -2225,7 +2228,7 @@ export default function Login() {
                                 disabled={hasErrors}
                                 onClick={() => setSignupStep(3)}
                               >
-                                Próximo
+                                {t("login_next")}
                               </Button>
                             </div>
                           </>
@@ -2239,8 +2242,8 @@ export default function Login() {
                     <div className="grid gap-3">
 
                       <div className="text-center space-y-1 mb-1">
-                        <h3 className="font-semibold text-sm">Qual é o seu objetivo?</h3>
-                        <p className="text-xs text-muted-foreground">Selecione um ou mais que se encaixam no seu foco atual</p>
+                        <h3 className="font-semibold text-sm">{t("login_goal_title")}</h3>
+                        <p className="text-xs text-muted-foreground">{t("login_goal_desc")}</p>
                       </div>
 
                       <div className="grid gap-2">
@@ -2262,7 +2265,7 @@ export default function Login() {
                                 <Check className="h-3 w-3 text-white" />
                               )}
                             </div>
-                            <span className="text-sm font-medium">{segment.label}</span>
+                            <span className="text-sm font-medium">{t(segment.labelKey)}</span>
                           </button>
                         ))}
                       </div>
@@ -2274,7 +2277,7 @@ export default function Login() {
                           className="rounded-full flex-1"
                           onClick={() => setSignupStep(2.8)}
                         >
-                          Voltar
+                          {t("login_back")}
                         </Button>
                         <Button
                           type="button"
@@ -2282,7 +2285,7 @@ export default function Login() {
                           onClick={handleSignupStep3}
                           disabled={busy}
                         >
-                          {busy ? "Criando..." : "Próximo"}
+                          {busy ? t("login_creating") : t("login_next")}
                         </Button>
                       </div>
                     </div>
@@ -2331,15 +2334,15 @@ export default function Login() {
               <ScanFace className="h-6 w-6" />
             </div>
             <AlertDialogTitle className="text-center">
-              Ativar {biometricSupport.label}?
+              {t("login_biometric_enable_title").replace("{method}", biometricSupport.label)}
             </AlertDialogTitle>
             <AlertDialogDescription className="text-center">
-              Entre mais rápido nas próximas vezes usando {biometricSupport.label}, sem digitar email e senha.
+              {t("login_biometric_enable_desc").replace("{method}", biometricSupport.label)}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={biometricBusy} onClick={dismissEnableBiometric}>
-              Agora não
+              {t("login_not_now")}
             </AlertDialogCancel>
             <AlertDialogAction
               disabled={biometricBusy}
@@ -2348,7 +2351,9 @@ export default function Login() {
                 confirmEnableBiometric();
               }}
             >
-              {biometricBusy ? "Ativando..." : `Ativar ${biometricSupport.label}`}
+              {biometricBusy
+                ? t("login_activating")
+                : t("login_biometric_enable_action").replace("{method}", biometricSupport.label)}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

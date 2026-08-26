@@ -37,7 +37,7 @@ O objetivo central é motivar pessoas a manterem uma rotina saudável através d
 | 9 | [Detalhe do Post](./09-post-detalhe.md) | `/post/:postId` | Visualização isolada de um post |
 | 10 | [Notificações](./10-notificacoes.md) | `/notificacoes` | Central de notificações |
 | 11 | [Vitrine / Loja](./11-loja.md) | `/vitrine` | Hub comunitário de promoções fitness e diretório de profissionais |
-| 12 | [Página não encontrada](./12-not-found.md) | `*` | Erro 404 |
+| 12 | ~~Página não encontrada~~ | `*` | **Removida em 21/08/2026** — rota desconhecida redireciona para o Feed |
 | 16 | [Hashtag](./16-hashtag.md) | `/tag/:tag` | Grade de posts de uma hashtag |
 | 13 | [Layouts e Componentes](./13-layouts-e-componentes.md) | — | Componentes compartilhados e layouts |
 | 14 | [Database Schema](./14-database-schema.md) | — | Documentação técnica de todas as tabelas do banco |
@@ -56,16 +56,19 @@ O objetivo central é motivar pessoas a manterem uma rotina saudável através d
 - **Shots** → `/shots`
 - **Nova** → `/postar`
 - **Metas** → `/metas`
-- **Vitrine** → `/vitrine`
+- **Comunidade** → `/comunidade` (badge com mensagens não lidas)
+
+> Os cinco itens são **só ícone** (sem rótulo de texto), com `aria-label` em cada
+> `<Link>`. A Vitrine **não** fica aqui — saiu para o header.
 
 ### Side Navigation / Header (Desktop + Mobile)
 - **Perfil** (foto do usuário) → `/perfil`
 - **Buscar** → `/buscar`
-- **Comunidade** → `/comunidade`
+- **Vitrine** → `/vitrine`
 - **Notificações** (badge com contagem) → `/notificacoes`
 
-### Floating Action Menu (Mobile)
-Menu flutuante arrastável que dá acesso rápido às principais telas.
+> No desktop a sidebar mostra os mesmos itens **com rótulo**, e expande/recolhe
+> entre 68px e 244px.
 
 ---
 
@@ -114,7 +117,7 @@ Resultado depois do corte: **369 KB (112 KB gzip)** — 72% menor.
 
 | Módulo | Como entra hoje | Chunk |
 |---|---|---|
-| `AppLayout`, `Login`, `ResetPassword`, `BannedScreen`, `FloatingActionMenu` | `React.lazy` | próprios |
+| `AppLayout`, `Login`, `ResetPassword`, `BannedScreen` | `React.lazy` | próprios |
 | `ritmofit-db` | só por telas lazy e `import()` dinâmico | `ritmofit-db-*.js` (208 KB) |
 | `@sentry/react` + `@sentry/capacitor` | `import()` dentro de `initMonitoring()`, com fila | `vendor-sentry-*.js` (503 KB) |
 | react / react-dom / router, supabase, framer-motion, lucide | `manualChunks` (`vite.config.ts`) | `vendor-*.js` |

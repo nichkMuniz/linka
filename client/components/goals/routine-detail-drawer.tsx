@@ -1,5 +1,5 @@
 import * as React from "react";
-import { BarChart3, Bell, CalendarDays, Check, ChevronDown, Flame, Link2, ListPlus, Pencil, Play, Sparkles, Target, Trash2 } from "lucide-react";
+import { BarChart3, Bell, CalendarDays, Check, ChevronDown, Flame, Link2, ListPlus, Pencil, Play, Sparkles, Target, Trash2, UserPlus } from "lucide-react";
 import {
   Drawer,
   DrawerContent,
@@ -48,6 +48,12 @@ interface RoutineDetailDrawerProps {
   userGoals: UserGoal[];
   onClose: () => void;
   onStartWorkout: (card: RoutineCard) => void;
+  /**
+   * "Treinar junto" — abre o seletor de quem chamar (sem limite de pessoas) e
+   * só então começa. Botão satélite ao lado do "Iniciar": nunca uma etapa a
+   * mais para quem vai treinar sozinho.
+   */
+  onTrainTogether?: (card: RoutineCard) => void;
   onViewSummary: (card: RoutineCard) => void;
   onAddItems: (card: RoutineCard) => void;
   onToggleItem: (card: RoutineCard, item: RoutineItem, completed: boolean) => void;
@@ -71,6 +77,7 @@ export function RoutineDetailDrawer({
   userGoals,
   onClose,
   onStartWorkout,
+  onTrainTogether,
   onViewSummary,
   onAddItems,
   onToggleItem,
@@ -849,17 +856,33 @@ export function RoutineDetailDrawer({
           )}
 
           {card.type === 1 && (
-            <Button
-              className="w-full rounded-full h-12"
-              style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}
-              onClick={() => {
-                onClose();
-                onStartWorkout(card);
-              }}
-            >
-              <Play className="h-4 w-4 mr-1.5" />
-              {t("goals_session_start")}
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                className="flex-1 rounded-full h-12"
+                style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}
+                onClick={() => {
+                  onClose();
+                  onStartWorkout(card);
+                }}
+              >
+                <Play className="h-4 w-4 mr-1.5" />
+                {t("goals_session_start")}
+              </Button>
+              {onTrainTogether && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    onTrainTogether(card);
+                  }}
+                  aria-label={t("goals_party_invite_cta")}
+                  className="h-12 w-12 shrink-0 rounded-full flex items-center justify-center text-white active:scale-90 transition-transform"
+                  style={{ background: "rgba(255,255,255,.1)", border: "1px solid rgba(255,255,255,.18)" }}
+                >
+                  <UserPlus className="h-5 w-5" />
+                </button>
+              )}
+            </div>
           )}
 
           <Button

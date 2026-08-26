@@ -171,7 +171,6 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuthContext as useAuth, AuthProvider } from "@/lib/auth-context";
 import { PremiumProvider } from "@/lib/premium-context";
 import { useLanguage } from "@/lib/language-context";
-import { useLayoutMode } from "@/hooks/useLayoutMode";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
 import { initKeyboardTracker } from "@/lib/keyboard";
 import { APP_STORE_URL, parseDeepLinkUrl } from "@/lib/share-url";
@@ -198,9 +197,6 @@ const AppLayout = React.lazy(() =>
 );
 const BannedScreen = React.lazy(() =>
   import("@/components/shared/banned-screen").then((m) => ({ default: m.BannedScreen })),
-);
-const FloatingActionMenu = React.lazy(() =>
-  import("@/components/layout/floating-action-menu").then((m) => ({ default: m.FloatingActionMenu })),
 );
 
 // Lazy-load heavy pages to split the initial bundle
@@ -278,9 +274,6 @@ function Lazy({ skeleton, children }: { skeleton: React.ReactNode; children: Rea
 // renderiza esta tela. Deixá-la eager fazia todo mundo pagar por ela.
 const Login = React.lazy(() => import("@/pages/Login"));
 const ResetPassword = React.lazy(() => import("@/pages/ResetPassword"));
-
-// `NotFound` continua eager: é minúsculo e serve de rota de fallback.
-import NotFound from "@/pages/NotFound";
 
 /** Fundo sólido do app — placeholder enquanto um chunk de tela chega do disco. */
 function AppShellFallback() {
@@ -493,24 +486,6 @@ function MonitoringBridge() {
   return null;
 }
 
-function GlobalFABContainer() {
-  const { layoutMode } = useLayoutMode();
-  const { user } = useAuth();
-
-  // Only show FAB when layoutMode is "novo" and user is authenticated
-  if (layoutMode !== "novo" || !user) {
-    return null;
-  }
-
-  // Sem fallback: o FAB é um adorno flutuante — aparecer alguns ms depois é
-  // invisível, e um placeholder no lugar dele só piscaria sobre o conteúdo.
-  return (
-    <React.Suspense fallback={null}>
-      <FloatingActionMenu />
-    </React.Suspense>
-  );
-}
-
 const App = () => {
   React.useEffect(() => {
     // Configure native status bar for iOS
@@ -561,7 +536,6 @@ const App = () => {
               <BrowserRouter>
                 <MonitoringBridge />
                 <DeepLinkHandler />
-                <GlobalFABContainer />
                 <Routes>
                   <Route path="/login" element={<Lazy skeleton={<AppShellFallback />}><Login /></Lazy>} />
                   <Route path="/reset-password" element={<Lazy skeleton={<AppShellFallback />}><ResetPassword /></Lazy>} />
@@ -589,7 +563,11 @@ const App = () => {
                         element={<Navigate to="/postar" replace />}
                       />
 
-                      <Route path="*" element={<NotFound />} />
+                      {/* Rota desconhecida cai no feed. O app é nativo: não há
+                          barra de endereço, então uma URL inválida só chega aqui
+                          por deep link quebrado ou link antigo — e nesse caso a
+                          casa é um destino melhor do que um beco de erro. */}
+                      <Route path="*" element={<Navigate to="/" replace />} />
                     </Route>
                   </Route>
 

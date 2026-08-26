@@ -6,7 +6,9 @@ import {
   createPostDb,
   addGroupCheckInDb,
   uploadWorkoutImageDb,
+  saveRoutineFromWorkoutPartyDb,
   type SearchUser,
+  type WorkoutPartySnapshot,
 } from "@/lib/ritmofit-db";
 import { TagPeopleDrawer } from "@/components/shared/tag-people-drawer";
 import { UserAvatar } from "@/components/shared/user-avatar";
@@ -20,6 +22,7 @@ import { renderRouteMapImage } from "@/components/shared/route-map";
 import { RunSplitsList } from "@/components/shared/run-splits";
 import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
 import { addNetworkStatusListener, getNetworkStatus } from "@/lib/network-status";
+import { reportHandledError } from "@/lib/monitoring";
 import { formatRunTime, formatRunPace, type RunPoint, type RunSplit } from "@/lib/run-tracker";
 import type { PostWorkoutSummary } from "@/lib/workout-summary-types";
 import {
@@ -58,6 +61,21 @@ import {
 
 export type WorkoutSummaryData = {
   routineName: string;
+  /**
+   * Treinar junto: apelidos de quem estava na mesma sessão. Rende a linha
+   * "Treino em grupo com …" no topo do resumo. Ausente = treino solo.
+   */
+  partyMemberNames?: string[];
+  /**
+   * Só no CONVIDADO: a oferta de salvar a rotina do amigo como rotina própria.
+   * É a única vez em que essa pergunta aparece — aceitar o convite NÃO cria
+   * rotina nenhuma, de propósito (ver `docs/migrations/20260826-workout-party.sql`).
+   * `null`/ausente no host e em todo treino solo.
+   */
+  partySaveOffer?: {
+    hostNickname: string;
+    snapshot: WorkoutPartySnapshot;
+  } | null;
   totalSeries: number;
   totalVolume: number;
   durationSecs: number;
@@ -72,6 +90,10 @@ export type WorkoutSummaryData = {
   userGoalId?: string | null;
   completedExercises: Array<{
     name: string;
+    // ID no catálogo `workouts`, usado pela comparação de treino para casar o
+    // mesmo exercício entre duas pessoas. Opcional: o fluxo de duelo e os
+    // snapshots anteriores a 26/08/2026 não preenchem.
+    workoutId?: string;
     totalSets: number;
     bestKg: number;
     muscleGroup: string | null;
@@ -105,6 +127,12 @@ export type WorkoutSummaryData = {
     newE1rm?: number;
   }>;
   machinedExercises: Array<{ name: string; kg: number }>;
+  /**
+   * Gasto calórico da sessão (kcal) — estimado pelo app e ajustável pela pessoa
+   * na tela de treino. Opcional: snapshots persistidos antes de 21/08/2026,
+   * sessões sem base para estimar e o fluxo de duelo não preenchem.
+   */
+  caloriesKcal?: number | null;
   userGroups: Array<{ id: string; name: string }>;
   // Corrida GPS da sessão (Corrida ao Ar Livre) — quando presente e com
   // trajeto, o resumo ganha um slide de MAPA compartilhável (renderizado em
@@ -224,7 +252,8 @@ function isWeightPr(pr: WorkoutSummaryData["prExercises"][number]): boolean {
 function generateDefaultDescription(data: WorkoutSummaryData): string {
   const duration = formatSummaryDuration(data.durationSecs);
   const volumeStr = data.totalVolume > 0 ? ` • ${data.totalVolume}kg` : "";
-  const baseStats = `${duration} • ${data.totalSeries} séries${volumeStr}`;
+  const kcalStr = (data.caloriesKcal ?? 0) > 0 ? ` • ${Math.round(data.caloriesKcal!)} kcal` : "";
+  const baseStats = `${duration} • ${data.totalSeries} séries${volumeStr}${kcalStr}`;
 
   if (data.machinedExercises.length > 0) {
     const top = data.machinedExercises[0];
@@ -256,7 +285,7 @@ function generateDefaultDescription(data: WorkoutSummaryData): string {
     .filter((g) => !(runLine && g.kind === "run"))
     .map((g) => `\n${formatCardioLine(g)}`)
     .join("");
-  return `Treino de ${data.routineName} concluído! ✅\n\n⏱ ${duration} | 💪 ${data.totalSeries} séries${data.totalVolume > 0 ? ` | 🏋️ ${data.totalVolume}kg` : ""}${runLine}${cardioLine ? `\n${cardioLine}` : ""}${exLine}\n\n#treino #fitness #linka`;
+  return `Treino de ${data.routineName} concluído! ✅\n\n⏱ ${duration} | 💪 ${data.totalSeries} séries${data.totalVolume > 0 ? ` | 🏋️ ${data.totalVolume}kg` : ""}${kcalStr ? ` | 🔥 ${Math.round(data.caloriesKcal!)} kcal` : ""}${runLine}${cardioLine ? `\n${cardioLine}` : ""}${exLine}\n\n#treino #fitness #linka`;
 }
 
 // ─── Persisted payload (posts.workout_summary) ──────────────────────────────
@@ -268,8 +297,13 @@ function generateDefaultDescription(data: WorkoutSummaryData): string {
 function buildPostWorkoutSummary(
   data: WorkoutSummaryData,
   canvasUrl: string,
+  userPhotoCount: number,
 ): PostWorkoutSummary {
   return {
+    // Quantas fotos da galeria/câmera a pessoa anexou — decide se o post vai
+    // para a aba "Treinos" (0) ou "Publicações" do perfil. Ver
+    // `isWorkoutCanvasPost` em @/lib/workout-summary-types.
+    userPhotoCount,
     routineName: data.routineName,
     durationSecs: data.durationSecs,
     totalSeries: data.totalSeries,
@@ -277,6 +311,8 @@ function buildPostWorkoutSummary(
     imageUrl: canvasUrl,
     exercises: data.completedExercises.map((ex) => ({
       name: ex.name,
+      // Só vai ao jsonb quando existe — snapshot antigo/duelo continua idêntico.
+      ...(ex.workoutId ? { workoutId: ex.workoutId } : {}),
       muscleGroup: ex.muscleGroup,
       bestKg: ex.bestKg,
       photo: ex.photo ?? null,
@@ -292,6 +328,7 @@ function buildPostWorkoutSummary(
     prExercises: data.prExercises.length > 0 ? data.prExercises : undefined,
     machinedExercises: data.machinedExercises.length > 0 ? data.machinedExercises : undefined,
     badges: data.badges.length > 0 ? data.badges : undefined,
+    caloriesKcal: (data.caloriesKcal ?? 0) > 0 ? Math.round(data.caloriesKcal!) : undefined,
   };
 }
 
@@ -371,6 +408,11 @@ function drawCanvasStats(
     ...(cardioKm > 0 ? [{ l: "DISTANCIA", v: `${formatCardioKm(cardioKm)} km` }] : []),
     ...(hideSeries ? [] : [{ l: "SERIES", v: String(data.totalSeries) }]),
     ...(data.totalVolume > 0 ? [{ l: "VOLUME", v: formatVolumeKg(data.totalVolume) }] : []),
+    // Calorias entram como mais um painel quando a sessão registrou o dado.
+    // Rótulo sem acento, como os demais deste card (fonte do canvas).
+    ...((data.caloriesKcal ?? 0) > 0
+      ? [{ l: "CALORIAS", v: `${Math.round(data.caloriesKcal!)} kcal` }]
+      : []),
   ], accent);
 }
 
@@ -1098,10 +1140,54 @@ interface WorkoutSummaryOverlayProps {
   onClose: () => void;
   /** Chamado após publicar no feed com sucesso — usado para navegar até o feed. */
   onSharedToFeed?: () => void;
+  /**
+   * O convidado salvou a rotina do amigo (ver `partySaveOffer`). A tela de
+   * Metas recarrega a lista para o card novo aparecer sem refresh manual.
+   */
+  onPartyRoutineSaved?: () => void;
 }
 
-export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: WorkoutSummaryOverlayProps) {
+export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed, onPartyRoutineSaved }: WorkoutSummaryOverlayProps) {
   const { t } = useLanguage();
+
+  // ── Treinar junto: salvar a rotina do amigo ────────────────────────────────
+  // `idle` → o card com as duas opções; `saving` → botão travado; `done`/
+  // `skipped` → o card se recolhe numa linha, sem sumir (o usuário precisa ver
+  // o que decidiu, e "sumiu do nada" lê como bug).
+  const [partySaveState, setPartySaveState] =
+    React.useState<"idle" | "saving" | "done" | "skipped">("idle");
+
+  const handleSavePartyRoutine = async () => {
+    const offer = data.partySaveOffer;
+    if (!offer || partySaveState === "saving") return;
+    setPartySaveState("saving");
+    try {
+      await saveRoutineFromWorkoutPartyDb(
+        data.userId,
+        offer.snapshot,
+        offer.snapshot.routineName || data.routineName,
+      );
+      setPartySaveState("done");
+      toast({
+        title: t("goals_party_saved_toast"),
+        description: t("goals_party_saved_desc").replace(
+          "{name}",
+          offer.snapshot.routineName || data.routineName,
+        ),
+      });
+      onPartyRoutineSaved?.();
+    } catch (err: any) {
+      setPartySaveState("idle");
+      // Só o toast não chega ao Sentry (erro tratado): reportar explicitamente é
+      // o que mantém visível uma falha que o usuário não tem como contornar.
+      reportHandledError(err, "workout-summary:save-party-routine");
+      toast({
+        title: t("goals_party_save_error"),
+        description: err?.message,
+        variant: "destructive",
+      });
+    }
+  };
 
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
@@ -1404,7 +1490,7 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
         urls,
         description.trim() || t("goals_summary_share_default_desc"),
         data.userGoalId ?? null,
-        buildPostWorkoutSummary(data, canvasUrl),
+        buildPostWorkoutSummary(data, canvasUrl, croppedPhotos.length),
         taggedUsers.map((u) => u.id),
       );
       toast({ title: t("goals_summary_shared_feed"), description: t("goals_summary_shared_feed_desc") });
@@ -1451,7 +1537,10 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
             g.id, data.userId, canvasUrl, desc,
             data.routineName, data.totalSeries, data.totalVolume,
             primaryMuscleGroup, exercises, extraPhotos,
-            Math.round(data.durationSecs / 60), null, null, null,
+            // Duelo pontuado por CALORIAS lia null aqui e o treino valia 0 —
+            // agora o número da sessão vai junto do check-in.
+            Math.round(data.durationSecs / 60), null, null,
+            (data.caloriesKcal ?? 0) > 0 ? Math.round(data.caloriesKcal!) : null,
           ),
         ),
       );
@@ -1494,7 +1583,8 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
         description.trim() || t("goals_summary_share_default_desc"),
         data.routineName, data.totalSeries, data.totalVolume,
         primaryMuscleGroup, exercises, extraPhotos,
-        Math.round(data.durationSecs / 60), null, null, null,
+        Math.round(data.durationSecs / 60), null, null,
+        (data.caloriesKcal ?? 0) > 0 ? Math.round(data.caloriesKcal!) : null,
       );
       toast({ title: t("goals_summary_shared_duel"), description: t("goals_summary_shared_duel_desc") });
       onClose();
@@ -1593,7 +1683,19 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
         display: "flex", alignItems: "center", justifyContent: "space-between",
         borderBottom: `1px solid ${BORDER}`,
       }}>
-        <div style={{ fontSize: 17, fontWeight: 800, color: FG }}>{headerTitle}</div>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 17, fontWeight: 800, color: FG }}>{headerTitle}</div>
+          {/* Treinar junto: quem estava na mesma sessão. Linha, não card — é
+              contexto do treino, não uma ação. */}
+          {data.partyMemberNames && data.partyMemberNames.length > 0 && (
+            <div style={{
+              fontSize: 12, color: MUTED, marginTop: 2,
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            }}>
+              {t("goals_party_with").replace("{names}", data.partyMemberNames.join(", "))}
+            </div>
+          )}
+        </div>
         <button
           onClick={onClose}
           aria-label={t("goals_summary_close")}
@@ -1948,7 +2050,7 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
       )}
 
       {/* ── Stats row ── (mesma regra de cardio do card gerado: ver drawCanvasStats) */}
-      <div style={{ display: "flex", gap: 8, padding: "12px 16px 4px" }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, padding: "12px 16px 4px" }}>
         {[
           showCardioTimeStat
             ? { label: t("goals_run_time"), value: formatCardioMinutes(sessionCardio.minutes) }
@@ -1958,9 +2060,16 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
             : []),
           ...(hideSeriesStat ? [] : [{ label: t("goals_summary_sets"), value: String(data.totalSeries) }]),
           ...(data.totalVolume > 0 ? [{ label: t("goals_summary_volume"), value: formatVolumeKg(data.totalVolume) }] : []),
+          ...((data.caloriesKcal ?? 0) > 0
+            ? [{ label: t("goals_summary_calories"), value: `${Math.round(data.caloriesKcal!)}` }]
+            : []),
         ].map(({ label, value }) => (
           <div key={label} style={{
-            flex: 1, background: CARD, borderRadius: 16, padding: "12px 8px", textAlign: "center",
+            // `wrap` + base de 84px: com cardio + distância + séries + volume +
+            // calorias são 5 painéis, e espremer todos numa linha de iPhone
+            // cortaria os números. Quebra para uma segunda linha em vez disso.
+            flex: "1 1 84px", minWidth: 84,
+            background: CARD, borderRadius: 16, padding: "12px 8px", textAlign: "center",
             border: `1px solid ${BORDER}`,
             backdropFilter: GLASS_BLUR, WebkitBackdropFilter: GLASS_BLUR,
             boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08)",
@@ -2140,6 +2249,70 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed }: Workout
                 ? t("goals_summary_show_less")
                 : `${t("goals_summary_show_all")} (+${data.completedExercises.length - 4})`}
             </button>
+          )}
+        </div>
+      )}
+
+      {/* ── Treinar junto: salvar a rotina do amigo ── */}
+      {/* A pergunta só existe para quem foi CONVIDADO: aceitar o convite não
+          criou rotina nenhuma, e este é o momento em que ele já sabe se o
+          treino valeu a pena. Fica acima de "Compartilhar" porque é uma decisão
+          sobre o próprio app, não sobre publicar. */}
+      {data.partySaveOffer && (
+        <div style={{
+          margin: "16px 16px 0",
+          background: CARD,
+          border: `1px solid ${BORDER}`,
+          backdropFilter: GLASS_BLUR, WebkitBackdropFilter: GLASS_BLUR,
+          borderRadius: 20, padding: 16,
+        }}>
+          {partySaveState === "done" || partySaveState === "skipped" ? (
+            <div style={{ fontSize: 13, color: MUTED, textAlign: "center" }}>
+              {partySaveState === "done"
+                ? t("goals_party_save_done")
+                : t("goals_party_save_skipped")}
+            </div>
+          ) : (
+            <>
+              <div style={{ fontSize: 15, fontWeight: 700, color: FG, marginBottom: 4 }}>
+                {t("goals_party_save_title")}
+              </div>
+              <div style={{ fontSize: 13, color: MUTED, marginBottom: 10 }}>
+                {t("goals_party_save_desc")
+                  .replace("{name}", data.partySaveOffer.snapshot.routineName || data.routineName)
+                  .replace("{host}", data.partySaveOffer.hostNickname || t("notif_sender_fallback"))}
+              </div>
+              <div style={{ fontSize: 12.5, color: MUTED, marginBottom: 14, lineHeight: 1.5 }}>
+                {data.partySaveOffer.snapshot.items.slice(0, 3).map((i) => i.name).join(" · ")}
+                {data.partySaveOffer.snapshot.items.length > 3
+                  ? ` · +${data.partySaveOffer.snapshot.items.length - 3}`
+                  : ""}
+              </div>
+              <button
+                onClick={handleSavePartyRoutine}
+                disabled={partySaveState === "saving"}
+                style={{
+                  width: "100%", height: 46, borderRadius: 999, border: "none",
+                  background: "linear-gradient(135deg,#5b8cff,#9d6bff)",
+                  color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer",
+                  opacity: partySaveState === "saving" ? 0.6 : 1,
+                }}
+              >
+                {partySaveState === "saving"
+                  ? t("goals_party_saving")
+                  : t("goals_party_save_cta")}
+              </button>
+              <button
+                onClick={() => setPartySaveState("skipped")}
+                style={{
+                  width: "100%", height: 40, marginTop: 6, background: "none",
+                  border: "none", cursor: "pointer",
+                  fontSize: 13, fontWeight: 600, color: MUTED,
+                }}
+              >
+                {t("goals_party_save_skip")}
+              </button>
+            </>
           )}
         </div>
       )}

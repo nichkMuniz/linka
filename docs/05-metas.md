@@ -266,6 +266,7 @@ Exemplo do que isso destrava: "Peito" vira `Peitoral superior (clavicular) 85 ·
 | **Detalhe da rotina** | tocar no exercício para expandir | `ExerciseAnatomy` abaixo do gráfico de progressão |
 | **Wizard**, passo de montagem | tocar na **foto** do exercício na lista | `ExerciseAnatomy` no `ItemDetailDrawer` |
 | **Wizard**, passo de montagem | aba **"Músculo"** → grupo → chips **"Porção do músculo"** | `Peito → Peitoral superior/médio/inferior → exercícios ordenados por ênfase`. Era uma 3ª aba ("Porção") até 13/08/2026, quando virou um refinamento dentro do grupo — mesmo filtro, um caminho só |
+| **Sessão de treino**, picker "+ Adicionar exercício" | aba **"Músculo"** → grupo → chips **"Porção do músculo"** | Mesmo refinamento do wizard, portado para o picker em 21/08/2026 (`pickerAnatomyMuscleId`): quem monta o treino na hora tinha o filtro grosso por grupo e o fino só no wizard. Com porção escolhida, a lista vem de `getWorkoutsByMuscleDb` (ordenada por ênfase, com o aviso `goals_browse_anatomy_sorted`) e **não colapsa variações** — as linhas da consulta por ênfase não trazem `group_id`, e é a variação específica que enfatiza a porção |
 
 `ExerciseAnatomy` = mapa corporal + lista das porções com barra de ênfase e rótulo Principal/Auxiliar/Estabiliza.
 
@@ -497,6 +498,8 @@ Conteúdo em `client/lib/i18n.ts` (`goals_tech_*`), PT e EN. Os passos vão numa
 
 `user_workouts_hist.set_kind` passou a aceitar `'drop'` (a migração recria o CHECK).
 
+> **Bug corrigido em 21/08/2026 — o `drop` se perdia no replay offline.** O executor de `workout_hist` (`registerOutboxExecutor` em `ritmofit-db.ts`) validava o `set_kind` recebido contra uma lista **de três** valores (`warmup`/`normal`/`failure`): o `drop` caía no `else` e era gravado como **NULL**, que a leitura trata como `'normal'`. Resultado: um treino feito sem internet voltava do replay com as séries de drop contando como séries próprias, inflando o total. A validação agora usa a constante **`SET_KINDS`**, exportada ao lado do tipo `SetKind` — manter as duas (e o CHECK da coluna) em sincronia.
+
 ## Modo treino
 
 `workout-session-dialog.tsx` — overlay full-screen controlado pelo `workout-context`:
@@ -553,6 +556,7 @@ Conteúdo em `client/lib/i18n.ts` (`goals_tech_*`), PT e EN. Os passos vão numa
 - **Aviso de PR em tempo real**: ao concluir uma série de **força** com um peso acima do melhor peso **anterior** daquele exercício, exibe um banner 🏆 (`goals_pr_toast_title`/`goals_pr_toast_desc`, auto-some em ~3,8s, tocável para fechar). O baseline vem do próprio campo **ANTERIOR** (o maior `prevKg` carregado da última sessão — o mesmo valor exibido na coluna), guardado/elevado em `prevBestRef` (`workout_id → melhor kg`): o aviso só sai quando havia anterior (`> 0`) e o recorde corrente é elevado ao maior peso já concluído na sessão para não repetir em séries iguais/menores. Cardio é ignorado. _(O PR "all-time" do **Resumo do treino** continua usando `getPreviousBestKgDb` na finalização.)_ **Importante:** o aviso é renderizado **dentro do overlay** (`position:absolute`, topo) e não via toast global — o overlay é `position:fixed z-9999` portado ao `body`, então um toast Radix (mesmo z-index, porém antes no DOM) ficaria **atrás** desta tela e nunca apareceria.
 - **Picker "Adicionar Exercício"** (overlay interno acionado pelo rodapé): padronizado no mesmo padrão visual **e de navegação** do drawer **"selecionar itens"** do `create-wizard-drawer.tsx` (29/06/2026). Itens em **cards grandes arredondados** (`borderRadius 16`, borda/fundo branco translúcidos; **selecionado** ou **já na sessão** = borda azul `#5b8cff` + fundo `rgba(91,140,255,.1)`), thumbnail 64px via componente compartilhado **`ExerciseImage`** (mesma ilustração/placeholder por grupo muscular usada na criação de rotina), nome em 15px + grupo muscular esmaecido, e indicador circular de 28px à direita (**+** quando não selecionado, **tique azul** quando selecionado/já na sessão).
   - **Abas Lista × Músculo** (`pickerBrowseMode`): a aba **Músculo** lista os grupos do catálogo em cards (ícone de halter + contagem `goals_browse_count` + nº de selecionados naquele grupo); tocar num grupo (`pickerMuscleFilter`) abre só os exercícios dele com **voltar** e busca. A aba só aparece quando o catálogo tem grupos musculares. Os grupos saem de `pickerMuscleGroups` (derivado de `catalog`, distinto do filtro da sessão ativa).
+  - **Chips "Porção do músculo" dentro do grupo (21/08/2026)** (`pickerAnatomyMuscleId`): mesmo refinamento que o wizard já tinha, portado para o picker da sessão — dentro de um grupo aberto na aba **Músculo**, aparece a fileira horizontal `Todas` + as porções de `muscles` daquele `groupName` (Peito → Peitoral superior/médio/inferior/Serrátil). Sem porção, a lista é a do grupo (`workouts.muscle_group`); **com porção**, a fonte troca para `getWorkoutsByMuscleDb` — ordenada por ênfase, com o aviso `goals_browse_anatomy_sorted` sob os chips. O catálogo de porções (`getMusclesDb`) é carregado junto com o picker e é praticamente imutável (cache de 12h); grupos sem anatomia semeada (Alongamento, Core, Gluteos…) simplesmente não mostram a fileira. **A lista por porção não colapsa variações**: as linhas da consulta por ênfase não trazem `group_id`, e é justamente a variação específica que enfatiza a porção. A fileira rola na horizontal (nomes como "Reto abdominal superior" quebrariam em 2–3 linhas e empurrariam a lista para fora da tela) e leva `data-vaul-no-drag` para o gesto lateral não virar arraste de drawer. O toggle Lista/Músculo e o **voltar** do grupo limpam a porção escolhida, assim como `resetPicker`.
   - **Seleção múltipla + Confirmar**: tocar num exercício **alterna a seleção** (`pickerSelected`, itens já na sessão ficam travados/esmaecidos) em vez de adicionar na hora. Um **rodapé fixo em vidro** traz o botão **Confirmar** (`goals_picker_confirm` com a contagem; desabilitado/`goals_picker_confirm_empty` quando nada selecionado) que adiciona todos de uma vez (`handleConfirmPicker`) e fecha. `resetPicker` limpa busca/aba/filtro/seleção ao fechar.
   - **Busca bilíngue** (16/07/2026): o campo de busca do picker casa o nome exibido **e o nome no outro idioma** — em PT, digitar "bench press" acha "Supino Reto" (e em EN, "supino" acha "Bench Press"). Ver "Busca bilíngue no catálogo" no fim deste documento.
   - **Detalhe ao tocar na foto** (`pickerInfo`): cada card tem a thumbnail num botão separado que abre o **overlay de detalhe do exercício** (componente único `ExerciseDetailOverlay`, ver abaixo) com a **foto ampliada sobre fundo branco** + nome + grupo muscular + **"Como executar"** (`description` do catálogo, fallback `goals_exercise_no_description`). O corpo do card (nome + indicador) continua alternando a seleção — thumbnail e seleção são **dois botões distintos** dentro do card (evita botão aninhado).
@@ -565,7 +569,7 @@ Conteúdo em `client/lib/i18n.ts` (`goals_tech_*`), PT e EN. Os passos vão numa
     - Salvar chama `createCustomWorkoutDb(name, howTo, muscle, photoUrl, equipment)` (persiste com `created_by_user`) **e** `createUserWorkoutsDb(userId, [id], { routine_id, name })` — vincula o exercício à **rotina atual** em `user_workouts` para **persistir entre sessões** (sem isso o exercício só vivia no estado local e sumia ao reabrir o treino). O `routineId` e o `routineName` vêm como **props** do card ativo (`activeWorkoutCard.routineId`/`.name`), não dos itens — os itens podem ter `routine_id` nulo (legado). **O `name` é essencial**: `buildRoutineCards`/`groupByName` agrupa os cards por `user_workouts.name`, então o novo exercício precisa do mesmo nome da rotina (ex.: "Peitos") para cair no card certo. Depois insere o item no `catalog`, **já o seleciona** (`pickerSelected`) e volta ao picker. Erros usam `toast` (`goals_add_exercise_error`/`goals_create_error_retry`). Ao finalizar, `handleWorkoutFinished` → `loadData()` recarrega `getUserWorkoutsDb` (cache `userWorkouts:` invalidado pelo insert), então o exercício já aparece na rotina ao reabrir.
     - **Sem duplicação na lista (20/07/2026):** como o exercício criado é adicionado à sessão (`workoutExtraItems`) **e** vinculado à rotina (`createUserWorkoutsDb`), quando um `loadData()` roda (ex.: evento `ritmofit-routines-changed`) ele passa a vir também em `items` — a lista renderizada `[...items, ...workoutExtraItems]` mostrava o mesmo `workout_id` duas vezes. `allItems` agora **deduplica por `workout_id`** (mantém a 1ª ocorrência; `items` vem primeiro, então o item real da rotina prevalece). As séries são as mesmas (o estado é chaveado por `workout_id`), então não há perda de dados.
   - **Re-adicionar um exercício removido (06/08/2026):** ao remover um exercício da sessão, `removeFromSession` grava o `workout_id` em `workoutRemovedIds` e `allItems` passa a filtrá-lo. `handleConfirmPicker` só empilhava em `workoutExtraItems` e **não limpava essa marca** — o picker fechava como se tivesse dado certo e o exercício continuava invisível. Agora o confirmar **remove os ids escolhidos de `workoutRemovedIds`** antes de tudo, e só cria item extra para `workout_id` que **ainda não existe** em `items`/`workoutExtraItems` (quem já vinha da rotina volta ao seu lugar/`order_index` original apenas com a limpeza da marca, sem empilhar extras órfãos no estado persistido). As séries são re-semeadas com 1 linha vazia, já que `removeFromSession` descarta as antigas.
-  - Título, placeholder de busca e estados usam i18n (`goals_add_exercise`, `goals_search_exercise`, `goals_browse_list`/`goals_browse_muscle`/`goals_browse_count`, `goals_picker_loading`, `goals_picker_empty`, `goals_picker_confirm`, `goals_picker_confirm_empty`, `goals_create_exercise`, `goals_create_exercise_name`, `goals_create_exercise_muscle`, `goals_create_exercise_muscle_placeholder`, `goals_create_exercise_equipment`(`_placeholder`), `goals_create_exercise_howto`(`_placeholder`), `goals_create_exercise_photo`(`_cta`/`_remove`), `goals_create_exercise_save`).
+  - Título, placeholder de busca e estados usam i18n (`goals_add_exercise`, `goals_search_exercise`, `goals_browse_list`/`goals_browse_muscle`/`goals_browse_count`, `goals_browse_parts_label`/`goals_browse_parts_all`/`goals_browse_anatomy_sorted`, `goals_picker_loading`, `goals_picker_empty`, `goals_picker_confirm`, `goals_picker_confirm_empty`, `goals_create_exercise`, `goals_create_exercise_name`, `goals_create_exercise_muscle`, `goals_create_exercise_muscle_placeholder`, `goals_create_exercise_equipment`(`_placeholder`), `goals_create_exercise_howto`(`_placeholder`), `goals_create_exercise_photo`(`_cta`/`_remove`), `goals_create_exercise_save`).
 - **Minimizar** → barra flutuante global do `app-layout.tsx` (contrato `workoutMinimized`/`pendingReopen` mantido); o timer de descanso continua correndo e é exibido na barra
 - **Finalizar** (com confirmação) → grava `user_workouts_hist` por série concluída → check-in automático (`createCheckInDb`) → badges (`awardBadgesForCheckInsDb`) → +1 progresso na meta vinculada à rotina (`incrementGoalProgressDb`) → carrega os duelos do usuário (`getEnrichedDuelGroupsDb` → `myGroups`) → abre o **Resumo do treino** (`workout-summary-overlay.tsx`)
 - **Conquistas do treino:**
@@ -575,6 +579,252 @@ Conteúdo em `client/lib/i18n.ts` (`goals_tech_*`), PT e EN. Os passos vão numa
     - O **indicador de progressão de carga** (a seta na linha de ícones do card expandido) vira **dourado (`#eab308`) com o selo "MAX"** (`goals_weight_trend_max_label`) e o título "Máquina zerada — carga máxima do aparelho" (14/08/2026). Máquina zerada **manda sobre o verde/vermelho**: nesse exercício não há mais progressão a mostrar — comparar séries dentro de um teto que o usuário já bateu diria menos do que "chegou no máximo". A seta desenhada é sempre a de subida.
     - O exercício entra em `machinedExercises` ao finalizar (com a maior carga registrada), então o resumo usa a variante dourada `machine` (`getCanvasVariant`: prioridade máquina > PR > padrão), header "Máquina zerada! 🔥" e o bloco `🔥 MÁQUINA ZERADA!` na legenda automática.
     - A marcação vive no **`workout-context`** (`maxedExerciseIds: string[]`, persistido no `localStorage` junto do resto do treino), então **sobrevive a minimizar/reload** e é limpa por `resetWorkoutState`. O prompt tem prioridade sobre o aviso de PR quando ambos disparariam (>120 kg e PR ao mesmo tempo) e **não reaparece** depois do exercício já marcado (mas re-pergunta a cada série pesada enquanto não for marcado, para dispensar sem querer não travar a conquista).
+
+### A rotina é o que foi executado (26/08/2026)
+
+A rotina deixou de ser uma lista fixa que a sessão só consulta: **o que a pessoa
+monta durante o treino é o que a rotina passa a ser**. Ao finalizar:
+
+| Ação na sessão | Efeito na rotina |
+|---|---|
+| **Adicionar** exercício ("+ Adicionar exercício" / "Criar exercício") | vira item da rotina (`linkSessionWorkoutsToRoutineDb`) — já era assim |
+| **Remover** exercício ("Remover exercício" / "Remover bloco") | **sai da rotina** (`removeRoutineItemsKeepHistoryDb`) — novo |
+| **Arrastar** para reordenar | vira `order_index` — já era assim |
+| **Trocar variação** | atualiza a linha existente (`updateUserWorkoutExerciseDb`) — já era assim |
+
+Ou seja: quem começa com 3 exercícios e adiciona 2 no meio do treino tem 5 na
+próxima execução; quem começa com 5 e apaga 3 tem 2 — e os 3 só voltam se forem
+adicionados de novo à mão.
+
+**Só ao finalizar.** Abandonar a sessão (minimizar e nunca fechar) não mexe na
+rotina — a mesma regra que os exercícios adicionados sempre seguiram. Como a
+consequência é permanente e acontece depois, remover mostra um aviso na hora
+(`goals_remove_leaves_routine_*`): sem ele a pessoa só descobriria no treino
+seguinte, quando o exercício não aparecesse mais.
+
+**Remover ≠ apagar histórico.** `removeRoutineItemsKeepHistoryDb` apaga só a
+linha em `user_workouts`; as linhas de `user_workouts_hist` sobrevivem (a FK é
+`ON DELETE SET NULL`) e continuam contando para PR, coluna ANTERIOR e gráfico de
+progressão, que leem por `workout_id` — não por `user_workout_id`. É o oposto de
+`deleteRoutineItemDb`, que apaga o histórico primeiro porque ali a intenção é
+sumir com a rotina inteira (ver "Excluir rotina apaga o histórico").
+
+**RLS em silêncio.** Um DELETE que não casa com nenhuma linha permitida volta 200
+com 0 linhas e **sem erro** — o mesmo modo de falha do histórico em 16/07/2026.
+Por isso a função devolve **quantas linhas saíram** e a sessão avisa
+(`goals_removed_exercises_not_saved_*`) quando o número vem zero: sem isso o
+exercício reapareceria no próximo treino e ninguém saberia por quê.
+
+**Resolução dos ids.** A lista de removidos espelha o filtro de `allItems`: a
+troca de variação é aplicada **antes** de casar com `workoutRemovedIds`, senão
+remover um card já trocado não acharia a linha (o prop `items` ainda traz o
+`workout_id` antigo). Itens sintéticos (`session_…`) ficam de fora — não existem
+no banco.
+
+**No convidado ("treinar junto") nada disso roda:** ele não tem rotina. O que a
+composição final da sessão alimenta ali é a oferta de salvar — ver abaixo.
+
+### Reordenar exercícios — toque longo + arrastar (21/08/2026)
+
+Quem treina em sequência não tinha como mudar a ordem dos exercícios: a única saída era **remover e readicionar** pelo picker, o que descarta as séries já anotadas.
+
+**Como abre.** **Toque longo (500ms, o mesmo tempo do menu de contexto do iOS) em qualquer card** da sessão — inclusive no card de bi-set/tri-set — ou o item **"Reordenar exercícios"** no menu **⋯** (o gesto é invisível; o item do menu é a porta que se descobre sozinha). Os dois somem quando a sessão tem **um exercício só**.
+
+O gesto é implementado em `cardLongPressProps` (pointer events, espalhado no card):
+- **cancela ao rolar** — 10px de folga no `pointermove`, mais o `pointercancel` que o WebView dispara quando a rolagem começa;
+- **ignora o que nasceu em algo interativo** (`closest("button, input, textarea, select, a, [data-no-longpress]")`) — campo de kg/reps, check da série, menu ⋯ e chip de variação seguem funcionando como antes;
+- **engole o `click` seguinte** (`onClickCapture` + `longPressFired`), senão o card expandia/recolhia por baixo da tela nova.
+
+**A tela.** `client/components/goals/workout-reorder-overlay.tsx` — camada por cima da sessão (`zIndex 12`, mesmo padrão do picker), com **todos** os exercícios em lista compacta: alça de arraste à esquerda, número da posição, miniatura, nome, grupo muscular e o progresso `{feitas}/{total}` de séries (mover para cima algo que já foi feito costuma ser engano). O filtro de músculo/busca da sessão **não** se aplica aqui: a ordem é do treino inteiro.
+
+- **Bi-set/tri-set é UMA linha** (`Supino + Crucifixo`, com o rótulo da técnica). Os membros precisam ficar adjacentes e na ordem A1 → A2 para o bloco existir, então mover um membro sozinho quebraria a técnica montada. A unidade carrega `workoutIds[]` e é achatada de volta na hora de salvar.
+- **Arrasta só pela alça** (`Reorder.Item` com `dragListener={false}` + `useDragControls`): a linha inteira arrastável tomaria conta do gesto de rolagem no iOS. A alça leva `touch-action: none` para o WebView não rolar junto.
+- **Sem dependência nova**: usa o `Reorder` do **framer-motion**, que já estava no projeto — e cuja versão 12 traz **auto-scroll** ao arrastar perto das bordas (ele procura o ancestral rolável do `Reorder.Group`, que aqui é a área de lista).
+- Háptico leve a cada troca de posição e de sucesso ao concluir.
+
+**Onde a ordem é gravada — duas camadas.**
+
+1. **`workoutOrder: string[]`** (workout_ids) no **`workout-context`**, persistido no `localStorage` com o resto da sessão. É o que faz a tela refletir o arraste **na hora**: o prop `items` só recarrega num `loadData()` da tela de Metas, e o exercício avulso do treino **nem tem linha em `user_workouts`** ainda. `allItems` ordena por ele quando existe; exercício fora da lista (adicionado depois) vai para o fim. Limpo por `resetWorkoutState`.
+2. **`user_workouts.order_index`** via **`updateRoutineOrderDb`** (irmã enxuta de `updateRoutineTechniquesDb`: só a posição, um update por linha em paralelo, espelhando na cópia offline) — é o que faz o **próximo** treino abrir na ordem nova. Best-effort: falhar aqui só significa "não valeu para os próximos treinos", nunca desfaz o que está na tela (aviso `goals_reorder_save_error`).
+
+**Duas armadilhas cobertas:**
+- **Avulso arrastado.** O exercício adicionado durante o treino só ganha linha em `user_workouts` no "Finalizar" (`linkSessionWorkoutsToRoutineDb`), então a posição dele não tinha onde ser gravada na hora do arraste. Ao finalizar, **depois** do vínculo, a ordem inteira da sessão é regravada com os ids recém-criados — sem isso, o exercício arrastado para a 2ª posição voltaria para o fim na próxima abertura.
+- **Troca de variação.** `swapVariation` troca o `workout_id` do item; sem atualizar `workoutOrder` junto, o exercício sumia da ordem arrastada e pulava para o fim da lista. A posição é do **lugar na sequência**, não da variação.
+
+**i18n:** `goals_reorder_title/_open/_hint/_save/_handle/_save_error`. O "Remover exercício" do menu ⋯ estava **hardcoded em PT** e passou a usar `goals_program_remove_exercise` na mesma passagem.
+
+### Calorias gastas — estimativa editável (21/08/2026)
+
+A barra de números do topo da sessão passou de 4 para **5 cards**: `Duração · Volume · Séries · Exercícios · Calorias`. O de calorias é o **único tocável** da fileira.
+
+**Por que ali.** Calorias são um total da **sessão** (não da série, nem do exercício), como os outros quatro — e o número vale igual para cardio e musculação, o que descarta qualquer solução dentro do card de exercício (na musculação não há o que digitar por exercício; no cardio o aparelho dá um acumulado só). A barra é `flexShrink: 0`, fora do container de scroll: está visível na primeira e na última série, então quem desce da esteira e vê "312 kcal" registra na hora, sem esperar o fim do treino e sem atrito no botão de finalizar.
+
+**O número vem preenchido.** `client/lib/calorie-estimate.ts` estima com a fórmula da ACSM (`kcal/min = MET × 3,5 × peso / 200`) e METs do Compendium of Physical Activities:
+
+| Bloco | MET | Base de tempo |
+|---|---|---|
+| Cardio | por modalidade via **`getCardioKind`** (corrida 9,8 · bike 7 · pular corda 11 · escada 9 · elíptico 5 · remo 7 · natação 7 · caminhada 3,8 · genérico 6), **ajustado pela velocidade** quando a pessoa registrou MIN **e** KM | os minutos registrados no campo MIN (via `sumCardioSets`, que lê "1,30" como 1h30) |
+| Musculação | 5,0 — já embute o descanso entre séries, que é por isso que a base pode ser o cronômetro | o que **sobra** do cronômetro depois do cardio |
+| Só alongamento/mobilidade | 2,5 | idem |
+
+- Numa sessão **só de cardio** o tempo que sobra é **descartado** (é vestiário/preparação com o treino aberto, não esforço).
+- **Sem peso no perfil** cai em `DEFAULT_ESTIMATE_WEIGHT_KG` (70 kg) e o modal troca a explicação (`goals_calories_hint_no_weight`) — estimar com peso médio é melhor que não estimar, desde que a tela diga isso.
+- O resultado é **arredondado para múltiplo de 5**: "≈ 315" passaria uma precisão que a conta não tem.
+- Enquanto for palpite do app, o card mostra **`~420` em tom secundário**; assim que a pessoa confirma um valor, vira `420` em laranja. `caloriesAreEstimated` é o que separa os dois estados.
+
+**Edição.** Tocar no card abre um modal glass com o input já preenchido (`inputMode="numeric"`, texto cru enquanto digita), a unidade `kcal`, o atalho **"Usar a estimativa (~N kcal)"** e Cancelar/Salvar. **Apagar o campo e salvar devolve o controle à estimativa** — é o desfazer do ajuste manual, e evita gravar 0 kcal por engano. O modal sobe junto com o teclado (`var(--keyboard-height)` no `padding-bottom` do wrapper centralizado). O modal de **"Finalizar treino?"** repete a linha (`~420 kcal · Ajustar`, `zIndex` acima do confirm), para quem só descobre o número no relógio ao encerrar não precisar saber que o card de cima era tocável.
+
+**Efeito colateral no card de Volume.** Com cinco colunas cada card fica com ≈68px num iPhone, e `12345 kg` quebrava em duas linhas e desalinhava a fileira. O volume da barra passou a usar **toneladas acima de 1.000 kg** (`fmtVolume`, mesma regra que o resumo do treino e o mini frame do flow já usavam) e todos os valores ganharam `white-space: nowrap`.
+
+**Estado.** `workoutCaloriesKcal: number | null` vive no **`workout-context`** e é persistido no `localStorage` junto do resto da sessão (sobrevive a minimizar/reload; limpo por `resetWorkoutState`). `null` = ninguém mexeu, e a tela mostra a estimativa viva — é o que distingue "não informado" de "informou 0".
+
+**Persistência.** `user_workouts_hist.calories` **já existia na tabela e nunca era escrita**. Como o histórico grava **uma linha por série**, o valor vai na **primeira linha da finalização** e `NULL` em todas as outras — a leitura por sessão é sempre um **MAX**, nunca uma soma (que multiplicaria o total pelo nº de séries). Sem migração. A fila offline (`workout_hist`) leva o campo junto e o replay trata a ausência da chave como `null`.
+
+**Para onde o número se propaga** (`WorkoutSessionSummary.caloriesKcal` → tudo o que consome o resumo):
+
+| Superfície | O que aparece |
+|---|---|
+| Resumo do treino (in-app) | mais um painel `Calorias` na fileira de stats — que agora **quebra linha** (`flexWrap`), porque com cardio + distância + séries + volume + kcal são 5 painéis e espremer todos numa linha de iPhone cortaria os números |
+| Card gerado (canvas) | painel `CALORIAS` ao lado de DURACAO/SERIES/VOLUME |
+| Legenda automática do post | `• 350 kcal` na linha de stats e `🔥 350 kcal` no texto padrão |
+| `posts.workout_summary` | `caloriesKcal` no jsonb **e um chip `🔥 350 kcal` no cabeçalho do drawer "Ver treino"** — é o **único** stat que aquele drawer mostra: duração/séries/volume seguem de fora pela decisão de 06/07/2026 (o drawer é a lista de exercícios; os totais estão no card gerado), mas o gasto calórico é o número que as pessoas comparam e vale ter em texto, não só queimado na imagem |
+| `routines.last_summary` | `caloriesKcal` — reabrir o resumo pelo 📊 do detalhe da rotina mostra o mesmo número |
+| Mini frame de treino no flow | chip `🔥 350 kcal` (`StoryWorkoutSticker.caloriesKcal`) |
+| Check-in de duelo | o parâmetro `calories` de `addGroupCheckInDb` **deixou de ser `null`**: duelo pontuado por **Calorias queimadas** valia 0 para quem compartilhava o treino pelo app (só pontuava quem fazia o check-in manual na Comunidade). No check-in manual, escolher um treino recente **pré-preenche** o campo (`CompletedRoutine.caloriesKcal`, MAX das linhas da sessão) |
+
+**i18n.** Chaves novas `goals_stat_*` (a fileira de números estava **hardcoded em PT** — "Duração", "Volume", "Séries", "Exercícios" — e foi traduzida na mesma passagem, junto do chip **"Todos"** do filtro de músculo, agora `goals_filter_all_muscles`), `goals_calories_*` e `goals_summary_calories`. Os rótulos **desenhados no canvas** seguem em PT sem acento (`CALORIAS`), como os que já estavam lá.
+
+
+## Treinar junto — convidar amigos para o mesmo treino (26/08/2026)
+
+Quem vai treinar pode chamar **quantas pessoas quiser** (seguidores ou qualquer
+usuário buscado pelo nome) para fazer o mesmo treino agora. Cada convidado
+recebe um push, e quem aceita entra numa **sessão espelho**: os mesmos
+exercícios, o mesmo número de séries e as mesmas reps sugeridas.
+
+**Sem limite de participantes.** A modelagem é 1:N (`workout_party_members`) e a
+UI é seleção múltipla sem teto — treinar em grupo de quatro é tão comum quanto
+em dupla, e um limite artificial só criaria a pergunta "por que dois?".
+
+### Onde entra (e por que não pergunta toda vez)
+
+O convite **nunca** é uma etapa no caminho de começar a treinar. Ele mora em
+botões satélite, sempre ao lado do "Iniciar":
+
+| Superfície | Onde |
+|---|---|
+| Card da rotina (`routines-tab.tsx`) | botão circular `UserPlus` ao lado de "Iniciar" (some quando a sessão já está ativa — ali o lugar é a faixa do treino) |
+| Detalhe da rotina (`routine-detail-drawer.tsx`) | botão `UserPlus` 48×48 ao lado do "Iniciar" |
+| Dentro da sessão (`workout-party-bar.tsx`) | faixa no topo, abaixo do header — cobre o caso mais real da academia: **o amigo aparece com o treino já começado** |
+
+**Empilhamento (bug corrigido em 26/08/2026):** a sessão de treino é um overlay
+`position:fixed; zIndex 9999`, e o drawer do vaul é portado ao body dentro de um
+*lift wrapper* `z-[310]` — então o seletor aberto de dentro do treino nascia
+**atrás** da tela, e só o scrim invisível continuava capturando os toques (a tela
+parecia travar). A correção é a prop `wrapperClassName` do `DrawerContent`
+(`z-[10000]`), o mesmo mecanismo que o resumo já usava com `z-[9600]`: elevar o
+conteúdo/overlay não resolve, porque o `transform` do wrapper faz dele um
+stacking context e o z-index interno só reordena *dentro* dele. Pelo mesmo
+motivo o diálogo do convite é `z-[10001]` — ele precisa aparecer inclusive por
+cima de um treino em andamento, que é quando mostra o estado "você já está
+treinando".
+
+Quem toca em "Iniciar" continua a **um toque** de distância do treino. Um modal
+de "vai treinar com alguém?" antes de cada sessão foi descartado: viraria ruído
+em poucos dias.
+
+### Fluxo
+
+1. **Convidar** (`workout-party-drawer.tsx`) — lista de seguidores + busca
+   (`searchUsersDb`, para quem não segue de volta), seleção múltipla, CTA
+   "Convidar e iniciar (N)". O treino do host **começa na hora**: o convite é
+   fire-and-forget e nunca o deixa esperando resposta.
+2. **Convite recebido** (`workout-party-invite-dialog.tsx`) — montado no
+   `app-layout.tsx`, **não** na tela de Metas: o convite é para agora, e quem
+   está no feed precisa vê-lo na hora. Mostra quem chamou, a rotina, os 3
+   primeiros exercícios com `séries×reps` e "+N".
+3. **Aceitar** → `respondWorkoutPartyInviteDb` grava `accepted`, o convite vai
+   para `pendingPartyJoin` (contexto) e o app navega para `/metas`, que é quem
+   sabe iniciar um treino (mesmo padrão do `pendingReopen`).
+4. **Durante** — a faixa mostra os avatares (até 4 + "+N"), quem ainda não
+   respondeu esmaecido, e o progresso de cada um ("Ana 3/6"). O progresso é
+   reportado **por exercício concluído**, nunca por série: a faixa mostra "3/6",
+   e escrever a cada série seriam dezenas de writes por treino.
+5. **Ao finalizar** — só para o **convidado**, um card no resumo pergunta
+   *"Salvar essa rotina?"*. O que ele salva é o treino **como executado**
+   (`WorkoutSessionSummary.partyRoutineSnapshot`, montado de `allItemsForSave`):
+   com os exercícios que ele acrescentou e sem os que removeu — a mesma regra de
+   "a rotina é o que foi executado" que vale para todo mundo. O snapshot do
+   convite só entra como rede de segurança. Salvar cria rotina + itens
+   (`saveRoutineFromWorkoutPartyDb`); "Agora não" não grava nada. Nos dois casos
+   o **treino já foi registrado** — o histórico, o volume, os PRs, as calorias e
+   o check-in do dia acontecem normalmente.
+
+### O que é replicado (e o que não é)
+
+| Replica | Não replica |
+|---|---|
+| Lista de exercícios, na ordem | Cargas (kg) de quem convidou |
+| Nº de séries e reps sugeridas | Coluna "ANTERIOR" — vem do histórico do **convidado** |
+| Descanso por exercício e técnica | Notas pessoais por exercício |
+| Nome da rotina (como sugestão) | Meta vinculada, agendamento, `program_meta` |
+
+O que atravessa é a **prescrição**, não a **execução**. A carga do convidado é
+pré-preenchida com o histórico **dele** (`getLastWorkoutSessionSeriesDb`) — nunca
+com o peso do amigo.
+
+O snapshot é **congelado** no momento do convite: o host pode trocar variação ou
+adicionar exercício depois sem que a tela de quem já aceitou mude no meio de uma
+série.
+
+### A sessão do convidado é efêmera
+
+**Aceitar um convite não cria rotina nenhuma.** É a decisão central da feature —
+sem ela, a lista de rotinas de quem treina acompanhado encheria de cópias que
+ninguém pediu.
+
+Na prática, no `workout-session-dialog.tsx`, `isPartyGuest` (derivado de
+`workoutPartyRole === "guest"`) desliga as três escritas que criariam rotina ao
+finalizar:
+
+- `linkSessionWorkoutsToRoutineDb` — o vínculo dos itens "avulsos" (todos os
+  itens do convidado têm id sintético `session_<workout_id>`);
+- `updateRoutineOrderDb` — a ordem arrastada;
+- `updateUserWorkoutNotesDb` / `updateUserWorkoutRestDb` — notas e descanso.
+
+O histórico grava com `user_workout_id` e `routine_id` **nulos**, que é o mesmo
+caminho que os exercícios avulsos já usavam.
+
+O card sintético da sessão (`partyGuestCard` em `Goals.tsx`) é derivado do
+snapshot **persistido no contexto** — assim minimizar, navegar ou recarregar o
+app reconstrói o treino sozinho. Ele tem prioridade sobre a busca por nome em
+`activeWorkoutCard`: sem isso, uma rotina própria homônima ("Peito e Tríceps" é
+um nome comum) trocaria o treino do amigo pelo dele no meio da sessão.
+
+### Regras e bordas
+
+- **Convidado já treinando** → o diálogo aparece com aviso e **sem** o botão de
+  aceitar (entrar sobrescreveria a sessão em andamento); só resta recusar.
+- **Convite expira em 60 min** (`workout_parties.expires_at`) e deixa de valer
+  quando o host finaliza (`ended_at`, via `endWorkoutPartyDb`) — sem isso alguém
+  aceitaria, meia hora depois, um treino que já acabou.
+- **Reconvidar** quem já está na party é no-op (`ignoreDuplicates`): não
+  ressuscita convite recusado nem duplica linha.
+- **Só o host convida** — é a policy de INSERT em `workout_party_members` que
+  impede alguém de se auto-adicionar numa party alheia para ler o treino dos
+  outros.
+- **Falha ao convidar não bloqueia o treino**: o erro vira toast e a sessão
+  começa assim mesmo.
+
+### Notificação
+
+Tipo **19** (`Convite para treinar 💪` / "{name} te chamou pra treinar agora"),
+com `post_id` = id da party — mesma convenção dos tipos de duelo. Com o app
+aberto, o banner local é suprimido de propósito: o aviso é o **diálogo**, que já
+traz os exercícios e os botões. Exige **redeploy da `send-push-notification`**.
+
+**Migração:** `docs/migrations/20260826-workout-party.sql` (tabelas + RLS +
+realtime).
 
 ## Resumo do treino (`workout-summary-overlay.tsx`)
 
@@ -627,7 +877,8 @@ Overlay full-screen (`zIndex 9500`, `pointer-events:auto`) exibido ao finalizar.
 - **Correção de pixelização (02/07/2026)**: o layout lógico dos 3 canvas (padrão/PR/máquina) continua em 540x540, mas o backing store real agora é desenhado em **3x essa resolução** (`CANVAS_SCALE = 3`, via `ctx.scale(3,3)` antes do desenho — `canvasSetup`/`drawStandardCanvas`/`drawPRCanvas`/`drawMachineMaxCanvas` usam `CANVAS_W`/`CANVAS_H` fixos para a matemática de layout, não mais `canvas.width`/`canvas.height`). Antes o PNG saía nativamente em 540px e era esticado pelo CDN do feed para 900px (`POST_PHOTO_WIDTH` em `post-carousel.tsx`) e por telas Retina, ficando visivelmente pixelado/borrado no post.
 - **Compartilhar no Feed** → faz upload da imagem (foto + canvas) e cria o post (`createPostDb`); ao concluir, **navega direto para o feed** (`onSharedToFeed` → `navigate("/")`) para o usuário ver a publicação.
   - **Vínculo com a meta da rotina (17/07/2026, correção):** se a rotina do treino tem **meta vinculada**, o post nasce ligado a ela (`posts.user_goal_id`), então o feed exibe a **barra de progresso da meta** — igual a um post criado no NewPost com meta selecionada. `handleWorkoutFinished`/`handleViewRoutineSummary` em `Goals.tsx` resolvem o `user_goals.id` a partir do `card.goalId` (`userGoals.find(g => g.goal_id === card.goalId)`) e o passam em `WorkoutSummaryData.userGoalId`; o overlay repassa como 3º arg de `createPostDb`. **Não** incrementa o progresso da meta (o check-in do treino ao finalizar já fez isso — evita contar 2×). Antes, esse arg era fixo em `null` e o post saía sem meta mesmo com a rotina vinculada. Obs.: o feed só mostra a barra quando a meta é **pública** (`visibility === 1`), mesma regra do NewPost.
-  - **Snapshot estruturado do treino (2026-07-06):** além da imagem e da legenda, o `handleShareFeed` agora monta um `PostWorkoutSummary` (`buildPostWorkoutSummary` — rotina, duração, séries, volume, URL do card gerado e a lista de exercícios com `photo`, grupo muscular e `sets: {kg, reps}` por série) e o passa como 4º argumento de `createPostDb`, que o grava na coluna `posts.workout_summary` (`jsonb`). Isso torna o post **clicável no feed via o pill "Ver treino"** (`WorkoutDetailButton`) — abrindo um drawer simplificado com a lista de exercícios (miniatura do exercício + grupo + chips `{kg}kg × {reps}`) — em vez de só a imagem "queimada". As repetições por série vêm de `completedExercises[].sets` e a foto de `completedExercises[].photo` (`workoutPhoto`), capturados no `WorkoutSessionDialog` ao finalizar. Ver `docs/01-feed.md` (Detalhe do treino), `docs/14-database-schema.md` (`posts.workout_summary`) e `client/lib/workout-summary-types.ts`.
+  - **Snapshot estruturado do treino (2026-07-06):** além da imagem e da legenda, o `handleShareFeed` agora monta um `PostWorkoutSummary` (`buildPostWorkoutSummary` — rotina, duração, séries, volume, URL do card gerado e a lista de exercícios com `photo`, grupo muscular e `sets: {kg, reps}` por série) e o passa como 4º argumento de `createPostDb`, que o grava na coluna `posts.workout_summary` (`jsonb`). Isso torna o post **clicável no feed via o pill "Ver treino"** (`WorkoutDetailButton`) — abrindo um drawer simplificado com a lista de exercícios (miniatura do exercício + grupo + chips `{kg}kg × {reps}`) — em vez de só a imagem "queimada". As repetições por série vêm de `completedExercises[].sets` e a foto de `completedExercises[].photo` (`workoutPhoto`), capturados no `WorkoutSessionDialog` ao finalizar. Desde **26/08/2026** cada exercício do snapshot leva também o **`workoutId`** (id do catálogo), que habilita a **comparação de treino** entre dois usuários no feed. Ver `docs/01-feed.md` (Detalhe do treino / Comparar treino), `docs/14-database-schema.md` (`posts.workout_summary`) e `client/lib/workout-summary-types.ts`.
+  - **Foto do usuário separa as abas do perfil (2026-08-26):** o `buildPostWorkoutSummary` passou a gravar **`userPhotoCount`** (quantas fotos da galeria/câmera foram anexadas ao resumo — o card gerado e o mapa da corrida não contam). Com `0`, o post nasce na aba **Treinos** do perfil; com foto anexada, segue na aba **Posts** como publicação comum. Nada muda no feed — os dois tipos aparecem lá igual. Ver `docs/08-perfil.md` (Tab: Treinos).
 - **Compartilhar no Duelo** (só aparece se `data.userGroups.length > 0`) → publica check-in no(s) grupo(s) via `addGroupCheckInDb`. Com **1 grupo**, compartilha direto; com **2+ grupos**, abre um sheet (`showGroupPicker`) com opção **Todos os grupos** (`handleShareAllDuels`) ou um grupo específico (`handleShareDuel`).
   - **Tag de grupo muscular (correção 2026-07-02):** o `muscleGroup` do check-in era enviado sempre como `null` — o check-in aparecia no histórico do duelo **sem nenhuma tag**, mesmo quando a rotina trabalhou grupos musculares. Agora `handleShareAllDuels`/`handleShareDuel` calculam o grupo muscular mais frequente entre `data.completedExercises` (helper `getPrimaryMuscleGroup`, mesma lógica de "mais frequente" usada em `getRecentCompletedRoutinesDb`) e passam esse valor. Como `duel_check_ins.muscle_group` guarda **um único** grupo, um treino com múltiplos grupos (ex: Perna + Ombro) mostra a tag do grupo com mais exercícios — igual ao comportamento do check-in manual feito pela própria tela de Duelos.
 - **Diálogos adiados**: as celebrações `BadgeUnlockedDialog` (insígnia) e `GoalCompletedDialog` (meta 100%) são diálogos **Radix** (`z-300/310`) e abririam **atrás** do resumo, travando o `body` com `pointer-events:none`. Por isso ficam **pendentes** (`pendingBadges`/`pendingGoal` em `Goals.tsx`) e só são exibidos no `onClose` do resumo.
@@ -810,14 +1061,51 @@ O check-in **só concede** insígnias novas (acervo em `user_badges`) — ele **
 `required_checkins` é o limiar da **métrica do próprio tipo** da insígnia — não o total de check-ins. `_evaluateBadgeCondition` avalia cada tipo com sua própria fonte:
 
 - `checkin_before_time` / `checkin_after_midnight` → conta **quantos check-ins caíram na janela de hora** (`_getCheckinHoursDb`, hora local do `created_at`). Antes olhava só o horário do check-in do momento e ignorava o `required_checkins`, então um único check-in cedo já dava o Madrugador — e o drawer ainda liberava a insígnia por contagem de check-ins, mesmo para quem só treinava à noite.
-- `checkin_streak` → dias consecutivos; `workout_week`/`workout_type` → `workout_histories`; `app_usage` → dias distintos em `access_sessions`.
-- `habit_*` e `challenge_count` **não têm tracking** e por isso nunca são concedidas (`default: return false`). Ativá-las exige implementar o tracking, não afrouxar o desbloqueio.
+- `checkin_streak` → dias consecutivos; `app_usage` → dias distintos em `access_sessions`.
+- `workout_week` / `workout_type` → `user_workouts_hist` (ver abaixo).
+- `habit_*` e `challenge_count` → ver "Insígnias de hábito, dia perfeito e desafio" abaixo (ativadas em 21/08/2026).
 
 A barra de progresso do drawer só aparece nas insígnias de `checkin_total` — nas demais, mostrar `totalCheckIns/required_checkins` seria um progresso falso.
 
+#### Insígnias de treino: cardio e força (corrigido em 21/08/2026)
+
+`workout_week` (Treino 3× na semana) e `workout_type` (Força 10×, Cardio 10×) **nunca eram concedidas**: as duas leituras consultavam uma tabela `workout_histories` que não existe no banco. A query falhava em silêncio, o `count` voltava `0` e a condição nunca batia — dava para fazer cardio todo dia que a insígnia não saía.
+
+O que passou a valer (`_getWorkoutHistDaysDb` + `countWeekWorkoutDays` / `countWorkoutTypeDays` em `ritmofit-db.ts`):
+
+- **Fonte:** `user_workouts_hist` (histórico real de treino), com embed em `workouts (muscle_group)`.
+- **Tipo do treino = grupo muscular.** Não existe coluna `workout_type`. `cardio` casa com `muscle_group = Cardio` — a mesma régua de `client/lib/cardio-exercises.ts` —, incluindo os cardios estacionários (burpee, polichinelo), que são cardio de verdade mesmo registrando em KG×REPS. `forca` é qualquer grupo que **não** seja `Cardio`, `Alongamento` ou `Mobilidade`.
+- **Conta DIAS, não linhas.** O histórico grava **uma linha por série**: contar linhas faria um único treino de 20 séries valer por 20. A métrica é o nº de **dias locais distintos** com treino daquele tipo.
+- **Semana:** domingo 00:00 → hoje, em data local. (O código antigo montava o domingo mantendo a hora atual, então o treino de domingo de manhã ficava de fora da própria semana.)
+- **Retroativo:** como a contagem lê todo o histórico, quem já treinava recebe as insígnias no **próximo treino concluído** (é ele que dispara `awardBadgesForCheckInsDb`).
+
+#### Insígnias de hábito, dia perfeito e desafio (ativadas em 21/08/2026)
+
+Até 21/08/2026 os tipos `habit_*` e `challenge_count` caíam no `default: return false` — apareciam no drawer e eram **impossíveis de conquistar**. Agora cada um tem uma fonte de prova real:
+
+| Insígnia | Fonte | Condição |
+|---|---|---|
+| `sono_7d` | `user_habits_hist` | 7 dias **seguidos** com um hábito de **sono** marcado como feito |
+| `meditacao_5d` | `user_habits_hist` | 5 dias **seguidos** com um hábito de **meditação/respiração** |
+| `sem_alcool_7d` | `user_habits_hist` | 7 dias **seguidos** com o hábito de **evitar álcool** |
+| `passos_10k_7d` | `user_habits_hist` | 7 dias **seguidos** com um hábito de **caminhada/passos** |
+| `semana_perfeita` | `check_ins` | 7 dias **seguidos** de check-in (rotina concluída) |
+| `modo_monge` | `check_ins` | 30 dias **seguidos** de check-in |
+| `super_dia` | os três históricos | 1 dia com **treino + hábito + alimentação** no mesmo dia |
+| `desafio_3x` | `duel_group_participants` | 3 duelos distintos com `status = 'accepted'` |
+
+Decisões que sustentam isso:
+
+- **O tipo do hábito vem do NOME**, não do `habits.id` (`client/lib/habit-kinds.ts`, mesma forma do `getCardioKind`). O catálogo tem 25 hábitos, mas a pessoa **cria os seus** — quem cadastrou "Dormir 7h" é exatamente quem espera a insígnia de sono. Fixar IDs deixaria os customs de fora para sempre. As palavras-chave existem em PT e EN porque o nome chega localizado.
+- **Quem prova é o registro do usuário.** O app não mede sono, meditação nem passos por sensor: a linha em `user_habits_hist` (gravada quando a pessoa MARCA o hábito) é a prova, igual ao diário alimentar. ⚠️ Isso vale especialmente para `passos_10k_7d`: o que se prova é o **hábito de caminhar registrado**, não 10.000 passos contados.
+- **Avaliação ao marcar o hábito**, não só no check-in: quem tem 4 hábitos no dia e fecha só o do sono receberia a insígnia apenas ao completar a rotina inteira. `Goals.tsx` chama `awardBadgesForCheckInsDb` no toggle do hábito.
+- **`super_dia` usa o dia local de cada fonte.** `user_workouts_hist.date_completed` é `timestamp` sem fuso (guarda relógio UTC), então treino depois das ~21h no Brasil já cai no dia seguinte — a mesma leitura que os cards de treino usam. Um treino tarde da noite pode não fechar o "dia perfeito" com o hábito daquele mesmo dia.
+- **`required_checkins` tem que estar preenchido no banco.** Essas linhas foram cadastradas pelo painel com `0`, o que agora significaria "1" (Sono 7 dias na primeira noite). Rodar `docs/migrations/20260821-badge-thresholds.sql`; o cliente tem `CONDITION_MIN_THRESHOLD` como rede de segurança.
+- **A avaliação ficou em duas fases**: primeiro descobre o que ainda falta conquistar, depois busca **só** as métricas que esses candidatos exigem. Quem já tem as insígnias de treino não paga mais a leitura do histórico a cada check-in, e marcar um hábito não dispara consulta de treino/duelo.
+
 ### Insígnias de nutrição (diário alimentar)
 
-`awardNutritionBadgesDb` roda ao **registrar um alimento ou água** no `FoodDiaryDrawer` e avalia sobre `user_food_logs` + `user_water_logs`:
+`awardNutritionBadgesDb` roda ao **registrar um alimento ou água** no `FoodDiaryDrawer` — e, desde 21/08/2026, também ao **concluir um item de dieta na rotina** (que lança a comida no mesmo diário) — e avalia sobre `user_food_logs` + `user_water_logs`:
 
 | Insígnia | Condição |
 |---|---|
@@ -826,9 +1114,11 @@ A barra de progresso do drawer só aparece nas insígnias de `checkin_total` —
 | `nutrition_week` | N dias com registro na semana atual (Dom–Sáb) |
 | `nutrition_no_sugar` | N dias **seguidos** com açúcar ≤ `condition_metadata.max_sugar_g` (25 g, teto da OMS) |
 | `nutrition_hydration` | N dias **seguidos** batendo a meta de água (`water_target_ml`, ou 2000 ml) |
+| `nutrition_fruits` | **(21/08/2026)** N dias **seguidos** com ao menos uma fruta — `diets.category` começando com `Frutas` |
+| `nutrition_home_food` | **(21/08/2026)** N dias **seguidos** com **prato preparado** e nenhum ultraprocessado |
 
 - **Desconhecido nunca conta como zero.** Um dia com qualquer alimento sem `food_quality`/`sugar_g` conhecido **não conta** para `nutrition_no_ultra`/`nutrition_no_sugar` — não dá para provar que não houve ultraprocessado ou açúcar, e aceitar o desconhecido entregaria a insígnia a quem registra tudo na mão. Por isso o registro manual tem campo de açúcar (em branco = desconhecido) e `addFoodLogDb` puxa `sugar_g` do catálogo quando há `diet_id`.
-- **Frutas e comida caseira continuam sem tracking** — o diário não classifica isso. Nunca deduzir por nome do alimento.
+- **Fruta e comida caseira saem da CATEGORIA do catálogo** (`diets.category`), nunca do nome digitado. Fruta é o **prefixo** `Frutas` — `includes("frut")` daria a insígnia a quem comeu camarão ("Frutos do Mar"). "Comida caseira" é um **prato preparado** (categorias de receita do TheMealDB + `Alimentos preparados` da TACO — as categorias de *ingrediente* da TACO ficam de fora) **e** nenhum ultraprocessado no dia: o prato sozinho não bastaria (dá para "preparar" em cima de industrializado) e a ausência de ultraprocessado sozinha já é outra insígnia. Alimento sem categoria (custom criado na mão) não conta — desconhecido não vira prova.
 - **Água**: card no topo do diário (`+250 ml` / `+500 ml`, desfazer), meta em `user_nutrition_goals.water_target_ml` (editável na vista "Meta diária"), total do dia em `user_water_logs` via upsert.
 - A celebração é **adiada**: `FoodDiaryDrawer` avisa via `onBadgesUnlocked`, a `Goals` guarda em `pendingBadges` e só abre o `BadgeUnlockedDialog` quando o diário fecha (o dialog é Radix e abriria atrás do drawer — mesmo motivo do resumo do treino).
 - **Continua exigindo internet**: criar/editar/excluir rotina e meta, wizard/quiz, compartilhar no feed/duelo, tiles do mapa da corrida (o rastreamento GPS em si funciona offline e o canvas tem fallback sem tiles).
@@ -863,6 +1153,10 @@ A tela de Metas concentra 4 dos gates do plano **LinKa Premium** (ver `docs/17-p
 | Lista de rotinas por tipo (+ criar) | `client/components/goals/routine-list-drawer.tsx` |
 | Detalhe de rotina | `client/components/goals/routine-detail-drawer.tsx` |
 | Modo treino | `client/components/goals/workout-session-dialog.tsx` |
+| Treinar junto — seletor de convidados (sem limite) | `client/components/goals/workout-party-drawer.tsx` |
+| Treinar junto — faixa no topo da sessão (avatares, progresso, convidar) | `client/components/goals/workout-party-bar.tsx` |
+| Treinar junto — diálogo do convite recebido (montado no `app-layout.tsx`) | `client/components/goals/workout-party-invite-dialog.tsx` |
+| Treinar junto — snapshot ↔ sessão espelho (congelar plano, montar itens/séries) | `client/components/goals/workout-party-helpers.ts` |
 | 1RM estimado (Epley) + limiar de PR | `client/lib/one-rep-max.ts` |
 | Mapa corporal (SVG inline) | `client/components/shared/muscle-map.tsx` |
 | Ficha de anatomia do exercício | `client/components/shared/exercise-anatomy.tsx` |
@@ -879,6 +1173,9 @@ A tela de Metas concentra 4 dos gates do plano **LinKa Premium** (ver `docs/17-p
 | Drawer de compartilhar meta concluída (card em canvas → feed) | `client/components/goals/goal-share-drawer.tsx` |
 | Histórico de peso (gráfico + registro + lista), compartilhado com Configurações | `client/components/shared/weight-history-drawer.tsx` |
 | Primitivas dos cards em canvas (shell/header/stats), compartilhadas com o resumo de treino | `client/lib/canvas-card.ts` |
+| Estimativa de gasto calórico da sessão (METs + fórmula da ACSM) | `client/lib/calorie-estimate.ts` |
+| Tela de reordenar os exercícios do treino (arrastar) | `client/components/goals/workout-reorder-overlay.tsx` |
+| Contrato de cardio (MIN × KM): modalidade, leitura do campo MIN, soma das séries, formatação | `client/lib/cardio-exercises.ts` (`sumCardioSets` mudou de `components/goals/cardio-canvas.ts` para cá em 21/08/2026 — é leitura pura, e a tela de treino não precisava arrastar o módulo de canvas junto; o antigo reexporta) |
 | Celebração de meta | `client/components/shared/goal-completed-dialog.tsx` (compartilhado com o feed) |
 | Notificações de rotina | `client/hooks/use-routine-notifications.ts` (montado globalmente em `app-layout.tsx`; agenda via `@capacitor/local-notifications`; re-sincroniza no mount, ao voltar ao app e via evento `ritmofit-routines-changed` disparado ao salvar horário/dias). Cada notificação carrega `extra.url = "/metas?openRoutine=<type>::<name>"` (type numérico do `RoutineCard.key`); ao tocar, o listener navega via `useNavigate` (SPA, sem reload) e `Goals.tsx` lê o param `openRoutine`, casa com a `key` do card e abre o `RoutineDetailDrawer` já pronto para marcar como concluída — depois remove o param da URL. |
 | Estado do treino ativo | `client/lib/workout-context.tsx` (+ barra no `app-layout.tsx`) |
