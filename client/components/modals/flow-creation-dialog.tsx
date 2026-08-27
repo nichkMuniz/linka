@@ -128,14 +128,60 @@ const MAX_MEDIA_BYTES = 100 * 1024 * 1024;
 const RING_RADIUS = 36;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 
-// Teto de bitrate da gravação. Sem isso o MediaRecorder do iOS grava 1080p no bitrate
-// máximo (chega a ~10 Mbps ≈ 75MB/min), e o flow leva vários segundos para carregar em
-// rede móvel. 2 Mbps é sobra para conteúdo 9:16 visto no celular e derruba o arquivo em
-// ~4-5x — é a maior economia de tempo de carregamento do fluxo inteiro.
-const RECORDER_BITRATE = {
-  videoBitsPerSecond: 2_000_000,
-  audioBitsPerSecond: 96_000,
-};
+// Enquadramento alvo da gravação: 9:16, até 1080x1920 — o formato de story, e
+// exatamente o que o viewer mostra (`object-cover` numa tela em pé).
+//
+// Por que importa para a NITIDEZ: antes o canvas gravava o frame CRU da câmera.
+// No iOS esse frame costuma vir 4:3 ou 16:9, então o viewer descartava boa parte
+// da largura no `object-cover` — o bitrate era gasto codificando área que
+// ninguém via, e a faixa visível ficava com uma fração dos bits. Gravar já
+// recortado no 9:16 concentra todo o bitrate no que aparece na tela; é o ganho
+// isolado maior de qualidade, antes mesmo de mexer no bitrate.
+const RECORD_TARGET_ASPECT = 9 / 16;
+const RECORD_TARGET_HEIGHT = 1920;
+const RECORD_FPS = 30;
+
+// Bitrate proporcional à área realmente gravada (~0,09 bit por pixel por frame),
+// não um teto fixo. Em 1080x1920@30 dá ~5,6 Mbps.
+//
+// O valor anterior era fixo em 2 Mbps para encurtar o carregamento, mas 2 Mbps
+// em 1080p com movimento (que é TODO o conteúdo do app: treino, corrida) estoura
+// o orçamento de bits do H.264 e vira macrobloco — a "pixelação" reclamada. Com
+// o teto de 1 min, 6 Mbps ≈ 45MB, ainda dentro de MAX_MEDIA_BYTES; e como o
+// clipe agora é gravado no enquadramento final, o arquivo não cresce na mesma
+// proporção do bitrate (o recorte já cortou os pixels invisíveis).
+const RECORD_BITS_PER_PIXEL = 0.09;
+const RECORD_MIN_BITRATE = 3_000_000;
+const RECORD_MAX_BITRATE = 6_000_000;
+const RECORD_AUDIO_BITRATE = 128_000;
+
+function recorderBitrateFor(width: number, height: number) {
+  const raw = width * height * RECORD_FPS * RECORD_BITS_PER_PIXEL;
+  return {
+    videoBitsPerSecond: Math.round(
+      Math.min(RECORD_MAX_BITRATE, Math.max(RECORD_MIN_BITRATE, raw)),
+    ),
+    audioBitsPerSecond: RECORD_AUDIO_BITRATE,
+  };
+}
+
+// Recorte central da fonte para o formato alvo, em coordenadas do <video>.
+// Usado tanto para dimensionar o canvas quanto a cada frame (a fonte muda de
+// tamanho quando o usuário troca de câmera no meio da gravação).
+function centerCrop(srcW: number, srcH: number, zoom: number) {
+  let w = srcW;
+  let h = srcH;
+  if (srcW / srcH > RECORD_TARGET_ASPECT) {
+    w = srcH * RECORD_TARGET_ASPECT;
+  } else {
+    h = srcW / RECORD_TARGET_ASPECT;
+  }
+  if (zoom > 1) {
+    w /= zoom;
+    h /= zoom;
+  }
+  return { sx: (srcW - w) / 2, sy: (srcH - h) / 2, sw: w, sh: h };
+}
 
 // Teto do maior lado da FOTO de flow, em px, e qualidade JPEG do upload. Casa com
 // o `maxDim` de `bakeTransformedCanvas`: sem isso a foto da câmera (o único
@@ -931,8 +977,16 @@ export function FlowCreationDialog({
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: { ideal: mode },
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
+          // Retrato explícito. Pedir 1920x1080 num aparelho EM PÉ fazia o WebKit
+          // procurar o modo de sensor mais próximo de 1920 de largura — podia
+          // entregar um modo bem maior que o necessário (canvas gigante para
+          // redesenhar a cada frame, preview engasgando) ou um 4:3 do qual o
+          // flow só aproveita uma faixa. Pedindo 1080x1920 em 9:16 a câmera
+          // entrega direto o formato que vai ser gravado.
+          width: { ideal: 1080 },
+          height: { ideal: RECORD_TARGET_HEIGHT },
+          aspectRatio: { ideal: RECORD_TARGET_ASPECT },
+          frameRate: { ideal: RECORD_FPS },
         },
         audio: false,
       });
@@ -1220,37 +1274,78 @@ export function FlowCreationDialog({
     // continuaria espelhando a traseira depois de trocar.
     recordCanvasCleanupRef.current?.();
     recordCanvasCleanupRef.current = null;
+    // Dimensões do que será codificado — alimentam o bitrate lá embaixo.
+    let recordWidth = 0;
+    let recordHeight = 0;
+
     if (typeof video.videoWidth === "number" && video.videoWidth > 0) {
+      // O canvas sai no enquadramento final (9:16), com a altura limitada pelo
+      // MENOR entre 1920 e o recorte disponível na fonte: ampliar não cria
+      // detalhe, só gasta bitrate codificando um borrão esticado.
+      const baseCrop = centerCrop(video.videoWidth, video.videoHeight, 1);
+      const outH = Math.min(RECORD_TARGET_HEIGHT, Math.round(baseCrop.sh));
+      // H.264 exige dimensões pares.
+      const canvasH = Math.max(2, outH - (outH % 2));
+      const wRaw = Math.round(canvasH * RECORD_TARGET_ASPECT);
+      const canvasW = Math.max(2, wRaw - (wRaw % 2));
+
       const canvas = document.createElement("canvas");
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
+      canvas.width = canvasW;
+      canvas.height = canvasH;
       const ctx = canvas.getContext("2d");
       if (ctx) {
+        recordWidth = canvasW;
+        recordHeight = canvasH;
+        // Reduzir a fonte para o canvas é uma reamostragem — sem isto o WebKit
+        // usa o filtro rápido e o resultado sai serrilhado.
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = "high";
+
         let rafId = 0;
         const drawFrame = () => {
-          if (video.readyState >= 2) {
-            const digitalZoom = !nativeZoomRef.current ? zoomRef.current : 1;
-            const mirror = facingModeRef.current === "user";
-            ctx.save();
-            if (mirror) {
-              ctx.translate(canvas.width, 0);
-              ctx.scale(-1, 1);
-            }
-            if (digitalZoom > 1) {
-              const sw = video.videoWidth / digitalZoom;
-              const sh = video.videoHeight / digitalZoom;
-              const sx = (video.videoWidth - sw) / 2;
-              const sy = (video.videoHeight - sh) / 2;
-              ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-            } else {
-              ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            }
-            ctx.restore();
+          if (video.readyState < 2) return;
+          const digitalZoom = !nativeZoomRef.current ? zoomRef.current : 1;
+          const mirror = facingModeRef.current === "user";
+          // Recalculado a cada frame porque a fonte pode trocar de tamanho no
+          // meio da gravação (troca de câmera reatribui o srcObject do <video>).
+          const { sx, sy, sw, sh } = centerCrop(
+            video.videoWidth || canvasW,
+            video.videoHeight || canvasH,
+            digitalZoom,
+          );
+          ctx.save();
+          if (mirror) {
+            ctx.translate(canvas.width, 0);
+            ctx.scale(-1, 1);
           }
-          rafId = requestAnimationFrame(drawFrame);
+          ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+          ctx.restore();
+        };
+
+        // O rAF acompanha o REFRESH DA TELA (60Hz, 120Hz no ProMotion), mas o
+        // canvas só é capturado a RECORD_FPS. Sem esta trava o app redesenhava
+        // o frame até 4x para cada frame aproveitado — trabalho puro de CPU/GPU
+        // que roubava tempo do encoder e da própria pré-visualização, e ajuda a
+        // explicar o travamento durante a gravação.
+        //
+        // O teto é 2x RECORD_FPS, não 1x: o `captureStream` amostra o canvas no
+        // relógio DELE, independente do nosso. Desenhando exatamente na mesma
+        // taxa, as duas cadências entram em batimento de fase e uma amostragem
+        // aqui e ali pega o frame repetido — movimento levemente irregular. Com
+        // o dobro, toda amostragem encontra conteúdo novo, e ainda assim corta
+        // metade do trabalho num ProMotion.
+        const frameInterval = 1000 / (RECORD_FPS * 2);
+        let lastDraw = -Infinity;
+        const tick = (now: number) => {
+          rafId = requestAnimationFrame(tick);
+          if (now - lastDraw < frameInterval - 1) return;
+          lastDraw = now;
+          drawFrame();
         };
         drawFrame();
-        const canvasStream = canvas.captureStream(30);
+        rafId = requestAnimationFrame(tick);
+
+        const canvasStream = canvas.captureStream(RECORD_FPS);
         canvasStream.getVideoTracks().forEach((t) => combined.addTrack(t));
         recordCanvasCleanupRef.current = () => {
           cancelAnimationFrame(rafId);
@@ -1266,6 +1361,9 @@ export function FlowCreationDialog({
     // mas é essencialmente inatingível em uso normal.
     if (combined.getVideoTracks().length === 0) {
       videoTracks.forEach((t) => combined.addTrack(t));
+      const raw = videoTracks[0]?.getSettings?.();
+      recordWidth = raw?.width || video.videoWidth || 1080;
+      recordHeight = raw?.height || video.videoHeight || RECORD_TARGET_HEIGHT;
     }
     audioStream?.getAudioTracks().forEach((t) => combined.addTrack(t));
 
@@ -1274,7 +1372,7 @@ export function FlowCreationDialog({
     try {
       recorder = new MediaRecorder(combined, {
         ...(mimeType ? { mimeType } : {}),
-        ...RECORDER_BITRATE,
+        ...recorderBitrateFor(recordWidth || 1080, recordHeight || RECORD_TARGET_HEIGHT),
       });
     } catch {
       try {
@@ -1299,9 +1397,10 @@ export function FlowCreationDialog({
       const blobType = recorder.mimeType || mimeType || "video/mp4";
       const blob = new Blob(chunks, { type: blobType });
       // Gravação pesada NÃO é descartada: o usuário perderia o que acabou de gravar, e
-      // não há como refazer o momento. Com o teto de bitrate + 1 min o arquivo fica em
-      // ~15MB; se algum aparelho ignorar o bitrate, o vídeo segue assim mesmo e só
-      // avisamos que o envio vai demorar mais.
+      // não há como refazer o momento. Com o bitrate por área + 1 min o arquivo fica em
+      // até ~45MB (um flow típico, de poucos segundos, fica na casa dos MB); se algum
+      // aparelho ignorar o bitrate, o vídeo segue assim mesmo e só avisamos que o envio
+      // vai demorar mais.
       if (blob.size > MAX_MEDIA_BYTES) {
         toast({ title: t("flow_video_heavy"), description: t("flow_video_heavy_desc") });
       }
@@ -1463,7 +1562,7 @@ export function FlowCreationDialog({
         settled = true;
         clearTimeout(safety);
         // Reencoda para 720p ANTES de virar preview: o vídeo GRAVADO no app já
-        // sai capado em `RECORDER_BITRATE` (2 Mbps), mas o importado da galeria
+        // sai no bitrate por área (`recorderBitrateFor`), mas o importado da galeria
         // subia cru — e virou o maior consumidor de Storage do app. Comprimir
         // aqui, e não no upload, também deixa o preview ser exatamente o
         // arquivo que será publicado. Devolve o original se não der para

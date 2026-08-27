@@ -41,6 +41,12 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Use o Face ID para entrar na sua conta de forma rápida e segura.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Sua localização é usada apenas quando você escolhe marcar o lugar em uma publicação.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>A localização em segundo plano é usada apenas durante uma corrida ao ar livre, para registrar sua rota e distância mesmo com a tela bloqueada.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Permita o acesso à câmera para tirar fotos e gravar vídeos.</string>
 	<key>NSMicrophoneUsageDescription</key>

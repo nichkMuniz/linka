@@ -134,8 +134,48 @@ Duas consequências que precisaram de tratamento explícito:
 |---|---|---|
 | `Info.plist` | Removido `NSLocationAlwaysAndWhenInUseUsageDescription` | Localização **Always** é a permissão mais escrutinada da loja. Existia só para o GPS de corrida (`FEATURES.gpsRun`) |
 | `Info.plist` | Removido `UIBackgroundModes: [location]` | Idem — `location` era o único modo declarado |
-| `Info.plist` | Removida `NSLocationWhenInUseUsageDescription` | Sobrara só para o alfinete de localização no post; com `FEATURES.postLocation` desligada, **o app não pede localização de forma alguma** |
-| `Info.plist` | Removida `NSFaceIDUsageDescription` | Login por biometria desligado (`FEATURES.biometricLogin`); permissão declarada e nunca solicitada é questionada no review |
+| `Info.plist` | **Mantidas** `NSLocationWhenInUse`, `NSLocationAlwaysAndWhenInUse` e `NSFaceID` | Ver "Purpose strings" abaixo — são obrigatórias mesmo com as features desligadas |
+
+### Purpose strings: obrigatórias mesmo sem usar a feature
+
+O TestFlight devolveu **ITMS-90683** em duas chaves de localização depois que
+elas foram removidas. A causa está na própria mensagem da Apple:
+
+> *"If you're using external libraries or SDKs, they may reference APIs that
+> require a purpose string. While your app might not use these APIs, a purpose
+> string is still required."*
+
+Três plugins continuam **linkados no binário** via SPM, e é o link que dispara a
+verificação estática — não a chamada:
+
+| Plugin (`CapApp-SPM/Package.swift`) | Chave exigida |
+|---|---|
+| `CapacitorGeolocation` | `NSLocationWhenInUseUsageDescription` |
+| `CapgoBackgroundGeolocation` | `NSLocationAlwaysAndWhenInUseUsageDescription` |
+| `CapgoCapacitorNativeBiometric` | `NSFaceIDUsageDescription` |
+
+As três foram **restauradas**. Isto corrige uma orientação anterior deste
+documento: "permissão declarada e nunca solicitada é questionada no review"
+estava errado para este caso. Declarar a string é o estado que a Apple exige; o
+usuário só vê o alerta se o app chamar a API, e com as flags desligadas ele
+nunca chama.
+
+> ⚠️ **`UIBackgroundModes` continua FORA, e isso é diferente.** Background mode é
+> uma *capability*, não uma purpose string. A Apple verifica se o modo declarado
+> é de fato usado, e declarar `location` sem usar é risco real pela Guideline
+> 2.5.4. O aviso do TestFlight não pediu essa chave — só as purpose strings.
+
+**A ficha de privacidade não muda.** Purpose string é permissão; nutrition label
+é coleta. O app não coleta localização, então continua marcada como não
+coletada.
+
+**Alternativa mais limpa, para quando houver apetite:** remover
+`@capacitor/geolocation` e `@capgo/background-geolocation` do `package.json`.
+Sem os pacotes, o SPM não linka os frameworks, a verificação não dispara e as
+chaves deixam de ser necessárias. O custo é tornar dinâmicos os imports em
+`run-tracker.ts` e `NewPost.tsx`, regenerar os DOIS lockfiles e rodar um build
+no Appflow às cegas — e um erro de Swift só aparece lá. Por isso não foi feito
+agora.
 
 ### iPad: mantido de propósito
 
@@ -375,8 +415,8 @@ Varredura tela por tela antes de submeter. Achados, todos corrigidos:
 - [ ] Confirmar que `/termos` e `/privacidade` servem conteúdo real
 
 ### App Store Connect
-- [ ] Privacy nutrition labels coerentes com as **quatro** permissões que sobraram: câmera, microfone, galeria (leitura) e galeria (escrita). **Sem localização e sem Face ID** — se as labels ainda declararem esses dados, corrija
-- [ ] Screenshots de iPhone **e iPad** (o app suporta os dois — e é revisado em iPad)
+- [ ] Privacy nutrition labels: declarar apenas o que o app **coleta** — e ele não coleta localização. As purpose strings de localização e Face ID existem no Info.plist porque os SDKs as exigem (ver seção 6), mas **não** viram nutrition label
+- [ ] Screenshots de iPhone **e iPad** — subir `npx vite --port 8080` e rodar `node scripts/appstore/.tooling/capture.mjs`. São capturas do app REAL, sem legenda; saem em `docs/appstore/` (ver o README de lá). **NÃO** anexar `subscription-review-640x920.png`: é a screenshot de review do IAP, que não existe mais nesta versão
 - [ ] Nenhum produto de IAP anexado à versão
 
 ### Build
@@ -411,7 +451,7 @@ Varredura tela por tela antes de submeter. Achados, todos corrigidos:
 - [ ] Conversa privada: reação e double check aparecem ao vivo nos dois aparelhos
 - [ ] Configurações: sem "Histórico" no peso e sem criar perfil comercial
 - [ ] Novo post: sem alfinete de localização na barra da legenda
-- [ ] iOS não pede localização em momento nenhum
+- [ ] iOS não pede localização nem Face ID em momento nenhum (as chaves existem, mas as APIs nunca são chamadas)
 - [ ] Configurações → Dados pessoais: campo de peso existe, botão "Histórico" não
 - [ ] Cadastro não pergunta sobre perfil comercial
 - [ ] Criar um flow: sem botão "@" de marcar pessoas

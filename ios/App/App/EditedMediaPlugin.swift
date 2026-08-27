@@ -107,20 +107,24 @@ public class EditedMediaPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
-    /// Exporta um vídeo da galeria **reduzido para 720p**, para publicação.
+    /// Exporta um vídeo da galeria **reduzido para 1080p**, para publicação.
     ///
     /// Por que existe, separado do `getMediaUrl`: aquele exporta com
     /// `AVAssetExportPresetHighestQuality`, ou seja, mantém 4K/60fps do sensor.
     /// Um shot publicado assim chegava a ~66MB — 200× uma foto do feed, e o
-    /// maior custo isolado de Storage do app. Aqui o preset encaixa o vídeo na
-    /// caixa 1280x720, que é de sobra para um vídeo vertical curto visto no
-    /// celular.
+    /// maior custo isolado de Storage do app.
     ///
-    /// O preset **não amplia**: fonte menor que 720p sai do mesmo tamanho, então
-    /// chamar isto nunca piora o arquivo.
+    /// O alvo era 720p e foi elevado para 1080p: o flow é assistido em tela
+    /// cheia num display de 1080+ de largura, então o player AMPLIAVA o clipe de
+    /// 720p — o vídeo importado da galeria chegava visivelmente mais borrado que
+    /// o mesmo vídeo visto na fototeca. 1080p ainda corta drasticamente o 4K do
+    /// sensor, que era o custo real de Storage.
     ///
-    /// Cache próprio (prefixo `c720_`), porque o mesmo asset pode ter as duas
-    /// cópias em disco — a original exportada e a comprimida.
+    /// O preset **não amplia**: fonte menor que o alvo sai do mesmo tamanho,
+    /// então chamar isto nunca piora o arquivo.
+    ///
+    /// Cache próprio (prefixo `c<altura>_`), porque o mesmo asset pode ter as
+    /// duas cópias em disco — a original exportada e a comprimida.
     @objc public func compressVideo(_ call: CAPPluginCall) {
         guard let id = call.getString("id"), !id.isEmpty else {
             call.reject("Parameter 'id' is required")
@@ -141,6 +145,8 @@ public class EditedMediaPlugin: CAPPlugin, CAPBridgedPlugin {
                 self.resolveCompressed(call, with: cached)
                 return
             }
+
+            self.removeOtherGenerationCompressedFiles(for: asset)
 
             guard let file = self.exportCompressedVideo(asset) else {
                 // Quem chama cai no caminho normal (sem compressão) — publicar
@@ -282,8 +288,7 @@ public class EditedMediaPlugin: CAPPlugin, CAPBridgedPlugin {
             self.purgeOutgoingLeftovers()
 
             let asset = AVURLAsset(url: source)
-            let presetName = AVAssetExportPreset1280x720
-            guard AVAssetExportSession.exportPresets(compatibleWith: asset).contains(presetName),
+            guard let presetName = self.compressionPreset(for: asset),
                   let session = AVAssetExportSession(asset: asset, presetName: presetName) else {
                 call.reject("Formato de vídeo não suportado para compressão", "UNSUPPORTED_MEDIA")
                 return
@@ -291,7 +296,7 @@ public class EditedMediaPlugin: CAPPlugin, CAPBridgedPlugin {
 
             let fileType: AVFileType = session.supportedFileTypes.contains(.mp4) ? .mp4 : .mov
             let ext = fileType == .mp4 ? "mp4" : "mov"
-            let output = self.outgoingDirectory.appendingPathComponent("\(token)-720.\(ext)")
+            let output = self.outgoingDirectory.appendingPathComponent("\(token)-compressed.\(ext)")
             // O AVAssetExportSession falha se o destino já existir.
             try? self.fileManager.removeItem(at: output)
 
@@ -447,13 +452,12 @@ public class EditedMediaPlugin: CAPPlugin, CAPBridgedPlugin {
             defer { semaphore.signal() }
             guard let avAsset = avAsset else { return }
 
-            let presetName = AVAssetExportPreset1280x720
             // Nem todo asset aceita todo preset (áudio exótico, codec sem
             // suporte). Sem esta checagem o init devolveria nil e a compressão
             // falharia silenciosamente.
-            guard AVAssetExportSession.exportPresets(compatibleWith: avAsset).contains(presetName),
+            guard let presetName = self.compressionPreset(for: avAsset),
                   let session = AVAssetExportSession(asset: avAsset, presetName: presetName) else {
-                CAPLog.print("EditedMedia: 720p preset unavailable for this asset")
+                CAPLog.print("EditedMedia: no compression preset available for this asset")
                 return
             }
 
@@ -619,13 +623,54 @@ public class EditedMediaPlugin: CAPPlugin, CAPBridgedPlugin {
 
     // MARK: - Cache do vídeo comprimido
     //
-    // Mesmo diretório do cache de leitura, de propósito: assim o
-    // `purgeStaleEntries` também recolhe estes arquivos. O prefixo `c720_` vem
-    // ANTES do hash, então a busca do cache normal (`hasPrefix("<hash>_…")`)
-    // nunca casa com um comprimido, e vice-versa.
+    // Mesmo diretório do cache de leitura, de propósito. O prefixo
+    // `c<altura>_` vem ANTES do hash, então a busca do cache normal
+    // (`hasPrefix("<hash>_…")`) nunca casa com um comprimido, e vice-versa —
+    // pelo mesmo motivo o `purgeStaleEntries` não alcança estes arquivos, e quem
+    // os recolhe é o `removeOtherGenerationCompressedFiles`.
+
+    /// Altura alvo da compressão para publicação. Entra no nome do arquivo em
+    /// cache: mudar o alvo invalida automaticamente as cópias da geração antiga.
+    private static let compressedTargetHeight = 1080
+
+    /// Presets de exportação aceitos, do melhor para o pior. O fallback para
+    /// 720p só vale quando o asset não aceita 1080p (codec/áudio incomum) —
+    /// nesse caso o comportamento é o mesmo de antes.
+    private func compressionPreset(for asset: AVAsset) -> String? {
+        let compatible = AVAssetExportSession.exportPresets(compatibleWith: asset)
+        let candidates: [String] = [AVAssetExportPreset1920x1080, AVAssetExportPreset1280x720]
+        for preset in candidates where compatible.contains(preset) {
+            return preset
+        }
+        return nil
+    }
 
     private func compressedCachePrefix(for asset: PHAsset) -> String {
-        return "c720_\(cachePrefix(for: asset))"
+        return "c\(EditedMediaPlugin.compressedTargetHeight)_\(cachePrefix(for: asset))"
+    }
+
+    /// Apaga cópias comprimidas de OUTRA geração (outra altura alvo) do mesmo
+    /// asset. Sem isto, elevar o alvo de 720p para 1080p deixaria os arquivos
+    /// `c720_…` no cache para sempre: o `purgeStaleEntries` só casa nomes que
+    /// COMEÇAM com o hash, e no comprimido o prefixo de geração vem antes dele.
+    private func removeOtherGenerationCompressedFiles(for asset: PHAsset) {
+        let current = compressedCachePrefix(for: asset)
+        let hash = sha256(asset.localIdentifier)
+        guard let items = try? fileManager.contentsOfDirectory(
+            at: cacheDirectory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) else { return }
+
+        for item in items {
+            let name = item.lastPathComponent
+            guard name.hasPrefix("c"), !name.hasPrefix(current) else { continue }
+            guard let separator = name.range(of: "_") else { continue }
+            let generation = name[name.index(after: name.startIndex)..<separator.lowerBound]
+            guard !generation.isEmpty, generation.allSatisfy({ $0.isNumber }) else { continue }
+            guard name[separator.upperBound...].hasPrefix(hash) else { continue }
+            try? self.fileManager.removeItem(at: item)
+        }
     }
 
     private func compressedCacheURL(for asset: PHAsset, ext: String) -> URL {

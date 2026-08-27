@@ -1,0 +1,10 @@
+{
+  "name": "linka-shot-tooling",
+  "private": true,
+  "type": "module",
+  "description": "Ferramentas SÓ para gerar screenshots. Fora do package.json do app de proposito: dependencia nova la exigiria regenerar os DOIS lockfiles (npm p/ Appflow, pnpm p/ Vercel).",
+  "dependencies": {
+    "playwright": "^1.62.1",
+    "sharp": "^0.35.4"
+  }
+}
