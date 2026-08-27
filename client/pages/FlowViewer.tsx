@@ -78,6 +78,7 @@ import { Input } from "@/components/ui/input";
 import { motion, AnimatePresence } from "framer-motion";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { UserAvatar } from "@/components/shared/user-avatar";
+import { FEATURES } from "@/lib/feature-flags";
 import { cdnImg } from "@/lib/image-url";
 import { prefetchFlowMedia } from "@/lib/media-prefetch";
 import { useLanguage } from "@/lib/language-context";
@@ -445,7 +446,10 @@ export default function FlowViewer() {
         ]);
         setUserLikes(userLikesData);
         setComments(commentsData);
-        setTaggedUsers(tagsData);
+        // Zerado na origem com FEATURES.postTags desligada: cobre de uma vez
+        // a fileira de avatares "marcados" e o repost, que só é oferecido a
+        // quem foi marcado (`isTaggedViewer`).
+        setTaggedUsers(FEATURES.postTags ? tagsData : []);
       } catch (err) {
         console.error("Error loading story data:", err);
       }

@@ -2,6 +2,7 @@ import * as React from "react";
 import { createPortal } from "react-dom";
 import { useWorkout } from "@/lib/workout-context";
 import { useLanguage } from "@/lib/language-context";
+import { FEATURES } from "@/lib/feature-flags";
 import type { TranslationKey } from "@/lib/i18n";
 import {
   subscribeRun, getRunState, startRun, pauseRun, resumeRun, stopRun,
@@ -403,7 +404,14 @@ function computeWeightTrend(
 // Só o exercício "Corrida ao Ar Livre" do catálogo ganha o painel de GPS —
 // o workoutName chega localizado (pickLocalized), então casamos PT e EN.
 const OUTDOOR_RUN_NAMES = new Set(["corrida ao ar livre", "outdoor running"]);
+// `FEATURES.gpsRun` desligada faz este predicado devolver `false` para todo
+// mundo: as ~12 ramificações de `isRunExercise` abaixo caem no caminho de
+// exercício comum, o RunTrackerPanel nunca monta e o run-tracker jamais é
+// iniciado. É o único ponto que precisa mudar — e é o que permite tirar
+// `NSLocationAlwaysAndWhenInUseUsageDescription` do Info.plist, já que o app
+// deixa de ter qualquer caminho que peça localização em segundo plano.
 const isOutdoorRun = (name?: string | null) =>
+  FEATURES.gpsRun &&
   !!name &&
   OUTDOOR_RUN_NAMES.has(
     name.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim(),
@@ -1145,7 +1153,7 @@ function ExerciseDetailOverlay({
             exercício com mais frequência (o "i" no card, durante o treino),
             então deixá-la só no wizard escondia a feature. */}
         <div style={{ width: "100%", paddingBottom: 8 }}>
-          <ExerciseAnatomy workoutId={workoutId} workoutName={name} />
+          {FEATURES.muscleAnatomy && <ExerciseAnatomy workoutId={workoutId} workoutName={name} />}
         </div>
         </>
         )}
@@ -1162,7 +1170,10 @@ export function WorkoutSessionDialog({
   // Chave única de ramificação da tela. Tudo que o modo expert acrescenta é
   // gateado por ela — no simplificado o componente renderiza exatamente o que
   // renderizava antes de 05/08/2026.
-  const isExpert = trainingMode === "expert";
+  // Rotinas criadas antes de guardarmos o Expert continuam com
+  // `training_mode = "expert"` no banco. Sem este `&&` elas reabririam toda a
+  // UI de técnicas — a flag precisa vencer o dado persistido, não só a criação.
+  const isExpert = FEATURES.expertMode && trainingMode === "expert";
   const {
     workoutSeries, setWorkoutSeries,
     workoutDuration,
@@ -1859,6 +1870,12 @@ export function WorkoutSessionDialog({
             isCardio,
             minutes: totals.minutes,
             km: totals.km,
+            // Séries concluídas de musculação: é o que faz a estimativa subir
+            // quando a pessoa registra mais carga/reps, e não só quando o
+            // cronômetro anda.
+            sets: isCardio
+              ? undefined
+              : done.map((x) => ({ kg: x.kg || 0, reps: x.reps || 0 })),
           };
         }),
       }),
@@ -3852,6 +3869,7 @@ export function WorkoutSessionDialog({
       {/* Sem party, encolhe para um botão discreto: quem treina sozinho (a
           maioria) não perde espaço, e quem quer chamar alguém depois de já ter
           começado tem onde tocar. */}
+      {FEATURES.workoutParty && (
       <WorkoutPartyBar
         partyId={workoutPartyId}
         currentUserId={userId}
@@ -3861,6 +3879,7 @@ export function WorkoutSessionDialog({
         canInvite={!isPartyGuest}
         onInvite={handlePartyInvite}
       />
+      )}
 
       {/* ── STATS ROW ────────────────────────────────────────── */}
       <div style={{

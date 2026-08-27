@@ -50,6 +50,7 @@ import { Geolocation } from "@capacitor/geolocation";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { EmojiPickerDrawer } from "@/components/shared/emoji-picker-drawer";
 import { TagPeopleDrawer } from "@/components/shared/tag-people-drawer";
+import { FEATURES } from "@/lib/feature-flags";
 import {
   InlineCropPreview,
   CroppedThumb,
@@ -116,7 +117,10 @@ export default function NewPost() {
       : "select";
   });
   const [mediaType, setMediaType] = React.useState<MediaType>(
-    () => (sessionStorage.getItem("newpost_tab") === "video" ? "shot" : "post"),
+    () =>
+      FEATURES.shots && sessionStorage.getItem("newpost_tab") === "video"
+        ? "shot"
+        : "post",
   );
 
   const [selectedFiles, setSelectedFiles] = React.useState<File[]>(() => imageDraft.files);
@@ -1295,7 +1299,13 @@ export default function NewPost() {
             </div>
           )}
 
-          {/* ── Floating media type selector ── */}
+          {/* ── Floating media type selector ──
+              Com Shots guardado (FEATURES.shots) não há para onde publicar um
+              shot: o seletor sai e `mediaType` fica travado em "post". O
+              default abaixo também é forçado, senão um rascunho salvo em
+              sessionStorage reabriria o editor em modo vídeo sem seletor para
+              sair dele. */}
+          {FEATURES.shots && (
           <div style={{
             position: "absolute",
             bottom: `max(36px, calc(env(safe-area-inset-bottom) + 16px))`,
@@ -1331,6 +1341,7 @@ export default function NewPost() {
               SHOT
             </button>
           </div>
+          )}
         </div>
 
         {/* Hidden file inputs */}
@@ -1461,25 +1472,35 @@ export default function NewPost() {
             >
               <Smile width={17} height={17} />
             </button>
-            <button
-              onClick={handleAddLocation}
-              disabled={isLocating}
-              aria-label={t("newpost_add_location")}
-              style={{ display: "flex", alignItems: "center", minHeight: 32, opacity: isLocating ? 0.6 : 1 }}
-            >
-              {isLocating ? (
-                <Loader2 width={17} height={17} className="animate-spin" />
-              ) : (
-                <MapPin width={17} height={17} />
-              )}
-            </button>
-            <button
-              onClick={handleAddHashtag}
-              aria-label={t("newpost_add_hashtag")}
-              style={{ fontSize: 12.5, fontWeight: 600, lineHeight: 1, minHeight: 32, display: "flex", alignItems: "center" }}
-            >
-              #
-            </button>
+            {/* Alfinete de localização — guardado (FEATURES.postLocation).
+                Era o ÚNICO caminho do app que pedia localização em primeiro
+                plano; sem ele a chave saiu do Info.plist. */}
+            {FEATURES.postLocation && (
+              <button
+                onClick={handleAddLocation}
+                disabled={isLocating}
+                aria-label={t("newpost_add_location")}
+                style={{ display: "flex", alignItems: "center", minHeight: 32, opacity: isLocating ? 0.6 : 1 }}
+              >
+                {isLocating ? (
+                  <Loader2 width={17} height={17} className="animate-spin" />
+                ) : (
+                  <MapPin width={17} height={17} />
+                )}
+              </button>
+            )}
+            {/* Atalho de hashtag: sem a tela /tag/:tag e sem a aba de busca,
+                a hashtag digitada não leva a lugar nenhum — oferecer o atalho
+                seria prometer uma navegação que não existe. */}
+            {FEATURES.hashtags && (
+              <button
+                onClick={handleAddHashtag}
+                aria-label={t("newpost_add_hashtag")}
+                style={{ fontSize: 12.5, fontWeight: 600, lineHeight: 1, minHeight: 32, display: "flex", alignItems: "center" }}
+              >
+                #
+              </button>
+            )}
           </div>
           <span style={{ fontSize: 12, color: activeText.length > 450 ? "#fb923c" : "rgba(255,255,255,.4)" }}>
             {activeText.length}/500
@@ -1615,7 +1636,10 @@ export default function NewPost() {
               </div>
             )}
 
-            {/* Marcar pessoas (estilo Instagram) */}
+            {/* Marcar pessoas (estilo Instagram) — guardado para um update
+                futuro: marcar exige ter em quem marcar. */}
+            {FEATURES.postTags && (
+            <>
             <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".06em", color: "rgba(255,255,255,.45)", margin: "22px 4px 10px" }}>
               {t("newpost_tag_people_section")}
             </div>
@@ -1656,6 +1680,8 @@ export default function NewPost() {
                 {t("newpost_tag_people_add")}
               </button>
             </div>
+            </>
+            )}
           </>
         )}
       </div>

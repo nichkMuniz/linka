@@ -1,3 +1,4 @@
+import { FEATURES } from "@/lib/feature-flags";
 /**
  * Pré-carregamento dos chunks de tela.
  *
@@ -69,7 +70,10 @@ export function prefetchRoute(path: string): void {
  * cada vez, encadeadas, para não disputar banda/CPU entre si.
  */
 export function prefetchPrimaryRoutes(): void {
-  const targets = ["/", "/metas", "/comunidade", "/shots"];
+  // "/shots" saiu da lista com FEATURES.shots desligada: baixar em segundo
+  // plano o chunk de uma tela sem rota é gastar banda do usuário à toa, logo
+  // na abertura do app — que é justamente o momento mais disputado.
+  const targets = ["/", "/metas", "/comunidade", ...(FEATURES.shots ? ["/shots"] : [])];
 
   const run = () => {
     void targets.reduce<Promise<unknown>>(

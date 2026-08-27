@@ -1,5 +1,14 @@
 # Tela: Buscar
 
+> **Recorte v1.0** (ver [20-lancamento-v1.md](./20-lancamento-v1.md)):
+> Só a aba **Pessoas** aparece. Rotinas/Dietas (`FEATURES.routineSearch`) e
+> Hashtags (`FEATURES.hashtags`) são buscas por volume — sem conteúdo suficiente
+> devolvem lista vazia para qualquer termo, o que faz a busca inteira parecer
+> quebrada. Com uma aba só, a barra de abas some.
+>
+> `searchUsersDb` filtra usuários bloqueados nos dois sentidos: sem isso, quem
+> você bloqueou continuaria alcançável pelo nome.
+
 **Rota:** `/buscar`
 **Arquivo:** `client/pages/Search.tsx`
 **Layout:** AppLayout

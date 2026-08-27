@@ -46,6 +46,7 @@ O objetivo central é motivar pessoas a manterem uma rotina saudável através d
 | 17 | [Premium](./17-premium.md) | — | Plano LinKa Premium: modelo de dados, mapa de gates, roteiro RevenueCat (Fase 2) |
 | 18 | [Painel Admin](./18-admin.md) | `/admin` | Moderação, métricas, atividade diária por usuário e gestão de premium/verificados |
 | 19 | [Compartilhamento e Deep Links](./19-compartilhamento-e-deep-links.md) | — | Universal Links, custom scheme, prévia Open Graph e landing de instalação |
+| 20 | [Lançamento v1.0](./20-lancamento-v1.md) | — | **Escopo da primeira submissão**: o que entra, o que fica guardado atrás de flag e por quê |
 
 ---
 
@@ -73,6 +74,15 @@ O objetivo central é motivar pessoas a manterem uma rotina saudável através d
 ---
 
 ## Funcionalidades Transversais
+
+> ⚠️ **Recorte de lançamento (26/08/2026).** Várias telas e features desta
+> documentação estão **escondidas atrás de flags** em
+> `client/lib/feature-flags.ts` para a primeira submissão na App Store — entre
+> elas Shots, Vitrine, Duelos, Ranking, Modo Expert e as compras no app. O
+> código continua todo aqui e a documentação segue válida: o que muda é a porta
+> de entrada. Leia **[docs/20-lancamento-v1.md](./20-lancamento-v1.md)** antes
+> de assumir que algo está visível no app.
+
 
 - **Autenticação** — protege todas as rotas exceto `/login`
 - **Tema dark/light** — persiste em localStorage

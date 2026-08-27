@@ -1,4 +1,5 @@
 import * as React from "react";
+import { FEATURES } from "@/lib/feature-flags";
 
 // Deterministic gradient from post id for posts without photos
 const POST_GRADIENTS = [
@@ -45,7 +46,11 @@ export function renderWithHashtags(
     const m = token.match(/^#([\p{L}\p{N}_]+)/u);
     if (!m) return token;
     const tag = m[1];
-    if (!onHashtagClick) {
+    // Com FEATURES.hashtags desligada a rota /tag/:tag não existe, e o toque
+    // cairia no catch-all que joga o usuário no feed. Ignorar o callback aqui
+    // conserta TODOS os callsites de uma vez (feed, detalhe do post, shots,
+    // flows) — a hashtag continua destacada, só não é mais tocável.
+    if (!onHashtagClick || !FEATURES.hashtags) {
       return <span key={i} className="text-[#9db8ff] font-medium">{token}</span>;
     }
     const rest = token.slice(1 + tag.length);

@@ -1,5 +1,6 @@
 import * as React from "react";
 import { useAuthContext } from "@/lib/auth-context";
+import { FEATURES } from "@/lib/feature-flags";
 import {
   configurePurchases,
   hasActiveEntitlement,
@@ -41,7 +42,41 @@ const PremiumContext = React.createContext<PremiumContextValue>({
   applyPurchase: () => {},
 });
 
+/**
+ * Valor do contexto quando a monetização está desligada (`FEATURES.iap`).
+ *
+ * `isPremium: true` — não é um "modo grátis" improvisado, é a leitura correta
+ * do estado do produto: sem loja, todo usuário TEM acesso a tudo. Como os
+ * gates no app inteiro são escritos como `!isPremium && <bloqueio>`, isto os
+ * abre todos de uma vez, sem tocar em nenhum call site.
+ *
+ * Isso importa para o review: um gate fechado sem caminho de compra é uma
+ * funcionalidade quebrada aos olhos da Apple, e vira rejeição por conta
+ * própria. Abrir tudo é a única postura coerente com não ter IAP.
+ */
+const OPEN_ACCESS: PremiumContextValue = {
+  isPremium: true,
+  loading: false,
+  refresh: async () => {},
+  applyPurchase: () => {},
+};
+
 export function PremiumProvider({ children }: { children: React.ReactNode }) {
+  // `FEATURES.iap` é constante em tempo de build: este ramo nunca alterna
+  // durante a vida do app, então não há risco de ordem de hooks mudando entre
+  // renders. Com a flag desligada, o SDK da loja jamais é configurado.
+  if (!FEATURES.iap) {
+    return (
+      <PremiumContext.Provider value={OPEN_ACCESS}>
+        {children}
+      </PremiumContext.Provider>
+    );
+  }
+  return <PurchasesPremiumProvider>{children}</PurchasesPremiumProvider>;
+}
+
+/** Provider real, ligado ao RevenueCat. Só monta com `FEATURES.iap` ligada. */
+function PurchasesPremiumProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuthContext();
   const [dbPremium, setDbPremium] = React.useState(false);
   /**

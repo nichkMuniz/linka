@@ -34,11 +34,60 @@ const MET_BY_CARDIO_KIND: Record<CardioKind, number> = {
 };
 
 /**
- * Musculação com séries e descanso, esforço moderado a vigoroso. O valor já
- * embute o descanso entre séries — é por isso que a base de tempo pode ser o
- * cronômetro da sessão, e não a soma dos segundos "debaixo da barra".
+ * Musculação: FAIXA de MET, não valor único.
+ *
+ * Antes era fixo em 5,0, e a consequência era contraintuitiva: registrar mais
+ * carga e mais repetições não mudava nada no número — só o cronômetro mexia.
+ * Duas pessoas na mesma hora de academia, uma encostada no aparelho e outra
+ * fazendo 20 séries pesadas, recebiam a mesma estimativa.
+ *
+ * Os três valores são do Compendium (resistance training, light / moderate /
+ * vigorous). O que escolhe entre eles é o RITMO DE TRABALHO da sessão —
+ * volume (carga × reps) por minuto —, que é a única medida de intensidade que
+ * o app tem sem sensor. O valor segue embutindo o descanso entre séries, então
+ * a base de tempo continua sendo o cronômetro.
  */
-const MET_STRENGTH = 5.0;
+const MET_STRENGTH_LIGHT = 3.5;
+const MET_STRENGTH_MODERATE = 5.0;
+const MET_STRENGTH_VIGOROUS = 6.0;
+
+/**
+ * Ritmos de referência, em kg×reps por minuto de musculação.
+ *
+ * Calibrados sobre uma sessão comum: ~10 séries de 10 reps a 40 kg em 30 min
+ * dá ≈ 133 kg·rep/min, que deve cair perto do "moderado". O dobro disso já é
+ * uma sessão claramente puxada.
+ */
+const WORK_RATE_MODERATE = 130;
+const WORK_RATE_VIGOROUS = 320;
+
+/**
+ * Fração do peso corporal atribuída a exercícios sem carga externa (flexão,
+ * barra, abdominal). Sem isto uma sessão inteira de peso do corpo teria volume
+ * zero e cairia no MET leve, que é justamente o oposto da verdade.
+ * É uma aproximação grosseira e assumida — nenhum valor exato existe, porque
+ * depende do movimento.
+ */
+const BODYWEIGHT_LOAD_FRACTION = 0.4;
+
+/**
+ * MET da musculação a partir do ritmo de trabalho. Interpola entre leve e
+ * vigoroso e satura nas pontas — nunca extrapola a faixa publicada.
+ */
+function strengthMetFromWorkRate(volume: number, minutes: number): number {
+  if (minutes <= 0) return MET_STRENGTH_MODERATE;
+  const rate = volume / minutes;
+  if (rate <= 0) return MET_STRENGTH_LIGHT;
+  if (rate <= WORK_RATE_MODERATE) {
+    const t = rate / WORK_RATE_MODERATE;
+    return MET_STRENGTH_LIGHT + t * (MET_STRENGTH_MODERATE - MET_STRENGTH_LIGHT);
+  }
+  const t = Math.min(
+    1,
+    (rate - WORK_RATE_MODERATE) / (WORK_RATE_VIGOROUS - WORK_RATE_MODERATE),
+  );
+  return MET_STRENGTH_MODERATE + t * (MET_STRENGTH_VIGOROUS - MET_STRENGTH_MODERATE);
+}
 
 /** Alongamento/mobilidade — sessão inteira dedicada a isso gasta bem menos. */
 const MET_STRETCH = 2.5;
@@ -93,6 +142,12 @@ export type CalorieEstimateExercise = {
   minutes: number;
   /** km registrados no cardio (0 para musculação) */
   km: number;
+  /**
+   * Séries CONCLUÍDAS de musculação (carga em kg × repetições). É o que faz a
+   * estimativa responder ao esforço, e não só ao relógio. Vazio/ausente para
+   * cardio.
+   */
+  sets?: { kg: number; reps: number }[];
 };
 
 export type CalorieEstimate = {
@@ -109,7 +164,8 @@ export type CalorieEstimate = {
  * - cada cardio gasta pelos **minutos que a pessoa registrou** no campo MIN,
  *   com o MET da modalidade (ajustado pela velocidade quando há km);
  * - o restante do cronômetro (`durationSecs` menos os minutos de cardio) é
- *   creditado à musculação, que é onde o descanso entre séries mora;
+ *   creditado à musculação, que é onde o descanso entre séries mora — com o
+ *   MET escolhido pelo RITMO DE TRABALHO (volume por minuto), e não fixo;
  * - numa sessão **só de cardio** o restante é descartado: são os minutos de
  *   preparação/vestiário com o treino aberto, não esforço.
  */
@@ -142,7 +198,24 @@ export function estimateWorkoutCalories(input: {
   if (strength.length > 0 && remaining > 0) {
     const onlyStretching =
       strength.every((e) => STRETCH_GROUPS.includes((e.muscleGroup ?? "").toLowerCase()));
-    kcal += kcalFor(onlyStretching ? MET_STRETCH : MET_STRENGTH, weightKg, remaining);
+
+    // Volume total das séries concluídas. Exercício sem carga externa entra
+    // com uma fração do peso corporal — do contrário treino de peso do corpo
+    // pontuaria zero.
+    let volume = 0;
+    for (const ex of strength) {
+      for (const set of ex.sets ?? []) {
+        const reps = Math.max(0, set.reps);
+        if (reps <= 0) continue;
+        const load = set.kg > 0 ? set.kg : weightKg * BODYWEIGHT_LOAD_FRACTION;
+        volume += load * reps;
+      }
+    }
+
+    const met = onlyStretching
+      ? MET_STRETCH
+      : strengthMetFromWorkRate(volume, remaining);
+    kcal += kcalFor(met, weightKg, remaining);
   }
 
   // Arredondar para 5 é deliberado: "≈ 315 kcal" passa uma precisão que a conta

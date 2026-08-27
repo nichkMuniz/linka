@@ -16,6 +16,7 @@
 
 import { supabase } from "@/lib/supabase";
 import type { TranslationKey } from "@/lib/i18n";
+import { FEATURES } from "@/lib/feature-flags";
 
 /** Linha de `notifications` como ela chega no payload do Realtime. */
 export type NotificationRow = {
@@ -205,11 +206,25 @@ export function notificationBody(
  */
 export function notificationDeepLink(row: NotificationRow): string {
   const type = Number(row.type ?? 0);
+
+  // Destinos guardados atrás de flag caem no catch-all de rotas e levam ao
+  // feed sem explicação. Melhor mandar para a central de notificações: a
+  // pessoa ao menos vê de onde o aviso veio, em vez de ser teleportada.
+  //
+  // Isto NÃO é redundante com o filtro em `getNotificationsDb`: aquele limpa a
+  // LISTA dentro do app; este trata o toque no PUSH, que chega mesmo com o app
+  // fechado e não passa por lá.
+  if (!FEATURES.duels && (type === 11 || type === 14 || type === 15)) return "/notificacoes";
+  if (!FEATURES.store && (type === 8 || type === 12 || type === 13)) return "/notificacoes";
+  if (!FEATURES.workoutParty && type === 19) return "/notificacoes";
+  if (!FEATURES.postTags && type === 16) return "/notificacoes";
+
   // Comentário (3), reação no comentário (6), reação no check-in (7), check-in
   // de um membro do duelo (11) e avaliação do check-in (14/15) abrem o próprio
   // check-in — mesmo destino que o card na tela de Notificações usa via
   // `state.openCheckIn`.
   if (
+    FEATURES.duels &&
     row.duel_check_in_id &&
     (type === 3 || type === 6 || type === 7 || type === 11 || type === 14 || type === 15)
   ) {

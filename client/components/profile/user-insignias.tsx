@@ -14,6 +14,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { InsigniasDrawer } from "@/components/profile/insignias-drawer";
+import { FEATURES } from "@/lib/feature-flags";
 
 interface UserInsigniasProps {
   userId: string;
@@ -22,6 +23,11 @@ interface UserInsigniasProps {
 }
 
 export function UserInsignias({ userId, showStreak = false }: UserInsigniasProps) {
+  // Fonte única do recorte: em vez de guardar os três callsites (perfil, post
+  // viewer e card do feed), a própria insígnia some. Ao religar FEATURES.badges
+  // os três voltam juntos, sem risco de esquecer um.
+  if (!FEATURES.badges) return null;
+
   // Insígnia exibida = a escolhida pelo usuário (persistida), não a "mais alta".
   const [displayBadge, setDisplayBadge] = React.useState<Badge | null>(null);
   const [userBadges, setUserBadges] = React.useState<UserBadge[]>([]);

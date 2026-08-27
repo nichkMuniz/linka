@@ -1,5 +1,6 @@
 import { ChevronRight, Scale } from "lucide-react";
 import { useLanguage } from "@/lib/language-context";
+import { FEATURES } from "@/lib/feature-flags";
 
 interface StreakBadgesCardProps {
   streakCount: number;
@@ -38,7 +39,7 @@ export function StreakBadgesCard({
   const frac = Math.max(0.05, Math.min(1, weekDone / 7));
   const ringDeg = Math.round(frac * 360);
 
-  const hasBadges = earnedCount > 0 || lockedCount > 0;
+  const hasBadges = FEATURES.badges && (earnedCount > 0 || lockedCount > 0);
 
   return (
     <button
@@ -131,6 +132,7 @@ export function StreakBadgesCard({
 
       {/* canto superior direito: ⚖️ peso (discreto, de propósito) + chevron do card */}
       <div className="self-start shrink-0 flex items-center gap-1.5">
+        {FEATURES.weightTracking && (
         <div
           role="button"
           tabIndex={0}
@@ -162,6 +164,7 @@ export function StreakBadgesCard({
             <Scale className="h-4 w-4" style={{ color: "rgba(255,255,255,.55)" }} />
           </div>
         </div>
+        )}
 
         <ChevronRight className="h-5 w-5" style={{ color: "rgba(255,255,255,.4)" }} />
       </div>

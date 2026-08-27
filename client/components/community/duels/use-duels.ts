@@ -37,6 +37,7 @@ import { useLanguage } from "@/lib/language-context";
 import { type PendingInvite } from "@/components/community/requests-tab";
 
 import { toGroupCard, CHECKINS_INITIAL_COUNT, CHECKINS_PAGE_SIZE, CHECKINS_LOAD_MORE_OFFSET } from "./duels-constants";
+import { FEATURES } from "@/lib/feature-flags";
 
 interface UseDuelsOptions {
   /** Aba ativa da Comunidade — o carregamento das solicitações depende dela. */
@@ -561,6 +562,12 @@ export function useDuels({ activeTab, setActiveTab }: UseDuelsOptions) {
   // via a lista de antes do pedido — só fechando e reabrindo o app aparecia.
   const loadGroupsAndRequests = React.useCallback(
     async (opts?: { fresh?: boolean }) => {
+      // Com FEATURES.duels desligada a aba não existe, mas o hook continua
+      // montado (a Comunidade o instancia para o contador de solicitações).
+      // Sem esta guarda, toda abertura da Comunidade dispararia duas queries
+      // de duelo — uma delas SEM cache, por desenho — para alimentar uma tela
+      // que ninguém consegue abrir.
+      if (!FEATURES.duels) return;
       if (!user?.id) return;
       try {
         const [{ myGroups, availableGroups: enrichedAvailGroups, pendingInvites: invites }, joinRequests] =

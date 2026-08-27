@@ -32,11 +32,13 @@ import {
   type StoryWithUser,
   invalidateProfileCache,
   invalidateQueryCache,
+  getFollowingIdsDb,
 } from "@/lib/ritmofit-db";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { FollowButton } from "@/components/shared/follow-button";
 import { PostLikesModal } from "@/components/modals/post-likes-modal";
 import { ReportDrawer } from "@/components/shared/report-drawer";
+import { BlockUserDialog } from "@/components/shared/block-user-dialog";
 import { GoalCompletedDialog } from "@/components/shared/goal-completed-dialog";
 import { ShareDrawer } from "@/components/shared/share-drawer";
 import { SendToFriendDrawer, type SendableContent } from "@/components/shared/send-to-friend-drawer";
@@ -132,7 +134,21 @@ export default function Index() {
   const [loadingMoreFeed, setLoadingMoreFeed] = React.useState(false);
   const [hasMoreDiscover, setHasMoreDiscover] = React.useState(() => (cacheValid ? feedCache.hasMoreDiscover : true));
   const [loadingMoreDiscover, setLoadingMoreDiscover] = React.useState(false);
-  const [feedTab, setFeedTab] = React.useState<"following" | "discover">(() => (cacheValid ? feedCache.feedTab : "following"));
+  // Aba inicial: "Seguindo" é o padrão, e continua sendo para quem já segue
+  // alguém. A troca para "Descobrir" acontece em `loadFeed`, e SÓ para quem
+  // ainda não segue ninguém — do contrário a aba certa (com posts de quem a
+  // pessoa escolheu acompanhar) seria trocada por uma pior.
+  //
+  // Um cache válido vence os dois: se a pessoa escolheu uma aba nesta sessão,
+  // respeitamos a escolha dela.
+  const [feedTab, setFeedTab] = React.useState<"following" | "discover">(() =>
+    cacheValid ? feedCache.feedTab : "following",
+  );
+
+  // A escolha automática acontece UMA vez por sessão de tela. Sem esta trava,
+  // um pull-to-refresh de quem não segue ninguém arrastaria a pessoa de volta
+  // para "Descobrir" mesmo que ela tivesse acabado de tocar em "Seguindo".
+  const autoTabDecided = React.useRef(cacheValid);
 
   // Dica de "puxe para atualizar" — aparece quando o app volta ao foreground
   // depois de ≥5min em background (pode haver novas publicações).
@@ -219,10 +235,29 @@ export default function Index() {
       // Só invalida quando o refresh é EXPLÍCITO do usuário: na carga inicial isso
       // descartava um cache ainda válido e forçava uma query a cada abertura do app.
       if (force) invalidateQueryCache("activeStories");
-      const [postsData, storiesData] = await Promise.all([
+      const [postsData, storiesData, followingIds] = await Promise.all([
         getFeedPosts(),
         getActiveStoriesDb(),
+        // Cacheada (TTL médio) e já lida por getFeedPosts no mesmo tick — na
+        // prática não custa uma ida à rede a mais.
+        getFollowingIdsDb(),
       ]);
+
+      // Quem ainda não segue ninguém abre em "Descobrir": "Seguindo" mostraria
+      // uma tela vazia, que é a pior primeira impressão possível. Quem já segue
+      // alguém fica em "Seguindo" — é o feed que a pessoa montou.
+      //
+      // A troca acontece aqui, ANTES do primeiro paint do conteúdo (a tela
+      // ainda está no skeleton), então não há flicker de aba.
+      if (!autoTabDecided.current) {
+        autoTabDecided.current = true;
+        if (followingIds.length === 0) {
+          // Não chamamos loadDiscover() aqui: renderizar a aba monta o
+          // sentinela, e o IntersectionObserver já existente dispara a carga.
+          setFeedTab("discover");
+        }
+      }
+
       setPosts(postsData);
       setStories(storiesData);
       setHasMoreFeed(postsData.length >= FEED_PAGE_SIZE);
@@ -905,6 +940,15 @@ export default function Index() {
     setReportDialogOpen(true);
   }, []);
 
+  // Bloquear a partir do "..." do post (Guideline 1.2). Guardamos o alvo num
+  // estado próprio em vez de reaproveitar `reportedPost`: os dois fluxos podem
+  // se abrir em sequência, e compartilhar o alvo faria o diálogo de bloqueio
+  // herdar quem o usuário só quis denunciar.
+  const [blockTarget, setBlockTarget] = React.useState<{ id: string; name: string } | null>(null);
+  const handleBlockUser = React.useCallback((post: PostWithStats) => {
+    setBlockTarget({ id: post.user_id, name: post.userNickname });
+  }, []);
+
   // A trava de reentrada mora numa ref, não no estado: dependendo de
   // `likesLoading`, este callback trocava de identidade a cada abertura e
   // levava junto o `sharedCardProps` — re-renderizando todos os cards do feed
@@ -985,6 +1029,7 @@ export default function Index() {
       onShare: handleSharePost,
       onReportUser: handleReportUser,
       onReportPost: handleReportPost,
+      onBlockUser: handleBlockUser,
       onEdit: handleEditPost,
       onDelete: handleDeletePost,
     }),
@@ -998,6 +1043,7 @@ export default function Index() {
       handleSharePost,
       handleReportUser,
       handleReportPost,
+      handleBlockUser,
       handleEditPost,
       handleDeletePost,
     ],
@@ -1518,6 +1564,17 @@ export default function Index() {
               }
             : null
         }
+      />
+
+      <BlockUserDialog
+        open={!!blockTarget}
+        onOpenChange={(o) => { if (!o) setBlockTarget(null); }}
+        userId={blockTarget?.id ?? null}
+        userName={blockTarget?.name ?? ""}
+        // Recarrega o feed sem skeleton: os posts do bloqueado já saem da
+        // query (getBlockedIdsDb filtra as duas direções), então o card
+        // desaparece sozinho em vez de ficar na tela contradizendo a ação.
+        onDone={() => { setBlockTarget(null); void loadFeed(false, true); }}
       />
 
       <ShareDrawer

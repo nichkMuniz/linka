@@ -36,6 +36,7 @@ import {
   Download,
   Dumbbell,
 } from "lucide-react";
+import { FEATURES } from "@/lib/feature-flags";
 
 const GRADIENT_PRESETS = [
   { id: "pink-orange", value: "linear-gradient(135deg, #FF0080 0%, #FF8A2A 100%)", label: "Rosa" },
@@ -2492,7 +2493,9 @@ export function FlowCreationDialog({
   ) : null;
 
   // Botão que abre o seletor de treino — mesmo visual nas duas etapas.
-  const workoutStickerButton = (
+  // Anular a constante cobre os dois pontos de uso de uma vez (a barra da
+  // captura e a da revisão), em vez de repetir a guarda em cada um.
+  const workoutStickerButton = !FEATURES.workoutStickerOnFlow ? null : (
     <button
       onClick={(e) => {
         e.stopPropagation();
@@ -3075,14 +3078,21 @@ export function FlowCreationDialog({
                   <X className="h-5 w-5" />
                 </button>
                 <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setTagPeopleOpen(true)}
-                    className="h-10 px-3 rounded-full bg-black/40 backdrop-blur flex items-center text-white text-sm font-semibold gap-1"
-                    aria-label="Marcar pessoas"
-                  >
-                    <AtSign className="h-4 w-4" />
-                    {taggedUsers.length > 0 ? taggedUsers.length : ""}
-                  </button>
+                  {/* Marcar pessoas no flow — mesma feature de FEATURES.postTags.
+                      Sem esta guarda o flow era a última porta aberta: dava
+                      para marcar alguém, gerando uma notificação tipo 16 que
+                      agora é filtrada da lista e redirecionada no push. Ou
+                      seja, a marcação existiria e ninguém seria avisado. */}
+                  {FEATURES.postTags && (
+                    <button
+                      onClick={() => setTagPeopleOpen(true)}
+                      className="h-10 px-3 rounded-full bg-black/40 backdrop-blur flex items-center text-white text-sm font-semibold gap-1"
+                      aria-label="Marcar pessoas"
+                    >
+                      <AtSign className="h-4 w-4" />
+                      {taggedUsers.length > 0 ? taggedUsers.length : ""}
+                    </button>
+                  )}
                   {workoutStickerButton}
                   <button
                     onClick={beginNewText}
@@ -3126,7 +3136,7 @@ export function FlowCreationDialog({
                   transition: "transform 0.25s ease-out",
                 }}
               >
-                {taggedUsers.length > 0 && (
+                {FEATURES.postTags && taggedUsers.length > 0 && (
                   <button
                     onClick={() => setTagPeopleOpen(true)}
                     className="w-full flex items-center gap-2 rounded-2xl bg-black/40 backdrop-blur border border-white/15 px-3 py-2 active:opacity-70"
@@ -3165,18 +3175,22 @@ export function FlowCreationDialog({
         )}
       </div>
 
+      {FEATURES.postTags && (
       <TagPeopleDrawer
         open={tagPeopleOpen}
         onOpenChange={setTagPeopleOpen}
         selected={taggedUsers}
         onChange={setTaggedUsers}
       />
+      )}
 
-      <WorkoutStickerPickerDrawer
-        open={workoutPickerOpen}
-        onOpenChange={setWorkoutPickerOpen}
-        onSelect={handlePickWorkout}
-      />
+      {FEATURES.workoutStickerOnFlow && (
+        <WorkoutStickerPickerDrawer
+          open={workoutPickerOpen}
+          onOpenChange={setWorkoutPickerOpen}
+          onSelect={handlePickWorkout}
+        />
+      )}
     </>
   );
 

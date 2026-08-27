@@ -1,5 +1,34 @@
 # Tela: Perfil
 
+> **Recorte v1.0** (ver [20-lancamento-v1.md](./20-lancamento-v1.md)):
+> - Só a aba **Publicações** aparece (`FEATURES.profileExtraTabs`). Treinos,
+>   Clipes, Marcações e Vitrine ficam guardadas — quatro abas vazias num perfil
+>   recém-criado são o sinal mais forte de app abandonado que existe.
+> - **O split `feedPosts` / `workoutPosts` é desativado junto.** Ele existe para
+>   alimentar a aba "Treinos"; sem ela, filtrar os posts de canvas os faria
+>   sumir do perfil inteiro — o usuário publica e o post não aparece em lugar
+>   nenhum. Com a flag desligada, "Publicações" volta a receber tudo.
+> - O **frame de perfil comercial** também some (`FEATURES.store`): sem a
+>   Vitrine, ele anuncia um negócio que não tem para onde levar.
+> - **Novo: botão "..." no perfil de outro usuário** → `UserSafetyDrawer`, com
+>   **Denunciar** e **Bloquear**. Até então o perfil era a única superfície do app
+>   sem nenhuma das duas ações — e é exatamente onde o revisor da Apple procura.
+>   Depois de bloquear, a tela volta para a anterior.
+> - **Novo: Configurações → Contas bloqueadas** (`BlockedAccountsDrawer`).
+>   Como o bloqueado some de todas as outras superfícies, essa lista é o único
+>   lugar de onde é possível desbloquear.
+> - **Novo: Configurações → Outros → Termos de Uso / Política de Privacidade.**
+>   Os dois links só existiam dentro do paywall; com o IAP desligado sumiriam do
+>   app inteiro.
+> - **Insígnias desligadas** (`FEATURES.badges`) — some a fileira ao lado do
+>   nome, no perfil e no post viewer. A guarda está dentro do `UserInsignias`,
+>   então o card do feed e a conversa privada caem juntos.
+> - **Histórico de peso** sai de Dados pessoais (`FEATURES.weightTracking`); o
+>   campo de peso permanece, porque alimenta a prescrição da rotina sugerida.
+> - A seção **Assinatura** exige `FEATURES.iap` além de `isPremium` — sem o
+>   guard ela apareceria para todos, já que com o IAP desligado todo mundo é
+>   `isPremium`.
+
 **Rota:** `/perfil` (próprio) | `/usuario/:userId` (outro usuário)
 **Arquivo:** `client/pages/Profile.tsx`
 **Layout:** AppLayout

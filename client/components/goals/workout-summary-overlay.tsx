@@ -56,6 +56,7 @@ import {
   drawCanvasFooter,
   drawCanvasStatPanels,
 } from "@/lib/canvas-card";
+import { FEATURES } from "@/lib/feature-flags";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -2146,7 +2147,7 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed, onPartyRo
       )}
 
       {/* ── Badges ── */}
-      {data.badges.length > 0 && (
+      {FEATURES.badges && data.badges.length > 0 && (
         <div style={{
           margin: "4px 16px 0",
           background: `${ORANGE}1A`, border: `1px solid ${ORANGE}4D`,
@@ -2346,7 +2347,12 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed, onPartyRo
           }}
         />
 
-        {/* Marcar pessoas — quem treinou junto (só entra no post do feed) */}
+        {/* Marcar pessoas — quem treinou junto (só entra no post do feed).
+            Era a superfície de FEATURES.postTags mais alcançável que sobrava:
+            está no loop principal, todo mundo que termina um treino passa
+            por aqui. */}
+        {FEATURES.postTags && (
+        <>
         <div style={{
           fontSize: 12, fontWeight: 700, color: MUTED,
           textTransform: "uppercase", letterSpacing: 0.5, margin: "16px 0 10px",
@@ -2396,6 +2402,8 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed, onPartyRo
             {t("newpost_tag_people_add")}
           </button>
         </div>
+        </>
+        )}
       </div>
 
       {/* Hidden file input */}
@@ -2602,6 +2610,7 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed, onPartyRo
       {/* Drawer de marcação — o portal do vaul nasce no body com z-[310] e o
           transform do lift wrapper o torna um stacking context, então sem
           elevar o WRAPPER ele ficaria atrás deste overlay (zIndex 9500). */}
+      {FEATURES.postTags && (
       <TagPeopleDrawer
         open={tagPeopleOpen}
         onOpenChange={setTagPeopleOpen}
@@ -2609,6 +2618,7 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed, onPartyRo
         onChange={setTaggedUsers}
         wrapperClassName="z-[9600]"
       />
+      )}
 
       <style>{`
         @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }

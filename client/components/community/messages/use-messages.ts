@@ -602,6 +602,40 @@ export function useMessages({
           }
         },
       )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "messages" },
+        (payload) => {
+          // A assinatura só ouvia INSERT, e por isso duas coisas nunca chegavam
+          // ao vivo: a REAÇÃO (emoji) e o VISUALIZADO (read) — as duas são
+          // UPDATE na mesma linha, não linha nova. Quem estava com a conversa
+          // aberta só via a mudança ao sair e voltar.
+          const msg = payload.new as any;
+          const isRelevant =
+            (msg.user_id === selectedConversation.userId &&
+              (msg.id_receiver === user.id || msg.following_id === user.id)) ||
+            (msg.user_id === user.id &&
+              (msg.id_receiver === selectedConversation.userId ||
+                msg.following_id === selectedConversation.userId));
+          if (!isRelevant) return;
+
+          setMessages((prev) =>
+            prev.map((m) =>
+              String(m.id) === String(msg.id)
+                ? {
+                    ...m,
+                    // Só os campos mutáveis. Espalhar o payload inteiro
+                    // sobrescreveria os dados de remetente que montamos no
+                    // cliente (nickname/foto), que não vêm na linha.
+                    emoji: msg.emoji ?? null,
+                    read: msg.read ?? m.read,
+                    text: msg.text ?? m.text,
+                  }
+                : m,
+            ),
+          );
+        },
+      )
       .subscribe((status) => {
         // Dispara na primeira assinatura E a cada reassinatura após reconexão do
         // websocket — o momento exato em que pode haver mensagem perdida.

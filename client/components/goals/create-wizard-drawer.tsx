@@ -30,6 +30,7 @@ import { ExerciseImage } from "@/components/shared/exercise-image";
 import { DietImage } from "@/components/shared/diet-image";
 import { ItemDetailDrawer, type ItemDetailData } from "@/components/goals/item-detail-drawer";
 import { PaywallDrawer } from "@/components/shared/paywall-drawer";
+import { FEATURES } from "@/lib/feature-flags";
 import { usePremium } from "@/lib/premium-context";
 import { useLanguage } from "@/lib/language-context";
 import type { TranslationKey } from "@/lib/i18n";
@@ -1629,7 +1630,10 @@ export function CreateWizardDrawer({
                     return;
                   }
                   setRoutineType(1);
-                  goTo("routine-mode");
+                  // Modo Expert guardado para um update futuro: sem ele não há
+                  // escolha a fazer, e um passo de wizard com uma opção só é
+                  // atrito puro. `trainingMode` permanece no default "simple".
+                  goTo(FEATURES.expertMode ? "routine-mode" : "routine-origin");
                 },
                 <Dumbbell className="h-5 w-5" />,
                 t("goals_wizard_routine"),

@@ -163,6 +163,7 @@ import { StatusBar, Style as StatusBarStyle } from "@capacitor/status-bar";
 
 import { ThemeProvider } from "@/components/layout/theme-provider";
 import { LanguageProvider } from "@/lib/language-context";
+import { FEATURES } from "@/lib/feature-flags";
 import { WorkoutProvider } from "@/lib/workout-context";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
@@ -192,6 +193,9 @@ initKeyboardTracker();
 // A shell (`AppLayout`) é lazy junto com as páginas de propósito: ela nunca
 // aparece sozinha, sempre acompanha uma rota que também é lazy, então os dois
 // chunks são buscados no mesmo instante e do disco local (Capacitor).
+// Flags de lançamento: rota escondida = feature guardada para um update
+// futuro. O componente continua no repositório e o chunk continua lazy — só
+// a porta de entrada some. Ver client/lib/feature-flags.ts.
 const AppLayout = React.lazy(() =>
   import("@/components/layout/app-layout").then((m) => ({ default: m.AppLayout })),
 );
@@ -544,14 +548,14 @@ const App = () => {
                     <Route path="/flows/:storyId" element={<React.Suspense fallback={<div className="fixed inset-0 bg-black" />}><FlowViewer /></React.Suspense>} />
                     <Route element={<Lazy skeleton={<AppShellFallback />}><AppLayout /></Lazy>}>
                       <Route path="/" element={<Lazy skeleton={<FeedSkeleton />}><Index /></Lazy>} />
-                      <Route path="/shots" element={<Lazy skeleton={<ShotsSkeleton />}><Shots /></Lazy>} />
+                      {FEATURES.shots && <Route path="/shots" element={<Lazy skeleton={<ShotsSkeleton />}><Shots /></Lazy>} />}
                       <Route path="/postar" element={<Lazy skeleton={<GenericPageSkeleton />}><NewPost /></Lazy>} />
                       <Route path="/metas" element={<Lazy skeleton={<GoalsSkeleton />}><Goals /></Lazy>} />
-                      <Route path="/vitrine" element={<Lazy skeleton={<StoreSkeleton />}><Store /></Lazy>} />
+                      {FEATURES.store && <Route path="/vitrine" element={<Lazy skeleton={<StoreSkeleton />}><Store /></Lazy>} />}
                       <Route path="/perfil" element={<Lazy skeleton={<ProfileSkeleton />}><Profile /></Lazy>} />
                       <Route path="/usuario/:userId" element={<Lazy skeleton={<ProfileSkeleton />}><Profile /></Lazy>} />
                       <Route path="/post/:postId" element={<Lazy skeleton={<PostDetailSkeleton />}><PostDetail /></Lazy>} />
-                      <Route path="/tag/:tag" element={<Lazy skeleton={<GenericPageSkeleton />}><Hashtag /></Lazy>} />
+                      {FEATURES.hashtags && <Route path="/tag/:tag" element={<Lazy skeleton={<GenericPageSkeleton />}><Hashtag /></Lazy>} />}
                       <Route path="/buscar" element={<Lazy skeleton={<GenericPageSkeleton />}><Search /></Lazy>} />
                       <Route path="/comunidade" element={<Lazy skeleton={<CommunitySkeleton />}><Community /></Lazy>} />
                       <Route path="/mensagens" element={<Navigate to="/comunidade" replace />} />

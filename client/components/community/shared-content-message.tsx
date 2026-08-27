@@ -5,6 +5,7 @@ import { UserAvatar } from "@/components/shared/user-avatar";
 import { getPostByIdDb, getShotByIdDb } from "@/lib/ritmofit-db";
 import { useLanguage } from "@/lib/language-context";
 import { videoPosterSrc } from "@/lib/video-thumb";
+import { FEATURES } from "@/lib/feature-flags";
 
 interface SharedContentMessageProps {
   kind: "post" | "shot";
@@ -36,6 +37,18 @@ export function SharedContentMessage({ kind, contentId }: SharedContentMessagePr
   React.useEffect(() => {
     let cancelled = false;
     setPreview({ status: "loading" });
+
+    // Shot compartilhado em DM com FEATURES.shots desligada: o card abriria
+    // /shots, que não é rota — o toque cairia no catch-all e jogaria a pessoa
+    // no feed, do nada. Mensagens assim existem de builds anteriores do
+    // TestFlight. Reaproveitamos o estado "indisponível" que o componente já
+    // tem para conteúdo apagado, que é exatamente o que este shot é agora do
+    // ponto de vista do usuário: algo que não dá para abrir.
+    if (kind === "shot" && !FEATURES.shots) {
+      setPreview({ status: "unavailable" });
+      return () => { cancelled = true; };
+    }
+
     (async () => {
       try {
         if (kind === "post") {

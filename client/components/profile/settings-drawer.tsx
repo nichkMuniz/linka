@@ -43,12 +43,16 @@ import {
 import { supabase, resetSupabaseAuth } from "@/lib/supabase";
 import { safeExternalUrl, isSafeExternalUrl } from "@/lib/safe-url";
 import { Capacitor } from "@capacitor/core";
+import { Browser } from "@capacitor/browser";
+import { TERMS_URL, PRIVACY_URL } from "@/lib/share-url";
 import { PushNotifications } from "@capacitor/push-notifications";
 import { LocalNotifications } from "@capacitor/local-notifications";
 import { useLanguage } from "@/lib/language-context";
+import { FEATURES } from "@/lib/feature-flags";
 import { videoPosterSrc } from "@/lib/video-thumb";
 import { WeightHistoryDrawer } from "@/components/shared/weight-history-drawer";
 import { ReportProblemDrawer } from "@/components/shared/report-problem-drawer";
+import { BlockedAccountsDrawer } from "@/components/profile/blocked-accounts-drawer";
 import { isMonitoringEnabled } from "@/lib/monitoring";
 import { usePremium } from "@/lib/premium-context";
 import { SubscriptionDrawer } from "@/components/profile/subscription-drawer";
@@ -73,6 +77,9 @@ import {
   ChevronDown,
   ChevronUp,
   Lock,
+  Ban,
+  FileText,
+  ShieldCheck,
   ScanFace,
   Repeat,
   Crown,
@@ -484,6 +491,7 @@ export function SettingsDrawer({
 
   // --- Privacy ---
   const [isPrivacyOpen, setIsPrivacyOpen] = React.useState(false);
+  const [isBlockedOpen, setIsBlockedOpen] = React.useState(false);
   const [hideFollowLists, setHideFollowLists] = React.useState(profile.hide_follow_lists ?? false);
   const [hidePostsFromNonFollowers, setHidePostsFromNonFollowers] = React.useState(profile.hide_posts_from_non_followers ?? false);
   const [isSavingPrivacy, setIsSavingPrivacy] = React.useState(false);
@@ -912,7 +920,11 @@ export function SettingsDrawer({
                       <div className="space-y-2">
                         <div className="flex items-center justify-between gap-2">
                           <label className="text-sm font-medium" style={{ color: "#fff" }}>{t("settings_weight_label")}</label>
-                          {/* Abre o mesmo histórico (gráfico + registros) do lembrete semanal de Metas */}
+                          {/* Abre o mesmo histórico (gráfico + registros) do lembrete semanal de Metas.
+                              Renderização condicional, e NÃO o atributo `hidden`: a classe
+                              `flex` define `display: flex`, que vence o `display: none` que
+                              o `[hidden]` aplica — o botão continuava visível. */}
+                          {FEATURES.weightTracking && (
                           <button
                             type="button"
                             onClick={() => setIsWeightHistoryOpen(true)}
@@ -923,8 +935,10 @@ export function SettingsDrawer({
                             <LineChart className="h-3.5 w-3.5" />
                             <span className="text-xs font-medium">{t("settings_weight_history")}</span>
                           </button>
+                          )}
                         </div>
                         <Input type="number" min={30} max={300} step="0.1" value={personalDataForm.weight} onChange={(e) => setPersonalDataForm((prev) => ({ ...prev, weight: e.target.value }))} placeholder={t("settings_weight_placeholder")} style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }} />
+                        {FEATURES.weightTracking && (
                         <WeightHistoryDrawer
                           open={isWeightHistoryOpen}
                           onOpenChange={setIsWeightHistoryOpen}
@@ -932,6 +946,7 @@ export function SettingsDrawer({
                           onAddWeight={handleAddWeight}
                           onDeleteWeight={handleDeleteWeight}
                         />
+                        )}
                       </div>
                       <div className="space-y-2">
                         <label className="text-sm font-medium" style={{ color: "#fff" }}>{t("settings_age_label")}</label>
@@ -1164,12 +1179,12 @@ export function SettingsDrawer({
             </Drawer>
 
             {/* ── Negócio ── */}
-            {(commercialProfile) && (
+            {FEATURES.store && commercialProfile && (
               <p className="text-xs font-semibold uppercase tracking-wider pt-2 pb-0.5" style={{ color: "rgba(255,255,255,.5)" }}>{t("settings_section_business")}</p>
             )}
 
             {/* Commercial Profile Dashboard */}
-            {commercialProfile && (
+            {FEATURES.store && commercialProfile && (
               <>
                 <SettingsRow
                   label={t("settings_manage_commercial")}
@@ -1308,7 +1323,10 @@ export function SettingsDrawer({
               </>
             )}
             <Drawer open={isCommercialOpen} onOpenChange={setIsCommercialOpen}>
-              {!commercialProfile && (
+              {/* Criar perfil comercial é a porta de entrada da Vitrine — sem
+                  ela (FEATURES.store) o usuário preencheria o cadastro do
+                  negócio e não seria listado em lugar nenhum. */}
+              {FEATURES.store && !commercialProfile && (
                 <SettingsRow
                   label={t("settings_commercial_profile")}
                   icon={<span className="text-lg">🏪</span>}
@@ -1554,8 +1572,12 @@ export function SettingsDrawer({
             </Drawer>
 
             {/* ── Assinatura (só para assinantes; não-assinantes veem a coroa
-                "Seja Premium" no header do AppLayout, que abre o paywall) ── */}
-            {isPremium && (
+                "Seja Premium" no header do AppLayout, que abre o paywall) ──
+
+                `FEATURES.iap` desligada torna todo mundo `isPremium` — sem o
+                guard da flag esta seção apareceria para TODOS, oferecendo
+                gerenciar uma assinatura que ninguém comprou. */}
+            {FEATURES.iap && isPremium && (
               <>
                 <p className="text-xs font-semibold uppercase tracking-wider pt-2 pb-0.5" style={{ color: "rgba(255,255,255,.5)" }}>{t("settings_section_subscription")}</p>
                 <SettingsRow
@@ -1670,6 +1692,21 @@ export function SettingsDrawer({
                 </div>
               </DrawerContent>
             </Drawer>
+
+            {/* Contas bloqueadas — Guideline 1.2: bloquear precisa ser
+                reversível, e como o bloqueado some de todas as outras
+                superfícies, esta é a única porta de volta. */}
+            <SettingsRow
+              label={t("blocked_accounts_title")}
+              icon={<Ban className="h-4 w-4" />}
+              onClick={() => setIsBlockedOpen(true)}
+            />
+            <BlockedAccountsDrawer
+              open={isBlockedOpen}
+              onOpenChange={setIsBlockedOpen}
+              viewportHeight={viewportHeight}
+              back={subDrawerBack(setIsBlockedOpen)}
+            />
 
             {/* Privacy */}
             <Drawer open={isPrivacyOpen} onOpenChange={setIsPrivacyOpen}>
@@ -1786,6 +1823,23 @@ export function SettingsDrawer({
 
             {/* ── Outros ── */}
             <p className="text-xs font-semibold uppercase tracking-wider pt-2 pb-0.5" style={{ color: "rgba(255,255,255,.5)" }}>{t("settings_section_other")}</p>
+
+            {/* Termos e privacidade.
+                Até aqui os dois links só existiam DENTRO do paywall — com
+                `FEATURES.iap` desligada eles sumiriam do app inteiro, e a
+                Apple exige a política de privacidade acessível de dentro do
+                app, não só na ficha da App Store. `Browser.open` (Capacitor)
+                em vez de `window.open`, conforme CLAUDE.md §0. */}
+            <SettingsRow
+              label={t("settings_terms")}
+              icon={<FileText className="h-4 w-4" />}
+              onClick={() => { void Browser.open({ url: TERMS_URL }); }}
+            />
+            <SettingsRow
+              label={t("settings_privacy_policy")}
+              icon={<ShieldCheck className="h-4 w-4" />}
+              onClick={() => { void Browser.open({ url: PRIVACY_URL }); }}
+            />
 
             {/* Flow History */}
             <Drawer open={isFlowHistoryOpen} onOpenChange={setIsFlowHistoryOpen}>

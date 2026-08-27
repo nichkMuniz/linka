@@ -29,6 +29,9 @@ import { Upload, X, Check, ArrowLeft, Eye, EyeOff, Plus, Trash2, ScanFace } from
 import { createOrUpdateCommercialProfileDb, saveCommercialPlansDb, type ServicePlan, checkEmailExistsDb, checkHandleExistsDb, invalidateProfileCache } from "@/lib/ritmofit-db";
 import { ImageCropperDrawer, AVATAR_MAX_EXPORT } from "@/components/shared/image-cropper-drawer";
 import { LoginSplashOriginal } from "@/components/shared/login-splash-original";
+import { Browser } from "@capacitor/browser";
+import { TERMS_URL, PRIVACY_URL } from "@/lib/share-url";
+import { FEATURES } from "@/lib/feature-flags";
 import {
   isBiometricSupported,
   isBiometricEnabled,
@@ -126,6 +129,8 @@ export default function Login() {
 
   // Multi-step signup states
   const [signupStep, setSignupStep] = React.useState(1);
+  // Aceite dos Termos/Privacidade — obrigatório para avançar do step 1.
+  const [termsAccepted, setTermsAccepted] = React.useState(false);
   const [photoFile, setPhotoFile] = React.useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = React.useState<string>("");
   const [pendingLoginPhotoCropSrc, setPendingLoginPhotoCropSrc] = React.useState<string | null>(null);
@@ -310,7 +315,13 @@ export default function Login() {
   React.useEffect(() => {
     let cancelled = false;
     (async () => {
-      const support = await isBiometricSupported();
+      // Login por biometria guardado para um update futuro
+      // (FEATURES.biometricLogin). Zerar o suporte na origem desliga TODAS as
+      // ramificações de uma vez — o prompt de ativar, a tentativa automática e
+      // o botão de Face ID —, sem precisar caçar cada uma.
+      const support = FEATURES.biometricLogin
+        ? await isBiometricSupported()
+        : { available: false, label: "Biometria" };
       if (cancelled) return;
       setBiometricSupport(support);
       setBiometricEnabled(support.available && isBiometricEnabled());
@@ -494,6 +505,18 @@ export default function Login() {
 
       // Handle signup step 1: email and password validation
       if (signupStep === 1) {
+        // Backstop do checkbox: o botão já fica desabilitado sem o aceite, mas
+        // o form também submete no Enter do teclado do iOS.
+        if (!termsAccepted) {
+          toast({
+            title: t("signup_terms_required_title"),
+            description: t("signup_terms_required_desc"),
+            variant: "destructive",
+          });
+          setBusy(false);
+          return;
+        }
+
         if (!isValidEmail(email)) {
           toast({
             title: t("login_toast_invalid_email_title"),
@@ -599,7 +622,7 @@ export default function Login() {
       return;
     }
     // If commercial profile, go to commercial data wizard, else go to physical data step
-    if (hasCommercialProfile) {
+    if (FEATURES.store && hasCommercialProfile) {
       setCommercialWizardStep(1);
       setSignupStep(2.5);
     } else {
@@ -830,7 +853,7 @@ export default function Login() {
         }
 
         // Save commercial profile if user selected it
-        if (hasCommercialProfile && (commercialData.business_name.trim() || commercialData.business_segment)) {
+        if (FEATURES.store && hasCommercialProfile && (commercialData.business_name.trim() || commercialData.business_segment)) {
           try {
             // Upload business logo if provided
             let businessLogoUrl: string | undefined;
@@ -1562,10 +1585,60 @@ export default function Login() {
                         )}
                       </div>
 
+                      {/* Aceite explícito — App Store Guideline 1.2.
+                          A Apple exige que todo app com conteúdo de usuário
+                          tenha um EULA aceito na criação da conta, com política
+                          de tolerância zero a conteúdo abusivo declarada. Um
+                          rodapé informativo ("ao continuar você concorda") já
+                          foi motivo de rejeição em apps sociais; a caixa
+                          marcável não deixa margem para interpretação. */}
+                      <label className="mt-1 flex items-start gap-2.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={termsAccepted}
+                          onChange={(e) => setTermsAccepted(e.target.checked)}
+                          className="mt-0.5 h-4 w-4 shrink-0 rounded accent-primary"
+                        />
+                        <span className="text-xs leading-relaxed text-muted-foreground">
+                          {(() => {
+                            // A frase muda de ordem entre PT e EN, então os
+                            // links são montados a partir dos placeholders em
+                            // vez de concatenados na mão.
+                            const parts = t("signup_terms_accept").split(/(\{terms\}|\{privacy\})/);
+                            return parts.map((part, i) => {
+                              if (part === "{terms}")
+                                return (
+                                  <button
+                                    key={i}
+                                    type="button"
+                                    className="underline font-medium text-foreground"
+                                    onClick={(e) => { e.preventDefault(); void Browser.open({ url: TERMS_URL }); }}
+                                  >
+                                    {t("signup_terms_link")}
+                                  </button>
+                                );
+                              if (part === "{privacy}")
+                                return (
+                                  <button
+                                    key={i}
+                                    type="button"
+                                    className="underline font-medium text-foreground"
+                                    onClick={(e) => { e.preventDefault(); void Browser.open({ url: PRIVACY_URL }); }}
+                                  >
+                                    {t("signup_privacy_link")}
+                                  </button>
+                                );
+                              return <span key={i}>{part}</span>;
+                            });
+                          })()}{" "}
+                          {t("signup_terms_zero_tolerance")}
+                        </span>
+                      </label>
+
                       <Button
                         type="submit"
                         className="mt-2 rounded-full"
-                        disabled={!isValidEmail(email) || signupEmailExists !== false || checkingSignupEmail || !isStrongPassword(password) || password !== confirmPassword || busy}
+                        disabled={!termsAccepted || !isValidEmail(email) || signupEmailExists !== false || checkingSignupEmail || !isStrongPassword(password) || password !== confirmPassword || busy}
                       >
                         {busy ? t("login_validating") : t("login_next")}
                       </Button>
@@ -1667,6 +1740,14 @@ export default function Login() {
                         />
                       </div>
 
+                      {/* Perfil comercial = Vitrine. Com FEATURES.store
+                          desligada não existe onde esses dados apareçam: o
+                          usuário se declararia profissional, preencheria um
+                          wizard de 3 passos e não seria listado em lugar
+                          nenhum. Esconder o checkbox desvia o cadastro do
+                          step 2.5 inteiro, porque a bifurcação lê
+                          `hasCommercialProfile`, que fica em `false`. */}
+                      {FEATURES.store && (
                       <div className="flex items-center gap-3 rounded-lg border border-border/60 p-3">
                         <input
                           type="checkbox"
@@ -1682,6 +1763,7 @@ export default function Login() {
                           <p className="text-xs text-muted-foreground">{t("login_commercial_hint")}</p>
                         </div>
                       </div>
+                      )}
 
                       <div className="flex gap-2">
                         <Button
@@ -2218,7 +2300,7 @@ export default function Login() {
                                 type="button"
                                 variant="outline"
                                 className="rounded-full flex-1"
-                                onClick={() => setSignupStep(hasCommercialProfile ? 2.5 : 2)}
+                                onClick={() => setSignupStep(FEATURES.store && hasCommercialProfile ? 2.5 : 2)}
                               >
                                 {t("login_back")}
                               </Button>

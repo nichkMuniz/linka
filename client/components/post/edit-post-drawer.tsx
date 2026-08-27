@@ -22,6 +22,7 @@ import { TagPeopleDrawer } from "@/components/shared/tag-people-drawer";
 import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
 import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
 import { useLanguage } from "@/lib/language-context";
+import { FEATURES } from "@/lib/feature-flags";
 
 interface EditPostTarget {
   id: string;
@@ -253,6 +254,7 @@ export function EditPostDrawer({ open, onOpenChange, post, onSaved }: EditPostDr
           </div>
 
           {/* Marcar pessoas (estilo Instagram) */}
+          {FEATURES.postTags && (
           <div className="space-y-2">
             <label className="flex items-center gap-1.5 text-sm font-medium" style={{ color: "rgba(255,255,255,.7)" }}>
               <UserRoundPlus className="h-4 w-4" style={{ color: "#5b8cff" }} />
@@ -299,6 +301,7 @@ export function EditPostDrawer({ open, onOpenChange, post, onSaved }: EditPostDr
               </button>
             </div>
           </div>
+          )}
 
           <Button
             onClick={handleSave}
@@ -312,12 +315,14 @@ export function EditPostDrawer({ open, onOpenChange, post, onSaved }: EditPostDr
       </DrawerContent>
     </Drawer>
 
+    {FEATURES.postTags && (
     <TagPeopleDrawer
       open={tagPeopleOpen}
       onOpenChange={setTagPeopleOpen}
       selected={taggedUsers}
       onChange={setTaggedUsers}
     />
+    )}
     </>
   );
 }

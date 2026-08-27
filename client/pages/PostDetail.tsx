@@ -5,10 +5,12 @@ import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { useLanguage } from "@/lib/language-context";
-import { ArrowLeft, Edit2, Trash2, MoreVertical, UsersRound, Share2 } from "lucide-react";
+import { ArrowLeft, Edit2, Trash2, MoreVertical, UsersRound, Share2, Ban } from "lucide-react";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { SendToFriendDrawer } from "@/components/shared/send-to-friend-drawer";
 import { ShareDrawer } from "@/components/shared/share-drawer";
+import { UserSafetyDrawer } from "@/components/shared/user-safety-drawer";
+import { FEATURES } from "@/lib/feature-flags";
 import { postShareUrl } from "@/lib/share-url";
 import { FollowListDrawer } from "@/components/profile/follow-list-drawer";
 import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
@@ -65,6 +67,10 @@ export default function PostDetail() {
 
   // Delete post state
   const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false);
+  // Denunciar/bloquear a partir do post. Esta tela é o destino dos deep links:
+  // um link compartilhado de post abusivo abria aqui sem NENHUMA ação de
+  // segurança disponível — só "Compartilhar".
+  const [safetyOpen, setSafetyOpen] = React.useState(false);
   const [isDeleting, setIsDeleting] = React.useState(false);
 
   // Capture nav state once — use a ref so it survives re-renders without re-reading location
@@ -298,6 +304,18 @@ export default function PostDetail() {
                   <Share2 className="h-4 w-4 mr-2" />
                   {t("share_title")}
                 </DropdownMenuItem>
+                {post.user_id !== user?.id && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onSelect={() => setSafetyOpen(true)}
+                      className="text-red-500 focus:text-red-500 focus:bg-red-50 dark:focus:bg-red-950"
+                    >
+                      <Ban className="h-4 w-4 mr-2" />
+                      {t("user_safety_title")}
+                    </DropdownMenuItem>
+                  </>
+                )}
                 {post.user_id === user?.id && (
                   <>
                     <DropdownMenuSeparator />
@@ -321,7 +339,7 @@ export default function PostDetail() {
           {/* Bottom: description + glass action bar */}
           <div className="absolute bottom-3 left-3 right-3 z-10 pointer-events-auto">
             {/* Pessoas marcadas — "com fulano" (1) navega ao perfil; 2+ abre a lista */}
-            {(post.taggedUsers?.length ?? 0) > 0 && (
+            {FEATURES.postTags && (post.taggedUsers?.length ?? 0) > 0 && (
               <button
                 type="button"
                 className="flex items-center gap-1.5 mb-2 px-1 active:opacity-70 transition-opacity"
@@ -394,7 +412,7 @@ export default function PostDetail() {
 
             {/* Workout summary — "Ver treino" abre o detalhe; os dados do autor
                 habilitam o botão "Comparar" DENTRO do drawer. */}
-            {post.workoutSummary && (
+            {FEATURES.workoutDetailOnPost && post.workoutSummary && (
               <div className="mb-2.5 px-1">
                 <WorkoutDetailButton
                   summary={post.workoutSummary}
@@ -468,6 +486,18 @@ export default function PostDetail() {
         onOpenChange={setLikesModalOpen}
         likes={postLikes}
       />
+
+      {post.user_id !== user?.id && (
+        <UserSafetyDrawer
+          open={safetyOpen}
+          onOpenChange={setSafetyOpen}
+          userId={post.user_id}
+          userName={post.userNickname ?? ""}
+          // Depois de bloquear, o post deste usuário não deveria mais estar
+          // visível — voltamos para a tela anterior em vez de deixá-lo aberto.
+          onBlocked={() => navigate(-1)}
+        />
+      )}
 
       <ShareDrawer
         open={shareDrawerOpen}

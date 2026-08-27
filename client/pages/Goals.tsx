@@ -113,6 +113,7 @@ import { BadgeUnlockedDialog } from "@/components/goals/badge-unlocked-dialog";
 import { GoalCompletedDialog } from "@/components/shared/goal-completed-dialog";
 import { InsigniasDrawer } from "@/components/profile/insignias-drawer";
 import { CheckInCalendarModal } from "@/components/goals/check-in-calendar-modal";
+import { FEATURES } from "@/lib/feature-flags";
 
 /**
  * Converte a faixa de repetições sugerida (texto) em um número para
@@ -302,8 +303,11 @@ export default function Goals() {
     const [rts, ws, ds, hs] = await Promise.all([
       getUserRoutinesDb(user.id),
       getUserWorkoutsDb(user.id),
-      getUserDietsDb(user.id),
-      getUserHabitsDb(user.id),
+      // Itens de dieta e hábito não têm onde aparecer no v1 — `cards` já os
+      // filtra. Buscá-los seria pagar duas queries por carga da tela mais
+      // pesada do app para alimentar uma lista que ninguém vê.
+      FEATURES.dietAndHabitRoutines ? getUserDietsDb(user.id) : Promise.resolve([]),
+      FEATURES.dietAndHabitRoutines ? getUserHabitsDb(user.id) : Promise.resolve([]),
     ]);
     setRoutines(rts);
     setWorkouts(ws);
@@ -327,10 +331,12 @@ export default function Goals() {
     if (!user) return;
     const [hist, badges, allB, totalCi, displayB] = await Promise.all([
       getCheckInHistoryDb(user.id, 60),
-      getUserBadgesDb(user.id),
-      getAllBadgesDb(),
+      // Streak e check-ins continuam (são o coração da tela); só o acervo de
+      // insígnias sai, com FEATURES.badges desligada.
+      FEATURES.badges ? getUserBadgesDb(user.id) : Promise.resolve([]),
+      FEATURES.badges ? getAllBadgesDb() : Promise.resolve([]),
       getTotalCheckInsDb(user.id),
-      getDisplayBadgeDb(user.id),
+      FEATURES.badges ? getDisplayBadgeDb(user.id) : Promise.resolve(null),
     ]);
     setStreak(computeStreak(hist));
     setRecordStreak(Math.max(computeRecordStreak(hist), computeStreak(hist)));
@@ -360,7 +366,7 @@ export default function Goals() {
         reloadRoutines(),
         reloadGoals(),
         reloadProgress(),
-        getWeightLogsDb(90).then(setWeightLogs),
+        FEATURES.weightTracking ? getWeightLogsDb(90).then(setWeightLogs) : Promise.resolve(),
       ]);
     } catch {
       toast({ title: t("goals_load_error"), variant: "destructive" });
@@ -500,8 +506,15 @@ export default function Goals() {
   }, [searchParams, setSearchParams]);
 
   // Cards derivados
+  // `cards` alimenta o Hoje, as listas por tipo, os detalhes e o progresso —
+  // filtrar aqui, na fonte, é o que impede uma rotina de dieta/hábito criada
+  // antes do recorte (ou por uma build antiga do TestFlight) de reaparecer em
+  // qualquer uma dessas superfícies. Nada é apagado no banco.
   const cards = React.useMemo(
-    () => buildRoutineCards(routines, workouts, diets, habits),
+    () => {
+      const all = buildRoutineCards(routines, workouts, diets, habits);
+      return FEATURES.dietAndHabitRoutines ? all : all.filter((c) => c.type === 1);
+    },
     [routines, workouts, diets, habits],
   );
   const workoutCards = React.useMemo(() => cards.filter((c) => c.type === 1), [cards]);
@@ -597,7 +610,7 @@ export default function Goals() {
   const dietP = typeProgress(dietCards);
   const habitP = typeProgress(habitCards);
 
-  const routineTypeItems: RoutineTypeProgress[] = [
+  const routineTypeItems: RoutineTypeProgress[] = ([
     {
       type: 1,
       title: t("goals_rt_exercises"),
@@ -628,7 +641,12 @@ export default function Goals() {
       perc: habitP.perc,
       hasRoutine: habitP.total > 0,
     },
-  ];
+    // Dieta (2) e Hábito (3) saem do v1 — ver FEATURES.dietAndHabitRoutines.
+    // O filtro fica no fim da lista, e não espalhado em condicionais dentro
+    // dela, para que religar seja apagar uma linha só.
+  ] as RoutineTypeProgress[]).filter(
+    (item) => FEATURES.dietAndHabitRoutines || item.type === 1,
+  );
 
   // ── Handlers ──
 
@@ -897,7 +915,14 @@ export default function Goals() {
     // chegarem, atualizamos o resumo já aberto (badges + botão de duelo).
     try {
       await createCheckInDb(user.id);
-      const awarded = await awardBadgesForCheckInsDb(user.id, new Date());
+      // Com FEATURES.badges desligada nada é premiado. Não é só cosmético: o
+      // `pendingBadges` alimentado aqui fazia `hasCelebration` virar true no
+      // "compartilhar no feed", e a navegação ficava esperando um diálogo de
+      // insígnia que nunca renderiza — o usuário publicava e continuava parado
+      // na tela de resumo.
+      const awarded = FEATURES.badges
+        ? await awardBadgesForCheckInsDb(user.id, new Date())
+        : [];
       if (awarded.length > 0) {
         setSummaryData((prev) =>
           prev ? { ...prev, badges: awarded.map((b) => b.name) } : prev,
@@ -988,6 +1013,7 @@ export default function Goals() {
    * aberto a conquista fica em `pendingBadges` e aparece quando ele fecha.
    */
   const celebrateBadges = (awarded: Badge[]) => {
+    if (!FEATURES.badges) return;
     if (awarded.length === 0) return;
     if (selectedCardKey !== null) setPendingBadges((prev) => [...prev, ...awarded]);
     else setUnlockedBadges(awarded);
@@ -1209,7 +1235,11 @@ export default function Goals() {
   // - Já existe rotina(s) deste tipo → lista das rotinas (+ botão criar)
   // - Caso contrário → wizard de criação (sugestão/zero p/ treino; montagem p/ hábito)
   const openTypeRoutine = (type: RoutineTypeCode) => {
+    // Backstop: sem os cards de dieta/hábito nada deveria chamar com 2 ou 3,
+    // mas o wizard e os deep links compartilham este caminho.
+    if (!FEATURES.dietAndHabitRoutines && type !== 1) return;
     if (type === 2) {
+      if (!FEATURES.foodDiary) return;
       setFoodDiaryOpen(true);
       return;
     }
@@ -1310,11 +1340,12 @@ export default function Goals() {
 
         {/* Cobertura muscular da semana — some sozinho quando não há anatomia
             semeada ou nenhum treino no período (ver o componente). */}
-        <MuscleCoverageCard refreshToken={muscleCoverageVersion} />
+        {FEATURES.muscleAnatomy && <MuscleCoverageCard refreshToken={muscleCoverageVersion} />}
 
         {/* Peso — só o lembrete semanal aparece aqui; fora dessa janela o
             componente não renderiza nada e o acesso permanente é o ícone ⚖️ no
             canto do card de streak (que abre o drawer montado aqui dentro). */}
+        {FEATURES.weightTracking && (
         <WeightTrackerCard
           logs={weightLogs}
           onAddWeight={handleAddWeight}
@@ -1322,6 +1353,7 @@ export default function Goals() {
           historyOpen={weightHistoryOpen}
           onHistoryOpenChange={setWeightHistoryOpen}
         />
+        )}
 
         <LifeGoalsSection
           userGoals={userGoals}
@@ -1333,6 +1365,7 @@ export default function Goals() {
       </div>
 
       {/* ── Overlays e drawers ── */}
+      {FEATURES.foodDiary && (
       <FoodDiaryDrawer
         open={foodDiaryOpen}
         onOpenChange={(o) => {
@@ -1359,6 +1392,7 @@ export default function Goals() {
         onTransform={handleTransformDiaryToRoutine}
         onBadgesUnlocked={setPendingBadges}
       />
+      )}
       {user && (
         <CreateWizardDrawer
           open={createOpen || editRoutineCard !== null}
@@ -1381,7 +1415,12 @@ export default function Goals() {
               : createType === 1
                 // Treino entra pela escolha do modo (Simplificado × Expert) —
                 // é a primeira decisão da rotina, antes até da origem.
-                ? "routine-mode"
+                //
+                // Este é o caminho do botão "+" — o mais usado de todos — e é
+                // por ele que o Modo Expert continuava aparecendo mesmo depois
+                // de o wizard já pular o passo internamente: aqui o wizard é
+                // aberto DIRETO nele, sem passar pela bifurcação.
+                ? (FEATURES.expertMode ? "routine-mode" : "routine-origin")
                 : createType
                   ? "build-name"
                   : "what"
@@ -1407,7 +1446,10 @@ export default function Goals() {
         routineLastDates={routineLastDates}
         activeWorkoutName={activeWorkoutName}
         onStartWorkout={(card) => { setListType(null); handleStartWorkout(card); }}
-        onTrainTogether={(card) => { setListType(null); setPartyInviteCard(card); }}
+        // `onTrainTogether` é opcional, e routines-tab / routine-list-drawer /
+        // routine-detail-drawer só desenham o botão "Treinar junto" quando ela
+        // existe — passar undefined apaga o convite nos três de uma vez.
+        onTrainTogether={FEATURES.workoutParty ? (card) => { setListType(null); setPartyInviteCard(card); } : undefined}
         onOpenCard={(card) => { setListType(null); setSelectedCardKey(card.key); }}
         onCreate={() => { const tp = listType ?? 1; setListType(null); setCreateGoalFlow(false); setCreateType(tp); setCreateOpen(true); }}
       />
@@ -1425,7 +1467,7 @@ export default function Goals() {
           }
         }}
         onStartWorkout={handleStartWorkout}
-        onTrainTogether={(card) => setPartyInviteCard(card)}
+        onTrainTogether={FEATURES.workoutParty ? (card) => setPartyInviteCard(card) : undefined}
         onViewSummary={handleViewRoutineSummary}
         onAddItems={(card) => { setCreateGoalFlow(false); setEditRoutineCard(card); }}
         onToggleItem={handleToggleItem}
@@ -1450,6 +1492,7 @@ export default function Goals() {
         onToggleRoutineLink={handleToggleRoutineLink}
       />
 
+      {FEATURES.badges && (
       <InsigniasDrawer
         open={badgesOpen}
         onOpenChange={setBadgesOpen}
@@ -1460,6 +1503,7 @@ export default function Goals() {
         selectedBadgeId={selectedBadgeId}
         onSelected={loadData}
       />
+      )}
 
       <CheckInCalendarModal
         open={calendarOpen}
@@ -1470,6 +1514,7 @@ export default function Goals() {
 
       {/* Treinar junto — seleção de quem chamar ANTES de começar. Sem limite de
           convidados: o mesmo caminho serve para uma dupla e para um grupo. */}
+      {FEATURES.workoutParty && (
       <WorkoutPartyDrawer
         open={partyInviteCard !== null}
         onClose={() => setPartyInviteCard(null)}
@@ -1487,6 +1532,7 @@ export default function Goals() {
           if (card) void handleStartWorkout(card);
         }}
       />
+      )}
 
       {user && activeWorkoutCard && (
         <WorkoutSessionDialog
@@ -1522,7 +1568,11 @@ export default function Goals() {
             // `unlockedBadges`) e só navegamos depois que o usuário fechar os
             // diálogos (ver o efeito de `navigateToFeedAfterCelebration`).
             setSummaryData(null);
-            const hasCelebration = pendingBadges.length > 0 || !!pendingGoal;
+            // Backstop: mesmo que algo volte a preencher `pendingBadges`, sem
+            // FEATURES.badges não há diálogo para esperar — a navegação para o
+            // feed não pode ficar refém dele.
+            const hasCelebration =
+              (FEATURES.badges && pendingBadges.length > 0) || !!pendingGoal;
             if (pendingBadges.length > 0) {
               setUnlockedBadges(pendingBadges);
               setPendingBadges([]);
@@ -1552,7 +1602,7 @@ export default function Goals() {
         />
       )}
 
-      {unlockedBadges.length > 0 && (
+      {FEATURES.badges && unlockedBadges.length > 0 && (
         <BadgeUnlockedDialog badges={unlockedBadges} onClose={() => setUnlockedBadges([])} />
       )}
 

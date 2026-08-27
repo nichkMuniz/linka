@@ -31,6 +31,7 @@ Documentação técnica de todas as tabelas do banco de dados público (`public`
 | [likes](#likes) | Curtidas em posts |
 | [message_deletions](#message_deletions) | Soft-delete de mensagens por usuário |
 | [messages](#messages) | Mensagens diretas entre usuários |
+| [user_blocks](#user_blocks) | Bloqueio de usuários (App Store Guideline 1.2) |
 | [notifications](#notifications) | Notificações de usuários |
 | [post_complaint](#post_complaint) | Denúncias de posts |
 | [post_tags](#post_tags) | Pessoas marcadas em posts (estilo Instagram) |
@@ -694,6 +695,13 @@ Mensagens diretas trocadas entre usuários.
 | `following_id` | uuid | — | — | Destinatário da mensagem |
 | `emojis` | text | — | — | Emojis da mensagem |
 
+**Realtime:** publicada em `supabase_realtime` (`20260720-messages-realtime.sql`)
+e com **`REPLICA IDENTITY FULL`** desde `20260827-messages-update-realtime.sql`.
+A identidade completa é o que permite ouvir **UPDATE** — reação com emoji
+(`emoji`) e visualizado (`read`) são UPDATE na mesma linha, não linha nova. Sem
+ela o Realtime não consegue avaliar a RLS sobre a linha antiga (que chegaria só
+com a PK), e descarta o evento em silêncio.
+
 **Índices** (`docs/migrations/20260702-performance-indexes.sql`): `messages_user_id_idx (user_id)`, `messages_following_id_idx (following_id)`, `messages_following_id_read_idx (following_id, read)` (contagem de não lidas), `messages_created_at_idx (created_at DESC)` (ordenação de conversas).
 
 ---
@@ -1041,6 +1049,67 @@ Catálogo de produtos de vitrines parceiras.
 | `created_at` | timestamp | — | `now()` | Data de criação |
 | `updated_at` | timestamp | — | `now()` | Data de atualização |
 | `is_active` | boolean | — | `true` | Produto ativo na vitrine |
+
+---
+
+## user_blocks
+
+Bloqueio de um usuário por outro. Criada em `docs/migrations/20260826-user-blocks.sql`
+para atender à **App Store Guideline 1.2** (Safety — User-Generated Content), que
+exige que todo app com conteúdo de usuário permita bloquear quem abusa.
+
+| Coluna | Tipo | Obrigatório | Padrão | Descrição |
+|---|---|---|---|---|
+| `id` | bigint | PK (identity) | — | Identificador único |
+| `blocker_id` | uuid | ✓ | — | Quem bloqueou (FK → `auth.users`, ON DELETE CASCADE) |
+| `blocked_id` | uuid | ✓ | — | Quem foi bloqueado (FK → `auth.users`, ON DELETE CASCADE) |
+| `created_at` | timestamptz | ✓ | `now()` | Data do bloqueio |
+
+**Constraints:** `user_blocks_no_self` (`blocker_id <> blocked_id`) e
+`user_blocks_unique` (`blocker_id, blocked_id`) — bloquear de novo é no-op: o
+cliente trata o código `23505` como sucesso.
+
+**Índices:** `user_blocks_blocker_idx (blocker_id)` e
+`user_blocks_blocked_idx (blocked_id)` — as duas direções são lidas a cada carga
+de feed.
+
+**RLS:**
+
+| Policy | Regra |
+|---|---|
+| `user_blocks_select_involved` | SELECT para quem bloqueou **e** para quem foi bloqueado — o cliente precisa saber que foi bloqueado para esconder o outro do próprio feed |
+| `user_blocks_insert_own` | INSERT só assinando como `blocker_id` |
+| `user_blocks_delete_own` | DELETE só de quem bloqueou. Sem isto o bloqueado apagaria o próprio bloqueio |
+
+**Função `is_blocked_between(a uuid, b uuid) → boolean`** — `SECURITY DEFINER`,
+`stable`. **Simétrica de propósito:** o bloqueio esconde nos dois sentidos. Uma
+direção só não protege ninguém — se A bloqueia B mas continua aparecendo para B,
+B segue vendo, comentando e reagindo, que é exatamente o assédio que o bloqueio
+deveria encerrar. A linha em `user_blocks` guarda quem decidiu; só essa pessoa
+desfaz.
+
+**Efeitos em outras tabelas:**
+
+- `messages` — a policy `messages_insert_own` foi **substituída** por
+  `messages_insert_not_blocked`, que adiciona
+  `not is_blocked_between(auth.uid(), following_id)`. Esta é a única parte do
+  bloqueio que vive no banco: esconder no cliente resolve a leitura, mas não
+  impede o abusador de **enviar**. Filtro de UI se contorna; policy, não.
+- `followers` — o trigger `user_blocks_unfollow_trg` apaga o follow **nos dois
+  sentidos** ao bloquear. Continuar seguindo alguém que você bloqueou o manteria
+  no feed "Seguindo" e nas contagens, e o bloqueio pareceria não ter funcionado.
+
+**Onde é lido no cliente** (`client/lib/ritmofit-db.ts`):
+
+| Função | Uso |
+|---|---|
+| `getBlockedIdsDb()` | Ids invisíveis nos dois sentidos. Cache `blockedIds:<uid>` com **TTL curto (30s)** - "alguém me bloqueou" é escrita de TERCEIROS, não passa por `invalidateQueryCache` neste device, e o TTL é a única defesa contra continuar exibindo quem acabou de me bloquear |
+| `getBlockedByMeDb()` | Só quem EU bloqueei, com perfil — alimenta "Contas bloqueadas" em Configurações |
+| `blockUserDb()` / `unblockUserDb()` | Escrita + invalidação de `blockedIds`, `followingIds`, `followers`, `userStats` e `conversations` |
+
+Superfícies que aplicam o filtro: feed e Descobrir
+(`client/services/post.service.ts`), `searchUsersDb`, `getPostCommentsDb` e
+`getConversationsDb`.
 
 ---
 

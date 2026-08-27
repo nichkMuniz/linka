@@ -1,5 +1,17 @@
 # Tela: Login / Cadastro
 
+> **Recorte v1.0** (ver [20-lancamento-v1.md](./20-lancamento-v1.md)):
+> - **Aceite de Termos e Privacidade** é obrigatório no Step 1 — checkbox com
+>   links (`Browser.open`) e a frase de tolerância zero a conteúdo abusivo. O
+>   botão fica desabilitado sem ele, e a validação do step tem backstop porque o
+>   form também submete pelo Enter do teclado iOS. Exigência da Guideline 1.2.
+> - **Login por biometria está desligado** (`FEATURES.biometricLogin`).
+>   `isBiometricSupported()` nem chega a ser chamada: o suporte é zerado na
+>   origem, o que apaga de uma vez o prompt de ativação, a tentativa automática
+>   e o botão de Face ID.
+> - O **Step 4 (seguir pessoas)** já estava fora do fluxo — `handleSignupStep3`
+>   conclui o cadastro direto.
+
 **Rota:** `/login`
 **Arquivo:** `client/pages/Login.tsx`
 **Layout:** Sem AppLayout (tela pública)

@@ -16,6 +16,7 @@ import {
   WATER_STEPS_ML,
 } from "@/components/goals/use-water-log";
 import { awardNutritionBadgesDb, type Badge, type UserGoal } from "@/lib/ritmofit-db";
+import { FEATURES } from "@/lib/feature-flags";
 
 interface TodayDashboardProps {
   cards: RoutineCard[];
@@ -183,7 +184,11 @@ export function TodayDashboard({
   // do dia o "Em foco" deve mostrar o que ele tem para fazer (o treino), não um
   // card de hidratação zerado disputando atenção. Registrou uma vez, o slide
   // aparece e vira o atalho para os copos seguintes.
-  const hasWaterToday = water > 0;
+  // O registro de água mora no Diário Alimentar: sem ele (FEATURES.foodDiary)
+  // o slide vira um controle órfão — o usuário aumenta copos num lugar que não
+  // existe mais em nenhuma outra tela. Vale para quem já tinha água registrada
+  // hoje por uma build anterior; contas novas nunca chegariam a `water > 0`.
+  const hasWaterToday = FEATURES.foodDiary && water > 0;
   const slides = React.useMemo<TodaySlide[]>(
     () => [
       ...tasks.map((card) => ({ kind: "routine" as const, key: card.key, card })),

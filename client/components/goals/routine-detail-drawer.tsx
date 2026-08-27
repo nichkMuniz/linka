@@ -35,6 +35,7 @@ import {
   type TechniquePlan,
   type TechniquePlanItem,
 } from "@/components/goals/technique-planner";
+import { FEATURES } from "@/lib/feature-flags";
 
 type EditorMode = null | "rename" | "time" | "goal" | "technique";
 
@@ -291,7 +292,7 @@ export function RoutineDetailDrawer({
             {/* Modo expert: sem este selo, a única pista de que a rotina se
                 comporta diferente (aquecimento fora do volume/PR) apareceria
                 só dentro da sessão de treino já iniciada. */}
-            {card.type === 1 && card.trainingMode === "expert" && (
+            {FEATURES.expertMode && card.type === 1 && card.trainingMode === "expert" && (
               <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-300 text-[11px] font-semibold">
                 <Sparkles className="h-3 w-3" />
                 {t("goals_mode_expert")}
@@ -530,7 +531,7 @@ export function RoutineDetailDrawer({
                           exercício não tem músculos mapeados. */}
                       {isWorkout && (
                         <div className="mt-2">
-                          <ExerciseAnatomy workoutId={(item as any).workout_id} workoutName={itemName} />
+                          {FEATURES.muscleAnatomy && <ExerciseAnatomy workoutId={(item as any).workout_id} workoutName={itemName} />}
                         </div>
                       )}
                     </div>
@@ -781,7 +782,11 @@ export function RoutineDetailDrawer({
               muda a tela de registro inteira, então precisa do rótulo por
               extenso. Trocar vale da PRÓXIMA sessão em diante; o histórico já
               gravado mantém o `set_kind` com que foi salvo. */}
-          {card.type === 1 && (
+          {/* Seletor de modo — escondido com FEATURES.expertMode desligada.
+              Este era o furo mais sério do recorte: o wizard já não oferecia o
+              Expert, mas daqui dava para LIGAR o modo numa rotina existente,
+              reabrindo toda a superfície que a flag deveria estar guardando. */}
+          {FEATURES.expertMode && card.type === 1 && (
             <div className="rounded-2xl p-3 space-y-2" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}>
               <p className="text-xs font-semibold" style={{ color: "rgba(255,255,255,.7)" }}>
                 {t("goals_detail_training_mode")}

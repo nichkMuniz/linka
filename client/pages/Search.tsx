@@ -22,6 +22,7 @@ import { toast } from "@/components/ui/use-toast";
 import { ChevronDown, ChevronUp, Copy, Dumbbell, Users, Salad, SearchX, Hash, Video } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useLanguage } from "@/lib/language-context";
+import { FEATURES } from "@/lib/feature-flags";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { FollowButton } from "@/components/shared/follow-button";
 import { SearchResultsSkeleton, GridSkeleton } from "@/components/shared/animated-loading";
@@ -348,7 +349,10 @@ export default function Search() {
       />
 
       <Tabs defaultValue="people" value={activeTab} onValueChange={handleTabChange} className="w-full">
-        {/* Tabs — segmented control style (igual à tela de Comunidade) */}
+        {/* Tabs — segmented control style (igual à tela de Comunidade).
+            Com Rotinas e Hashtags guardadas sobra uma aba só, e uma barra com
+            um destino único vira ruído: some inteira. */}
+        {(FEATURES.routineSearch || FEATURES.hashtags) && (
         <div
           className="flex rounded-xl overflow-hidden py-1 px-1 gap-1 mb-4"
           style={{
@@ -365,6 +369,12 @@ export default function Search() {
             <Users className="h-4 w-4" />
             {t("search_people")}
           </button>
+          {/* Rotinas (treinos e dietas) e Hashtags guardadas para um update
+              futuro: as três são buscas por VOLUME — sem rotinas públicas e
+              sem posts marcados, devolvem lista vazia para qualquer termo, o
+              que faz a busca inteira parecer quebrada. Sobra "Pessoas", que
+              funciona desde o primeiro usuário. */}
+          {FEATURES.routineSearch && (
           <button
             onClick={() => handleTabChange("workouts")}
             className={`flex-1 flex items-center justify-center gap-1.5 text-sm font-medium py-2 rounded-lg transition-colors ${activeTab === "workouts" ? "bg-brand text-white" : "text-white/50 hover:text-white/80"}`}
@@ -372,6 +382,8 @@ export default function Search() {
             <Dumbbell className="h-4 w-4" />
             {t("search_workouts")}
           </button>
+          )}
+          {FEATURES.routineSearch && (
           <button
             onClick={() => handleTabChange("diets")}
             className={`flex-1 flex items-center justify-center gap-1.5 text-sm font-medium py-2 rounded-lg transition-colors ${activeTab === "diets" ? "bg-brand text-white" : "text-white/50 hover:text-white/80"}`}
@@ -379,6 +391,8 @@ export default function Search() {
             <Salad className="h-4 w-4" />
             {t("search_diets")}
           </button>
+          )}
+          {FEATURES.hashtags && (
           <button
             onClick={() => handleTabChange("hashtags")}
             className={`flex-1 flex items-center justify-center gap-1.5 text-sm font-medium py-2 rounded-lg transition-colors ${activeTab === "hashtags" ? "bg-brand text-white" : "text-white/50 hover:text-white/80"}`}
@@ -386,7 +400,9 @@ export default function Search() {
             <Hash className="h-4 w-4" />
             {t("search_hashtags")}
           </button>
+          )}
         </div>
+        )}
 
         {/* People */}
         <TabsContent value="people" className="space-y-3">

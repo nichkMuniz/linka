@@ -15,6 +15,7 @@ import {
   clearOutbox,
   flushOutbox,
 } from "@/lib/offline-outbox";
+import { FEATURES } from "@/lib/feature-flags";
 
 // ─── Auth helpers ─────────────────────────────────────────────────────────────
 
@@ -949,7 +950,13 @@ export async function getPostCommentsDb(
     return [];
   }
 
-  const rows = data ?? [];
+  // Comentário de quem você bloqueou não aparece. Sem isto o bloqueio falharia
+  // no lugar mais visível possível: o abusador continuaria escrevendo embaixo
+  // dos SEUS posts, para você ler.
+  const blockedComment = new Set(await getBlockedIdsDb());
+  const rows = (data ?? []).filter(
+    (r: any) => !blockedComment.has(String(r.user_id ?? "")),
+  );
   if (rows.length === 0) return [];
 
   // Batch-fetch nicknames and handles from profiles for all comment authors
@@ -5118,11 +5125,14 @@ export async function searchUsersDb(query: string): Promise<SearchUser[]> {
 
   const searchQuery = `%${query.toLowerCase()}%`;
 
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("user_id, nickname, bio, photo")
-    .ilike("nickname", searchQuery)
-    .limit(20);
+  const [{ data, error }, blockedIds] = await Promise.all([
+    supabase
+      .from("profiles")
+      .select("user_id, nickname, bio, photo")
+      .ilike("nickname", searchQuery)
+      .limit(20),
+    getBlockedIdsDb(),
+  ]);
 
   if (error) {
     const errorMsg = error?.message || String(error);
@@ -5131,12 +5141,18 @@ export async function searchUsersDb(query: string): Promise<SearchUser[]> {
     return [];
   }
 
-  return (data ?? []).map((row: any) => ({
-    id: String(row.user_id ?? ""),
-    nickname: String(row.nickname ?? "Usuário"),
-    bio: row.bio ? String(row.bio) : undefined,
-    photo: row.photo ? String(row.photo) : null,
-  }));
+  // Busca é a porta dos fundos do bloqueio: sem este filtro, quem você
+  // bloqueou continua alcançável pelo nome — e o perfil dele abre normalmente.
+  const blocked = new Set(blockedIds);
+
+  return (data ?? [])
+    .filter((row: any) => !blocked.has(String(row.user_id ?? "")))
+    .map((row: any) => ({
+      id: String(row.user_id ?? ""),
+      nickname: String(row.nickname ?? "Usuário"),
+      bio: row.bio ? String(row.bio) : undefined,
+      photo: row.photo ? String(row.photo) : null,
+    }));
 }
 
 export type SearchWorkout = {
@@ -5568,6 +5584,131 @@ export async function getFollowingIdsDb(): Promise<string[]> {
   return (data ?? []).map((row: any) => String(row.following_id ?? ""));
 
   });
+}
+
+// ── Bloqueio de usuários (App Store Guideline 1.2) ─────────────────────────
+//
+// Ver `docs/migrations/20260826-user-blocks.sql` para o modelo. Resumo do que
+// importa aqui: o bloqueio é SIMÉTRICO na leitura — quem bloqueou e quem foi
+// bloqueado somem um para o outro —, então esta lista mistura as duas direções
+// de propósito. Quem pode DESFAZER continua sendo só quem bloqueou (RLS).
+
+/**
+ * Ids de todos os usuários invisíveis para o viewer: os que ele bloqueou e os
+ * que o bloquearam.
+ *
+ * É lida em todo carregamento de feed, busca e conversa, então mora no cache.
+ * TTL curto (30s) porque a segunda direção — alguém me bloquear — é escrita por
+ * TERCEIROS: não passa por `invalidateQueryCache` neste dispositivo, e o TTL é
+ * a única defesa contra continuar exibindo quem acabou de me bloquear.
+ */
+export async function getBlockedIdsDb(): Promise<string[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+  // Viewer resolvido FORA do cached(): com viewer null (janela logo após o
+  // login) uma lista vazia cacheada aqui é inofensiva para o feed, mas a mesma
+  // classe de bug já mordeu em getFollowingIdsDb — seguimos a regra da casa.
+  const viewer = await getViewer();
+  if (!viewer) return [];
+  return cached(`blockedIds:${viewer.id}`, CACHE_TTL_SHORT, async () => {
+
+  const { data, error } = await supabase
+    .from("user_blocks")
+    .select("blocker_id, blocked_id")
+    .or(`blocker_id.eq.${viewer.id},blocked_id.eq.${viewer.id}`);
+
+  if (error) {
+    // Falha aqui NÃO pode derrubar o feed: sem a lista, mostramos tudo. É a
+    // degradação certa — um bloqueio que não aplica por 30s é ruim, um feed
+    // vazio é pior.
+    console.error("Error fetching blocked ids:", error);
+    return [];
+  }
+
+  const out = new Set<string>();
+  for (const row of data ?? []) {
+    const blocker = String((row as any).blocker_id ?? "");
+    const blocked = String((row as any).blocked_id ?? "");
+    out.add(blocker === viewer.id ? blocked : blocker);
+  }
+  out.delete(viewer.id);
+  return [...out];
+
+  });
+}
+
+/** Só os que EU bloqueei — é a lista que a tela "Contas bloqueadas" edita. */
+export async function getBlockedByMeDb(): Promise<SearchUser[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+  const viewer = await getViewer();
+  if (!viewer) return [];
+
+  const { data, error } = await supabase
+    .from("user_blocks")
+    .select("blocked_id")
+    .eq("blocker_id", viewer.id)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error("Error fetching blocked users:", error);
+    return [];
+  }
+
+  const ids = (data ?? []).map((r: any) => String(r.blocked_id));
+  if (ids.length === 0) return [];
+
+  // getProfilesBatchDb já resolve nickname/foto/verificado em uma query.
+  const profiles = await getProfilesBatchDb(ids);
+  return ids.map((id) => {
+    const p = profiles.get(id);
+    return {
+      id,
+      nickname: p?.nickname ?? "",
+      photo: p?.photo ?? null,
+      isVerified: p?.is_verified ?? false,
+    } as SearchUser;
+  });
+}
+
+export async function blockUserDb(targetUserId: string): Promise<boolean> {
+  if (!hasSupabaseConfig || !supabase) throw new Error("Supabase não configurado");
+  const viewer = await getViewer();
+  if (!viewer) throw new Error("Usuário não autenticado");
+  if (targetUserId === viewer.id) return false;
+
+  const { error } = await supabase
+    .from("user_blocks")
+    .insert({ blocker_id: viewer.id, blocked_id: targetUserId });
+
+  // 23505 = unique_violation: já estava bloqueado. Bloquear de novo é o mesmo
+  // desfecho que o usuário pediu, então não é erro.
+  if (error && (error as any).code !== "23505") throw error;
+
+  // O trigger da migração desfaz o follow nos dois sentidos — o cache de
+  // seguidores fica velho se não invalidarmos junto.
+  invalidateQueryCache("blockedIds");
+  invalidateQueryCache("followingIds");
+  invalidateQueryCache("followers");
+  invalidateQueryCache("userStats");
+  invalidateQueryCache("conversations");
+  return true;
+}
+
+export async function unblockUserDb(targetUserId: string): Promise<boolean> {
+  if (!hasSupabaseConfig || !supabase) throw new Error("Supabase não configurado");
+  const viewer = await getViewer();
+  if (!viewer) throw new Error("Usuário não autenticado");
+
+  const { error } = await supabase
+    .from("user_blocks")
+    .delete()
+    .eq("blocker_id", viewer.id)
+    .eq("blocked_id", targetUserId);
+
+  if (error) throw error;
+
+  invalidateQueryCache("blockedIds");
+  invalidateQueryCache("conversations");
+  return true;
 }
 
 // Stories functionality
@@ -6877,11 +7018,18 @@ export async function getConversationsDb(): Promise<Conversation[]> {
       return !deletions.some((d) => d.user_id === viewer.id);
     });
 
+    // A policy da migração 20260826 impede mensagem NOVA entre bloqueados, mas
+    // o histórico anterior ao bloqueio continua no banco — sem este filtro a
+    // conversa seguiria na lista, com foto e nome, como se nada tivesse
+    // acontecido.
+    const blocked = new Set(await getBlockedIdsDb());
+
     // Group messages by conversation
     const conversationMap = new Map<string, (typeof visibleMessages)[0][]>();
     visibleMessages.forEach((msg: any) => {
       const otherUserId =
         msg.user_id === viewer.id ? msg.following_id : msg.user_id;
+      if (blocked.has(String(otherUserId))) return;
       if (!conversationMap.has(otherUserId)) {
         conversationMap.set(otherUserId, []);
       }
@@ -8556,7 +8704,27 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
       })
       .filter((n: NotificationItem | null) => n !== null) as NotificationItem[];
 
-    return notifications;
+    // Notificações que apontam para telas guardadas atrás de flag viram becos
+    // sem saída: o toque cai no catch-all de rotas e joga o usuário no feed,
+    // sem explicação. Não são hipotéticas — builds anteriores do TestFlight
+    // criaram shots e promoções que continuam no banco.
+    //
+    // Some da LISTA, não do banco: `markNotificationsAsReadDb()` marca tudo
+    // como lido ao abrir a tela, então o badge do sino zera do mesmo jeito e
+    // ninguém fica com um contador que não limpa.
+    const reachable = notifications.filter((n) => {
+      // Shots: qualquer notificação com `shotId` abre /shots.
+      if (!FEATURES.shots && n.shotId) return false;
+      // 12 promotion_like, 13 promotion_expired → Vitrine.
+      if (!FEATURES.store && (n.type === 12 || n.type === 13)) return false;
+      // 11 duel_checkin, 14/15 avaliação de check-in → Duelos.
+      if (!FEATURES.duels && (n.type === 11 || n.type === 14 || n.type === 15)) return false;
+      // 16 flow_tag → marcação de pessoas.
+      if (!FEATURES.postTags && n.type === 16) return false;
+      return true;
+    });
+
+    return reachable;
   } catch (err: any) {
     console.error("Error getting notifications:", err);
     return [];

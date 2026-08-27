@@ -15,7 +15,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { MoreVertical, Flag, Trash2, Share2, Edit2, Target, UsersRound } from "lucide-react";
+import { MoreVertical, Flag, Trash2, Share2, Edit2, Target, UsersRound, Ban } from "lucide-react";
 import { FollowListDrawer } from "@/components/profile/follow-list-drawer";
 import { formatTimeAgo, cn } from "@/lib/utils";
 import type { PostWithStats } from "@/services/post.service";
@@ -26,6 +26,7 @@ import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
 import { useLanguage } from "@/lib/language-context";
 import { hapticLight, hapticMedium } from "@/lib/haptics";
 import { getPostGradient, GLASS_TOP, GLASS_ACTION, DESC_MAX_CHARS, renderWithHashtags } from "@/lib/post-visuals";
+import { FEATURES } from "@/lib/feature-flags";
 
 /** Janela do duplo toque: acima disso o toque conta como simples (abre o post). */
 const DOUBLE_TAP_MS = 300;
@@ -42,6 +43,7 @@ interface PostCardProps {
   onShare: (post: PostWithStats) => void;
   onReportUser: (post: PostWithStats) => void;
   onReportPost: (post: PostWithStats) => void;
+  onBlockUser: (post: PostWithStats) => void;
   onEdit: (post: PostWithStats) => void;
   onDelete: (post: PostWithStats) => void;
 }
@@ -58,6 +60,7 @@ function PostCardImpl({
   onShare,
   onReportUser,
   onReportPost,
+  onBlockUser,
   onEdit,
   onDelete,
 }: PostCardProps) {
@@ -86,7 +89,11 @@ function PostCardImpl({
     pointerEvents: isZooming ? "none" : undefined,
   };
 
-  const taggedUsers = post.taggedUsers ?? [];
+  // Com FEATURES.postTags desligada ninguém consegue marcar, e a aba
+  // "Marcações" do perfil está escondida — exibir "com fulano" mostraria um
+  // recurso que o usuário não tem como usar nem encontrar. Zerar na origem
+  // cobre tanto a linha "com fulano" quanto o drawer da lista completa.
+  const taggedUsers = FEATURES.postTags ? (post.taggedUsers ?? []) : [];
   const description = post.description ?? "";
   const isDescTruncatable = description.includes("\n") || description.length > DESC_MAX_CHARS;
   const truncatedDescription = description.length > DESC_MAX_CHARS
@@ -265,6 +272,18 @@ function PostCardImpl({
                     <Flag className="h-4 w-4 mr-2" />
                     {t("report_post")}
                   </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  {/* Bloquear (Guideline 1.2). Denunciar sozinho deixa a vítima
+                      esperando a moderação; bloquear resolve na hora. É por
+                      aqui que a maioria vai chegar à ação — o post é onde o
+                      incômodo aparece, não o perfil. */}
+                  <DropdownMenuItem
+                    onClick={() => onBlockUser(post)}
+                    className="text-red-500 focus:text-red-500 focus:bg-red-50 dark:focus:bg-red-950"
+                  >
+                    <Ban className="h-4 w-4 mr-2" />
+                    {t("block_user")}
+                  </DropdownMenuItem>
                 </>
               )}
             </DropdownMenuContent>
@@ -365,7 +384,7 @@ function PostCardImpl({
 
           {/* Workout summary — "Ver treino" abre o detalhe; os dados do autor
               habilitam o botão "Comparar" DENTRO do drawer. */}
-          {post.workoutSummary && (
+          {FEATURES.workoutDetailOnPost && post.workoutSummary && (
             <div className="mb-2.5 px-1" style={zoomHiddenStyle}>
               <WorkoutDetailButton
                 summary={post.workoutSummary}
@@ -516,6 +535,7 @@ function arePropsEqual(prev: PostCardProps, next: PostCardProps): boolean {
     prev.onShare !== next.onShare ||
     prev.onReportUser !== next.onReportUser ||
     prev.onReportPost !== next.onReportPost ||
+    prev.onBlockUser !== next.onBlockUser ||
     prev.onEdit !== next.onEdit ||
     prev.onDelete !== next.onDelete
   ) {

@@ -1,5 +1,46 @@
 # 05 — Metas (`/metas`)
 
+> **Recorte v1.0** (ver [20-lancamento-v1.md](./20-lancamento-v1.md)):
+> - **Modo Expert desligado** (`FEATURES.expertMode`) em **três** pontos, que é
+>   o que ele exigiu: o wizard pula o passo de escolha do modo; o `initialStep`
+>   em `Goals.tsx` (o botão "+", caminho mais usado) deixa de abrir o wizard
+>   direto em `routine-mode`; e o detalhe da rotina não oferece mais trocar o
+>   modo de uma rotina existente. Na sessão de treino,
+>   `isExpert` também exige a flag: rotinas antigas com `training_mode = "expert"`
+>   no banco não reabrem a UI de técnicas — a flag precisa vencer o dado
+>   persistido, não só a criação.
+> - **Cobertura muscular e anatomia desligadas** (`FEATURES.muscleAnatomy`).
+> - **Treinar junto desligado** (`FEATURES.workoutParty`). O convite principal
+>   **não** é a barra dentro da sessão — é o `WorkoutPartyDrawer` aberto por
+>   `onTrainTogether` ANTES de o treino começar, a partir da aba Rotinas, da
+>   lista e do detalhe da rotina. Como a prop é opcional e os três só desenham
+>   o botão quando ela existe, passar `undefined` em `Goals.tsx` apaga os três.
+>   Fora também: a barra na sessão, o diálogo de convite e o push tipo 19.
+> - **Corrida ao ar livre com GPS desligada** (`FEATURES.gpsRun`). `isOutdoorRun()`
+>   devolve `false`, as ~12 ramificações de `isRunExercise` caem no caminho de
+>   exercício comum e o `run-tracker` nunca inicia. É isso que permitiu remover
+>   `NSLocationAlwaysAndWhenInUseUsageDescription` e `UIBackgroundModes` do
+>   Info.plist.
+> - **Só rotina de exercício** (`FEATURES.dietAndHabitRoutines`). "Suas rotinas"
+>   tem um card. O filtro decisivo está no `useMemo` de `cards`, não na lista de
+>   cards: é de lá que saem o Hoje, as listas por tipo, os detalhes e o
+>   progresso, então filtrar na fonte impede uma rotina de dieta criada por uma
+>   build antiga de reaparecer em qualquer uma delas. Nada é apagado no banco.
+> - **Diário Alimentar desligado** (`FEATURES.foodDiary`) e o catálogo TACO com
+>   ele. Cai junto por construção: o card "Dietas" sempre foi a única porta do
+>   Diário, e a rotina de dieta só nascia de dentro dele. ⚠️ Religar `foodDiary`
+>   sozinho **não** o torna alcançável — `dietAndHabitRoutines` precisa voltar
+>   junto, ou é preciso dar a ele uma entrada própria.
+> - **Insígnias desligadas** (`FEATURES.badges`): card de streak, drawer de
+>   acervo e diálogo de desbloqueio. O corte está dentro do `UserInsignias`
+>   (retorna `null`), não nos callsites — cobre perfil, post viewer, card do
+>   feed e conversa privada de uma vez. `user_badges` continua intocada.
+> - **Peso desligado** (`FEATURES.weightTracking`): card em Metas, ícone ⚖️ no
+>   card de streak e histórico em Configurações. O **campo** de peso continua —
+>   ele alimenta a prescrição individual da rotina sugerida.
+> - Todos os **gates premium estão abertos** — sem loja, todo usuário tem acesso
+>   a tudo.
+
 > Tela de gestão de **metas e rotinas** (treinos, dietas e hábitos). Reconstruída em 09/06/2026 (v2); dashboard single-scroll (v3) em 11/06/2026. Em 28/06/2026 a página foi **reconstruída no padrão glass "Hub do Hoje" (v4)**, fiel ao protótipo do Claude Design ("LinKa Glass" → Direção A). O `Goals.tsx` é apenas o **orquestrador** (carrega dados e compõe os componentes da feature, que já estavam prontos no estilo glass); o app-layout desenha o header glass global, então a página só renderiza conteúdo abaixo dele, sobre auras radiais borradas (laranja/azul).
 >
 > **Header auto-ocultável ao rolar (2026-07-02):** Igual ao Feed/Vitrine/Comunidade, o header flutuante (perfil/lupa/comunidade/notificações) some ao rolar para baixo e reaparece ao rolar para cima. Como `Goals.tsx` já usa fluxo normal de documento (sem container de altura fixa), o `AppLayout` escuta o scroll direto no `window` — nenhuma mudança de layout foi necessária na página (ver `docs/13-layouts-e-componentes.md`).

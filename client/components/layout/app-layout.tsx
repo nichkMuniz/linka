@@ -42,6 +42,7 @@ import { showIncomingMessageToast } from "@/lib/incoming-message-toast";
 import { RoutineCompletedToast } from "@/components/shared/routine-completed-toast";
 import { PaywallDrawer } from "@/components/shared/paywall-drawer";
 import { usePremium } from "@/lib/premium-context";
+import { FEATURES } from "@/lib/feature-flags";
 import { getUnreadMessageCountDb, getUnreadNotificationsCountDb, getUserProfileDb, subscribeToUnreadNotificationsDb, recordAccessSessionDb, bufferScreenTime, flushScreenTimeDb, invalidateQueryCache, getPendingWorkoutPartyInviteDb, getWorkoutPartyInviteByIdDb, respondWorkoutPartyInviteDb, type WorkoutPartyInvite } from "@/lib/ritmofit-db";
 import { WorkoutPartyInviteDialog } from "@/components/goals/workout-party-invite-dialog";
 import { reportHandledError } from "@/lib/monitoring";
@@ -104,6 +105,7 @@ export function AppLayout() {
   // Convite que chegou com o app fechado (ou pelo toque no push): ao montar,
   // procura um pendente que ainda não expirou.
   React.useEffect(() => {
+    if (!FEATURES.workoutParty) return;
     if (!user) return;
     getPendingWorkoutPartyInviteDb()
       .then((invite) => { if (invite) setPartyInvite(invite); })
@@ -441,10 +443,18 @@ export function AppLayout() {
           // só ele tem o TEXTO para montar o pop up com preview real. Sair aqui
           // (antes da vibração) é o que impede a mesma mensagem avisar duas vezes.
           if (type === 10 || type === 17) return;
+          // Aviso de feature guardada atrás de flag: o banner apareceria e, ao
+          // tocar, a pessoa cairia numa lista onde a notificação foi filtrada.
+          // Não é hipotético — o banco é o mesmo dos builds do TestFlight, e um
+          // testador com versão antiga ainda consegue gerar estes eventos.
+          if (!FEATURES.duels && (type === 11 || type === 14 || type === 15)) return;
+          if (!FEATURES.store && (type === 8 || type === 12 || type === 13)) return;
+          if (!FEATURES.postTags && type === 16) return;
+          if (!FEATURES.workoutParty && type === 19) return;
           // Convite de treino (19): o aviso é o DIÁLOGO, com os exercícios e os
           // botões de aceitar/recusar — um banner genérico faria a pessoa abrir
           // o app para descobrir o que fazer, e o convite vale por uma hora.
-          if (type === 19) {
+          if (type === 19 && FEATURES.workoutParty) {
             hapticSuccess();
             const partyId = row.post_id ? String(row.post_id) : null;
             if (partyId) {
@@ -626,7 +636,10 @@ export function AppLayout() {
   // principal para o header, junto de busca e notificações.
   const mainNavItems: NavItem[] = React.useMemo(() => [
     { to: "/", label: t("nav_home"), icon: Home },
-    { to: "/shots", label: t("nav_clips"), icon: Video },
+    // Shots guardado para um update futuro (FEATURES.shots): com pouco
+    // conteúdo, um feed vertical de vídeo esvazia em segundos. Sem ele o nav
+    // fica com 4 itens — o botão central de publicar continua no meio.
+    ...(FEATURES.shots ? [{ to: "/shots", label: t("nav_clips"), icon: Video }] : []),
     { to: "/postar", label: t("nav_new"), icon: PlusSquare },
     { to: "/metas", label: t("nav_goals"), icon: Dumbbell },
     { to: "/comunidade", label: t("nav_community") ?? "Comunidade", icon: Users2, badge: unreadCount },
@@ -635,7 +648,7 @@ export function AppLayout() {
   const sidebarExtraItems: NavItem[] = React.useMemo(() => [
     { to: "/buscar", label: t("nav_search") ?? "Buscar", icon: Search },
     { to: "/notificacoes", label: t("settings_notifications"), icon: Bell, badge: unreadNotificationsCount },
-    { to: "/vitrine", label: t("nav_store"), icon: ShoppingBag },
+    ...(FEATURES.store ? [{ to: "/vitrine", label: t("nav_store"), icon: ShoppingBag }] : []),
   ], [t, unreadNotificationsCount]);
 
   const allSidebarItems = [...mainNavItems, ...sidebarExtraItems];
@@ -873,15 +886,17 @@ export function AppLayout() {
             >
               <Search className="h-[18px] w-[18px]" />
             </Link>
-            <Link
-              to="/vitrine"
-              aria-label={t("nav_store")}
-              onClick={() => hapticLight()}
-              className="w-10 h-10 rounded-full flex items-center justify-center text-white active:scale-90 transition-transform"
-              style={{ background: "rgba(255,255,255,.1)", border: "1px solid rgba(255,255,255,.12)" }}
-            >
-              <ShoppingBag className="h-[18px] w-[18px]" />
-            </Link>
+            {FEATURES.store && (
+              <Link
+                to="/vitrine"
+                aria-label={t("nav_store")}
+                onClick={() => hapticLight()}
+                className="w-10 h-10 rounded-full flex items-center justify-center text-white active:scale-90 transition-transform"
+                style={{ background: "rgba(255,255,255,.1)", border: "1px solid rgba(255,255,255,.12)" }}
+              >
+                <ShoppingBag className="h-[18px] w-[18px]" />
+              </Link>
+            )}
             <Link
               to="/notificacoes"
               aria-label={t("settings_notifications")}
@@ -959,12 +974,27 @@ export function AppLayout() {
             boxShadow: "inset 0 1px 0 rgba(255,255,255,.3), 0 16px 36px -12px rgba(0,0,0,.6)",
           }}
         >
-          <div className="grid w-full h-full grid-cols-5">
+          {/* Colunas seguem a quantidade real de itens. `grid-cols-5` fixo
+              deixava uma coluna fantasma à direita quando uma flag esconde um
+              item (Shots, hoje), empurrando os quatro restantes para a
+              esquerda. Vai em style, e não em classe, porque nome de classe
+              montado em runtime (`grid-cols-${n}`) não sobrevive à purga do
+              Tailwind — sairia sem regra nenhuma no build de produção. */}
+          <div
+            className="grid w-full h-full"
+            style={{ gridTemplateColumns: `repeat(${mainNavItems.length}, minmax(0, 1fr))` }}
+          >
             {mainNavItems.map((item) => {
               const active = isActivePath(location.pathname, item.to);
               const Icon = item.icon;
               const isHome = item.to === "/";
-              const isCenter = item.to === "/postar";
+              // "Novo post" era o botão-herói do nav: círculo com gradiente,
+              // sombra colorida e sem o ponto de item ativo. Aquele destaque
+              // fazia sentido com 5 itens, em que ele ocupava o centro exato.
+              // Com 4 ele deixa de ser o meio e o gradiente vira só um item
+              // gritando mais alto que os outros — agora se comporta como os
+              // demais. Ao religar FEATURES.shots, considere restaurá-lo.
+              const isCenter = false;
               return (
                 <Link
                   key={item.to}
@@ -1124,6 +1154,7 @@ export function AppLayout() {
 
       {/* Convite para treinar junto — chega em qualquer tela porque o treino é
           AGORA; deixar só na aba de notificações seria o mesmo que não avisar. */}
+      {FEATURES.workoutParty && (
       <WorkoutPartyInviteDialog
         invite={partyInvite}
         busyWithOtherWorkout={isTrainingNow}
@@ -1131,6 +1162,7 @@ export function AppLayout() {
         onDecline={handleDeclinePartyInvite}
         onDismiss={() => setPartyInvite(null)}
       />
+      )}
 
       {/* Timer Expired Full-Screen Block */}
       {timerBlockVisible && (

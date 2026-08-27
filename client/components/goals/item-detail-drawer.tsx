@@ -18,6 +18,7 @@ import {
   deleteCustomWorkoutDb,
   uploadCustomExercisePhotoDb,
 } from "@/lib/ritmofit-db";
+import { FEATURES } from "@/lib/feature-flags";
 
 export interface ItemDetailData {
   /** 1 = exercício, 2 = dieta */
@@ -402,7 +403,7 @@ export function ItemDetailDrawer({ item, onClose, onSaved, onDeleted }: ItemDeta
                   {/* Anatomia — só exercício. Não renderiza nada quando o item
                       não tem músculos mapeados (alongamento, catálogo ainda não
                       semeado), então não há estado vazio a tratar aqui. */}
-                  {item.type === 1 && <ExerciseAnatomy workoutId={item.id} workoutName={item.name} />}
+                  {FEATURES.muscleAnatomy && item.type === 1 && <ExerciseAnatomy workoutId={item.id} workoutName={item.name} />}
                 </>
               )}
             </div>

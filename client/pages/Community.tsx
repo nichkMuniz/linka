@@ -15,6 +15,7 @@ import { MessageCircle, Users, Swords, BarChart2 } from "lucide-react";
 import { CommunitySkeleton } from "@/components/shared/animated-loading";
 import { useLanguage } from "@/lib/language-context";
 import { RankingTab } from "@/components/community/ranking-tab";
+import { FEATURES } from "@/lib/feature-flags";
 import { RequestsTab } from "@/components/community/requests-tab";
 import { useDuels, DuelsTab, DuelGroupView, DuelsOverlays } from "@/components/community/duels";
 import {
@@ -146,7 +147,11 @@ export default function Community() {
           "calc(100dvh - 64px - env(safe-area-inset-top) - 1.5rem - 4.75rem - env(safe-area-inset-bottom))",
       }}
     >
-      {/* Tabs — segmented control style (igual à tela de Loja), sempre visível */}
+      {/* Tabs — segmented control style (igual à tela de Loja).
+          Com Duelos e Ranking guardados, sobra uma aba só: uma barra de
+          navegação com um único destino é ruído, então a barra inteira some e
+          a tela vira direto a lista de conversas. */}
+      {(FEATURES.duels || FEATURES.ranking) && (
       <div
         className="flex-shrink-0 px-4 py-3"
         style={{ borderBottom: "1px solid rgba(255,255,255,.08)" }}
@@ -169,24 +174,34 @@ export default function Community() {
               <MessageCircle className="h-4 w-4" />
               {t("community_messages")}
             </button>
-            <button
-              onClick={() => setActiveTab("duels")}
-              className={`flex-1 flex items-center justify-center gap-1.5 text-sm font-medium py-2 rounded-lg transition-colors ${activeTab === "duels" ? "bg-brand text-white" : "text-white/50 hover:text-white/80"}`}
-            >
-              <Swords className="h-4 w-4" />
-              {t("community_duels")}
-            </button>
-            <button
-              onClick={() => setActiveTab("ranking")}
-              className={`flex-1 flex items-center justify-center gap-1.5 text-sm font-medium py-2 rounded-lg transition-colors ${activeTab === "ranking" ? "bg-brand text-white" : "text-white/50 hover:text-white/80"}`}
-            >
-              <BarChart2 className="h-4 w-4" />
-              {t("community_ranking")}
-            </button>
+            {/* Duelos e Ranking guardados para um update futuro
+                (FEATURES.duels / FEATURES.ranking): os dois só funcionam com
+                base de usuários — duelo precisa de gente para competir, e um
+                ranking de 40 pessoas expõe o tamanho do app. Com as duas
+                flags desligadas sobra só Mensagens, e a barra de abas some
+                inteira logo abaixo. */}
+            {FEATURES.duels && (
+              <button
+                onClick={() => setActiveTab("duels")}
+                className={`flex-1 flex items-center justify-center gap-1.5 text-sm font-medium py-2 rounded-lg transition-colors ${activeTab === "duels" ? "bg-brand text-white" : "text-white/50 hover:text-white/80"}`}
+              >
+                <Swords className="h-4 w-4" />
+                {t("community_duels")}
+              </button>
+            )}
+            {FEATURES.ranking && (
+              <button
+                onClick={() => setActiveTab("ranking")}
+                className={`flex-1 flex items-center justify-center gap-1.5 text-sm font-medium py-2 rounded-lg transition-colors ${activeTab === "ranking" ? "bg-brand text-white" : "text-white/50 hover:text-white/80"}`}
+              >
+                <BarChart2 className="h-4 w-4" />
+                {t("community_ranking")}
+              </button>
+            )}
           </div>
 
           {/* Solicitações pendentes — badge compacto */}
-          {pendingRequestCount > 0 && (
+          {FEATURES.duels && pendingRequestCount > 0 && (
             <button
               onClick={() => setActiveTab("requests")}
               aria-label={t("duels_requests_aria")}
@@ -202,6 +217,7 @@ export default function Community() {
 
         </div>
       </div>
+      )}
 
       {/* Messages Tab */}
       {activeTab === "messages" && (
@@ -214,14 +230,14 @@ export default function Community() {
         />
       )}
 
-      {duelsCtl.selectedGroupForView && <DuelGroupView ctl={duelsCtl} />}
+      {FEATURES.duels && duelsCtl.selectedGroupForView && <DuelGroupView ctl={duelsCtl} />}
 
-      {activeTab === "duels" && !duelsCtl.selectedGroupForView && (
+      {FEATURES.duels && activeTab === "duels" && !duelsCtl.selectedGroupForView && (
         <DuelsTab ctl={duelsCtl} />
       )}
 
       {/* Ranking Tab */}
-      {activeTab === "ranking" && (
+      {FEATURES.ranking && activeTab === "ranking" && (
         <RankingTab
           ranking={ranking}
           followers={followers}
@@ -230,7 +246,7 @@ export default function Community() {
       )}
 
       {/* Solicitações (Pending Invites + Group Join Requests) Tab */}
-      {activeTab === "requests" && (
+      {FEATURES.duels && activeTab === "requests" && (
         <RequestsTab
           pendingInvites={duelsCtl.pendingInvites}
           setPendingInvites={duelsCtl.setPendingInvites}

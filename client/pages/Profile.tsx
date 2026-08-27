@@ -92,6 +92,8 @@ import { useAuth } from "@/hooks/useAuth";
 import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
 import { ProfileSkeleton } from "@/components/shared/animated-loading";
 import { ShareDrawer } from "@/components/shared/share-drawer";
+import { UserSafetyDrawer } from "@/components/shared/user-safety-drawer";
+import { FEATURES } from "@/lib/feature-flags";
 import { ImageCropperDrawer } from "@/components/shared/image-cropper-drawer";
 import { profileShareUrl } from "@/lib/share-url";
 import { ShotThumb } from "@/components/shared/shot-thumb";
@@ -104,6 +106,7 @@ import {
   Trash2,
   MessageSquare,
   Share2,
+  MoreHorizontal,
   ArrowRight,
   ExternalLink,
   Phone,
@@ -235,12 +238,18 @@ export default function Profile() {
   // volta a ser uma publicação comum. Split derivado da mesma lista carregada
   // por `getUserPostsDb` — nenhuma query extra, e apagar/editar um post segue
   // atualizando as duas abas de uma vez (ver `setPosts`).
+  //
+  // ⚠️ O split SÓ faz sentido com a aba "Treinos" visível. Com
+  // `FEATURES.profileExtraTabs` desligada não existe aba para recebê-los, e
+  // manter o filtro faria os posts de canvas sumirem do perfil inteiro — o
+  // usuário publicou e o post simplesmente não aparece em lugar nenhum. Sem a
+  // aba, "Publicações" volta a ser o que sempre foi: tudo.
   const workoutPosts = React.useMemo(
-    () => posts.filter((p) => isWorkoutCanvasPost(p)),
+    () => (FEATURES.profileExtraTabs ? posts.filter((p) => isWorkoutCanvasPost(p)) : []),
     [posts],
   );
   const feedPosts = React.useMemo(
-    () => posts.filter((p) => !isWorkoutCanvasPost(p)),
+    () => (FEATURES.profileExtraTabs ? posts.filter((p) => !isWorkoutCanvasPost(p)) : posts),
     [posts],
   );
 
@@ -255,6 +264,7 @@ export default function Profile() {
 
   // Settings drawer (controlled externally so the trigger can be styled per design)
   const [settingsOpen, setSettingsOpen] = React.useState(false);
+  const [safetyOpen, setSafetyOpen] = React.useState(false);
   const [settingsOpenToProfile, setSettingsOpenToProfile] = React.useState(false);
   // Flow expirado vindo de uma notificação (reação/comentário) — abre o Settings
   // direto no Arquivo de Flows com esse flow expandido (ver client/pages/Index.tsx)
@@ -349,11 +359,14 @@ export default function Profile() {
       ] = await Promise.all([
         getUserRoutinesDb(profileUserId),
         getUserGoalsByUserIdDb(profileUserId),
-        getUserShotsDb(profileUserId),
-        getCommercialProfileDb(profileUserId),
-        getCommercialOffersByUserIdDb(profileUserId),
-        getCommercialPlansDb(profileUserId),
-        getTaggedPostsDb(profileUserId),
+        // Quatro queries que só existiam para abas e frames guardados atrás de
+        // flag. Sem a guarda, cada abertura de perfil — a própria e a de
+        // qualquer outra pessoa — pagava por dados que ninguém consegue ver.
+        FEATURES.shots ? getUserShotsDb(profileUserId) : Promise.resolve([]),
+        FEATURES.store ? getCommercialProfileDb(profileUserId) : Promise.resolve(null),
+        FEATURES.store ? getCommercialOffersByUserIdDb(profileUserId) : Promise.resolve([]),
+        FEATURES.store ? getCommercialPlansDb(profileUserId) : Promise.resolve([]),
+        FEATURES.postTags ? getTaggedPostsDb(profileUserId) : Promise.resolve([]),
       ]);
       if (isStale()) return;
       setRoutines(routinesData);
@@ -1039,9 +1052,33 @@ export default function Profile() {
                 >
                   <Share2 className="h-[18px] w-[18px]" />
                 </button>
+                {/* Denunciar / bloquear — Guideline 1.2. O perfil é onde o
+                    revisor da Apple procura essas ações, e até hoje era a
+                    única superfície do app sem nenhuma delas. */}
+                <button
+                  onClick={() => setSafetyOpen(true)}
+                  aria-label={t("user_safety_title")}
+                  className="flex items-center justify-center active:scale-95 transition-transform"
+                  style={{ width: 42, height: 42, borderRadius: "50%", background: "rgba(255,255,255,.08)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }}
+                >
+                  <MoreHorizontal className="h-[18px] w-[18px]" />
+                </button>
               </div>
             )}
           </div>
+
+          {isViewingOtherProfile && (
+            <UserSafetyDrawer
+              open={safetyOpen}
+              onOpenChange={setSafetyOpen}
+              userId={profileUserId ?? null}
+              userName={profile?.nickname ?? ""}
+              // Depois de bloquear, ficar no perfil de quem você acabou de
+              // bloquear é contraditório — e a próxima leitura já o esconderia
+              // do feed e da busca. Voltamos para a tela anterior.
+              onBlocked={() => navigate(-1)}
+            />
+          )}
 
           {/* Controlled settings drawer (own profile) */}
           {!isViewingOtherProfile && (
@@ -1138,8 +1175,10 @@ export default function Profile() {
                 </button>
               </div>
 
-              {/* Commercial Profile Info */}
-              {commercialProfile && (
+              {/* Commercial Profile Info — parte da Vitrine (FEATURES.store).
+                  Sem a tela, este frame anuncia um negócio que não tem para
+                  onde levar. */}
+              {FEATURES.store && commercialProfile && (
                 <div className="flex flex-col gap-1 p-2 rounded-lg bg-muted/20 border border-brand/20">
                   <div className="flex items-center gap-2">
                     {commercialProfile.business_phone ? (
@@ -1299,7 +1338,11 @@ export default function Profile() {
       <Tabs defaultValue="posts" className="w-full px-4">
         {/* Com 5 abas (Publicações, Treinos, Clipes, Marcações e Vitrine) a linha
             não cabe na largura do iPhone — rola na horizontal em vez de
-            quebrar/comprimir. */}
+            quebrar/comprimir.
+
+            No v1 sobra só "Publicações" (FEATURES.profileExtraTabs): quatro
+            abas vazias num perfil recém-criado é o sinal mais forte de app
+            abandonado que existe, e nenhuma delas tem conteúdo no dia 1. */}
         <TabsList className="w-full justify-start gap-5 !h-auto !bg-transparent !rounded-none !p-0 border-b border-white/10 overflow-x-auto no-scrollbar">
           <TabsTrigger
             value="posts"
@@ -1307,25 +1350,31 @@ export default function Profile() {
           >
             {t("profile_posts")} ({feedPosts.length})
           </TabsTrigger>
+          {FEATURES.profileExtraTabs && (
           <TabsTrigger
             value="treinos"
             className="shrink-0 whitespace-nowrap !rounded-none !bg-transparent !shadow-none !px-0 pb-3 -mb-px border-b-2 border-transparent !text-white/45 data-[state=active]:!border-white data-[state=active]:!text-white text-[14px] font-[640]"
           >
             {t("profile_workouts")} ({workoutPosts.length})
           </TabsTrigger>
+          )}
+          {FEATURES.profileExtraTabs && FEATURES.shots && (
           <TabsTrigger
             value="shots"
             className="shrink-0 whitespace-nowrap !rounded-none !bg-transparent !shadow-none !px-0 pb-3 -mb-px border-b-2 border-transparent !text-white/45 data-[state=active]:!border-white data-[state=active]:!text-white text-[14px] font-[640]"
           >
             {t("nav_clips")}{tabsDataLoaded ? ` (${shots.length})` : ""}
           </TabsTrigger>
+          )}
+          {FEATURES.profileExtraTabs && FEATURES.postTags && (
           <TabsTrigger
             value="marcacoes"
             className="shrink-0 whitespace-nowrap !rounded-none !bg-transparent !shadow-none !px-0 pb-3 -mb-px border-b-2 border-transparent !text-white/45 data-[state=active]:!border-white data-[state=active]:!text-white text-[14px] font-[640]"
           >
             {t("profile_tagged")}{tabsDataLoaded ? ` (${taggedPosts.length})` : ""}
           </TabsTrigger>
-          {profileOffers.length > 0 && (
+          )}
+          {FEATURES.store && profileOffers.length > 0 && (
             <TabsTrigger
               value="vitrine"
               className="shrink-0 whitespace-nowrap !rounded-none !bg-transparent !shadow-none !px-0 pb-3 -mb-px border-b-2 border-transparent !text-white/45 data-[state=active]:!border-white data-[state=active]:!text-white text-[14px] font-[640]"
@@ -1824,7 +1873,7 @@ export default function Profile() {
 
                     {/* Workout summary — "Ver treino" abre o detalhe; os dados do
                         autor habilitam o botão "Comparar" DENTRO do drawer. */}
-                    {!isEditingPost && selectedPost.workoutSummary && (
+                    {FEATURES.workoutDetailOnPost && !isEditingPost && selectedPost.workoutSummary && (
                       <WorkoutDetailButton
                         summary={selectedPost.workoutSummary}
                         authorId={selectedPost.user_id}

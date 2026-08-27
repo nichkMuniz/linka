@@ -1,5 +1,19 @@
 # Tela: Novo Post
 
+> **Recorte v1.0** (ver [20-lancamento-v1.md](./20-lancamento-v1.md)):
+> - **Seletor POST/SHOT removido** (`FEATURES.shots`): não há para onde publicar
+>   um shot. O default de `mediaType` também é forçado para `"post"`, senão um
+>   rascunho salvo em `sessionStorage` reabriria o editor em modo vídeo sem
+>   seletor para sair dele.
+> - **Marcar pessoas** (`FEATURES.postTags`), o **atalho `#`**
+>   (`FEATURES.hashtags`) e o **alfinete de localização**
+>   (`FEATURES.postLocation`) ficam guardados na barra da legenda.
+> - O alfinete era o **único** caminho do app que pedia localização em primeiro
+>   plano (`@capacitor/geolocation`). Com ele fora,
+>   `NSLocationWhenInUseUsageDescription` saiu do Info.plist e o app não pede
+>   localização de forma alguma. Ao religar a flag, reponha a chave.
+> - **Vincular meta continua** — é o que costura o fitness ao social.
+
 **Rota:** `/postar`
 **Arquivo:** `client/pages/NewPost.tsx`
 **Layout:** AppLayout

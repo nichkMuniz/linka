@@ -6,6 +6,7 @@ import {
   getPostTagsBatchDb,
   togglePostIncentiveDb,
   getFollowingIdsDb,
+  getBlockedIdsDb,
   type PostWithLikes,
   type PostIncentiveType,
   type SearchUser,
@@ -44,15 +45,26 @@ export const getFeedPosts = async (
 
   const limit = options.limit ?? FEED_PAGE_SIZE;
 
-  // Auth + following list em paralelo (independentes — getFollowingIdsDb usa getViewer cacheado)
-  const [currentUser, followingIds] = await Promise.all([
+  // Auth + following + bloqueios em paralelo (independentes — todos usam o
+  // getViewer cacheado)
+  const [currentUser, followingIds, blockedIds] = await Promise.all([
     getUserSafe(),
     getFollowingIdsDb(),
+    getBlockedIdsDb(),
   ]);
   if (!currentUser) throw new Error("Usuário não autenticado");
 
   // Include current user's own posts + posts from followed users
-  const userIdsToShow = [currentUser.id, ...followingIds];
+  //
+  // Bloquear desfaz o follow pelo trigger da migração, o que já cobriria a
+  // direção "eu bloqueei". A direção inversa não: se ELE me bloqueou, o follow
+  // some do lado dele, mas a linha que ESTE cliente lê continua listando o
+  // usuário — sem este filtro o feed seguiria mostrando quem me bloqueou.
+  const blocked = new Set(blockedIds);
+  const userIdsToShow = [
+    currentUser.id,
+    ...followingIds.filter((id) => !blocked.has(id)),
+  ];
 
   let query = supabase
     .from("posts")
@@ -151,14 +163,20 @@ export const getDiscoverPosts = async (
 
   const limit = options.limit ?? DISCOVER_PAGE_SIZE;
 
-  const [currentUser, followingIds] = await Promise.all([
+  const [currentUser, followingIds, blockedIds] = await Promise.all([
     getUserSafe(),
     getFollowingIdsDb(),
+    getBlockedIdsDb(),
   ]);
   if (!currentUser) throw new Error("Usuário não autenticado");
 
-  // Exclude current user and followed users
-  const excludedIds = [currentUser.id, ...followingIds];
+  // Exclude current user, followed users and quem está bloqueado nos dois
+  // sentidos. Aqui o filtro é indispensável: Descobrir mostra justamente quem
+  // você NÃO segue — é a superfície por onde um usuário bloqueado voltaria a
+  // aparecer.
+  const excludedIds = [
+    ...new Set([currentUser.id, ...followingIds, ...blockedIds]),
+  ];
 
   let query = supabase
     .from("posts")
@@ -241,32 +259,20 @@ export const getDiscoverPosts = async (
     };
   });
 
-  // Ranking do Discover: entre os posts da janela recente buscada (paginada por
-  // cursor de created_at), prioriza os mais ENGAJADOS. A recência entra como
-  // decaimento suave (meia-vida ~36h) e é o fator dominante entre janelas — dentro
-  // de uma mesma página os posts têm idades próximas, então o engajamento manda.
-  // Conservador de propósito: como todos os candidatos já são recentes, conteúdo
-  // novo nunca é "starvado" globalmente; só é ordenado por qualidade dentro da faixa.
-  return rankDiscoverPosts(posts);
+  // Ordem PURAMENTE cronológica: do mais recente para o mais antigo, seja quem
+  // for o autor. `posts` preserva a ordem do `.order("created_at", desc)` da
+  // query, então basta devolver.
+  //
+  // Havia aqui um `rankDiscoverPosts` que reordenava por engajamento
+  // (curtidas + 2×comentários) com decaimento de recência de 36h. A intenção
+  // era boa e o efeito foi ruim: com base pequena, o engajamento se concentra
+  // em poucas pessoas, então o score agrupava vários posts do mesmo autor em
+  // sequência — inclusive posts antigos passando à frente de recentes. O
+  // usuário via "o feed de uma pessoa só". Ranking por engajamento precisa de
+  // volume para não virar isso; até lá, cronológico é mais honesto e mais
+  // previsível. Removido de propósito — não é uma flag de v1.
+  return posts;
 };
-
-const DISCOVER_HALF_LIFE_HOURS = 36;
-
-function rankDiscoverPosts(posts: PostWithStats[]): PostWithStats[] {
-  const now = Date.now();
-  return posts
-    .map((p) => {
-      const ageH = Math.max(0, (now - new Date(p.created_at).getTime()) / 3_600_000);
-      const recency = Math.pow(0.5, ageH / DISCOVER_HALF_LIFE_HOURS);
-      const totalLikes = (Object.values(p.likes) as number[]).reduce((a, b) => a + b, 0);
-      const engagement = totalLikes + 2 * p.commentCount;
-      const hasMedia = !!(p.photo || (p.photos && p.photos.length > 0));
-      const score = (1 + engagement) * recency * (hasMedia ? 1.15 : 1);
-      return { p, score };
-    })
-    .sort((a, b) => b.score - a.score)
-    .map((s) => s.p);
-}
 
 export const togglePostLike = async (
   postId: string,

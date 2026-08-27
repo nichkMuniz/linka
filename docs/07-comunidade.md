@@ -1,5 +1,14 @@
 # Tela: Comunidade
 
+> **Recorte v1.0** (ver [20-lancamento-v1.md](./20-lancamento-v1.md)):
+> **Duelos, Ranking e Solicitações estão desligados** (`FEATURES.duels`,
+> `FEATURES.ranking`) — os três dependem de densidade social que não existe no
+> lançamento. Sobra a aba **Mensagens**, e com uma aba só a barra de abas some
+> inteira: a tela abre direto na lista de conversas.
+>
+> Conversas com usuários bloqueados não aparecem na lista, e a policy
+> `messages_insert_not_blocked` impede o envio no banco — não só na UI.
+
 **Rota:** `/comunidade`
 **Arquivo:** `client/pages/Community.tsx`
 **Layout:** AppLayout

@@ -1,5 +1,18 @@
 # 17 — LinKa Premium (Freemium)
 
+> ⚠️ **DESLIGADO NO V1.0** (`FEATURES.iap = false`) — ver
+> [20-lancamento-v1.md](./20-lancamento-v1.md).
+>
+> A submissão 1.2 (56) foi reprovada por **Guideline 2.1(b)**: "we were unable to
+> load the plans after creating a new account". Com a flag desligada,
+> `PremiumProvider` devolve `isPremium: true` para todos e **nunca configura o
+> SDK da loja** — não existe paywall, produto nem restauração de compra no
+> binário, e a categoria inteira de rejeição por IAP deixa de ser alcançável.
+>
+> Os gates **abrem** de propósito: um gate fechado sem caminho de compra é
+> funcionalidade quebrada aos olhos da Apple. Tudo neste documento continua
+> válido como especificação para quando o IAP voltar (previsto para a 1.5).
+
 Sistema de assinatura premium com **cobrança real via In-App Purchase da Apple**, intermediada pelo RevenueCat. Migração: `docs/migrations/20260803-premium-iap.sql`.
 
 Princípio de produto: **nunca gatear os loops de retenção** (feed/social/DMs, check-ins, registro de peso/comida, participar de duelos). O premium vende **profundidade, personalização e status** sobre os dados que o usuário gera de graça.

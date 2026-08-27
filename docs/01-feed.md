@@ -1,5 +1,35 @@
 # Tela: Feed (Index)
 
+> **Recorte v1.0** (ver [20-lancamento-v1.md](./20-lancamento-v1.md)):
+> - **A aba inicial é decidida por usuário, não por flag.** Quem já segue
+>   alguém abre em **"Seguindo"** — é o feed que a pessoa montou. Só quem ainda
+>   não segue ninguém cai em **"Descobrir"**, porque "Seguindo" mostraria uma
+>   tela vazia. A decisão acontece em `loadFeed`, com o resultado de
+>   `getFollowingIdsDb()` (cacheado, e já lido por `getFeedPosts` no mesmo
+>   tick), **antes do primeiro paint do conteúdo** — a tela ainda está no
+>   skeleton, então não há flicker de aba.
+> - A escolha automática roda **uma vez por sessão de tela** (`autoTabDecided`).
+>   Sem essa trava, um pull-to-refresh de quem não segue ninguém arrastaria a
+>   pessoa de volta para "Descobrir" mesmo depois de ela tocar em "Seguindo".
+>   Um cache de feed válido também vence o automático.
+> - **Novo: "Bloquear" no menu "..." do post** (Guideline 1.2). Denunciar
+>   sozinho deixa a vítima esperando moderação; bloquear resolve na hora. O post
+>   é onde o incômodo aparece, então é por aqui que a maioria chega à ação.
+>   Depois de bloquear, o feed recarrega sem skeleton e o card some sozinho.
+> - **Hashtags no texto do post não são tocáveis** (`FEATURES.hashtags`). A rota
+>   `/tag/:tag` não existe no v1, e o toque cairia no catch-all que joga o
+>   usuário no feed. `renderWithHashtags` ignora o callback quando a flag está
+>   desligada — um único ponto conserta feed, detalhe do post, shots e flows.
+> - Posts de usuários bloqueados são filtrados no feed e em Descobrir.
+> - **Descobrir é puramente cronológico** (27/08/2026). Havia um
+>   `rankDiscoverPosts` que reordenava por engajamento (curtidas + 2×comentários)
+>   com decaimento de recência de 36h. A intenção era boa e o efeito foi ruim:
+>   com base pequena o engajamento se concentra em poucas pessoas, então o score
+>   agrupava vários posts do mesmo autor em sequência — inclusive posts antigos
+>   passando à frente de recentes. O usuário via "o feed de uma pessoa só".
+>   **Removido, não escondido atrás de flag:** ranking por engajamento precisa de
+>   volume para não virar isso.
+
 **Rota:** `/`
 **Arquivo:** `client/pages/Index.tsx`
 **Layout:** AppLayout (header + bottom nav)

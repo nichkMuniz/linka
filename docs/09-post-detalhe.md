@@ -1,5 +1,13 @@
 # Tela: Detalhe do Post
 
+> **Novo (27/08/2026) — ações de segurança no menu "..."**
+> Esta tela é o destino dos deep links: um link compartilhado de um post abusivo
+> abria aqui com **nenhuma** ação disponível além de "Compartilhar". Posts de
+> outros usuários agora mostram uma entrada que abre o `UserSafetyDrawer`
+> (**Denunciar** + **Bloquear**). Ao bloquear, a tela volta para a anterior — o
+> post do bloqueado não deveria continuar visível. Exigência da App Store
+> Guideline 1.2; ver [20-lancamento-v1.md](./20-lancamento-v1.md).
+
 **Rota:** `/post/:postId`
 **Arquivo:** `client/pages/PostDetail.tsx`
 **Layout:** AppLayout (com header próprio, altura fixa, sem scroll)

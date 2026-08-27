@@ -1,5 +1,23 @@
 # Layouts e Componentes Compartilhados
 
+> **Bottom nav — colunas dinâmicas (27/08/2026)**
+> A grade do nav mobile usa `gridTemplateColumns: repeat(n, minmax(0,1fr))` via
+> `style`, com `n = mainNavItems.length`. Era `grid-cols-5` fixo, e quando uma
+> flag esconde um item (Shots, no v1) sobrava uma coluna fantasma: os quatro
+> restantes encostavam à esquerda e ficava um vazio à direita.
+>
+> Vai em `style` e **não** em classe de propósito: nome de classe montado em
+> runtime (`grid-cols-${n}`) não sobrevive à purga do Tailwind e sairia sem
+> regra nenhuma no build de produção.
+>
+> **O botão "Novo post" perdeu o destaque na mesma passada.** Ele era o
+> botão-herói do nav — círculo com gradiente, sombra colorida e sem o ponto de
+> item ativo. Isso fazia sentido com 5 itens, em que ele ocupava o centro
+> exato; com 4 ele deixou de ser o meio e o gradiente virou só um item gritando
+> mais alto que os outros. Hoje `isCenter` é `false` fixo em `app-layout.tsx`,
+> com o estilo original preservado nas ramificações — **ao religar
+> `FEATURES.shots`, considere restaurá-lo.**
+
 ---
 
 ## Estrutura de Pastas (`client/components/`)

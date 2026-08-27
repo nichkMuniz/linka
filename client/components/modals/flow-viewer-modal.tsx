@@ -61,6 +61,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { cdnImg } from "@/lib/image-url";
+import { FEATURES } from "@/lib/feature-flags";
 
 interface FlowViewerModalProps {
   story: StoryWithUser | null;
@@ -342,7 +343,10 @@ export function FlowViewerModal({
 
         setUserLikes(userLikesData);
         setComments(commentsData);
-        setTaggedUsers(tagsData);
+        // Zerado na origem com FEATURES.postTags desligada: cobre de uma vez
+        // a fileira de avatares "marcados" e o repost, que só é oferecido a
+        // quem foi marcado (`isTaggedViewer`).
+        setTaggedUsers(FEATURES.postTags ? tagsData : []);
       } catch (err) {
         console.error("Error loading story data:", err);
       }
@@ -816,9 +820,12 @@ export function FlowViewerModal({
                       </AnimatePresence>
 
                       <div className="flex items-center gap-1">
-                        <button onClick={handleTogglePause} className="text-white/90 hover:text-white p-2">
-                          {isPaused ? <Play className="h-6 w-6 fill-white/20" /> : <Pause className="h-6 w-6 fill-white/20" />}
-                        </button>
+                        {/* Sem botão de play/pause no header: o viewer do feed
+                            (`pages/FlowViewer.tsx`) pausa só pelo toque na área
+                            central, e as duas telas mostram o MESMO flow — ter
+                            controles diferentes fazia o mesmo conteúdo parecer
+                            dois recursos distintos. O overlay grande de "pausado"
+                            continua, igual ao do feed. */}
                         {isOwner && (
                           <>
                             <button onClick={handleOpenViewers} className="text-white/90 hover:text-white p-2">
