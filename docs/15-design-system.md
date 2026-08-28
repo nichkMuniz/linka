@@ -291,6 +291,7 @@ Sem borda:            border-0 ou remover a classe border
 
 Padrão para deixar o usuário escolher entre **variações visuais do mesmo conteúdo** (ex.: qual template de card compartilhar) sem abrir um drawer/dialog — introduzido no seletor de estilo do card gerado no resumo de treino (`workout-summary-overlay.tsx`, `goals_canvas_style_label`).
 
+{% raw %}
 ```tsx
 <div style={{ display: "flex", gap: 8, overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
   {options.map((opt) => {
@@ -315,6 +316,7 @@ Padrão para deixar o usuário escolher entre **variações visuais do mesmo con
   })}
 </div>
 ```
+{% endraw %}
 
 - Container com `overflowX:auto` + `WebkitOverflowScrolling:"touch"` (nunca quebra linha) e `::-webkit-scrollbar{display:none}` para esconder a barra de rolagem no iOS.
 - Chip selecionado: fundo e borda tingidos pela cor de acento da própria opção (`${accent}22` / `${accent}66`), texto na cor de acento. Chip não selecionado: `CARD`/`BORDER`/`MUTED` padrão (glass).
@@ -868,7 +870,7 @@ As brand colors são levemente mais brilhantes no dark mode para manter o contra
 - **Botões de ação principal:** sempre `rounded-full`
 - **Ícones:** sempre Lucide, tamanho `h-4 w-4` (pequeno) ou `h-5 w-5` (médio)
 - **Cores:** sempre via tokens semânticos Tailwind
-- **Tipografia:** sempre via classes Tailwind (não `style={{ fontSize }}`)
+- **Tipografia:** sempre via classes Tailwind (não {% raw %}`style={{ fontSize }}`{% endraw %})
 - **Bordas:** usar `border-border/40` ou `border-border/60` para bordas sutis
 - **Gap entre ícone e texto:** sempre `gap-2`
 
