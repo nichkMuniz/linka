@@ -1,0 +1,21 @@
+/* InfoPlist.strings (English)
+   Purpose strings shown in the iOS permission alerts.
+
+   Guideline 5.1.1(ii): each string must say WHAT the app does with the
+   resource, give a CONCRETE example, and state WHEN access happens.
+   Keep every key in sync with pt-BR.lproj/InfoPlist.strings and with the
+   fallback values in Info.plist. */
+
+"NSCameraUsageDescription" = "LinKa uses the camera only when you choose to take a photo or record a video inside the app, so you can log your workouts. For example: taking a photo at the gym to publish in your feed, recording a short video (a flow) performing an exercise, or sending a photo in a conversation with another user. The camera is never activated in the background, and your media only leaves the device after you confirm the post or the send.";
+
+"NSMicrophoneUsageDescription" = "LinKa uses the microphone to record the audio of the videos and voice messages you create in the app. For example: recording a short video (a flow) while narrating how an exercise is performed, or sending a voice message in a conversation. The microphone is only turned on during a recording you start, and it is turned off as soon as you finish it.";
+
+"NSPhotoLibraryUsageDescription" = "LinKa accesses your photo library so you can choose photos and videos already saved on your device. For example: selecting a photo of your workout to publish in your feed, picking a video for a flow, or setting your profile picture. The app reads only the items you select.";
+
+"NSPhotoLibraryAddUsageDescription" = "LinKa saves to your photo library only what you ask it to save. For example: keeping a copy of the workout video you just recorded in the app, so you can share it later outside LinKa.";
+
+"NSLocationWhenInUseUsageDescription" = "LinKa uses your location only when you choose to tag the place of a post. For example: tapping the location pin while writing a caption to show that you trained at a specific gym. The location is read at that moment only and is never collected in the background.";
+
+"NSLocationAlwaysAndWhenInUseUsageDescription" = "LinKa uses your location in the background only while an outdoor run is being recorded, so the run keeps tracking with the screen locked. For example: starting an outdoor run, putting the phone in your pocket, and still getting your route, distance and pace at the end. Tracking stops the moment you finish the run.";
+
+"NSFaceIDUsageDescription" = "LinKa uses Face ID so you can sign back into your account without typing your password. For example: reopening the app after a few days and unlocking it with a glance instead of your e-mail and password. Your biometric data stays on the device and is never sent to LinKa.";

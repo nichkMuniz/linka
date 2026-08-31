@@ -1,6 +1,6 @@
 import sharp from "sharp";
 import { readdirSync } from "node:fs";
-const spec = { "iphone-6.9": [1320, 2868], "ipad-13": [2064, 2752] };
+const spec = { "iphone-6.5": [1242, 2688], "ipad-13": [2064, 2752] };
 let bad = 0;
 for (const [dir, [W, H]] of Object.entries(spec)) {
   for (const f of readdirSync(`docs/appstore/${dir}`)) {

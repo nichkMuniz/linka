@@ -48,13 +48,13 @@
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>A localização em segundo plano é usada apenas durante uma corrida ao ar livre, para registrar sua rota e distância mesmo com a tela bloqueada.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>Permita o acesso à câmera para tirar fotos e gravar vídeos.</string>
+	<string>O LinKa usa a câmera apenas quando você escolhe fotografar ou filmar dentro do app, para registrar seus treinos. Por exemplo: tirar uma foto na academia para publicar no feed, gravar um vídeo curto (flow) executando um exercício, ou enviar uma foto em uma conversa com outro usuário. A câmera nunca é ligada em segundo plano e a mídia só sai do seu aparelho depois que você confirma a publicação ou o envio.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Permita o acesso ao microfone para gravar vídeos com áudio.</string>
+	<string>O LinKa usa o microfone para gravar o áudio dos vídeos e mensagens de voz que você cria no app. Por exemplo: gravar um vídeo curto (flow) narrando a execução de um exercício, ou enviar uma mensagem de voz em uma conversa. O microfone só é ligado durante uma gravação iniciada por você e é desligado ao finalizá-la.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Permita o acesso à galeria para escolher uma foto de perfil.</string>
+	<string>O LinKa acessa sua galeria para você escolher fotos e vídeos já salvos no aparelho. Por exemplo: selecionar uma foto do seu treino para publicar no feed, escolher um vídeo para um flow, ou definir a imagem do seu perfil. O app lê somente os itens que você seleciona.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>Permita salvar na galeria para guardar rascunhos das fotos e vídeos que você cria no app.</string>
+	<string>O LinKa salva na sua galeria somente o que você pedir para salvar. Por exemplo: guardar uma cópia do vídeo de treino que você acabou de gravar no app, para poder compartilhá-lo depois fora do LinKa.</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

@@ -1,0 +1,21 @@
+/* InfoPlist.strings (portugues do Brasil)
+   Textos de justificativa exibidos nos alertas de permissao do iOS.
+
+   Guideline 5.1.1(ii): cada string precisa dizer PARA QUE o app usa o recurso,
+   dar um EXEMPLO concreto e deixar claro QUANDO o acesso acontece.
+   Manter todas as chaves em sincronia com en.lproj/InfoPlist.strings e com os
+   valores de fallback do Info.plist. */
+
+"NSCameraUsageDescription" = "O LinKa usa a câmera apenas quando você escolhe fotografar ou filmar dentro do app, para registrar seus treinos. Por exemplo: tirar uma foto na academia para publicar no feed, gravar um vídeo curto (flow) executando um exercício, ou enviar uma foto em uma conversa com outro usuário. A câmera nunca é ligada em segundo plano e a mídia só sai do seu aparelho depois que você confirma a publicação ou o envio.";
+
+"NSMicrophoneUsageDescription" = "O LinKa usa o microfone para gravar o áudio dos vídeos e mensagens de voz que você cria no app. Por exemplo: gravar um vídeo curto (flow) narrando a execução de um exercício, ou enviar uma mensagem de voz em uma conversa. O microfone só é ligado durante uma gravação iniciada por você e é desligado ao finalizá-la.";
+
+"NSPhotoLibraryUsageDescription" = "O LinKa acessa sua galeria para você escolher fotos e vídeos já salvos no aparelho. Por exemplo: selecionar uma foto do seu treino para publicar no feed, escolher um vídeo para um flow, ou definir a imagem do seu perfil. O app lê somente os itens que você seleciona.";
+
+"NSPhotoLibraryAddUsageDescription" = "O LinKa salva na sua galeria somente o que você pedir para salvar. Por exemplo: guardar uma cópia do vídeo de treino que você acabou de gravar no app, para poder compartilhá-lo depois fora do LinKa.";
+
+"NSLocationWhenInUseUsageDescription" = "O LinKa usa sua localização apenas quando você escolhe marcar o lugar de uma publicação. Por exemplo: tocar no alfinete de localização ao escrever a legenda para mostrar que você treinou em uma academia específica. A localização é lida só nesse momento e nunca é coletada em segundo plano.";
+
+"NSLocationAlwaysAndWhenInUseUsageDescription" = "O LinKa usa sua localização em segundo plano somente enquanto uma corrida ao ar livre está sendo registrada, para que o rastreamento continue com a tela bloqueada. Por exemplo: iniciar uma corrida ao ar livre, guardar o celular no bolso e ainda assim receber sua rota, distância e ritmo no final. O rastreamento para no instante em que você encerra a corrida.";
+
+"NSFaceIDUsageDescription" = "O LinKa usa o Face ID para você voltar à sua conta sem digitar a senha. Por exemplo: reabrir o app depois de alguns dias e desbloqueá-lo com um olhar, em vez de digitar e-mail e senha. Seus dados biométricos ficam no aparelho e nunca são enviados ao LinKa.";

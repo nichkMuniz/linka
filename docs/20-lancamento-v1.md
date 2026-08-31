@@ -135,6 +135,9 @@ Duas consequências que precisaram de tratamento explícito:
 | `Info.plist` | Removido `NSLocationAlwaysAndWhenInUseUsageDescription` | Localização **Always** é a permissão mais escrutinada da loja. Existia só para o GPS de corrida (`FEATURES.gpsRun`) |
 | `Info.plist` | Removido `UIBackgroundModes: [location]` | Idem — `location` era o único modo declarado |
 | `Info.plist` | **Mantidas** `NSLocationWhenInUse`, `NSLocationAlwaysAndWhenInUse` e `NSFaceID` | Ver "Purpose strings" abaixo — são obrigatórias mesmo com as features desligadas |
+| `Info.plist` | Reescritas as 4 purpose strings de mídia (câmera, microfone, galeria, salvar) | Rejeição 5.1.1(ii) de 31/08/2026 — faltava exemplo concreto. Ver abaixo |
+| `en.lproj/` + `pt-BR.lproj/` | **Novos** `InfoPlist.strings` (7 chaves cada) | O revisor lê inglês; a região de desenvolvimento é `en`. Ver "Localização" abaixo |
+| `project.pbxproj` | Variant group `InfoPlist.strings` + `knownRegions: pt-BR` | É como um arquivo localizado existe no projeto Xcode |
 
 ### Purpose strings: obrigatórias mesmo sem usar a feature
 
@@ -176,6 +179,79 @@ chaves deixam de ser necessárias. O custo é tornar dinâmicos os imports em
 `run-tracker.ts` e `NewPost.tsx`, regenerar os DOIS lockfiles e rodar um build
 no Appflow às cegas — e um erro de Swift só aparece lá. Por isso não foi feito
 agora.
+
+### Guideline 5.1.1(ii) — a purpose string precisa de um EXEMPLO (31/08/2026)
+
+A submissão **1.3 (58)** foi rejeitada em 31/08/2026, revisada em iPad Air 11" (M3):
+
+> **Guideline 5.1.1(ii) — Legal - Privacy - Data Collection and Storage**
+> *One or more purpose strings ... do not sufficiently explain the use of
+> protected resources. Update the **camera** purpose string to explain how the
+> app will use the requested information and provide a specific example of how
+> the data will be used.*
+
+A string reprovada era `"Permita o acesso à câmera para tirar fotos e gravar
+vídeos."` — ela descreve a **API**, não o **uso**. É exatamente o padrão que a
+Apple lista como reprovável ("App needs microphone access").
+
+**A regra que a Apple está aplicando:** a frase precisa responder três coisas —
+*para quê* no app, *um exemplo concreto* de tela/ação, e *quando* o acesso
+acontece. Só a câmera foi citada, mas as outras três chaves de mídia tinham o
+mesmo defeito e foram reescritas junto, para não voltar rejeitado por elas na
+próxima rodada.
+
+| Chave | Antes (reprovada / em risco) | Agora |
+|---|---|---|
+| `NSCameraUsageDescription` | "tirar fotos e gravar vídeos" | Uso + exemplos: foto na academia para o feed, flow de exercício, foto numa conversa + "nunca em segundo plano" |
+| `NSMicrophoneUsageDescription` | "gravar vídeos com áudio" | Áudio do flow e mensagem de voz + "só durante gravação iniciada por você" |
+| `NSPhotoLibraryUsageDescription` | "escolher uma foto de perfil" (incompleta — também é usada para post e flow) | Post, flow e foto de perfil + "lê somente os itens que você seleciona" |
+| `NSPhotoLibraryAddUsageDescription` | "guardar rascunhos" | Exemplo: salvar cópia do vídeo de treino gravado no app |
+
+> ⚠️ **Purpose string vive no binário.** Não existe campo no App Store Connect
+> para corrigi-la — a correção **exige novo build** (`CURRENT_PROJECT_VERSION`
+> foi para **59**, `MARKETING_VERSION` 1.0.58) e reenvio. Nenhum `cap sync` é
+> necessário para esta mudança em si (o `Info.plist` não é sobrescrito), mas o
+> fluxo padrão de build continua o mesmo.
+
+#### Localização: o revisor não lê português
+
+O `CFBundleDevelopmentRegion` do app é `en`, mas as purpose strings viviam só no
+`Info.plist`, escritas em português. Resultado: o revisor — que testou em um
+iPad Air M3 em inglês — via um alerta de permissão em um idioma que não fala.
+Uma string pode estar perfeita e ainda assim "não explicar suficientemente" se
+quem lê não entende o texto.
+
+Foram criados dois `InfoPlist.strings` **com as sete chaves de permissão cada**:
+
+| Arquivo | Quem vê |
+|---|---|
+| `ios/App/App/en.lproj/InfoPlist.strings` | Aparelho em inglês — e **qualquer idioma sem `.lproj` próprio**, porque a região de desenvolvimento é `en`. É o que o revisor da Apple vê |
+| `ios/App/App/pt-BR.lproj/InfoPlist.strings` | Aparelho em português |
+
+O `Info.plist` **mantém** os valores em pt-BR como último fallback. As três
+camadas precisam dizer a mesma coisa: ao mudar uma justificativa, mudar nos
+**três** arquivos.
+
+> ⚠️ `pt-BR.lproj` não é opcional. Sem ele, criar `en.lproj` faria o brasileiro
+> cair na região de desenvolvimento (`en`) e ver o alerta em inglês — trocaria
+> um problema por outro.
+
+**Como isso entrou no projeto sem Xcode** (ver seção 0a do `CLAUDE.md`): um
+`InfoPlist.strings` localizado é um `PBXVariantGroup` com um `PBXFileReference`
+por idioma. Foram editados **cinco** pontos do `project.pbxproj` — os quatro de
+sempre mais um:
+
+1. `PBXBuildFile` — `InfoPlist.strings in Resources`
+2. `PBXFileReference` — um por idioma (`name = en` / `name = "pt-BR"`, com o
+   `path` apontando para `<idioma>.lproj/InfoPlist.strings`)
+3. `PBXGroup` (children do grupo `App`) — o variant group
+4. `PBXResourcesBuildPhase` — o build file
+5. **`knownRegions`** — acrescentado `"pt-BR"` (o específico do caso). Sem isso
+   o Xcode/`xcodebuild` ignora a pasta e a localização não vai para o bundle
+
+**Efeito colateral esperado:** a ficha do app na App Store passa a listar
+**inglês e português** como idiomas suportados. É correto — a UI já é bilíngue
+via `client/lib/i18n.ts`.
 
 ### iPad: mantido de propósito
 
@@ -416,7 +492,7 @@ Varredura tela por tela antes de submeter. Achados, todos corrigidos:
 
 ### App Store Connect
 - [ ] Privacy nutrition labels: declarar apenas o que o app **coleta** — e ele não coleta localização. As purpose strings de localização e Face ID existem no Info.plist porque os SDKs as exigem (ver seção 6), mas **não** viram nutrition label
-- [ ] Screenshots de iPhone **e iPad** — subir `npx vite --port 8080` e rodar `node scripts/appstore/.tooling/capture.mjs`. São capturas do app REAL, sem legenda; saem em `docs/appstore/` (ver o README de lá). **NÃO** anexar `subscription-review-640x920.png`: é a screenshot de review do IAP, que não existe mais nesta versão
+- [ ] Screenshots **iPhone 6.5" (1242×2688)** e **iPad 13" (2064×2752)** — subir `npx vite --port 8080` e rodar `node scripts/appstore/.tooling/capture.mjs`. São capturas do app REAL, sem legenda, com posts de treino e avatares de iniciais; saem em `docs/appstore/`. **NÃO** anexar `subscription-review-640x920.png`
 - [ ] Nenhum produto de IAP anexado à versão
 
 ### Build

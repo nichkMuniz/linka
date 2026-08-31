@@ -10,7 +10,7 @@ Sem legenda de marketing: só a tela.
 npx vite --port 8080                          # terminal 1
 node scripts/appstore/.tooling/capture.mjs    # terminal 2
 node scripts/appstore/verify.mjs              # confere dimensão e ausência de alfa
-node scripts/appstore/preview.mjs iphone-6.9 430
+node scripts/appstore/preview.mjs iphone-6.5 420
 ```
 
 ## Como funciona sem login e sem tocar na base
@@ -32,7 +32,7 @@ vnd.pgrst.object` do `.single()`). Sem isso, telas como o Perfil quebravam com
 
 | Pasta | Dimensão | Chrome |
 |---|---|---|
-| `iphone-6.9/` | 1320 × 2868 | Bottom nav de 4 itens |
+| `iphone-6.5/` | 1242 × 2688 | Bottom nav de 4 itens |
 | `ipad-13/` | 2064 × 2752 | Sidebar |
 
 `viewport × deviceScaleFactor` dá o pixel final exato — não há
@@ -42,6 +42,18 @@ redimensionamento depois, então não há perda.
 `TARGETED_DEVICE_FAMILY = "1,2"`. O chrome sai diferente sozinho, porque é o
 app decidindo — o `AppLayout` troca o bottom nav pela sidebar no breakpoint
 `md`, e o iPad em retrato tem 1024pt.
+
+## Conteúdo das telas
+
+O feed mostra **posts de resumo de treino** — carga, séries, volume e duração —
+para o revisor da Apple entender do que o app trata sem precisar entrar em nada.
+Os avatares são **círculos com as iniciais**, gerados em `capture.mjs` e servidos
+como se fossem a foto de perfil (o `UserAvatar` do app só conhece URL).
+
+O card do post é gerado pelo script, não pelo app: é o único pedaço que não sai
+do LinKa rodando. Ele reproduz o layout do card real (marca, rótulo em destaque,
+número grande, subtítulo e três chips) e entra como **conteúdo** dentro de um
+screenshot cuja interface é verdadeira — como seria a foto de um usuário.
 
 ## As cinco telas
 
@@ -65,6 +77,8 @@ mockup anterior chutava "Início" e "Publicar".
 
 ## Limitações conhecidas
 
+- O card de resumo dentro do post é desenhado pelo script (ver acima), não
+  exportado do app.
 - **Os contadores da sessão de treino saem zerados** (duração, volume, séries).
   O script preenche KG e REPS, mas o clique em "Marcar série como concluída"
   não fecha a série no headless — provavelmente depende de gesto de toque real.
