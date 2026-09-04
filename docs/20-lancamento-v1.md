@@ -118,6 +118,38 @@ Duas consequências que precisaram de tratamento explícito:
   que exige a política acessível de dentro do app. Foram para
   **Configurações → Outros**.
 
+### O binário sem IAP não basta: os produtos precisam sair da SUBMISSÃO (01/09/2026)
+
+A versão **1.3 (59)** foi rejeitada por **dois** motivos que são, na verdade, o
+mesmo erro:
+
+> **Guideline 2.1(b) — Information Needed**
+> *"we cannot locate the In-App Purchases, such as "LinKa Premium Monthly" and
+> "LinKa Premium Annual", within the app at this time."*
+
+> **Guideline 3.1.2(c) — Subscriptions**
+> *"a functional link to the Terms of Use (EULA)"* faltando na metadata.
+
+**A Apple está certa e o app está certo.** Com `FEATURES.iap = false`,
+`isPremium` é `true` para todo mundo, o CTA "Seja Premium" do `AppLayout` está
+atrás de `!isPremium` e o `PaywallDrawer` nunca abre. **Não existe caminho de
+compra no binário** — é exatamente o desenhado. O erro foi de metadata: os dois
+produtos de assinatura continuavam **anexados à versão** no App Store Connect.
+
+O revisor então procura um paywall que não existe (2.1(b)) e, porque a submissão
+declara assinaturas auto-renováveis, cobra o link do EULA na metadata (3.1.2(c)).
+Tirar os produtos da submissão mata os dois de uma vez — 3.1.2(c) só se aplica a
+apps que *oferecem* assinatura.
+
+> ⚠️ **A regra:** desligar `FEATURES.iap` é metade do trabalho. A outra metade
+> vive no App Store Connect e **nenhum commit a executa**: na página da versão,
+> remover os produtos da submissão. O checklist da seção 12 já dizia "nenhum
+> produto de IAP anexado à versão" — a linha existia e foi pulada.
+
+Nota: o `@revenuecat/purchases-capacitor` continua **linkado** no binário via
+SPM. Isso não é problema — SDK linkado e nunca chamado não é caminho de compra,
+e a Apple não cobra por isso (mesma lógica das purpose strings da seção 6).
+
 ### Para religar (v1.1+)
 
 1. Paid Apps Agreement aceito em App Store Connect (Business).

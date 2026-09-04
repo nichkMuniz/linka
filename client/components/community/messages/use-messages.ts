@@ -24,6 +24,7 @@ import { toast } from "@/components/ui/use-toast";
 import { supabase } from "@/lib/supabase";
 import { subscribeKeyboardHeight } from "@/lib/keyboard";
 import { setActiveConversationUserId } from "@/lib/active-conversation";
+import { hasObjectionableContent } from "@/lib/content-filter";
 import {
   buildReplyPrefix,
   sameMessageList,
@@ -293,6 +294,17 @@ export function useMessages({
   const handleSendMessage = React.useCallback(async () => {
     if (!messageText.trim() || !selectedConversation) return;
 
+    // Guideline 1.2(a): a DM é a superfície mais privada e a menos vigiada —
+    // o filtro roda aqui pelo mesmo motivo que roda no post e no comentário.
+    if (hasObjectionableContent(messageText)) {
+      toast({
+        title: t("content_filter_title"),
+        description: t("content_filter_desc"),
+        variant: "destructive",
+      });
+      return;
+    }
+
     const fullText = buildReplyPrefix(replyingTo) + messageText;
 
     setIsSending(true);
@@ -346,7 +358,7 @@ export function useMessages({
       setIsSending(false);
       messageInputRef.current?.focus();
     }
-  }, [messageText, selectedConversation, replyingTo, setConversations]);
+  }, [messageText, selectedConversation, replyingTo, setConversations, t]);
 
   const handlePhotoSend = React.useCallback(
     async (file: File) => {

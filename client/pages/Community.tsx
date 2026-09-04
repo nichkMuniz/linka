@@ -93,8 +93,8 @@ export default function Community() {
       } catch (err: any) {
         console.error("Error loading community data:", err);
         toast({
-          title: "Erro ao carregar dados",
-          description: err?.message || "Tente novamente.",
+          title: t("error_loading_data"),
+          description: err?.message || t("retry"),
           variant: "destructive",
         });
       } finally {

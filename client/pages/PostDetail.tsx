@@ -493,6 +493,10 @@ export default function PostDetail() {
           onOpenChange={setSafetyOpen}
           userId={post.user_id}
           userName={post.userNickname ?? ""}
+          // Esta tela é o destino de todo deep link compartilhado: quem chega
+          // por um link abusivo precisa poder denunciar a PUBLICAÇÃO, não só o
+          // autor. Sem isto, a única denúncia possível aqui era a do usuário.
+          content={{ type: "post", id: post.id, label: t("report_post") }}
           // Depois de bloquear, o post deste usuário não deveria mais estar
           // visível — voltamos para a tela anterior em vez de deixá-lo aberto.
           onBlocked={() => navigate(-1)}

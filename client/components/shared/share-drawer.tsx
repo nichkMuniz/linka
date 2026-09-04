@@ -7,6 +7,7 @@ import {
 import { toast } from "@/components/ui/use-toast";
 import { Copy, Link, ExternalLink, SendHorizontal } from "lucide-react";
 import { Share } from "@capacitor/share";
+import { Browser } from "@capacitor/browser";
 import { useLanguage } from "@/lib/language-context";
 import { SHARE_BASE_URL } from "@/lib/share-url";
 
@@ -61,18 +62,35 @@ export function ShareDrawer({
     });
   };
 
+  /**
+   * Abre o link de compartilhamento da rede.
+   *
+   * `Browser.open` do Capacitor, nunca `window.open` — regra do CLAUDE.md §0.
+   * Dentro do WKWebView, `window.open` ou é engolido pelo bloqueador de popup
+   * ou abre uma janela sem controle nenhum; o plugin abre um SFSafariViewController
+   * que o usuário fecha e volta para o app.
+   */
+  const openShareTarget = async (url: string) => {
+    await Browser.open({ url });
+  };
+
   const shareWhatsApp = async () => {
     const shared = await handleNativeShare();
     if (!shared) {
       const encoded = encodeURIComponent(shareUrl);
-      window.open(`https://wa.me/?text=${encoded}`, "_blank", "noopener,noreferrer");
+      await openShareTarget(`https://wa.me/?text=${encoded}`);
     }
     onOpenChange(false);
   };
 
-  const shareFacebook = () => {
-    const encoded = encodeURIComponent(shareUrl);
-    window.open(`https://www.facebook.com/sharer/sharer.php?u=${encoded}`, "_blank", "noopener,noreferrer");
+  const shareFacebook = async () => {
+    // Antes ia direto para o `window.open`, sem nem tentar a folha nativa —
+    // era o único destino sem fallback, junto com o X.
+    const shared = await handleNativeShare();
+    if (!shared) {
+      const encoded = encodeURIComponent(shareUrl);
+      await openShareTarget(`https://www.facebook.com/sharer/sharer.php?u=${encoded}`);
+    }
     onOpenChange(false);
   };
 
@@ -91,13 +109,16 @@ export function ShareDrawer({
   const shareTelegram = async () => {
     const shared = await handleNativeShare();
     if (!shared) {
-      window.open(`https://t.me/share/url?url=${encodeURIComponent(shareUrl)}`, "_blank", "noopener,noreferrer");
+      await openShareTarget(`https://t.me/share/url?url=${encodeURIComponent(shareUrl)}`);
     }
     onOpenChange(false);
   };
 
-  const shareTwitterX = () => {
-    window.open(`https://twitter.com/intent/tweet?url=${encodeURIComponent(shareUrl)}`, "_blank", "noopener,noreferrer");
+  const shareTwitterX = async () => {
+    const shared = await handleNativeShare();
+    if (!shared) {
+      await openShareTarget(`https://twitter.com/intent/tweet?url=${encodeURIComponent(shareUrl)}`);
+    }
     onOpenChange(false);
   };
 

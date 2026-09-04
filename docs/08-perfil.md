@@ -388,9 +388,21 @@ O status de seguimento do visitante é carregado com `isFollowingDb(profileUserI
 
 | Configuração | Tipo | Descrição |
 |---|---|---|
+| Termos de Uso | Botão → `Browser.open` | `linkafit.com.br/termos` |
+| Política de Privacidade | Botão → `Browser.open` | `linkafit.com.br/privacidade` |
+| **Suporte e contato** | Botão → `Browser.open` | `linkafit.com.br/suporte`. **Sempre visível** (ver abaixo) |
 | Arquivo de Flows | Botão → Drawer aninhado | Histórico de flows expirados (> 24h) |
 | Relatar um problema | Botão → `ReportProblemDrawer` | Relato manual de bug, enviado ao Sentry. **Só aparece quando `isMonitoringEnabled()`** (ver abaixo) |
 | Desconectar | Botão destrutivo | Logout |
+
+**Suporte e contato (2026-09-02):** a linha abre a página de suporte
+(`SUPPORT_URL` em `shared/share-config.ts`) e **não depende de variável de
+ambiente nenhuma**. Existe porque "Relatar um problema" some do binário quando
+falta `VITE_SENTRY_DSN` — e um build assim iria para a loja **sem nenhum canal
+de contato dentro do app**, o que é rejeição pelas Guidelines 1.2(d) e 1.5. O
+formulário do Sentry passou a ser o extra, não o único caminho. A mesma URL é o
+valor obrigatório de **Support URL** na App Store Connect (ver
+`docs/21-app-store-connect.md`).
 
 **Relatar um problema (2026-08-05):** abre o `ReportProblemDrawer` (`client/components/shared/report-problem-drawer.tsx`), renderizado **fora** do `<Drawer>` de configurações — mesmo motivo dos overlays do Arquivo de Flows (o `vaul` aplica `transform` no `DrawerContent` e viraria containing block). Recebe `defaultEmail={userEmail}` para pré-preencher o contato.
 

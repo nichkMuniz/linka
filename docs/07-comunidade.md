@@ -71,6 +71,27 @@ Cada conversa exibe:
 Ao clicar na linha → entra na conversa (viewMode: `conversation`)
 Ao tocar no botão excluir revelado → soft-delete do histórico apenas para o usuário logado (`deleteConversationForMeDb`); o outro participante continua vendo as mensagens normalmente
 
+### Segurança na conversa (2026-09-02 — Guideline 1.2)
+
+O header da conversa (`conversation-view.tsx`) tem um botão **"…"** à direita que
+abre o `UserSafetyDrawer` — **denunciar** e **bloquear** o contato. Ao bloquear,
+a view volta para a lista de conversas (`handleBackToConversations`).
+
+Por que aqui e não só no perfil: qualquer usuário pode iniciar uma DM com
+qualquer outro (`new-conversation-drawer.tsx` usa busca global, sem exigir que
+se sigam). Chat aberto com estranhos **sem ação de segurança na própria tela**
+era a lacuna 1.2 mais provável de ser encontrada num review — antes disso, o
+único caminho era sair da conversa e abrir o perfil da pessoa.
+
+O bloqueio não é só de UI: a policy `messages_insert_not_blocked` impede o
+INSERT no banco.
+
+**Filtro de conteúdo:** `hasObjectionableContent` (`client/lib/content-filter.ts`)
+roda em `handleSendMessage` antes do envio. Mensagem com termo censurável não é
+gravada e o usuário recebe um toast pedindo para reescrever — é o item (a) da
+Guideline 1.2, que exige filtrar o conteúdo **na hora de publicar**, não só
+moderar depois.
+
 ---
 
 ---

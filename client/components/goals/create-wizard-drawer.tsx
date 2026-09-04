@@ -2392,6 +2392,19 @@ export function CreateWizardDrawer({
                       <Pencil className="h-4 w-4 mr-1.5" />
                       {t("goals_wizard_scratch")}
                     </Button>
+
+                    {/* Aviso de saúde PERMANENTE (Guideline 1.4.1).
+                        Antes só existia o aviso condicional do passo de
+                        restrições — quem não marcasse nenhuma articulação
+                        recebia uma prescrição de treino sem nenhuma ressalva na
+                        tela. Esta é a tela onde a rotina sugerida aparece: é
+                        aqui que o aviso precisa estar. */}
+                    <p
+                      className="text-[11px] leading-relaxed text-center px-2 pb-1"
+                      style={{ color: "rgba(255,255,255,.45)" }}
+                    >
+                      {t("health_disclaimer")}
+                    </p>
                   </>
                 );
               })()}

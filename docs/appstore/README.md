@@ -32,8 +32,13 @@ vnd.pgrst.object` do `.single()`). Sem isso, telas como o Perfil quebravam com
 
 | Pasta | Dimensão | Chrome |
 |---|---|---|
+| `iphone-6.9/` | 1320 × 2868 | Bottom nav de 4 itens |
 | `iphone-6.5/` | 1242 × 2688 | Bottom nav de 4 itens |
 | `ipad-13/` | 2064 × 2752 | Sidebar |
+
+**O slot que a App Store Connect pede primeiro é o de 6.9"** (iPhone 16/17 Pro
+Max). O de 6.5" é aceito como alternativa quando o 6.9" não existe — mantido
+como reserva.
 
 `viewport × deviceScaleFactor` dá o pixel final exato — não há
 redimensionamento depois, então não há perda.

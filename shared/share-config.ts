@@ -55,6 +55,17 @@ export const APP_STORE_URL = `https://apps.apple.com/app/id${APP_STORE_ID}`;
 export const TERMS_URL = `${SHARE_BASE_URL}/termos`;
 export const PRIVACY_URL = `${SHARE_BASE_URL}/privacidade`;
 
+/**
+ * Página de suporte (`public/suporte.html`). É o valor da **Support URL** na
+ * App Store Connect, campo obrigatório, e o canal de contato que a Guideline
+ * 1.2(d) exige de todo app com conteúdo de usuário.
+ *
+ * Precisa existir também dentro do app: o formulário "Relatar um problema" só
+ * aparece quando o Sentry está configurado, então ele não serve como canal
+ * único.
+ */
+export const SUPPORT_URL = `${SHARE_BASE_URL}/suporte`;
+
 // ─── Construtores de link ───────────────────────────────────────────────────
 // Mantidos alinhados com as rotas do React Router em `client/App.tsx` e com os
 // `components` do arquivo AASA. Rota nova compartilhável = mexer nos três.

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import * as ReactDOM from "react-dom";
 import { useNavigate } from "react-router-dom";
 import {
@@ -7,6 +8,7 @@ import {
   CheckCheck,
   Image,
   Mic,
+  MoreVertical,
   Send,
   Trash2,
   X,
@@ -23,6 +25,7 @@ import { FlowReplyMessage } from "@/components/community/flow-reply-message";
 import { ChatImageMessage, ChatAudioMessage } from "@/components/community/chat-media";
 import { parseFlowReply } from "@/lib/flow-reply";
 import { specialMessageLabel } from "@/components/community/community-helpers";
+import { UserSafetyDrawer } from "@/components/shared/user-safety-drawer";
 
 import { QUICK_EMOJIS, type MessagesController } from "./use-messages";
 
@@ -41,6 +44,9 @@ export function ConversationView({ ctl }: { ctl: MessagesController }) {
   const { user } = useAuth();
   const { t } = useLanguage();
   const navigate = useNavigate();
+
+  // Antes do early return: hook não pode ficar atrás de condicional.
+  const [safetyOpen, setSafetyOpen] = useState(false);
 
   const conversation = ctl.selectedConversation;
   if (!conversation) return null;
@@ -94,7 +100,27 @@ export function ConversationView({ ctl }: { ctl: MessagesController }) {
           <p className="text-sm font-medium truncate">{conversation.userNickname}</p>
         </button>
         <UserInsignias userId={conversation.userId} />
+
+        {/* Denunciar / bloquear na PRÓPRIA conversa. A Guideline 1.2 pede a ação
+            onde o abuso acontece, e a DM é aberta a qualquer usuário — não só a
+            quem você segue. Antes disto, sair da conversa e abrir o perfil era o
+            único caminho. */}
+        <button
+          onClick={() => setSafetyOpen(true)}
+          className="ml-auto text-muted-foreground hover:text-foreground flex-shrink-0"
+          aria-label={t("user_safety_title")}
+        >
+          <MoreVertical className="h-5 w-5" />
+        </button>
       </div>
+
+      <UserSafetyDrawer
+        open={safetyOpen}
+        onOpenChange={setSafetyOpen}
+        userId={conversation.userId}
+        userName={conversation.userNickname}
+        onBlocked={ctl.handleBackToConversations}
+      />
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden space-y-4 px-4 py-4">

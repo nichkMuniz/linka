@@ -6209,10 +6209,15 @@ export function WorkoutSessionDialog({
             <div style={{ fontSize: 17, fontWeight: 800, color: FG, marginBottom: 8 }}>
               {t("goals_calories_title")}
             </div>
-            <div style={{ fontSize: 13, color: MUTED_FG, marginBottom: 18, lineHeight: 1.5 }}>
+            <div style={{ fontSize: 13, color: MUTED_FG, marginBottom: 10, lineHeight: 1.5 }}>
               {calorieEstimate.usedDefaultWeight
                 ? t("goals_calories_hint_no_weight")
                 : t("goals_calories_hint")}
+            </div>
+            {/* Guideline 1.4.1: número de saúde na tela precisa vir com a
+                ressalva de que é estimativa por fórmula, não medição. */}
+            <div style={{ fontSize: 11, color: MUTED_FG, opacity: 0.75, marginBottom: 18, lineHeight: 1.45 }}>
+              {t("health_disclaimer")}
             </div>
 
             <div style={{

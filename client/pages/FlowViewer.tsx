@@ -24,6 +24,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ReportDrawer } from "@/components/shared/report-drawer";
+import { BlockUserDialog } from "@/components/shared/block-user-dialog";
 import { FlowElementView } from "@/components/shared/flow-workout-sticker";
 import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
 import {
@@ -63,6 +64,7 @@ import {
   MessageCircle,
   MoreVertical,
   Flag,
+  Ban,
 } from "lucide-react";
 import {
   renderIncentiveIcon,
@@ -195,6 +197,9 @@ export default function FlowViewer() {
   const [isReposting, setIsReposting] = React.useState(false);
   const [reportDrawerOpen, setReportDrawerOpen] = React.useState(false);
   const [reportType, setReportType] = React.useState<"user" | "flow">("flow");
+  // Guideline 1.2: denunciar sozinho não basta — precisa existir também o
+  // bloqueio, na mesma superfície onde o conteúdo abusivo aparece.
+  const [blockDialogOpen, setBlockDialogOpen] = React.useState(false);
 
   const markMediaReady = React.useCallback(() => {
     if (mediaReadySafetyRef.current) {
@@ -1065,6 +1070,13 @@ export default function FlowViewer() {
                           <Flag className="h-4 w-4 mr-2" />
                           {t("report_flow")}
                         </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => setBlockDialogOpen(true)}
+                          className="text-red-500 focus:text-red-500"
+                        >
+                          <Ban className="h-4 w-4 mr-2" />
+                          {t("block_user_action").replace("{name}", story?.userNickname ?? "")}
+                        </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   )}
@@ -1708,6 +1720,16 @@ export default function FlowViewer() {
               }
             : null
         }
+      />
+
+      {/* Bloquear o autor do flow. Depois de bloquear não faz sentido continuar
+          vendo o conteúdo dele — fechamos o viewer. */}
+      <BlockUserDialog
+        open={blockDialogOpen}
+        onOpenChange={setBlockDialogOpen}
+        userId={story?.user_id ?? null}
+        userName={story?.userNickname ?? ""}
+        onDone={handleClose}
       />
     </>
   );

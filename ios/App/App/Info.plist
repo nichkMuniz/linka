@@ -32,13 +32,26 @@
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
 	</array>
+	<!--
+	  iPad em RETRATO apenas (as duas direções). O app é revisado em iPad — as
+	  rejeições de 26/08 e 31/08 vieram de um iPad Air 11" M3 — e a UI é
+	  mobile-first: liberar paisagem abre uma superfície de layout que nunca foi
+	  validada, pela Guideline 2.4.1. O suporte a iPad continua
+	  (TARGETED_DEVICE_FAMILY = "1,2") e a sidebar do AppLayout aparece igual,
+	  porque o breakpoint `md` já é satisfeito pelos 1024pt do retrato.
+	-->
 	<key>UISupportedInterfaceOrientations~ipad</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
 		<string>UIInterfaceOrientationPortraitUpsideDown</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<!--
+	  Export compliance. O app usa apenas HTTPS e a criptografia padrão do
+	  sistema, ambas isentas. Sem esta chave, TODO build sobe e para em
+	  "Missing Compliance" na App Store Connect, esperando a resposta manual.
+	-->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
 	<key>NSFaceIDUsageDescription</key>

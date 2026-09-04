@@ -14,6 +14,7 @@
     { "source": "/usuario/:id", "destination": "/api/share?type=profile&id=:id" },
     { "source": "/termos", "destination": "/termos.html" },
     { "source": "/privacidade", "destination": "/privacidade.html" },
+    { "source": "/suporte", "destination": "/suporte.html" },
     { "source": "/(.*)", "destination": "/" }
   ]
 }

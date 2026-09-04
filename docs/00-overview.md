@@ -47,6 +47,7 @@ O objetivo central é motivar pessoas a manterem uma rotina saudável através d
 | 18 | [Painel Admin](./18-admin.md) | `/admin` | Moderação, métricas, atividade diária por usuário e gestão de premium/verificados |
 | 19 | [Compartilhamento e Deep Links](./19-compartilhamento-e-deep-links.md) | — | Universal Links, custom scheme, prévia Open Graph e landing de instalação |
 | 20 | [Lançamento v1.0](./20-lancamento-v1.md) | — | **Escopo da primeira submissão**: o que entra, o que fica guardado atrás de flag e por quê |
+| 21 | [App Store Connect](./21-app-store-connect.md) | — | **Requisitos da Apple, auditoria do app e o valor de cada campo da ASC** — ficha de privacidade, classificação etária, notes for review |
 
 ---
 

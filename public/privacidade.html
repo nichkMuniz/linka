@@ -89,7 +89,7 @@
 
   <p><strong>Dados de atividade e uso:</strong></p>
   <ul>
-    <li>Sessões de acesso ao app (data e duração em segundos), usadas para o timer de uso diário configurável pelo próprio usuário;</li>
+    <li>Sessões de acesso ao app (data e duração em segundos) e tempo de permanência por tela, usados para o timer de uso diário configurável pelo próprio usuário e para métricas internas agregadas de uso do aplicativo;</li>
     <li>Visualizações de Flows (para controle de conteúdo já visto);</li>
     <li>Interações sociais: curtidas em posts, Flows e Shots; incentivos dados; seguidores e seguidos;</li>
     <li>Pontuação e nível no sistema de ranking gamificado;</li>
@@ -108,8 +108,7 @@
 
   <p><strong>Localização:</strong></p>
   <ul>
-    <li>Localização aproximada, quando o usuário opta por marcar o local em uma publicação;</li>
-    <li>Rota, distância e ritmo durante uma corrida ao ar livre, apenas enquanto o rastreamento estiver ativo e somente se o usuário conceder a permissão. O rastreamento pode continuar com a tela bloqueada durante a corrida e é encerrado quando o usuário finaliza a atividade.</li>
+    <li><strong>O Linka não coleta dados de localização.</strong> O aplicativo não acessa o GPS do aparelho e nenhuma coordenada, rota ou endereço é enviado aos nossos servidores. Se uma futura versão passar a oferecer recursos baseados em localização, eles serão opcionais, dependerão da sua permissão explícita e esta política será atualizada antes.</li>
   </ul>
 
   <p><strong>Notificações:</strong></p>
@@ -117,7 +116,7 @@
     <li>Token do dispositivo fornecido pelo serviço de notificações da Apple (APNs), usado exclusivamente para entregar notificações do app. O token é removido quando o usuário desativa as notificações ou exclui a conta.</li>
   </ul>
 
-  <p><strong>Dados de assinatura:</strong></p>
+  <p><strong>Dados de assinatura</strong> <em>(não se aplicam à versão atual — o aplicativo não oferece compras hoje)</em><strong>:</strong></p>
   <ul>
     <li>Estado da assinatura LinKa Premium: se está ativa, qual plano, data de início e data da próxima renovação.</li>
     <li><strong>Não temos acesso aos seus dados de pagamento.</strong> A cobrança é processada inteiramente pela Apple. Não recebemos, armazenamos nem processamos número de cartão, dados bancários ou qualquer instrumento de pagamento.</li>
@@ -143,19 +142,29 @@
   <p>Utilizamos os seguintes serviços de terceiros, cada um com acesso restrito ao mínimo necessário para funcionar:</p>
   <ul>
     <li><strong>Supabase</strong> — banco de dados, autenticação e armazenamento de mídia;</li>
-    <li><strong>Apple (APNs)</strong> — entrega das notificações do app;</li>
-    <li><strong>Apple (App Store)</strong> — processamento da assinatura Premium;</li>
-    <li><strong>RevenueCat</strong> — validação do recibo de compra e controle do estado da assinatura. Recebe apenas o identificador da sua conta no Linka e os dados da transação fornecidos pela Apple.</li>
+    <li><strong>Apple (APNs)</strong> — entrega das notificações do app. Recebe o token do aparelho e o conteúdo da notificação;</li>
+    <li><strong>Sentry</strong> — monitoramento de falhas do aplicativo. Recebe relatórios técnicos de erro e os relatos de problema que você envia pelo app, conforme detalhado no item 5.2;</li>
+    <li><strong>Apple (App Store)</strong> e <strong>RevenueCat</strong> — processamento e validação da assinatura, <em>quando o aplicativo oferecer planos pagos</em>. O RevenueCat recebe apenas o identificador da sua conta no Linka e os dados da transação fornecidos pela Apple. <strong>A versão atual do aplicativo não oferece compras</strong>, e nenhum dado de assinatura é coletado.</li>
   </ul>
+  <p>Exigimos de cada um desses serviços proteção aos seus dados equivalente à descrita nesta política. Nenhum deles recebe seus dados para publicidade, e não utilizamos redes de anúncios, ferramentas de rastreamento entre aplicativos nem corretores de dados.</p>
   <p>Arquivos de mídia (fotos e vídeos) são armazenados no <strong>Supabase Storage</strong>. O conteúdo definido como público pelo usuário (posts, perfil, vitrine) é acessível a outros usuários da plataforma conforme as configurações de privacidade escolhidas.</p>
 
   <h2>4. Dados de Saúde e Treino</h2>
   <p>As informações de saúde e treino inseridas no Linka (metas, rotinas, check-ins, hábitos, dietas, volume de treino) são de uso exclusivo do próprio usuário e, quando compartilhadas, visíveis somente dentro da comunidade Linka conforme as preferências de privacidade. Esses dados <strong>não são compartilhados</strong> com planos de saúde, seguradoras ou qualquer outra entidade externa.</p>
 
   <h2>5. Dados de Uso e Sessão</h2>
-  <p>O Linka registra a duração e a data de cada sessão de uso com o objetivo exclusivo de alimentar o timer de tempo de uso diário, funcionalidade controlada e configurável pelo próprio usuário. Esses dados não são usados para rastreamento de comportamento nem compartilhados com terceiros.</p>
+  <p>O Linka registra a duração e a data de cada sessão de uso, e o tempo de permanência em cada tela, para duas finalidades: alimentar o <strong>timer de tempo de uso diário</strong>, funcionalidade controlada e configurável pelo próprio usuário; e produzir <strong>métricas internas agregadas</strong> (quantas pessoas usaram o app no dia, quais telas são mais usadas) que orientam a evolução do produto. Esses dados <strong>não</strong> são usados para publicidade, não são cruzados com dados de outros aplicativos ou sites e não são compartilhados com terceiros para fins comerciais.</p>
+
+  <h2>5.2. Relatórios de Erro</h2>
+  <p>Usamos o <strong>Sentry</strong> para monitorar e corrigir falhas do aplicativo. Ele recebe dados em duas situações:</p>
+  <ul>
+    <li><strong>Erro automático:</strong> quando algo falha, é enviado um relatório técnico com a mensagem do erro, a versão do app e o <strong>identificador</strong> da sua conta. Seu nome de usuário, seu e-mail e seu endereço de IP são <strong>removidos antes do envio</strong>, e o conteúdo das suas publicações e mensagens nunca é incluído.</li>
+    <li><strong>Relato manual:</strong> quando você usa a opção <em>Relatar um problema</em>, enviamos o texto que você escreveu, o e-mail <strong>se você optar por informá-lo</strong> para receber resposta, e dados técnicos do ambiente — versão e build do app, plataforma, tela em que você estava, idioma, se havia conexão, identificação do navegador do sistema e o tamanho da tela.</li>
+  </ul>
+  <p>Esses dados são usados exclusivamente para diagnosticar e corrigir problemas. Não são usados para publicidade nem compartilhados com terceiros para fins comerciais.</p>
 
   <h2>5.1. Assinatura Premium</h2>
+  <p><em>Esta seção descreve como a assinatura funcionará quando estiver disponível. <strong>A versão atual do aplicativo não oferece nenhuma compra</strong> — todos os recursos estão liberados para todas as contas.</em></p>
   <p>A assinatura LinKa Premium é vendida e cobrada exclusivamente pela <strong>Apple</strong>, por meio da compra dentro do aplicativo. Não temos acesso aos seus dados de pagamento em nenhum momento.</p>
   <p>Guardamos apenas o <strong>estado</strong> da assinatura (ativa ou não, plano contratado e data de renovação), necessário para liberar os recursos pagos. O gerenciamento e o cancelamento são feitos na tela de assinaturas do seu Apple ID. Consulte os <a href="/termos">Termos de Uso</a> para as condições completas.</p>
 
@@ -173,7 +182,9 @@
     <li>Solicitar a exclusão da sua conta e de todos os dados associados;</li>
     <li>Retirar seu consentimento a qualquer momento.</li>
   </ul>
-  <p>Para exercer qualquer um desses direitos, entre em contato pelo e-mail abaixo.</p>
+  <p><strong>Como excluir sua conta:</strong> dentro do aplicativo, em <strong>Perfil → Configurações → Conta e segurança → Encerrar Conta</strong>. A exclusão é confirmada digitando <em>DELETAR CONTA</em> e remove permanentemente o perfil, as publicações, os arquivos enviados, os históricos de treino, as metas e as mensagens. Não é preciso enviar e-mail nem falar com o suporte para isso.</p>
+  <p><strong>Como retirar seu consentimento:</strong> excluir a conta encerra todo o tratamento dos seus dados. Permissões individuais do sistema (câmera, microfone, fotos e notificações) podem ser revogadas a qualquer momento em <strong>Ajustes → Linka</strong> no seu iPhone ou iPad, sem que isso impeça o uso do restante do aplicativo.</p>
+  <p>Para exercer os demais direitos, entre em contato pelo e-mail abaixo ou pela nossa <a href="/suporte">página de suporte</a>.</p>
 
   <h2>9. Crianças</h2>
   <p>O Linka não é destinado a menores de 13 anos. Não coletamos intencionalmente dados de crianças. Caso identifiquemos um cadastro de menor de idade, a conta será removida imediatamente.</p>
@@ -186,6 +197,7 @@
   <ul>
     <li><strong>Responsável:</strong> Nicholas Muniz</li>
     <li><strong>E-mail:</strong> <a href="mailto:nicholasmuniz19@gmail.com">nicholasmuniz19@gmail.com</a></li>
+    <li><strong>Suporte:</strong> <a href="/suporte">linkafit.com.br/suporte</a></li>
   </ul>
 
 </main>

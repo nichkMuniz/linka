@@ -6,6 +6,7 @@ import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
 import { hasSupabaseConfig, supabase } from "@/lib/supabase";
+import { hasObjectionableContent } from "@/lib/content-filter";
 import { withNetworkRetry } from "@/lib/network-status";
 import {
   getUserGoalsDb,
@@ -815,6 +816,16 @@ export default function NewPost() {
       toast({ title: t("error"), description: t("newpost_supabase_error"), variant: "destructive" });
       return;
     }
+    // Guideline 1.2(a): barra a legenda censurável antes de subir a mídia —
+    // checar aqui evita gastar upload num post que não vai ser publicado.
+    if (hasObjectionableContent(description)) {
+      toast({
+        title: t("content_filter_title"),
+        description: t("content_filter_desc"),
+        variant: "destructive",
+      });
+      return;
+    }
     setIsSubmitting(true);
     const uploadedPaths: string[] = [];
     const containerWidth = cropContainerWidthRef.current;
@@ -876,6 +887,14 @@ export default function NewPost() {
     }
     if (!hasSupabaseConfig || !supabase) {
       toast({ title: t("error"), description: t("newpost_supabase_error"), variant: "destructive" });
+      return;
+    }
+    if (hasObjectionableContent(description)) {
+      toast({
+        title: t("content_filter_title"),
+        description: t("content_filter_desc"),
+        variant: "destructive",
+      });
       return;
     }
     setIsSubmitting(true);

@@ -143,6 +143,25 @@ Ao chegar via notificação com `location.state = { openLikes: true }`, o modal 
 
 ---
 
+## Segurança (2026-09-02 — Guideline 1.2)
+
+O menu **"…"** desta tela abre o `UserSafetyDrawer` com **três** ações quando o
+post é de outra pessoa:
+
+| Ação | Observação |
+|---|---|
+| **Denunciar publicação** | Novo em 02/09. Vem da prop `content={{ type: "post", id, label }}` |
+| **Denunciar usuário** | Já existia |
+| **Bloquear usuário** | Já existia; ao bloquear, `navigate(-1)` |
+
+Denunciar a **publicação** faltava e é significativo aqui: esta tela é o destino
+de todo deep link compartilhado, então é por ela que alguém chega a um post
+abusivo vindo de fora do app. Antes, só dava para denunciar o autor.
+
+Com a prop `content` presente, a linha de denúncia do autor passa a se chamar
+"Denunciar usuário" em vez de só "Denunciar" — com duas denúncias na tela, o
+rótulo genérico não diria o alvo.
+
 ## Observações Técnicas
 
 - Botões de incentivo totalmente funcionais (toggle otimista via `togglePostIncentiveDb`), ao contrário do preview estático de versões antigas desta tela

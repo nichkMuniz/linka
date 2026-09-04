@@ -1,6 +1,8 @@
 import * as React from "react";
-import { Trash2, Pencil, Check, X, Send } from "lucide-react";
+import { Trash2, Pencil, Check, X, Send, MoreVertical } from "lucide-react";
 import { CommentReactions } from "@/components/shared/comment-reactions";
+import { UserSafetyDrawer } from "@/components/shared/user-safety-drawer";
+import { hasObjectionableContent } from "@/lib/content-filter";
 import {
   Drawer,
   DrawerContent,
@@ -140,6 +142,13 @@ export function PostCommentsDialog({
   const commentsListRef = React.useRef<HTMLDivElement>(null);
   const [submitting, setSubmitting] = React.useState(false);
   const [deleteCommentDialogOpen, setDeleteCommentDialogOpen] = React.useState(false);
+  /**
+   * Autor do comentário em foco no menu de segurança (Guideline 1.2).
+   * Comentário é superfície clássica de assédio e não tinha nenhuma ação aqui.
+   * Bloquear o autor também some com os comentários dele — a lista já é
+   * filtrada por `user_blocks` no servidor.
+   */
+  const [safetyTarget, setSafetyTarget] = React.useState<{ userId: string; userName: string } | null>(null);
   const [deletingCommentId, setDeletingCommentId] = React.useState<string | null>(null);
   const [isDeletingComment, setIsDeletingComment] = React.useState(false);
   const [editingId, setEditingId] = React.useState<string | null>(null);
@@ -209,6 +218,16 @@ export function PostCommentsDialog({
       toast({
         title: t("comments_login_required"),
         description: t("comments_login_desc"),
+      });
+      return;
+    }
+
+    // Guideline 1.2(a): filtrar conteúdo censurável ANTES de publicar.
+    if (hasObjectionableContent(draft)) {
+      toast({
+        title: t("content_filter_title"),
+        description: t("content_filter_desc"),
+        variant: "destructive",
       });
       return;
     }
@@ -499,6 +518,23 @@ export function PostCommentsDialog({
                   </button>
                 </div>
               )}
+
+              {/* Denunciar/bloquear o autor de um comentário alheio. */}
+              {user && user.id !== comment.userId && (
+                <div className="flex shrink-0">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSafetyTarget({ userId: comment.userId, userName: comment.userName })
+                    }
+                    className="rounded-lg p-1.5 transition-colors active:opacity-70"
+                    style={{ color: "rgba(255,255,255,.4)" }}
+                    aria-label={t("user_safety_title")}
+                  >
+                    <MoreVertical className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
             </div>
           ))
         ) : (
@@ -612,6 +648,22 @@ export function PostCommentsDialog({
     </AlertDialog>
   );
 
+  // Irmão do drawer de comentários, não filho — mesmo padrão do
+  // `deleteCommentDialog` acima. Bloquear recarrega a lista: os comentários do
+  // bloqueado somem pelo filtro de `user_blocks` no servidor.
+  const commentSafetyDrawer = (
+    <UserSafetyDrawer
+      open={!!safetyTarget}
+      onOpenChange={(next) => { if (!next) setSafetyTarget(null); }}
+      userId={safetyTarget?.userId ?? null}
+      userName={safetyTarget?.userName ?? ""}
+      onBlocked={() => {
+        setSafetyTarget(null);
+        getPostCommentsDb(postId).then(setComments).catch(() => {});
+      }}
+    />
+  );
+
   if (defaultOpen) {
     return (
       <>
@@ -637,6 +689,7 @@ export function PostCommentsDialog({
           {drawerContent}
         </Drawer>
         {deleteCommentDialog}
+        {commentSafetyDrawer}
       </>
     );
   }
@@ -650,6 +703,7 @@ export function PostCommentsDialog({
         {drawerContent}
       </Drawer>
       {deleteCommentDialog}
+      {commentSafetyDrawer}
     </>
   );
 }

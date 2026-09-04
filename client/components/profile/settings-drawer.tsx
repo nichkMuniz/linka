@@ -44,7 +44,7 @@ import { supabase, resetSupabaseAuth } from "@/lib/supabase";
 import { safeExternalUrl, isSafeExternalUrl } from "@/lib/safe-url";
 import { Capacitor } from "@capacitor/core";
 import { Browser } from "@capacitor/browser";
-import { TERMS_URL, PRIVACY_URL } from "@/lib/share-url";
+import { TERMS_URL, PRIVACY_URL, SUPPORT_URL } from "@/lib/share-url";
 import { PushNotifications } from "@capacitor/push-notifications";
 import { LocalNotifications } from "@capacitor/local-notifications";
 import { useLanguage } from "@/lib/language-context";
@@ -80,6 +80,7 @@ import {
   Ban,
   FileText,
   ShieldCheck,
+  LifeBuoy,
   ScanFace,
   Repeat,
   Crown,
@@ -1839,6 +1840,17 @@ export function SettingsDrawer({
               label={t("settings_privacy_policy")}
               icon={<ShieldCheck className="h-4 w-4" />}
               onClick={() => { void Browser.open({ url: PRIVACY_URL }); }}
+            />
+            {/* Suporte. Guideline 1.2(d) exige contato publicado e a 1.5 exige
+                forma fácil de falar com o desenvolvedor — e este link NÃO pode
+                depender de variável de ambiente. "Relatar um problema" (mais
+                abaixo) só existe com o Sentry configurado; sem esta linha, um
+                build sem `VITE_SENTRY_DSN` iria para a loja sem nenhum canal de
+                contato dentro do app. */}
+            <SettingsRow
+              label={t("settings_support")}
+              icon={<LifeBuoy className="h-4 w-4" />}
+              onClick={() => { void Browser.open({ url: SUPPORT_URL }); }}
             />
 
             {/* Flow History */}

@@ -27,6 +27,7 @@ export function UserSafetyDrawer({
   userId,
   userName,
   onBlocked,
+  content,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -34,9 +35,20 @@ export function UserSafetyDrawer({
   userName: string;
   /** Chamado depois de bloquear — normalmente para sair da tela do bloqueado. */
   onBlocked?: () => void;
+  /**
+   * Conteúdo específico em foco (o post aberto, o flow em exibição). Quando
+   * informado, o menu ganha uma primeira linha para denunciar o CONTEÚDO, além
+   * de denunciar o autor.
+   *
+   * A distinção importa para a Guideline 1.2: denunciar o usuário sinaliza um
+   * comportamento, denunciar o conteúdo aponta a peça exata que precisa sair.
+   * O painel de admin trata os dois como filas diferentes.
+   */
+  content?: { type: "post" | "shot" | "flow"; id: string; label: string } | null;
 }) {
   const { t } = useLanguage();
   const [reportOpen, setReportOpen] = React.useState(false);
+  const [reportContentOpen, setReportContentOpen] = React.useState(false);
   const [blockOpen, setBlockOpen] = React.useState(false);
 
   const rowStyle: React.CSSProperties = {
@@ -63,6 +75,22 @@ export function UserSafetyDrawer({
           </DrawerHeader>
 
           <div className="px-4 pb-6 space-y-3">
+            {content && (
+              <button
+                onClick={() => {
+                  onOpenChange(false);
+                  setReportContentOpen(true);
+                }}
+                className="w-full flex items-center gap-3 rounded-2xl p-4 text-left active:scale-[0.99] transition-all"
+                style={rowStyle}
+              >
+                <Flag className="h-[18px] w-[18px] shrink-0" style={{ color: "rgba(255,255,255,.7)" }} />
+                <span className="text-sm font-medium flex-1" style={{ color: "#fff" }}>
+                  {content.label}
+                </span>
+              </button>
+            )}
+
             <button
               onClick={() => {
                 onOpenChange(false);
@@ -73,7 +101,9 @@ export function UserSafetyDrawer({
             >
               <Flag className="h-[18px] w-[18px] shrink-0" style={{ color: "rgba(255,255,255,.7)" }} />
               <span className="text-sm font-medium flex-1" style={{ color: "#fff" }}>
-                {t("user_safety_report")}
+                {/* Com duas denúncias na tela, "Denunciar" sozinho não diz o
+                    alvo — vira "Denunciar usuário" ao lado de "Denunciar post". */}
+                {content ? t("report_user") : t("user_safety_report")}
               </span>
             </button>
 
@@ -100,6 +130,15 @@ export function UserSafetyDrawer({
           onOpenChange={setReportOpen}
           type="user"
           target={userId ? { id: userId, userId, userName } : null}
+        />
+      )}
+
+      {reportContentOpen && content && (
+        <ReportDrawer
+          open={reportContentOpen}
+          onOpenChange={setReportContentOpen}
+          type={content.type}
+          target={userId ? { id: content.id, userId, userName } : null}
         />
       )}
 

@@ -1412,6 +1412,12 @@ export const translations = {
     report_post: "Denunciar post",
     report_shot: "Denunciar shots",
     report_flow: "Denunciar flow",
+    error_loading_data: "Erro ao carregar dados",
+    health_disclaimer:
+      "As rotinas sugeridas e as estimativas de calorias são informativas e não substituem a orientação de um profissional de saúde ou de educação física. Consulte um médico antes de iniciar um programa de exercícios.",
+    content_filter_title: "Conteúdo não permitido",
+    content_filter_desc:
+      "Seu texto contém linguagem que não é permitida no LinKa. Reescreva e tente de novo.",
     report_reason_title: "Motivo da denúncia",
     report_reason_inappropriate: "Conteúdo inadequado",
     report_reason_spam: "Spam",
@@ -1462,6 +1468,7 @@ export const translations = {
     signup_terms_required_desc: "Você precisa aceitar os Termos de Uso e a Política de Privacidade para criar uma conta.",
     settings_terms: "Termos de Uso",
     settings_privacy_policy: "Política de Privacidade",
+    settings_support: "Suporte e contato",
     post_deleting: "Excluindo...",
     post_delete_confirm: "Excluir",
     post_delete_confirm_desc: "Tem certeza que deseja excluir este post? Esta ação não pode ser desfeita.",
@@ -3927,6 +3934,12 @@ export const translations = {
     report_post: "Report post",
     report_shot: "Report shots",
     report_flow: "Report flow",
+    error_loading_data: "Error loading data",
+    health_disclaimer:
+      "Suggested routines and calorie estimates are informational and do not replace guidance from a healthcare or fitness professional. Consult a physician before starting an exercise program.",
+    content_filter_title: "Content not allowed",
+    content_filter_desc:
+      "Your text contains language that isn't allowed on LinKa. Please rewrite it and try again.",
     report_reason_title: "Reason for the report",
     report_reason_inappropriate: "Inappropriate content",
     report_reason_spam: "Spam",
@@ -3977,6 +3990,7 @@ export const translations = {
     signup_terms_required_desc: "You must accept the Terms of Use and the Privacy Policy to create an account.",
     settings_terms: "Terms of Use",
     settings_privacy_policy: "Privacy Policy",
+    settings_support: "Support & contact",
     post_deleting: "Deleting...",
     post_delete_confirm: "Delete",
     post_delete_confirm_desc: "Are you sure you want to delete this post? This action cannot be undone.",

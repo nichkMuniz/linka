@@ -25,6 +25,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ReportDrawer } from "@/components/shared/report-drawer";
+import { BlockUserDialog } from "@/components/shared/block-user-dialog";
 import { FlowElementView } from "@/components/shared/flow-workout-sticker";
 import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
 import {
@@ -45,7 +46,7 @@ import {
   type FlowViewer,
   type SearchUser,
 } from "@/lib/ritmofit-db";
-import { X, ChevronLeft, ChevronRight, Send, Trash2, Eye, Pause, Play, Pencil, Check, Loader2, AtSign, Repeat2, MessageCircle, MoreVertical, Flag } from "lucide-react";
+import { X, ChevronLeft, ChevronRight, Send, Trash2, Eye, Pause, Play, Pencil, Check, Loader2, AtSign, Repeat2, MessageCircle, MoreVertical, Flag, Ban } from "lucide-react";
 import { useFlowPrivateReply } from "@/hooks/use-flow-private-reply";
 import { useLanguage } from "@/lib/language-context";
 import { renderIncentiveIcon } from "@/lib/incentive-config";
@@ -653,6 +654,8 @@ export function FlowViewerModal({
   }, [sendPrivateReply, newComment]);
   const [reportDrawerOpen, setReportDrawerOpen] = React.useState(false);
   const [reportType, setReportType] = React.useState<"user" | "flow">("flow");
+  // Guideline 1.2: o bloqueio precisa existir na mesma superfície da denúncia.
+  const [blockDialogOpen, setBlockDialogOpen] = React.useState(false);
 
   // Pré-aquece a mídia do PRÓXIMO flow assim que a atual apareceu (antes disso os dois
   // downloads brigariam por banda). A capa vem inteira; do vídeo, só o cabeçalho —
@@ -862,6 +865,13 @@ export function FlowViewerModal({
                               >
                                 <Flag className="h-4 w-4 mr-2" />
                                 {t("report_flow")}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => setBlockDialogOpen(true)}
+                                className="text-red-500 focus:text-red-500"
+                              >
+                                <Ban className="h-4 w-4 mr-2" />
+                                {t("block_user_action").replace("{name}", story?.userNickname ?? "")}
                               </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
@@ -1402,6 +1412,15 @@ export function FlowViewerModal({
               }
             : null
         }
+      />
+
+      {/* Bloquear o autor do flow; depois de bloquear, o modal se fecha. */}
+      <BlockUserDialog
+        open={blockDialogOpen}
+        onOpenChange={setBlockDialogOpen}
+        userId={story?.user_id ?? null}
+        userName={story?.userNickname ?? ""}
+        onDone={() => onOpenChange(false)}
       />
     </>
   );

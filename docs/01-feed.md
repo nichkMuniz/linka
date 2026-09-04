@@ -301,6 +301,44 @@ Telas que navegam para `/` disparando esse refresh:
 
 ---
 
+## Segurança e moderação (2026-09-02 — Guideline 1.2)
+
+A Apple exige **quatro** mecanismos em todo app com conteúdo de usuário. Os
+pontos que vivem nesta tela e nas que saem dela:
+
+| Superfície | Denunciar | Bloquear | Onde |
+|---|---|---|---|
+| Post do feed | conteúdo + autor | ✅ | `post-card.tsx` → menu "…" |
+| **Comentário** | autor | ✅ | `post-comments-dialog.tsx` → "…" por comentário (novo) |
+| Detalhe do post | conteúdo + autor | ✅ | ver `docs/09-post-detalhe.md` |
+| Viewer de flow (rota e modal) | conteúdo + autor | ✅ | item "Bloquear" acrescentado em 02/09 |
+| Perfil de outro usuário | autor | ✅ | ver `docs/08-perfil.md` |
+| Conversa privada | autor | ✅ | ver `docs/07-comunidade.md` |
+
+Nos comentários, **bloquear recarrega a lista** — os comentários do bloqueado
+somem pelo filtro de `user_blocks` que já existia no servidor
+(`ritmofit-db.ts:956`). Denunciar o **comentário em si** não existe: exigiria
+tabela `comment_complaint`, migração e fila nova no Admin. Denunciar o autor
+cobre a exigência.
+
+### Filtro de conteúdo na publicação
+
+`client/lib/content-filter.ts` — `hasObjectionableContent()` roda **antes de
+gravar** em todos os pontos onde se publica texto: legenda do post
+(`NewPost.tsx`, imagem e vídeo), comentário e mensagem direta. Bloqueia insulto
+pesado, termo de ódio, sexual explícito e ameaça direta, em PT e EN.
+
+O texto é **normalizado** antes da comparação — sem acento, sem leet-speak
+(`p0rr@`), sem repetição (`PÔRRRA`) — e comparado **por palavra inteira**, não
+por substring: sem isso, "cuidado" casaria com um termo de três letras. Os
+termos da lista passam pela mesma normalização, e é por isso que a colapsagem de
+letras repetidas funciona dos dois lados.
+
+> Isto é o item **(a)** da Guideline 1.2, que pede filtrar material censurável
+> *"from being posted"*. Denúncia é reativa — o conteúdo fica visível até alguém
+> agir. Caso ambíguo continua indo para a fila de denúncias, que é o mecanismo
+> desenhado para julgamento humano.
+
 ## Observações Técnicas
 
 - **`PostCard` é memoizado (2026-08-11):** exportado como `React.memo(PostCardImpl, arePropsEqual)`. A tela tem 46 peças de estado próprias — sem `memo`, abrir qualquer drawer reconstruía a lista inteira, com as imagens, o carrossel e o `backdrop-filter` de cada card. O comparador é **explícito** por causa de uma prop: `togglingIncentives` é um `Set` recriado a cada curtida em qualquer lugar do feed, e comparado por referência (o padrão do `memo`) anularia a memoização toda vez — curtir um post re-renderizaria os outros quarenta. O comparador olha só as chaves `${post.id}-${tipo}` **deste** post.

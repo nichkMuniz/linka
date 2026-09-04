@@ -14,6 +14,7 @@ export {
   APP_STORE_URL,
   TERMS_URL,
   PRIVACY_URL,
+  SUPPORT_URL,
   postShareUrl,
   profileShareUrl,
   isShareHost,

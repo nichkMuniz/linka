@@ -21,6 +21,10 @@ const OUT = "../../../docs/appstore";
  * pixel final — sem redimensionar depois, então não há perda.
  */
 const DEVICES = [
+  // iPhone 6.9" = 1320x2868 (16/17 Pro Max), que é 440x956 @3x.
+  // É o slot PRINCIPAL de iPhone na App Store Connect hoje; o de 6.5" é
+  // aceito só como alternativa quando este não existe.
+  { id: "iphone-6.9", w: 440, h: 956, dsf: 3, out: [1320, 2868] },
   // iPhone 6.5" = 1242x2688 (11 Pro Max / XS Max), que é 414x896 @3x.
   { id: "iphone-6.5", w: 414, h: 896, dsf: 3, out: [1242, 2688] },
   { id: "ipad-13", w: 1032, h: 1376, dsf: 2, out: [2064, 2752] },

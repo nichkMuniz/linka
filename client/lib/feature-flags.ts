@@ -206,12 +206,20 @@ export const FEATURES = {
    * Corrida ao ar livre com GPS em background.
    *
    * Adiado, e essa é a flag de maior retorno em risco: ela é a única razão
-   * para o app pedir `NSLocationAlwaysAndWhenInUseUsageDescription`, a
-   * permissão mais escrutinada da App Store. Com `false`, a chave sai do
-   * Info.plist e um motivo inteiro de rejeição deixa de existir.
+   * de EXERCER a permissão `NSLocationAlwaysAndWhenInUseUsageDescription`, a
+   * mais escrutinada da App Store. Com `false`, a API nunca é chamada e o
+   * usuário nunca vê o alerta.
    *
-   * Ao religar: repor a chave no Info.plist COM justificativa explícita de por
-   * que o rastreio continua com a tela bloqueada.
+   * ⚠️ A chave **continua** no `Info.plist` e deve continuar: o TestFlight
+   * devolveu **ITMS-90683** quando ela foi removida. Quem exige a string é o
+   * *link* do `CapgoBackgroundGeolocation` no binário, não a chamada.
+   * Purpose string é permissão; ficha de privacidade é coleta — e o app não
+   * coleta localização, então a ficha segue sem ela.
+   *
+   * ⚠️ **Ao religar, `UIBackgroundModes = ["location"]` é obrigatório no
+   * Info.plist.** Hoje ele não está lá, de propósito (Guideline 2.5.4: modo
+   * declarado precisa ser usado). Sem ele, `allowsBackgroundLocationUpdates =
+   * true` **lança exceção e crasha o app** — não é aviso, é crash.
    */
   gpsRun: false,
 
@@ -232,11 +240,10 @@ export const FEATURES = {
    * sem hashtags nem busca por lugar, a localização vira só um texto na
    * legenda. Não vale pedir uma permissão de sistema por isso.
    *
-   * ⚠️ Com a flag desligada, `NSLocationWhenInUseUsageDescription` foi REMOVIDA
-   * do Info.plist: era a última justificativa da chave (a de corrida com GPS
-   * saiu junto com `FEATURES.gpsRun`), e permissão declarada sem uso é
-   * questionada no review. Ao religar, reponha a chave — sem ela o
-   * `@capacitor/geolocation` falha no device.
+   * ⚠️ `NSLocationWhenInUseUsageDescription` **continua** no `Info.plist` e
+   * deve continuar: o `@capacitor/geolocation` está linkado no binário, e é o
+   * link que dispara a verificação estática (ITMS-90683). Com a flag desligada
+   * a API nunca é chamada, então o usuário nunca vê o alerta.
    */
   postLocation: false,
 
@@ -270,9 +277,10 @@ export const FEATURES = {
    * Adiado: superfície nativa a mais, com valor perto de zero no dia 1 — o
    * usuário acabou de digitar a senha que criou.
    *
-   * ⚠️ Com a flag desligada, `NSFaceIDUsageDescription` foi REMOVIDA do
-   * Info.plist: permissão declarada e nunca solicitada é questionada no review.
-   * Ao religar, reponha a chave — sem ela o `NativeBiometric` falha no device.
+   * ⚠️ `NSFaceIDUsageDescription` **continua** no `Info.plist` e deve
+   * continuar: o `CapgoCapacitorNativeBiometric` está linkado no binário
+   * (ITMS-90683 apareceu quando a chave foi removida). Com a flag desligada a
+   * API nunca é chamada e o iOS nunca pede Face ID.
    */
   biometricLogin: false,
 
