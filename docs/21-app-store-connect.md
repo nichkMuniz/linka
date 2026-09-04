@@ -17,9 +17,14 @@
 
 ## 0. Situação — auditoria de 02/09/2026
 
-A auditoria encontrou 10 itens. **Nove foram corrigidos no código** na mesma
-data; o que sobrou vive na App Store Connect e **nenhum commit executa** — é
-trabalho manual seu, e está detalhado na Parte C.
+A auditoria encontrou 10 itens. **Todos os corrigíveis por código foram
+corrigidos**; o que sobrou vive na App Store Connect e **nenhum commit executa**
+— é trabalho manual seu, e está detalhado na Parte C.
+
+> **Uma correção foi revertida.** Travar o iPad em retrato parecia reduzir risco
+> de layout, mas a Apple **recusa o upload** de app de iPad que não declare as
+> quatro orientações (§2.2 item 6). O `Info.plist` voltou ao que era; a paisagem
+> passa a ser item de checklist no TestFlight, não configuração.
 
 ### ✅ Corrigido no código (verificar no TestFlight)
 
@@ -33,7 +38,6 @@ trabalho manual seu, e está detalhado na Parte C.
 | Support URL | Não existia página de suporte | `public/suporte.html` + rewrite → `linkafit.com.br/suporte` |
 | Política de privacidade | Sem Sentry, com localização que não é coletada | Sentry documentado, localização corrigida, finalidade dos dados de sessão corrigida |
 | `ITSAppUsesNonExemptEncryption` | Ausente → todo build parava em "Missing Compliance" | `<false/>` no `Info.plist` |
-| iPad em 4 orientações | Paisagem nunca validada, e **o review é em iPad** | `UISupportedInterfaceOrientations~ipad` restrito a retrato |
 | Disclaimer de saúde | Só aparecia se marcasse restrição articular | Permanente na rotina sugerida e no card de calorias |
 | Denunciar publicação no detalhe do post | Só dava para denunciar o autor | `content` no `UserSafetyDrawer` → "Denunciar post" |
 | Bloquear nos viewers de flow | Só denunciar | Item "Bloquear" nos dois viewers |
@@ -93,7 +97,7 @@ jogos, apostas, criptomoeda, Kids Category, ARKit, extensões e Mac ficam fora.
 | **2.3.7** Palavras-chave | Nome ≤ 30 caracteres; sem termos de marca, preço ou irrelevantes | ver §3.4 |
 | **2.3.8** Nome e ícone | Metadados adequados a 4+; nome/ícone consistentes | ✅ |
 | **2.3.10** Outras plataformas | Não citar Android/Google Play em nada | ⚠️ conferir a descrição |
-| **2.4** Compatibilidade de hardware | **Rodar bem em iPad quando possível** | ⚠️ 4 orientações liberadas — ver §2.2 |
+| **2.4** Compatibilidade de hardware | **Rodar bem em iPad quando possível** | ⚠️ as 4 orientações são **obrigatórias** — validar paisagem no TestFlight, ver §2.2 |
 | **2.5.4** Background | Só usar modo de fundo para o fim declarado | ✅ `UIBackgroundModes` fora do plist |
 | **2.5.14** Consentimento para gravar | Consentimento explícito para gravação | ✅ gravação sempre iniciada pelo usuário |
 
@@ -293,16 +297,36 @@ contradição.
 - **Assinatura** ficou marcada como não aplicável a esta versão, nos dois pontos em que aparece. Isso importa: o revisor de 01/09 procurou um paywall que não existe.
 - **Direitos do usuário** ganharam o caminho concreto de exclusão de conta dentro do app e como revogar permissões — é o que a 5.1.1(i) pede.
 
-### ✅ 6. iPad com 4 orientações e iPhone só retrato
+### ❌ 6. iPad com 4 orientações — **tentativa revertida, não repetir**
 
-`Info.plist:31-41`: iPhone é retrato puro, iPad libera retrato, retrato
-invertido e as duas paisagens. **O revisor testa em iPad** (as duas últimas
-rejeições vieram de um iPad Air 11" M3) e a UI é mobile-first.
+`Info.plist`: iPhone é retrato puro, iPad libera as quatro orientações. Como o
+revisor testa em iPad (as duas rejeições vieram de um iPad Air 11" M3) e a UI é
+mobile-first, a auditoria propôs travar o iPad em retrato.
 
-**Feito:** `UISupportedInterfaceOrientations~ipad` ficou só com retrato e retrato
-invertido. O iPad continua suportado (`TARGETED_DEVICE_FAMILY = "1,2"`) e a
-sidebar do `AppLayout` aparece igual — o breakpoint `md` já é satisfeito pelos
-1024pt do retrato.
+**Isso não funciona, e custou um upload.** Em 04/09 o Appflow foi recusado na
+validação da Apple, antes mesmo do TestFlight:
+
+```
+Validation failed (409) Invalid bundle. The "Portrait, PortraitUpsideDown"
+orientations were provided for the UISupportedInterfaceOrientations Info.plist
+key in the com.linka.meuapp bundle, but you need to include all of the
+"Portrait, PortraitUpsideDown, LandscapeLeft, LandscapeRight" orientations to
+support iPad multitasking.
+```
+
+**A regra:** todo app de iPad que participa da multitarefa é **obrigado** a
+declarar as quatro orientações. A única saída seria sair da multitarefa com
+`UIRequiresFullScreen = true` — chave que a Apple **depreciou** e que o iPadOS 26
+ignora, tornando todo app redimensionável de qualquer forma. Não existe caminho
+de plist para travar o iPad em retrato hoje.
+
+**Revertido para as quatro orientações**, com o histórico registrado no
+comentário do próprio `Info.plist` para ninguém tentar de novo.
+
+**O que fazer no lugar:** a paisagem no iPad não se evita por configuração —
+**valida-se no TestFlight**. Gire o aparelho e confira feed, metas, sessão de
+treino, perfil e conversa. O risco de layout continua real; ele só não se
+resolve pelo plist.
 
 ### ✅ 7. Sem disclaimer médico permanente
 
@@ -741,7 +765,6 @@ manual no ASC, e nenhum commit a executa.
 
 - [x] `PrivacyInfo.xcprivacy` criado e registrado nos 4 pontos do `pbxproj`
 - [x] `ITSAppUsesNonExemptEncryption = false` no `Info.plist`
-- [x] `UISupportedInterfaceOrientations~ipad` restrito a retrato
 - [x] `public/privacidade.html` corrigido (Sentry, localização, dados de sessão, assinatura, direitos do usuário)
 - [x] Denunciar/bloquear na conversa privada e nos comentários
 - [x] Filtro de conteúdo em post, comentário e DM
@@ -760,7 +783,7 @@ manual no ASC, e nenhum commit a executa.
 ### Validar no TestFlight (incluindo iPad — é o device do review)
 
 - [ ] Todo o checklist da seção 8 de [`docs/20-lancamento-v1.md`](./20-lancamento-v1.md)
-- [ ] **iPad não gira mais para paisagem**
+- [ ] **iPad em paisagem**: girar o aparelho e conferir feed, metas, sessão de treino, perfil e conversa. Não dá para travar em retrato (ver §2.2 item 6) — a única defesa é olhar
 - [ ] Configurações → Outros mostra **Suporte e contato**, e o link abre a página
 - [ ] Conversa privada: botão "…" no topo, com denunciar e bloquear; bloquear volta para a lista
 - [ ] Comentário de outra pessoa: botão "…" com denunciar e bloquear

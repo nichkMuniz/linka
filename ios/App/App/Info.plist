@@ -33,17 +33,30 @@
 		<string>UIInterfaceOrientationPortrait</string>
 	</array>
 	<!--
-	  iPad em RETRATO apenas (as duas direções). O app é revisado em iPad — as
-	  rejeições de 26/08 e 31/08 vieram de um iPad Air 11" M3 — e a UI é
-	  mobile-first: liberar paisagem abre uma superfície de layout que nunca foi
-	  validada, pela Guideline 2.4.1. O suporte a iPad continua
-	  (TARGETED_DEVICE_FAMILY = "1,2") e a sidebar do AppLayout aparece igual,
-	  porque o breakpoint `md` já é satisfeito pelos 1024pt do retrato.
+	  iPad precisa das QUATRO orientações — não mexa.
+
+	  Em 04/09/2026 este bloco foi restringido a retrato para reduzir risco de
+	  layout, e o upload foi RECUSADO na validação (409, STATE_ERROR.VALIDATION_ERROR):
+
+	    "you need to include all of the Portrait, PortraitUpsideDown,
+	     LandscapeLeft, LandscapeRight orientations to support iPad multitasking"
+
+	  A regra: todo app de iPad que participa de multitarefa é obrigado a
+	  declarar as quatro. Só escapa quem sai da multitarefa com
+	  `UIRequiresFullScreen = true` — chave que a Apple DEPRECIOU e que o iPadOS
+	  26 ignora, tornando todo app redimensionável. Ou seja: não há caminho de
+	  plist para travar o iPad em retrato hoje.
+
+	  Logo, a paisagem no iPad não se evita por configuração — ela se VALIDA no
+	  TestFlight. É o device em que a Apple revisa (as rejeições de 26/08 e 31/08
+	  vieram de um iPad Air 11" M3), então gire o aparelho e confira as telas.
 	-->
 	<key>UISupportedInterfaceOrientations~ipad</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
 		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<!--
 	  Export compliance. O app usa apenas HTTPS e a criptografia padrão do
