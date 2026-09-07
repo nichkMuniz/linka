@@ -69,8 +69,6 @@ import {
 } from "@/components/ui/select";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
-import { PaywallDrawer } from "@/components/shared/paywall-drawer";
-import { usePremium } from "@/lib/premium-context";
 import { useLanguage } from "@/lib/language-context";
 import { ImageWithFallback } from "@/components/shared/image-with-fallback";
 import { UserAvatar } from "@/components/shared/user-avatar";
@@ -96,7 +94,6 @@ export function DuelsOverlays({
 }) {
   const { user } = useAuth();
   const { t, language } = useLanguage();
-  const { isPremium } = usePremium();
   const navigate = useNavigate();
   const {
     setSearchParams,
@@ -124,9 +121,6 @@ export function DuelsOverlays({
     selectedInvitees,
     setSelectedInvitees,
     setUserCreatedGroups,
-    duelPaywallOpen,
-    setDuelPaywallOpen,
-    duelGateBlocked,
     selectedGroupForView,
     setSelectedGroupForView,
     groupCheckIns,
@@ -637,11 +631,6 @@ export function DuelsOverlays({
                   <Button
                     onClick={async () => {
                       if (!user || isCreatingGroup) return;
-                      if (duelGateBlocked) {
-                        setIsCreateGroupModalOpen(false);
-                        setDuelPaywallOpen(true);
-                        return;
-                      }
                       setIsCreatingGroup(true);
                       try {
                         let endDate: string | undefined;
@@ -2310,8 +2299,6 @@ export function DuelsOverlays({
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Paywall: limite de duelos criados no plano grátis */}
-      <PaywallDrawer open={duelPaywallOpen} onOpenChange={setDuelPaywallOpen} feature="duels" />
     </>
   );
 }

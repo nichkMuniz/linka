@@ -737,10 +737,14 @@ export default function Admin() {
     }
   }
 
-  // ── LinKa Premium (ativação manual) ────────────────────────────────────────
+  // ── Acesso cortesia (concessão manual) ─────────────────────────────────────
   //
   // Substitui o INSERT na mão no SQL Editor: escreve em `subscriptions` pela RPC
   // admin_set_premium (SECURITY DEFINER, checa app_admins no servidor).
+  //
+  // NÃO é assinatura: o app não vende nada, não tem plano mensal nem anual e
+  // não cobra. Isto só marca contas com acesso concedido pela equipe. Os nomes
+  // de tabela/RPC continuam `premium` por serem contrato com o banco.
   const PREMIUM_DURATIONS: { label: string; days: number | null }[] = [
     { label: "Permanente", days: null },
     { label: "7 dias", days: 7 },
@@ -787,8 +791,8 @@ export default function Admin() {
       const label = PREMIUM_DURATIONS.find((d) => d.days === premiumDays)?.label ?? "";
       toast({
         title: active
-          ? `Premium ativado para ${user.nickname || "usuário"}`
-          : `Premium removido de ${user.nickname || "usuário"}`,
+          ? `Acesso concedido para ${user.nickname || "usuário"}`
+          : `Acesso removido de ${user.nickname || "usuário"}`,
         description: active
           ? `${label} · o app do usuário reflete em até 1 minuto (cache do status).`
           : "O acesso cai em até 1 minuto (cache do status).",
@@ -797,7 +801,7 @@ export default function Admin() {
       if (active) setPremiumQuery("");
     } catch (err: any) {
       reportHandledError(err, "admin:set-premium");
-      toast({ title: "Erro ao alterar premium", description: err.message, variant: "destructive" });
+      toast({ title: "Erro ao alterar o acesso", description: err.message, variant: "destructive" });
     } finally {
       setPremiumActingId(null);
     }
@@ -1291,11 +1295,11 @@ export default function Admin() {
         );
       })()}
 
-      {/* ── LinKa Premium ──────────────────────────────────────────────────── */}
+      {/* ── Acesso cortesia ─────────────────────────────────────────────────── */}
       <section className="space-y-4">
         <div className="flex items-center gap-2">
           <Crown className="w-4 h-4 text-amber-500" />
-          <h2 className="text-base font-semibold">LinKa Premium</h2>
+          <h2 className="text-base font-semibold">Acesso cortesia</h2>
           {premiumUsers.filter((u) => u.isActive).length > 0 && (
             <Badge variant="secondary" className="text-xs px-1.5 py-0">
               {premiumUsers.filter((u) => u.isActive).length} ativos
@@ -1374,7 +1378,7 @@ export default function Admin() {
                     {alreadyActive ? (
                       <span className="text-xs text-amber-500 font-medium shrink-0 flex items-center gap-1">
                         <Crown className="w-3.5 h-3.5" />
-                        Já é premium
+                        Já tem acesso
                       </span>
                     ) : (
                       <Button
@@ -1400,9 +1404,9 @@ export default function Admin() {
           </div>
         )}
 
-        {/* Assinantes */}
+        {/* Contas com acesso concedido */}
         {premiumUsers.length === 0 ? (
-          <p className="text-sm text-muted-foreground text-center py-4">Nenhum assinante ainda.</p>
+          <p className="text-sm text-muted-foreground text-center py-4">Nenhuma conta com acesso concedido.</p>
         ) : (
           <div className="space-y-2">
             {premiumUsers.map((u) => (

@@ -170,7 +170,6 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 import { useAuthContext as useAuth, AuthProvider } from "@/lib/auth-context";
-import { PremiumProvider } from "@/lib/premium-context";
 import { useLanguage } from "@/lib/language-context";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
 import { initKeyboardTracker } from "@/lib/keyboard";
@@ -187,7 +186,7 @@ initKeyboardTracker();
 // antes do primeiro pixel — em toda abertura do app. O chunk de entrada estava
 // em 1,34 MB porque o caminho estático daqui alcançava o `ritmofit-db`
 // (12k linhas, 328 funções) por três arestas ao mesmo tempo: `AppLayout`,
-// `Login` e o `PremiumProvider`. Cortadas as três, o módulo passa a viajar num
+// `Login` e o antigo provider de compras. Cortadas as três, o módulo passa a viajar num
 // chunk próprio, carregado em paralelo com o da rota — e só por quem precisa.
 //
 // A shell (`AppLayout`) é lazy junto com as páginas de propósito: ela nunca
@@ -529,7 +528,6 @@ const App = () => {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-      <PremiumProvider>
       <LanguageProvider>
         <WorkoutProvider>
           <ThemeProvider>
@@ -584,7 +582,6 @@ const App = () => {
           </ThemeProvider>
         </WorkoutProvider>
       </LanguageProvider>
-      </PremiumProvider>
       </AuthProvider>
     </QueryClientProvider>
   );

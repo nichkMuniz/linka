@@ -105,7 +105,7 @@ jogos, apostas, criptomoeda, Kids Category, ARKit, extensões e Mac ficam fora.
 
 | Diretriz | O que exige | LinKa |
 |---|---|---|
-| **3.1.1** IAP obrigatório | Conteúdo digital só via compra da Apple; sem mecanismo próprio de desbloqueio; **botão de restaurar compras** | ✅ nenhum pagamento externo no código; paywall pronto para quando religar |
+| **3.1.1** IAP obrigatório | Conteúdo digital só via compra da Apple; sem mecanismo próprio de desbloqueio; **botão de restaurar compras** | ✅ não se aplica — desde 07/09/2026 o app **não vende nada**: sem paywall, sem SDK de loja, sem plano no binário |
 | **3.1.2(c)** Assinatura | Preço, duração, renovação automática, **link funcional de EULA e privacidade** na metadata **e** na tela de compra | ✅ só se aplica quando houver produto anexado — **manter zero produtos** |
 
 ### 4.x — Design
@@ -174,8 +174,8 @@ não é suposição.
 - Nenhum SDK de anúncio ou analytics de terceiro. Sem ATT, sem IDFA, sem `NSUserTrackingUsageDescription` — e está correto, porque não há rastreio.
 
 **Guideline 3.1.1 — pagamento**
-- Zero ocorrência de Stripe, PIX, MercadoPago, PayPal ou checkout externo. O único link de cobrança aponta para a própria Apple (`subscription-drawer.tsx:27`).
-- Com `FEATURES.iap = false`, `PremiumProvider` devolve `isPremium: true` e nunca configura o SDK — nenhuma porta de paywall renderiza.
+- Zero ocorrência de Stripe, PIX, MercadoPago, PayPal ou checkout externo — e, desde 07/09/2026, **zero link de cobrança de qualquer espécie**.
+- O código de compras foi **apagado** (07/09/2026): sem `purchases.ts`, sem `PaywallDrawer`, sem `SubscriptionDrawer`, sem `@revenuecat/purchases-capacitor` no binário e sem as chaves `premium_*` no i18n. Ver [17-premium.md](./17-premium.md) e a seção 5 de [20-lancamento-v1.md](./20-lancamento-v1.md).
 
 **Infraestrutura (Guideline 2.1 — backend ligado)**
 - Verificado em produção: `user_blocks`, `post_complaint`, `shots_complaint`, `flow_complaint`, `user_complaint`, `profiles`, `posts`, `app_admins`, `screen_time_logs`, `access_sessions`, `push_tokens` — todas respondem HTTP 200.
@@ -285,7 +285,7 @@ loja sem captura de erro, e o formulário de relato some.
 | Sentry ausente da lista de terceiros | `public/privacidade.html:143-148` | Cita só Supabase, Apple e RevenueCat. **A 5.1.1(i) exige listar todo terceiro que recebe dado** |
 | Dados de sessão | `:156` | Diz "objetivo exclusivo" do timer de uso; também alimentam o painel Admin (`ritmofit-db.ts:14993-15043`) |
 | Localização | `:109-111` | Descreve coleta de localização que o v1 **não faz** — e conflita com a ficha de privacidade, que declarará "não coletada" |
-| Assinatura Premium | `public/termos.html:88-100` | Descreve assinatura que não existe neste binário |
+| Assinatura Premium | `public/termos.html:88-100` | Descrevia assinatura que não existe neste binário — **corrigido em 07/09/2026**: a seção 5 dos Termos agora NEGA compras, e a de privacidade perdeu assinatura e RevenueCat. Ver [17-premium.md](./17-premium.md) |
 
 Um revisor que compare a política com a ficha de privacidade encontra
 contradição.
@@ -612,8 +612,9 @@ fica como reserva. **iPhone e iPad são os dois obrigatórios** enquanto
 > banco fictício em memória. O processo está em
 > [`docs/appstore/README.md`](./appstore/README.md).
 
-> ❌ **Não anexar `subscription-review-640x920.png`.** É a screenshot de review
-> do IAP e está obsoleta enquanto `FEATURES.iap` estiver desligada.
+> ℹ️ A antiga `subscription-review-640x920.png` (screenshot de review do IAP)
+> foi **apagada do repositório em 07/09/2026**, com o resto do código de
+> compras. Não existe mais o que anexar por engano.
 
 ## 3.5. Informações de revisão do app
 
@@ -745,8 +746,15 @@ perguntar, algo removeu a chave.
 01/09 e custou a rejeição dupla 2.1(b) + 3.1.2(c).
 
 Na página da versão, seção de compras dentro do app: a lista precisa ficar
-**vazia**. Desligar `FEATURES.iap` no código **não** desanexa o produto — é ação
-manual no ASC, e nenhum commit a executa.
+**vazia**. Apagar o código de compras do repositório **não** desanexa o produto
+— é ação manual no ASC, e nenhum commit a executa. (Vale mais desde 07/09/2026:
+o binário não tem mais nada de IAP, então um produto anexado é a **única**
+origem possível de uma nova 2.1(b)/3.1.2(c).)
+
+> Se os produtos "LinKa Premium Monthly"/"Annual" ainda existirem no ASC,
+> desanexá-los da versão é o mínimo. Enquanto não houver intenção de vender,
+> o mais seguro é **removê-los/deixá-los em "Deleted"** — produto em
+> "Waiting for Review" fica pendurado na próxima submissão.
 
 ## 3.7. Preço e disponibilidade
 
@@ -801,7 +809,7 @@ manual no ASC, e nenhum commit a executa.
 - [ ] URL de suporte = `/suporte` (não a raiz do domínio)
 - [ ] URL da política de privacidade preenchida
 - [ ] Descrição, palavras-chave e texto promocional colados
-- [ ] Screenshots **iPhone 6.9"** (`docs/appstore/iphone-6.9/`) e **iPad 13"** (`docs/appstore/ipad-13/`) anexadas; `subscription-review-640x920.png` **fora**
+- [ ] Screenshots **iPhone 6.9"** (`docs/appstore/iphone-6.9/`) e **iPad 13"** (`docs/appstore/ipad-13/`) anexadas
 - [ ] **Nenhum produto de IAP anexado à versão**
 - [ ] Conta de demonstração criada, povoada e **testada num aparelho limpo**
 - [ ] Notes for Review coladas, em inglês

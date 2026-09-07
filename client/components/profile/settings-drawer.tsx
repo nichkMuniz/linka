@@ -54,8 +54,6 @@ import { WeightHistoryDrawer } from "@/components/shared/weight-history-drawer";
 import { ReportProblemDrawer } from "@/components/shared/report-problem-drawer";
 import { BlockedAccountsDrawer } from "@/components/profile/blocked-accounts-drawer";
 import { isMonitoringEnabled } from "@/lib/monitoring";
-import { usePremium } from "@/lib/premium-context";
-import { SubscriptionDrawer } from "@/components/profile/subscription-drawer";
 import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
 import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
 import {
@@ -83,7 +81,6 @@ import {
   LifeBuoy,
   ScanFace,
   Repeat,
-  Crown,
   LineChart,
   Bug,
 } from "lucide-react";
@@ -160,13 +157,11 @@ export function SettingsDrawer({
 }: SettingsDrawerProps) {
   const navigate = useNavigate();
   const { language, setLanguage, t } = useLanguage();
-  const { isPremium } = usePremium();
   const viewportHeight = useKeyboardAwareHeight();
   // Vários sub-drawers (perfil, conta, comercial, limite de tempo) têm formulários
   // longos. Sem ref: o hook rola o container ativo detectado a partir do campo em
   // foco, mantendo-o acima do teclado iOS. Ver use-keyboard-input-scroll.
   useKeyboardInputScroll();
-  const [isSubscriptionOpen, setIsSubscriptionOpen] = React.useState(false);
 
   const [internalOpen, setInternalOpen] = React.useState(false);
   const isOpen = controlledOpen ?? internalOpen;
@@ -1572,28 +1567,6 @@ export function SettingsDrawer({
               </DrawerContent>
             </Drawer>
 
-            {/* ── Assinatura (só para assinantes; não-assinantes veem a coroa
-                "Seja Premium" no header do AppLayout, que abre o paywall) ──
-
-                `FEATURES.iap` desligada torna todo mundo `isPremium` — sem o
-                guard da flag esta seção apareceria para TODOS, oferecendo
-                gerenciar uma assinatura que ninguém comprou. */}
-            {FEATURES.iap && isPremium && (
-              <>
-                <p className="text-xs font-semibold uppercase tracking-wider pt-2 pb-0.5" style={{ color: "rgba(255,255,255,.5)" }}>{t("settings_section_subscription")}</p>
-                <SettingsRow
-                  label={t("settings_subscription_manage")}
-                  icon={<Crown className="h-4 w-4" />}
-                  onClick={() => setIsSubscriptionOpen(true)}
-                />
-                <SubscriptionDrawer
-                  open={isSubscriptionOpen}
-                  onOpenChange={setIsSubscriptionOpen}
-                  viewportHeight={viewportHeight}
-                />
-              </>
-            )}
-
             {/* ── Preferências ── */}
             <p className="text-xs font-semibold uppercase tracking-wider pt-2 pb-0.5" style={{ color: "rgba(255,255,255,.5)" }}>{t("settings_section_preferences")}</p>
 
@@ -1825,12 +1798,10 @@ export function SettingsDrawer({
             {/* ── Outros ── */}
             <p className="text-xs font-semibold uppercase tracking-wider pt-2 pb-0.5" style={{ color: "rgba(255,255,255,.5)" }}>{t("settings_section_other")}</p>
 
-            {/* Termos e privacidade.
-                Até aqui os dois links só existiam DENTRO do paywall — com
-                `FEATURES.iap` desligada eles sumiriam do app inteiro, e a
-                Apple exige a política de privacidade acessível de dentro do
-                app, não só na ficha da App Store. `Browser.open` (Capacitor)
-                em vez de `window.open`, conforme CLAUDE.md §0. */}
+            {/* Termos e privacidade. A Apple exige a política de privacidade
+                acessível de DENTRO do app, não só na ficha da App Store —
+                por isso as duas linhas vivem aqui. `Browser.open`
+                (Capacitor) em vez de `window.open`, conforme CLAUDE.md §0. */}
             <SettingsRow
               label={t("settings_terms")}
               icon={<FileText className="h-4 w-4" />}

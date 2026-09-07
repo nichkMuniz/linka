@@ -1408,7 +1408,6 @@ export default function Goals() {
           }}
           userId={user.id}
           userGoals={userGoals}
-          activeRoutineCount={routines.length}
           initialStep={
             createGoalFlow
               ? "goal-origin"

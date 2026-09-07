@@ -18,16 +18,17 @@
 >   Como o bloqueado some de todas as outras superfícies, essa lista é o único
 >   lugar de onde é possível desbloquear.
 > - **Novo: Configurações → Outros → Termos de Uso / Política de Privacidade.**
->   Os dois links só existiam dentro do paywall; com o IAP desligado sumiriam do
->   app inteiro.
+>   Os dois links só existiam dentro do paywall; sem ele sumiriam do app
+>   inteiro, e a Apple exige a política acessível de DENTRO do app. Com o
+>   paywall apagado (07/09/2026), esta é a única casa deles.
 > - **Insígnias desligadas** (`FEATURES.badges`) — some a fileira ao lado do
 >   nome, no perfil e no post viewer. A guarda está dentro do `UserInsignias`,
 >   então o card do feed e a conversa privada caem juntos.
 > - **Histórico de peso** sai de Dados pessoais (`FEATURES.weightTracking`); o
 >   campo de peso permanece, porque alimenta a prescrição da rotina sugerida.
-> - A seção **Assinatura** exige `FEATURES.iap` além de `isPremium` — sem o
->   guard ela apareceria para todos, já que com o IAP desligado todo mundo é
->   `isPremium`.
+> - A seção **Assinatura** de Configurações foi **removida em 07/09/2026**,
+>   junto com todo o código de compras — o app não vende nada e não há o que
+>   gerenciar (`docs/17-premium.md`).
 
 **Rota:** `/perfil` (próprio) | `/usuario/:userId` (outro usuário)
 **Arquivo:** `client/pages/Profile.tsx`
@@ -355,11 +356,11 @@ Conteúdo do drawer: peso atual em destaque + **variação total** desde o prime
 | Gerenciar Perfil Comercial | Botão → Drawer aninhado | Dashboard do negócio com stats e edição |
 | Perfil Comercial | Botão → Drawer aninhado | Formulário de criação *(exibido quando não há perfil comercial)* |
 
-### Seção: Assinatura *(exibida apenas para assinantes — `usePremium().isPremium`)*
+### ~~Seção: Assinatura~~ *(removida em 07/09/2026)*
 
-| Configuração | Tipo | Descrição |
-|---|---|---|
-| Gerenciar assinatura | Botão → Drawer aninhado | Status, data de início, tipo de cobrança e próxima cobrança/acesso até, lidos de `subscriptions`. Cancelamento é feito pela Apple (`https://apps.apple.com/account/subscriptions`), nunca pelo app. Na Fase 1 (ativação manual, sem cobrança) não há botão de cancelar — só uma nota explicando que não existe cobrança associada. Ver `docs/17-premium.md` |
+A seção inteira e o `SubscriptionDrawer` foram apagados junto com o código de
+compras. O app não vende assinatura nem plano, então não há status, cobrança
+nem cancelamento a exibir. Ver `docs/17-premium.md`.
 
 ### Seção: Preferências
 
@@ -571,13 +572,12 @@ A insígnia mostrada ao lado do nome é a **escolhida pelo usuário**, guardada 
 - `setSelectedBadgeDb(badgeId)` → valida que a insígnia foi conquistada (`isBadgeUnlocked`) e grava `profiles.selected_badge_id`. **Não apaga `user_badges`.**
 - `isBadgeUnlocked(badge, earnedIds, totalCheckIns)` → fonte única da regra de desbloqueio, usada pelo drawer e pela validação: conquistada (linha em `user_badges`) **ou** insígnia de `checkin_total` cujo requisito o total de check-ins já cobre.
 
-### Insígnias premium (2026-07-15)
+### Insígnias com `badges.premium` (2026-07-15, destravadas em 07/09/2026)
 
-Insígnias com `badges.premium = true` (`premium_coroa` 👑, `premium_diamante` 💎) são **exclusivas de assinante** (ver `docs/17-premium.md`):
+Insígnias com `badges.premium = true` (`premium_coroa` 👑, `premium_diamante` 💎) **não custam nada** — o app não vende assinatura (ver `docs/17-premium.md`):
 
-- Aparecem no catálogo do `InsigniasDrawer` **para todos** com selo "Premium" âmbar (gera desejo), coloridas (seeds com `required_checkins = 0` fazem `isBadgeUnlocked` retornar `true` sem mudança na função).
-- Usuário grátis que toca nelas → abre o `PaywallDrawer` (`feature="badges"`); assinante seleciona normalmente.
-- Backstop no banco de dados do app: `setSelectedBadgeDb` lança `BADGE_PREMIUM_LOCKED` se o viewer não for premium.
+- Aparecem no catálogo do `InsigniasDrawer` para todos, coloridas (seeds com `required_checkins = 0` fazem `isBadgeUnlocked` retornar `true` sem mudança na função).
+- **Selecionáveis por qualquer usuário.** O selo "Premium" âmbar, o `PaywallDrawer` e o backstop `BADGE_PREMIUM_LOCKED` de `setSelectedBadgeDb` foram removidos em 07/09/2026.
 - Elas ficam **fora** da barra de progresso "próximo nível" do drawer (o `required_checkins = 0` é desbloqueio por status, não marco de check-ins).
 
 > **Bug histórico (corrigido em 14/07/2026, migração `20260714-badge-selection-persist.sql`):** `setSelectedBadgeDb` fazia `delete` de todas as linhas de `user_badges` e inseria só a escolhida, e a exibida era "a de maior `sort_order`". Escolher uma insígnia mais baixa apagava o acervo; no check-in seguinte `awardBadgesForCheckInsDb` reconquistava tudo, a de maior `sort_order` voltava e a escolha do usuário era sobrescrita sozinha ("a badge mudava quando virava o dia"). Nunca voltar a apagar `user_badges` na seleção.

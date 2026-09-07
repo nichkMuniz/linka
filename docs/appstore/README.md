@@ -90,8 +90,10 @@ mockup anterior chutava "Início" e "Publicar".
   A tela continua verdadeira; só não mostra progresso acumulado.
 - Fotos de post e avatares são **gradientes gerados**, nunca imagem de pessoa
   real (`placeholder()` em `capture.mjs`).
-- `subscription-review-640x920.png` é a screenshot de review do IAP e está
-  **obsoleta** enquanto `FEATURES.iap` estiver desligada. Não anexar.
+- `subscription-review-640x920.png` (screenshot de review do IAP) foi
+  **apagada em 07/09/2026**, junto com o gerador
+  `scripts/gen-subscription-review-screenshot.mjs`. O app não vende nada; um
+  mockup de paywall no repositório só serve para ser anexado por engano.
 
 ## Ferramentas
 

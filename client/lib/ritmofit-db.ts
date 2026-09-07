@@ -13268,12 +13268,6 @@ export async function setSelectedBadgeDb(badgeId: string): Promise<void> {
       throw new Error("BADGE_NOT_UNLOCKED");
     }
 
-    // Insígnia premium só pode ser exibida por assinante ativo. O gate visual
-    // fica no InsigniasDrawer; este é o backstop.
-    if (badge.premium && !(await getPremiumStatusDb())) {
-      throw new Error("BADGE_PREMIUM_LOCKED");
-    }
-
     // 2. Garantir a linha no acervo (idempotente). Cobre a insígnia de
     // `checkin_total` liberada pelo total mas ainda sem linha.
     if (!earnedIds.has(String(badge.id))) {

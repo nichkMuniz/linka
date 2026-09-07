@@ -568,25 +568,16 @@ import {
 
 > **Regra:** O `DrawerContent` base já eleva o sheet acima do teclado iOS — não recrie esse comportamento. A área scrollável deve usar `flex-1 min-h-0` (o shell é `flex flex-col`).
 
-### 9.x Padrão Premium — `PremiumGate` + `PaywallDrawer` (2026-07-15)
+### ~~9.x Padrão Premium~~ — removido em 07/09/2026
 
-Conteúdo exclusivo de assinante usa **sempre** estes dois componentes (nunca recriar blur/cadeado ad-hoc). Ver `docs/17-premium.md`.
+O app **não vende nada**: não existe assinatura, plano (mensal, anual ou
+qualquer outro), paywall nem gate pago. `PaywallDrawer` e `premium-context`
+foram apagados; `PremiumGate` sobreviveu como **passthrough puro** (renderiza
+os children, sem blur, cadeado ou CTA) só para marcar nos call sites onde a
+cobrança viveria. Ver `docs/17-premium.md`.
 
-```tsx
-// Gate visual (gráficos, grades de dados): teaser borrado com dados reais
-<PremiumGate feature="charts">
-  <TrendChart points={points} ... />
-</PremiumGate>
-
-// Gate de AÇÃO (criar rotina/duelo): abre o paywall direto no handler
-if (!isPremium && limiteAtingido) { setPaywallOpen(true); return; }
-<PaywallDrawer open={paywallOpen} onOpenChange={setPaywallOpen} feature="routines" />
-```
-
-- `PremiumGate` (`client/components/shared/premium-gate.tsx`): children com `blur(8px)` + `pointer-events-none`, overlay com `Lock` âmbar, título e CTA que abre o `PaywallDrawer` interno. Assinante vê os children direto.
-- `PaywallDrawer` (`client/components/shared/paywall-drawer.tsx`): drawer glass padrão (GLASS_SHEET_*) com `Crown`, os 4 benefícios em `GLASS_PANEL_STYLE` (o do `feature` recebido ganha `ring-[#9d6bff]/60`) e CTA `GLASS_PRIMARY_BTN_STYLE`. Fase 1: CTA mostra toast "em breve".
-- Acento premium: âmbar (`text-amber-400/500`) para coroa/cadeado/selo "Premium"; o CTA usa o gradiente da marca.
-- Status: `usePremium()` de `client/lib/premium-context.tsx` — nunca ler `subscriptions` direto num componente.
+> **Regra:** não recriar blur/cadeado/CTA de compra em lugar nenhum. Se um dia
+> a cobrança voltar, o padrão antigo está no histórico do Git — não reinvente.
 
 ---
 

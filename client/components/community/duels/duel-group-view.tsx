@@ -27,7 +27,6 @@ import {
   GLASS_CARD_STYLE,
 } from "@/lib/glass-styles";
 import { useNavigate } from "react-router-dom";
-import { usePremium } from "@/lib/premium-context";
 import { useLanguage } from "@/lib/language-context";
 import { UserAvatar } from "@/components/shared/user-avatar";
 
@@ -40,7 +39,6 @@ import type { DuelsController } from "./use-duels";
 export function DuelGroupView({ ctl }: { ctl: DuelsController }) {
   const { user } = useAuth();
   const { t } = useLanguage();
-  const { isPremium } = usePremium();
   const navigate = useNavigate();
   const {
     setSearchParams,

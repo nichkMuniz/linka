@@ -11,7 +11,6 @@ import {
   Trash2,
   PanelLeftOpen,
   PanelLeftClose,
-  Crown,
 } from "lucide-react";
 import * as React from "react";
 import { LocalNotifications } from "@capacitor/local-notifications";
@@ -40,8 +39,6 @@ import { IncentiveConfirmToast } from "@/components/shared/incentive-confirm-toa
 import { IncomingMessageToast } from "@/components/shared/incoming-message-toast";
 import { showIncomingMessageToast } from "@/lib/incoming-message-toast";
 import { RoutineCompletedToast } from "@/components/shared/routine-completed-toast";
-import { PaywallDrawer } from "@/components/shared/paywall-drawer";
-import { usePremium } from "@/lib/premium-context";
 import { FEATURES } from "@/lib/feature-flags";
 import { getUnreadMessageCountDb, getUnreadNotificationsCountDb, getUserProfileDb, subscribeToUnreadNotificationsDb, recordAccessSessionDb, bufferScreenTime, flushScreenTimeDb, invalidateQueryCache, getPendingWorkoutPartyInviteDb, getWorkoutPartyInviteByIdDb, respondWorkoutPartyInviteDb, type WorkoutPartyInvite } from "@/lib/ritmofit-db";
 import { WorkoutPartyInviteDialog } from "@/components/goals/workout-party-invite-dialog";
@@ -85,8 +82,6 @@ export function AppLayout() {
   // Sincroniza no mount, ao voltar pro app e via evento "ritmofit-routines-changed".
   useRoutineNotifications(user?.id ?? null);
   const { t } = useLanguage();
-  const { isPremium } = usePremium();
-  const [premiumPaywallOpen, setPremiumPaywallOpen] = React.useState(false);
   const {
     workoutMinimized, setWorkoutMinimized, pendingReopen, setPendingReopen,
     globalRestTimerRemaining, globalRestTimerActive, globalRestTimerTotal, setGlobalRestTimerTotal,
@@ -730,25 +725,6 @@ export function AppLayout() {
           })}
         </nav>
 
-        {/* Seja Premium */}
-        {!isPremium && (
-          <button
-            onClick={() => {
-              hapticLight();
-              setPremiumPaywallOpen(true);
-            }}
-            aria-label={t("premium_nav_label")}
-            title={!sidebarExpanded ? t("premium_nav_label") : undefined}
-            className={cn(
-              "flex items-center rounded-xl py-3 mb-1 text-[15px] font-medium text-amber-400 hover:bg-amber-400/10 transition-colors",
-              sidebarExpanded ? "gap-4 px-3" : "justify-center px-0",
-            )}
-          >
-            <Crown className="h-6 w-6 flex-shrink-0" />
-            {sidebarExpanded && <span>{t("premium_nav_label")}</span>}
-          </button>
-        )}
-
         {/* Usage timer */}
         {showTimer && (
           <div className={cn(
@@ -863,19 +839,6 @@ export function AppLayout() {
                 <Timer className="h-3 w-3" />
                 {timerLabel}
               </div>
-            )}
-            {!isPremium && (
-              <button
-                onClick={() => {
-                  hapticLight();
-                  setPremiumPaywallOpen(true);
-                }}
-                aria-label={t("premium_nav_label")}
-                className="w-10 h-10 rounded-full flex items-center justify-center text-amber-400 active:scale-90 transition-transform"
-                style={{ background: "rgba(251,191,36,.14)", border: "1px solid rgba(251,191,36,.3)" }}
-              >
-                <Crown className="h-[18px] w-[18px]" />
-              </button>
             )}
             <Link
               to="/buscar"
@@ -1139,9 +1102,6 @@ export function AppLayout() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      {/* Seja Premium — acessível pelo ícone de coroa no header/sidebar */}
-      <PaywallDrawer open={premiumPaywallOpen} onOpenChange={setPremiumPaywallOpen} />
 
       {/* Global incentive confirmation toast */}
       <IncentiveConfirmToast />

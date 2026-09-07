@@ -38,7 +38,7 @@
 > - **Peso desligado** (`FEATURES.weightTracking`): card em Metas, ícone ⚖️ no
 >   card de streak e histórico em Configurações. O **campo** de peso continua —
 >   ele alimenta a prescrição individual da rotina sugerida.
-> - Todos os **gates premium estão abertos** — sem loja, todo usuário tem acesso
+> - **Não há gate premium**: o código de compras foi apagado em 07/09/2026 e o app é gratuito por inteiro (`docs/17-premium.md`). `PremiumGate` sobreviveu como passthrough puro
 >   a tudo.
 
 > Tela de gestão de **metas e rotinas** (treinos, dietas e hábitos). Reconstruída em 09/06/2026 (v2); dashboard single-scroll (v3) em 11/06/2026. Em 28/06/2026 a página foi **reconstruída no padrão glass "Hub do Hoje" (v4)**, fiel ao protótipo do Claude Design ("LinKa Glass" → Direção A). O `Goals.tsx` é apenas o **orquestrador** (carrega dados e compõe os componentes da feature, que já estavam prontos no estilo glass); o app-layout desenha o header glass global, então a página só renderiza conteúdo abaixo dele, sobre auras radiais borradas (laranja/azul).
@@ -372,7 +372,7 @@ Músculos com 0 séries na semana **e** ≥ 10 dias sem estímulo relevante. Ord
 
 ### Gate premium
 
-`PremiumGate feature="charts"` sobre o card inteiro — vende profundidade sobre o dado que o usuário gera de graça (princípio do `docs/17-premium.md`). Registrar treino, ver volume, séries e PRs continua livre.
+`PremiumGate feature="charts"` sobre o card inteiro. **Desde 07/09/2026 o gate é passthrough puro** — não bloqueia nada, porque o app não vende assinatura (`docs/17-premium.md`). O wrapper ficou só para marcar onde a cobrança viveria.
 
 **O card some sozinho** quando não há anatomia semeada (migração não rodou) ou nenhum treino no período — nada de card vazio no Hub.
 
@@ -1164,17 +1164,21 @@ Decisões que sustentam isso:
 - A celebração é **adiada**: `FoodDiaryDrawer` avisa via `onBadgesUnlocked`, a `Goals` guarda em `pendingBadges` e só abre o `BadgeUnlockedDialog` quando o diário fecha (o dialog é Radix e abriria atrás do drawer — mesmo motivo do resumo do treino).
 - **Continua exigindo internet**: criar/editar/excluir rotina e meta, wizard/quiz, compartilhar no feed/duelo, tiles do mapa da corrida (o rastreamento GPS em si funciona offline e o canvas tem fallback sem tiles).
 
-## Gates premium (2026-07-15)
+## Gates premium (2026-07-15 → abertos em 07/09/2026)
 
-A tela de Metas concentra 4 dos gates do plano **LinKa Premium** (ver `docs/17-premium.md`):
+> 🚫 **Nada aqui bloqueia mais.** O código de compras foi apagado em 07/09/2026 e
+> `PremiumGate` virou passthrough. A tabela abaixo fica como mapa de onde os
+> gates viveram — ver `docs/17-premium.md`.
 
-| Gate | Comportamento no plano grátis |
+A tela de Metas concentrava 4 dos gates do antigo plano **LinKa Premium**:
+
+| Onde o gate viveu | Comportamento no antigo plano grátis (hoje: liberado) |
 |---|---|
 | Gráfico de progressão de carga (detalhe da rotina, exercício expandido) | `PremiumGate` — borrado com cadeado + CTA que abre o `PaywallDrawer` |
 | Cobertura muscular da semana (`MuscleCoverageCard`, Hub do Hoje) | `PremiumGate feature="charts"` sobre o card inteiro. Registrar treino, volume, séries e PRs continuam livres |
 | Gráfico do histórico de peso (drawer "Histórico" do `WeightTrackerCard`) | Borrado; **registrar/listar/apagar peso continua livre** |
-| Criação de rotina (`CreateWizardDrawer`, prop `activeRoutineCount` vinda de `Goals.tsx`) | Grátis mantém **1 rotina ativa** — tentar criar a 2ª abre o paywall (intercepta o step "what", aberturas diretas e os handlers de salvar). Adicionar itens (`editRoutine`) e criar **metas** nunca bloqueiam |
-| Macros do diário alimentar (`FoodDiaryDrawer`) | Grade P/C/G borrada; kcal, barra, água e gráfico de 7 dias livres. Na meta diária, só kcal e água editáveis — metas de macro existentes são preservadas no save |
+| Criação de rotina (`CreateWizardDrawer`) | Grátis mantinha **1 rotina ativa**; a 2ª abria o paywall. Removido em 07/09/2026 junto com a prop `activeRoutineCount` — **rotinas ilimitadas para todos** |
+| Macros do diário alimentar (`FoodDiaryDrawer`) | Grade P/C/G era borrada e só kcal/água eram editáveis. Desde 07/09/2026 **todas as metas de macro são editáveis por qualquer usuário** |
 
 ## Componentes
 

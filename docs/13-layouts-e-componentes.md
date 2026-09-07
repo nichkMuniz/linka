@@ -46,7 +46,7 @@ client/components/
 ```
 ┌──────────────────────────────────┐
 │  Header                          │
-│  [Avatar][Logo] [Premium?][Buscar][Vitrine][Notif]│
+│  [Avatar][Logo] [Buscar][Vitrine][Notif]          │
 ├──────────────────────────────────┤
 │  Conteúdo da tela atual          │
 │                                  │
@@ -58,7 +58,7 @@ client/components/
 
 #### Funcionalidades
 - **Header:** Avatar (→ Perfil) + logo + ícones de navegação secundária (Buscar, Vitrine, Notificações)
-- **Ícone "Seja Premium" (2026-07-15):** coroa âmbar entre o logo e o Buscar (no header mobile) e entre a navegação principal e o timer de uso (na sidebar desktop), **visível só para quem ainda não é assinante** (`!isPremium`, de `usePremium()`). Abre o `PaywallDrawer` genérico (sem `feature` destacado) renderizado uma única vez no `AppLayout`, junto dos outros overlays globais — ver `docs/17-premium.md`
+- **~~Ícone "Seja Premium"~~ (2026-07-15 → removido em 07/09/2026):** a coroa âmbar do header/sidebar e o `PaywallDrawer` global saíram do `AppLayout` junto com todo o código de compras. O app não vende nada — ver `docs/17-premium.md`
 - **Hierarquia da navegação (2026-07-13):** a **Comunidade** (mensagens + duelos + ranking) ocupa o 5º slot do bottom nav; a **Vitrine**, de consulta ocasional, desceu para o header. Antes era o inverso: a superfície social mais rica do app vivia atrás de um ícone de 36px no header — que ainda por cima **some no scroll**, levando junto o acesso e o badge de mensagens não lidas
 - **Badge de mensagens não lidas:** contador numérico sobre o ícone de Comunidade **no bottom nav** (sempre visível, ao contrário do header). Era um ponto de 7px
 - **Badge de notificações:** contador numérico sobre o ícone de Notificações no header. Era um ponto de 7px

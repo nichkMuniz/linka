@@ -31,28 +31,25 @@
  * Ao religar uma flag, procure por ela no projeto: cada ponto de uso é um item
  * do checklist de teste daquele release.
  */
+// ─────────────────────────────────────────────────────────────────────────────
+// MONETIZAÇÃO: NÃO EXISTE MAIS FLAG
+// ─────────────────────────────────────────────────────────────────────────────
+// A flag `iap` foi removida em 07/09/2026, junto com todo o código de compras.
+// Esconder a porta não bastou: mesmo com o paywall inalcançável, o binário
+// ainda linkava o SDK da loja e os textos ("Mensal", "Anual", "Assinar",
+// renovação automática) continuavam no bundle e nos Termos de Uso — e a Apple
+// seguiu rejeitando por referência a planos que a versão não vende.
+//
+// Hoje o app é gratuito por inteiro: sem assinatura, sem plano, sem paywall,
+// sem StoreKit, sem RevenueCat. Para reativar, recupere pelo histórico do Git
+// (commit anterior a este): `client/lib/purchases.ts`,
+// `client/lib/premium-context.tsx`, `paywall-drawer.tsx`,
+// `subscription-drawer.tsx`, as chaves `premium_*`/`settings_subscription_*`
+// do i18n, a seção 5 dos Termos e a dependência `@revenuecat/purchases-capacitor`.
+// Antes de submeter com compras: Paid Apps Agreement aceito, produtos
+// aprovados, EULA e privacidade linkados no paywall (3.1.2) e teste em sandbox.
+
 export const FEATURES = {
-  // ───────────────────────────────────────────────────────────────────────────
-  // Monetização
-  // ───────────────────────────────────────────────────────────────────────────
-
-  /**
-   * Compras no app (RevenueCat + StoreKit).
-   *
-   * DESLIGADO NO V1 — causa direta da rejeição 2.1(b) de 26/08/2026.
-   *
-   * Com `false`, `PremiumProvider` devolve `isPremium: true` para todo mundo e
-   * nunca toca no SDK da loja. Todos os gates abrem sozinhos, porque no app
-   * inteiro eles são escritos como `!isPremium && <bloqueio>`. Não existe
-   * paywall, produto, nem restauração de compra no binário — a categoria
-   * inteira de rejeição por IAP deixa de ser alcançável.
-   *
-   * IMPORTANTE: religar exige, ANTES da submissão — Paid Apps Agreement aceito
-   * em App Store Connect, produtos aprovados, EULA e política de privacidade
-   * linkados no paywall (Guideline 3.1.2) e teste real em sandbox.
-   */
-  iap: false,
-
   // ───────────────────────────────────────────────────────────────────────────
   // Telas inteiras
   // ───────────────────────────────────────────────────────────────────────────

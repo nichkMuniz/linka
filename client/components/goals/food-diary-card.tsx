@@ -16,7 +16,6 @@ import { toast } from "@/components/ui/use-toast";
 import { DietImage } from "@/components/shared/diet-image";
 import { PremiumGate } from "@/components/shared/premium-gate";
 import { TrendChart } from "@/components/shared/trend-chart";
-import { usePremium } from "@/lib/premium-context";
 import {
   GLASS_SHEET_PROPS,
   GLASS_SHEET_STYLE,
@@ -178,7 +177,6 @@ export function FoodDiaryDrawer({
   onBadgesUnlocked,
 }: FoodDiaryDrawerProps) {
   const { t, language } = useLanguage();
-  const { isPremium } = usePremium();
   const today = localDateISO();
 
   const [view, setView] = React.useState<"diary" | "add" | "goal">("diary");
@@ -445,14 +443,11 @@ export function FoodDiaryDrawer({
       const v = parseFloat(s.replace(",", "."));
       return Number.isFinite(v) && v > 0 ? v : null;
     };
-    // Usuário grátis só edita kcal e água — as metas de macro existentes são
-    // preservadas (nunca sobrescrever com null o que ele configurou quando
-    // era premium ou antes do gate existir).
     const next: NutritionGoals = {
       calories_target: num(goalKcal),
-      protein_target_g: isPremium ? num(goalProtein) : (goals?.protein_target_g ?? null),
-      carbs_target_g: isPremium ? num(goalCarbs) : (goals?.carbs_target_g ?? null),
-      fat_target_g: isPremium ? num(goalFat) : (goals?.fat_target_g ?? null),
+      protein_target_g: num(goalProtein),
+      carbs_target_g: num(goalCarbs),
+      fat_target_g: num(goalFat),
       water_target_ml: num(goalWater),
     };
     setSaving(true);
@@ -1139,7 +1134,6 @@ export function FoodDiaryDrawer({
                   return (
                     <>
                       {renderField({ v: goalKcal, set: setGoalKcal, label: t("nutrition_goal_kcal"), unit: t("nutrition_kcal_unit") }, "kcal")}
-                      {/* Metas de macro são premium; kcal e água continuam grátis */}
                       <PremiumGate feature="macros">
                         <div className="flex flex-col gap-2.5">
                           {macroFields.map((f, i) => renderField(f, `macro-${i}`))}

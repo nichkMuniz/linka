@@ -9,7 +9,6 @@ import {
   DEFAULT_TRANSFORM,
 } from "@/components/shared/inline-crop-preview";
 import { useNavigate } from "react-router-dom";
-import { usePremium } from "@/lib/premium-context";
 import { useLanguage } from "@/lib/language-context";
 import { ImageWithFallback } from "@/components/shared/image-with-fallback";
 
@@ -19,7 +18,6 @@ import type { DuelsController } from "./use-duels";
 export function DuelsTab({ ctl }: { ctl: DuelsController }) {
   const { user } = useAuth();
   const { t } = useLanguage();
-  const { isPremium } = usePremium();
   const navigate = useNavigate();
   const {
     setIsCreateGroupModalOpen,
@@ -30,8 +28,6 @@ export function DuelsTab({ ctl }: { ctl: DuelsController }) {
     userCreatedGroups,
     availableGroups,
     setAvailableGroups,
-    setDuelPaywallOpen,
-    duelGateBlocked,
     joinedGroupIds,
     joiningGroupId,
     setJoiningGroupId,
@@ -47,10 +43,6 @@ export function DuelsTab({ ctl }: { ctl: DuelsController }) {
             {/* CTA: Criar um duelo */}
             <button
               onClick={() => {
-                if (duelGateBlocked) {
-                  setDuelPaywallOpen(true);
-                  return;
-                }
                 setGroupStep(1);
                 setGroupConfig({ name: "", location: "", goal: "", durationDays: "", photo: "", scoringType: "check_in_count", memeRule: "" });
                 setGroupCoverTransform(DEFAULT_TRANSFORM);

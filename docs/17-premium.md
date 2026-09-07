@@ -1,17 +1,34 @@
-# 17 — LinKa Premium (Freemium)
+# 17 — LinKa Premium (Freemium) — **REMOVIDO DO APP**
 
-> ⚠️ **DESLIGADO NO V1.0** (`FEATURES.iap = false`) — ver
-> [20-lancamento-v1.md](./20-lancamento-v1.md).
+> 🚫 **REMOVIDO EM 07/09/2026.** Não existe mais assinatura, plano (mensal,
+> anual ou qualquer outro), paywall, gate pago, SDK de loja nem flag `iap` no
+> projeto. **O app é gratuito por inteiro.**
 >
-> A submissão 1.2 (56) foi reprovada por **Guideline 2.1(b)**: "we were unable to
-> load the plans after creating a new account". Com a flag desligada,
-> `PremiumProvider` devolve `isPremium: true` para todos e **nunca configura o
-> SDK da loja** — não existe paywall, produto nem restauração de compra no
-> binário, e a categoria inteira de rejeição por IAP deixa de ser alcançável.
+> **Por quê.** Desligar a flag (26/08) não bastou. Mesmo com o paywall
+> inalcançável, sobrava rastro de plano pago em três lugares que a Apple lê:
+> o **binário** (SDK do RevenueCat linkado via SPM, plugin `PurchasesPlugin`),
+> o **bundle JS** (textos "Mensal", "Anual", "/mês", "Assinar", "Restaurar
+> compras") e — o mais visível de todos — a **seção 5 dos Termos de Uso**, que
+> descrevia planos, renovação automática e cancelamento. O app seguiu sendo
+> rejeitado por referenciar planos que a versão não vende.
 >
-> Os gates **abrem** de propósito: um gate fechado sem caminho de compra é
-> funcionalidade quebrada aos olhos da Apple. Tudo neste documento continua
-> válido como especificação para quando o IAP voltar (previsto para a 1.5).
+> **O que foi apagado:** `client/lib/purchases.ts`,
+> `client/lib/premium-context.tsx`, `client/components/shared/paywall-drawer.tsx`,
+> `client/components/profile/subscription-drawer.tsx`, as chaves `premium_*` e
+> `settings_subscription_*` do i18n, a dependência
+> `@revenuecat/purchases-capacitor` (package.json + os dois lockfiles +
+> `Package.swift` + `packageClassList`), e a seção de assinatura dos Termos e
+> da Política de Privacidade.
+>
+> **O que ficou:** `PremiumGate` (passthrough puro, marca onde a cobrança
+> viveria), a tabela `subscriptions` + `is_premium()` + `badges.premium` no
+> banco, e a concessão manual no Admin — que passou a se chamar **"Acesso
+> cortesia"**, porque é o que sempre foi: liberação da equipe, não venda.
+>
+> **Para reativar:** `git show` no commit anterior a este. Nada foi reescrito,
+> só apagado. Tudo abaixo continua válido como especificação — e a seção
+> "Para religar" de [20-lancamento-v1.md](./20-lancamento-v1.md) lista o que a
+> App Store Connect exige ANTES de submeter com compras.
 
 Sistema de assinatura premium com **cobrança real via In-App Purchase da Apple**, intermediada pelo RevenueCat. Migração: `docs/migrations/20260803-premium-iap.sql`.
 
@@ -211,9 +228,9 @@ Estes IDs **não aparecem em lugar nenhum do código**: os planos vêm da oferta
 
 No RevenueCat, montar os *packages* com os identificadores **pré-definidos** `$rc_monthly` e `$rc_annual` — o `PaywallDrawer` lê `packageType` para escolher o rótulo ("Mensal" + "/mês"). Com identificador customizado o tipo chega como `CUSTOM` e cai no rótulo genérico, sem sufixo de período.
 
-### Screenshot de review
+### ~~Screenshot de review~~ (apagada em 07/09/2026)
 
-`docs/appstore/subscription-review-640x920.png`, gerada por `scripts/gen-subscription-review-screenshot.mjs` (640×920, sem canal alfa — transparência é recusada pelo App Store Connect com a mensagem genérica "dimensions are wrong"). É um mockup do paywall para o revisor localizar a tela de compra. **Trocar por um print real de device antes de submeter o app para revisão.**
+`docs/appstore/subscription-review-640x920.png` e o gerador `scripts/gen-subscription-review-screenshot.mjs` foram removidos. Eram um mockup do paywall para o revisor localizar a tela de compra — sem compras, o arquivo só existia para ser anexado por engano. Se o IAP voltar: 640×920, **sem canal alfa** (transparência é recusada pelo App Store Connect com a mensagem genérica "dimensions are wrong") e, de preferência, print real de device.
 
 ## Configuração externa (fora do repositório)
 

@@ -32,7 +32,6 @@ import { POST_PHOTO_WIDTH, POST_PHOTO_QUALITY } from "@/components/post/post-car
 import { cdnImg } from "@/lib/image-url";
 import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
-import { usePremium } from "@/lib/premium-context";
 import { useLanguage } from "@/lib/language-context";
 import { type PendingInvite } from "@/components/community/requests-tab";
 
@@ -60,7 +59,6 @@ interface UseDuelsOptions {
 export function useDuels({ activeTab, setActiveTab }: UseDuelsOptions) {
   const { user } = useAuth();
   const { t } = useLanguage();
-  const { isPremium } = usePremium();
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -104,20 +102,6 @@ export function useDuels({ activeTab, setActiveTab }: UseDuelsOptions) {
   const [userCreatedGroups, setUserCreatedGroups] = React.useState<any[]>([]);
   const [availableGroups, setAvailableGroups] = React.useState<any[]>([]);
 
-  // ── Gate premium: grátis cria 1 duelo ativo por vez ────────────────────────
-  // `userCreatedGroups` (myGroups) inclui grupos onde o usuário só participa —
-  // conta apenas os criados por ele e ainda não expirados. Participar é livre.
-  const [duelPaywallOpen, setDuelPaywallOpen] = React.useState(false);
-  const activeCreatedDuels = React.useMemo(
-    () =>
-      userCreatedGroups.filter(
-        (g) =>
-          g.createdBy === user?.id &&
-          (!g.endDate || new Date(g.endDate) > new Date()),
-      ).length,
-    [userCreatedGroups, user?.id],
-  );
-  const duelGateBlocked = !isPremium && activeCreatedDuels >= 1;
   const [joinedGroupIds, setJoinedGroupIds] = React.useState<Set<string>>(new Set());
   const [joiningGroupId, setJoiningGroupId] = React.useState<string | null>(null);
   const [selectedGroupForView, setSelectedGroupForView] = React.useState<any>(null);
@@ -759,10 +743,6 @@ export function useDuels({ activeTab, setActiveTab }: UseDuelsOptions) {
     setUserCreatedGroups,
     availableGroups,
     setAvailableGroups,
-    duelPaywallOpen,
-    setDuelPaywallOpen,
-    activeCreatedDuels,
-    duelGateBlocked,
     joinedGroupIds,
     setJoinedGroupIds,
     joiningGroupId,

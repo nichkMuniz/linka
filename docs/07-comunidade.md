@@ -395,7 +395,7 @@ Fluxo em 4 etapas com barra de progresso visual no topo.
 
 > **Regra de performance:** O foto do grupo é salva APÓS a criação do grupo (com o ID já disponível), garantindo que a capa seja armazenada corretamente no Storage.
 
-> **Gate premium (2026-07-15):** no plano grátis o usuário mantém **1 duelo ativo criado por ele** (`activeCreatedDuels` = grupos com `createdBy === user.id` e `endDate` nula ou futura). Tentar criar o 2º abre o `PaywallDrawer` (`feature="duels"`) — tanto no CTA "Criar um duelo" quanto no botão final do wizard (backstop). **Participar de duelos é sempre livre.** Ver `docs/17-premium.md`.
+> **~~Gate premium~~ (2026-07-15 → removido em 07/09/2026):** havia um limite de **1 duelo ativo criado** no plano grátis, com `PaywallDrawer` no CTA e no botão final do wizard. O limite, o paywall e `activeCreatedDuels`/`duelGateBlocked` foram apagados junto com o código de compras — **criar e participar de duelos é livre para todos**. Ver `docs/17-premium.md`.
 
 ---
 

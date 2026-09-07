@@ -43,8 +43,8 @@ O objetivo central é motivar pessoas a manterem uma rotina saudável através d
 | 14 | [Database Schema](./14-database-schema.md) | — | Documentação técnica de todas as tabelas do banco |
 | 15 | [Design System](./15-design-system.md) | — | Paleta de cores, tipografia, componentes, padrões visuais |
 | 16 | [Segurança](./16-seguranca.md) | — | Auditoria 2026-07-13, RLS, rotação de chaves, checklist de deploy |
-| 17 | [Premium](./17-premium.md) | — | Plano LinKa Premium: modelo de dados, mapa de gates, roteiro RevenueCat (Fase 2) |
-| 18 | [Painel Admin](./18-admin.md) | `/admin` | Moderação, métricas, atividade diária por usuário e gestão de premium/verificados |
+| 17 | [Premium](./17-premium.md) | — | **REMOVIDO em 07/09/2026** — o app não vende nada. Documento mantido como especificação e registro do que foi apagado |
+| 18 | [Painel Admin](./18-admin.md) | `/admin` | Moderação, métricas, atividade diária por usuário e concessão de acesso cortesia/verificados |
 | 19 | [Compartilhamento e Deep Links](./19-compartilhamento-e-deep-links.md) | — | Universal Links, custom scheme, prévia Open Graph e landing de instalação |
 | 20 | [Lançamento v1.0](./20-lancamento-v1.md) | — | **Escopo da primeira submissão**: o que entra, o que fica guardado atrás de flag e por quê |
 | 21 | [App Store Connect](./21-app-store-connect.md) | — | **Requisitos da Apple, auditoria do app e o valor de cada campo da ASC** — ficha de privacidade, classificação etária, notes for review |
@@ -134,7 +134,7 @@ Resultado depois do corte: **369 KB (112 KB gzip)** — 72% menor.
 | react / react-dom / router, supabase, framer-motion, lucide | `manualChunks` (`vite.config.ts`) | `vendor-*.js` |
 
 **Padrões a manter:**
-- Provider ou hook montado no `App.tsx` que só usa `ritmofit-db` dentro de callback assíncrono → `const db = () => import("@/lib/ritmofit-db")` (ver `premium-context.tsx`, `use-push-notifications.ts`, `useBanGuard`).
+- Provider ou hook montado no `App.tsx` que só usa `ritmofit-db` dentro de callback assíncrono → `const db = () => import("@/lib/ritmofit-db")` (ver `use-push-notifications.ts` e `useBanGuard`; o `premium-context.tsx`, terceiro exemplo histórico, foi apagado em 07/09/2026 com o código de compras).
 - Só tipos vindos do `ritmofit-db` → `import type { … }` **explícito**, para o bundler eliminar a aresta (ver `workout-context.tsx`).
 - O `i18n.ts` **continua no entry de propósito**: o `LanguageProvider` e o `ErrorBoundary` precisam dele antes de qualquer tela.
 

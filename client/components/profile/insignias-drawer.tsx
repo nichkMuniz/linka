@@ -1,5 +1,5 @@
 import React from "react";
-import { Check, Crown, Star, Loader2 } from "lucide-react";
+import { Check, Star, Loader2 } from "lucide-react";
 import {
   Drawer,
   DrawerContent,
@@ -8,8 +8,6 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import { type Badge, type UserBadge, setSelectedBadgeDb, getViewer, isBadgeUnlocked } from "@/lib/ritmofit-db";
-import { PaywallDrawer } from "@/components/shared/paywall-drawer";
-import { usePremium } from "@/lib/premium-context";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/lib/language-context";
@@ -40,11 +38,9 @@ const BADGE_COLORS: Record<string, { active: string; check: string; bar: string;
 
 export function InsigniasDrawer({ open, onOpenChange, userBadges, allBadges, totalCheckIns, profileUserId, selectedBadgeId, onSelected }: InsigniasDrawerProps) {
   const { t } = useLanguage();
-  const { isPremium } = usePremium();
   const [isSelecting, setIsSelecting] = React.useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = React.useState<string | null>(null);
   const [overrideActiveId, setOverrideActiveId] = React.useState<string | null>(null);
-  const [paywallOpen, setPaywallOpen] = React.useState(false);
 
   // Get current user to check if we can select
   React.useEffect(() => {
@@ -77,8 +73,9 @@ export function InsigniasDrawer({ open, onOpenChange, userBadges, allBadges, tot
   // o total de check-ins. Nas outras (streak, madrugador, treino por tipo…),
   // `required_checkins` é o limiar de OUTRA métrica — usá-lo aqui exibiria um
   // progresso falso ("5/7 check-ins" para uma insígnia que pede 7 dias seguidos).
-  // Insígnias premium ficam fora do cálculo: required_checkins = 0 nelas é só
-  // o "desbloqueio por status", não um marco de check-ins.
+  // As insígnias marcadas com `premium` no catálogo ficam fora do cálculo:
+  // `required_checkins = 0` nelas é "desbloqueio por status", não um marco de
+  // check-ins. Hoje elas não custam nada — o app não vende assinatura.
   const checkinTotalBadges = sortedBadges.filter((b) => b.condition_type === "checkin_total" && !b.premium);
   const nextBadge = checkinTotalBadges.find((b) => b.required_checkins > totalCheckIns);
   const targetRequired = nextBadge
@@ -91,12 +88,6 @@ export function InsigniasDrawer({ open, onOpenChange, userBadges, allBadges, tot
   const handleSelect = async (badge: Badge) => {
     if (isReadOnly) return;
     if (isSelecting) return;
-    // Insígnia premium: visível pra todos (gera desejo), selecionável só por
-    // assinante — o toque de usuário grátis abre o paywall.
-    if (badge.premium && !isPremium) {
-      setPaywallOpen(true);
-      return;
-    }
     if (!isBadgeUnlocked(badge, earnedIds, totalCheckIns)) {
       toast.error(t("badges_not_reached"));
       return;
@@ -118,14 +109,9 @@ export function InsigniasDrawer({ open, onOpenChange, userBadges, allBadges, tot
     } catch (err: any) {
       // Reverte estado otimista em caso de erro
       setOverrideActiveId(null);
-      if (err?.message === "BADGE_PREMIUM_LOCKED") {
-        toast.error(t("premium_badge_locked"));
-        setPaywallOpen(true);
-      } else {
-        toast.error(
-          err?.message === "BADGE_NOT_UNLOCKED" ? t("badges_not_reached") : t("badges_error")
-        );
-      }
+      toast.error(
+        err?.message === "BADGE_NOT_UNLOCKED" ? t("badges_not_reached") : t("badges_error")
+      );
     } finally {
       setIsSelecting(null);
     }
@@ -222,12 +208,6 @@ export function InsigniasDrawer({ open, onOpenChange, userBadges, allBadges, tot
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                           <p className="font-bold text-sm tracking-tight">{badge.name}</p>
-                          {badge.premium && (
-                            <span className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-500 font-bold uppercase tracking-wider">
-                              <Crown className="h-3 w-3" />
-                              {t("premium_badge_tag")}
-                            </span>
-                          )}
                           {isActive && (
                             <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-brand/20 text-brand font-bold uppercase tracking-wider">
                               {t("badges_active")}
@@ -287,8 +267,6 @@ export function InsigniasDrawer({ open, onOpenChange, userBadges, allBadges, tot
           </p>
         </div>
       </DrawerContent>
-
-      <PaywallDrawer open={paywallOpen} onOpenChange={setPaywallOpen} feature="badges" />
     </Drawer>
   );
 }

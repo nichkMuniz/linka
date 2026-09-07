@@ -97,11 +97,15 @@ meta, e seus amigos incentivam com os 6 tipos.
 
 ---
 
-## 5. Monetização desligada — e por que os gates ABREM
+## 5. Monetização REMOVIDA (07/09/2026) — não é mais uma flag
 
-Com `FEATURES.iap = false`, o `PremiumProvider` devolve `isPremium: true` para
-todo mundo e **nunca configura o SDK da loja**. Como os gates no app inteiro são
-escritos como `!isPremium && <bloqueio>`, todos abrem sozinhos — nenhum call site
+> 🚫 **Atualização de 07/09/2026.** A flag `iap` **não existe mais**, e o código
+> de compras foi apagado do projeto. O histórico abaixo explica por que
+> desligar não bastou; a subseção "Apagar, não esconder" registra o que mudou.
+
+Com `FEATURES.iap = false`, o `PremiumProvider` devolvia `isPremium: true` para
+todo mundo e **nunca configurava o SDK da loja**. Como os gates no app inteiro são
+escritos como `!isPremium && <bloqueio>`, todos abriam sozinhos — nenhum call site
 precisou mudar.
 
 Isso não é um "modo grátis improvisado", é a leitura correta do estado do
@@ -146,9 +150,41 @@ apps que *oferecem* assinatura.
 > remover os produtos da submissão. O checklist da seção 12 já dizia "nenhum
 > produto de IAP anexado à versão" — a linha existia e foi pulada.
 
-Nota: o `@revenuecat/purchases-capacitor` continua **linkado** no binário via
-SPM. Isso não é problema — SDK linkado e nunca chamado não é caminho de compra,
-e a Apple não cobra por isso (mesma lógica das purpose strings da seção 6).
+### Apagar, não esconder (07/09/2026)
+
+A Apple voltou a rejeitar, ainda apontando **vínculo com planos premium mensal e
+anual**. A aposta anterior — "SDK linkado e nunca chamado não é caminho de
+compra" — não se sustentou. Com a porta escondida mas o resto no lugar, sobravam
+três rastros:
+
+| Rastro | Onde | Por que importa |
+|---|---|---|
+| SDK da loja linkado | `Package.swift` + `packageClassList: PurchasesPlugin` | O binário carrega StoreKit e o plugin de compras de um app que não vende nada |
+| Textos de plano | bundle JS ("Mensal", "Anual", "/mês", "Assinar", "Restaurar compras", "renova automaticamente") | `PaywallDrawer` e `SubscriptionDrawer` eram importados estaticamente — inalcançáveis, mas embarcados |
+| **Termos de Uso** | `public/termos.html` §5 | O revisor **lê** este link (está na metadata e em Configurações → Outros). Descrevia planos, preço, renovação automática e cancelamento |
+
+O terceiro é o pior: o EULA é a peça que o revisor abre para conferir a
+Guideline 3.1.2. Um app "sem compras" cujos termos descrevem assinatura
+auto-renovável se contradiz sozinho.
+
+**O que foi feito:** o código de compras foi **apagado** (não escondido) —
+`purchases.ts`, `premium-context.tsx`, `paywall-drawer.tsx`,
+`subscription-drawer.tsx`, as chaves `premium_*`/`settings_subscription_*` do
+i18n, o CTA "Seja Premium" do `AppLayout`, o selo "Premium" das insígnias, os
+gates de rotina e duelo, e a dependência `@revenuecat/purchases-capacitor`
+(package.json + `package-lock.json` + `pnpm-lock.yaml` + `Package.swift` +
+`capacitor.config.json`). Os Termos ganharam uma seção 5 que **nega** compras de
+forma explícita, e a Política de Privacidade perdeu a seção de assinatura e o
+RevenueCat da lista de terceiros. A própria flag `iap` saiu do
+`feature-flags.ts`. Ver [17-premium.md](./17-premium.md).
+
+**`PremiumGate` continua nos call sites** como passthrough puro: marca onde a
+cobrança viveria, sem render, sem texto, sem bloqueio.
+
+> ⚠️ **Isto NÃO substitui a ação no App Store Connect.** Se os produtos
+> "LinKa Premium Monthly"/"Annual" ainda estiverem **anexados à versão**, a
+> rejeição 2.1(b)/3.1.2(c) se repete mesmo com o repositório impecável — é
+> trabalho manual na página da versão, e nenhum commit o executa.
 
 ### Para religar (v1.1+)
 
@@ -524,7 +560,7 @@ Varredura tela por tela antes de submeter. Achados, todos corrigidos:
 
 ### App Store Connect
 - [ ] Privacy nutrition labels: declarar apenas o que o app **coleta** — e ele não coleta localização. As purpose strings de localização e Face ID existem no Info.plist porque os SDKs as exigem (ver seção 6), mas **não** viram nutrition label
-- [ ] Screenshots **iPhone 6.5" (1242×2688)** e **iPad 13" (2064×2752)** — subir `npx vite --port 8080` e rodar `node scripts/appstore/.tooling/capture.mjs`. São capturas do app REAL, sem legenda, com posts de treino e avatares de iniciais; saem em `docs/appstore/`. **NÃO** anexar `subscription-review-640x920.png`
+- [ ] Screenshots **iPhone 6.5" (1242×2688)** e **iPad 13" (2064×2752)** — subir `npx vite --port 8080` e rodar `node scripts/appstore/.tooling/capture.mjs`. São capturas do app REAL, sem legenda, com posts de treino e avatares de iniciais; saem em `docs/appstore/`
 - [ ] Nenhum produto de IAP anexado à versão
 
 ### Build
