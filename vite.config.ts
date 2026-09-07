@@ -64,11 +64,22 @@ export default defineConfig(async () => {
       registerType: "autoUpdate",
       workbox: {
         // Sem esta lista, o NavigationRoute do Workbox responde TODA navegação
-        // com o index.html do cache. /termos e /privacidade são páginas
-        // estáticas (public/*.html) servidas por rewrite na Vercel — o SPA não
-        // tem rota para elas, então caíam no NotFound e daí no login.
-        // A Apple clica nesses dois links ao revisar a assinatura (3.1.2).
-        navigateFallbackDenylist: [/^\/termos$/, /^\/privacidade$/, /^\/api\//],
+        // com o index.html do cache. As páginas estáticas (public/*.html) são
+        // servidas por rewrite na Vercel — o SPA não tem rota para elas, então
+        // caíam no catch-all e daí no login.
+        //
+        // ⚠️ TODA página nova em public/*.html com rewrite no vercel.json
+        // PRECISA entrar aqui. `/suporte` nasceu depois de `/termos` e
+        // `/privacidade`, ficou de fora, e o link quebrou exatamente assim:
+        // funcionava para quem nunca abriu o site (sem SW registrado) e caía
+        // no login para todo o resto. Isso importa — a Support URL é exigida
+        // pela Guideline 1.5, e o revisor clica nos três links.
+        navigateFallbackDenylist: [
+          /^\/termos\/?$/,
+          /^\/privacidade\/?$/,
+          /^\/suporte\/?$/,
+          /^\/api\//,
+        ],
       },
       manifest: {
         name: "Linka",
