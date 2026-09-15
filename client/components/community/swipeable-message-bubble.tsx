@@ -14,6 +14,13 @@ interface SwipeableMessageBubbleProps {
   onReply: () => void;
   /** Disparado no long-press (toque parado) ou clique com botão direito. */
   onLongPress: () => void;
+  /**
+   * Quando `false`, o arrasto horizontal não acontece — nem a animação, nem o
+   * ícone. Usado na conversa com alguém bloqueado, onde responder é escrita
+   * que o banco vai recusar: um gesto que anima e não faz nada é pior do que
+   * um gesto que não existe. O long-press continua valendo (apagar para mim).
+   */
+  replyEnabled?: boolean;
 }
 
 /**
@@ -30,6 +37,7 @@ export function SwipeableMessageBubble({
   children,
   onReply,
   onLongPress,
+  replyEnabled = true,
 }: SwipeableMessageBubbleProps) {
   const [translateX, setTranslateX] = React.useState(0);
   const [dragging, setDragging] = React.useState(false);
@@ -74,6 +82,7 @@ export function SwipeableMessageBubble({
 
     // Gesto vertical → deixa a lista rolar normalmente.
     if (directionRef.current !== "horizontal") return;
+    if (!replyEnabled) return;
 
     // Só reply: arrasto para a direita; à esquerda fica travado em 0.
     let next = dx;

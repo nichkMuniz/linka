@@ -19,6 +19,15 @@ import { FEATURES } from "@/lib/feature-flags";
 
 // ─── Auth helpers ─────────────────────────────────────────────────────────────
 
+/**
+ * Formato de e-mail. Vive aqui, ao lado de `checkEmailExistsDb`, porque as duas
+ * telas que aceitam e-mail (cadastro e Configurações → Conta) precisam das duas
+ * checagens sempre juntas: formato primeiro, existência depois.
+ */
+export function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+}
+
 export async function checkEmailExistsDb(email: string): Promise<boolean> {
   if (!supabase) return false;
   const { data, error } = await supabase.rpc("check_email_exists", {
@@ -1844,7 +1853,12 @@ export async function updateUserProfileDb(
     console.error(`Error updating user profile [${errorCode}]:`, errorMsg);
     // 23505 = unique_violation → o handle escolhido já pertence a outra pessoa.
     if (errorCode === "23505" && errorMsg.toLowerCase().includes("handle")) {
-      throw new Error("Esse @usuário já está em uso. Escolha outro.");
+      // `code` marcado para a UI reconhecer a corrida (alguém pegou o @ entre a
+      // verificação de disponibilidade e o save) e mostrar o texto traduzido,
+      // em vez de depender desta mensagem em PT.
+      const taken = new Error("Esse @usuário já está em uso. Escolha outro.");
+      (taken as any).code = "HANDLE_TAKEN";
+      throw taken;
     }
     throw new Error(`Erro ao atualizar perfil: ${errorMsg}`);
   }
@@ -2085,7 +2099,10 @@ export async function searchContentByHashtagDb(tag: string): Promise<HashtagItem
   const clean = tag.replace(/^#/, "").trim();
   if (!clean) return [];
 
-  const [postsRes, shotsRes] = await Promise.all([
+  const [blockedIds, postsRes, shotsRes] = await Promise.all([
+    // Post e shot de quem está bloqueado não aparecem no feed nem no perfil; a
+    // hashtag não pode ser a exceção que devolve os dois.
+    getBlockedIdsDb().catch(() => [] as string[]),
     supabase
       .from("posts")
       .select("id, photo, photos, description, created_at, user_id")
@@ -2104,7 +2121,11 @@ export async function searchContentByHashtagDb(tag: string): Promise<HashtagItem
 
   const escaped = clean.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const re = new RegExp(`#${escaped}(?![\\p{L}\\p{N}_])`, "iu");
-  const matches = (row: any) => typeof row.description === "string" && re.test(row.description);
+  const hashtagBlocked = new Set(blockedIds);
+  const matches = (row: any) =>
+    typeof row.description === "string" &&
+    re.test(row.description) &&
+    !hashtagBlocked.has(String(row.user_id));
 
   // Uma fonte falhar não pode zerar a outra — cada lado degrada sozinho.
   const posts: HashtagItem[] = (postsRes.error ? [] : (postsRes.data ?? []))
@@ -2158,7 +2179,14 @@ export async function getPostTagsBatchDb(
     // Tabela pode ainda não existir (migração pendente) — degrada sem marcações
     if (error || !tagRows || tagRows.length === 0) return result;
 
-    const taggedIds = [...new Set(tagRows.map((r: any) => String(r.user_id)))];
+    // A marcação é um perfil dentro do post de OUTRA pessoa: o post pode ser de
+    // alguém que eu sigo e trazer junto quem eu bloqueei — com nome, foto e
+    // botão de seguir, no chip "com fulano" e no drawer da lista completa.
+    const blocked = new Set(await getBlockedIdsDb().catch(() => [] as string[]));
+    const taggedIds = [
+      ...new Set(tagRows.map((r: any) => String(r.user_id))),
+    ].filter((id) => !blocked.has(id));
+    if (taggedIds.length === 0) return result;
     const profilesMap = await getProfilesBatchDb(taggedIds);
 
     for (const row of tagRows) {
@@ -5195,6 +5223,11 @@ export async function searchRoutinesDb(
   if (!hasSupabaseConfig || !supabase) return [];
 
   try {
+    // A rotina aparece na busca com o nome e a foto do DONO ao lado — é um
+    // perfil exposto por outro caminho. Sem este filtro, as abas Treinos e
+    // Dietas continuavam entregando quem foi bloqueado.
+    const blocked = new Set(await getBlockedIdsDb().catch(() => [] as string[]));
+
     // Query routines grouped by name+user — include named AND unnamed routines
     let dbQuery = supabase
       .from("routines")
@@ -5219,6 +5252,7 @@ export async function searchRoutinesDb(
     // Deduplicate by name+user_id (null name counts as one per user)
     const seen = new Set<string>();
     const unique = (data as any[]).filter((row) => {
+      if (blocked.has(String(row.user_id))) return false;
       const key = `${row.user_id}::${row.name ?? "__unnamed__"}`;
       if (seen.has(key)) return false;
       seen.add(key);
@@ -5452,46 +5486,61 @@ export async function copyRoutineToUserDb(
 
 // Following Functions
 
+/**
+ * Lista de perfis para descobrir gente: é o que a tela de Buscar mostra ANTES
+ * de digitar qualquer coisa, e o que alimenta os sugeridos do feed vazio.
+ *
+ * O recorte por viewer (o próprio usuário e os bloqueados) acontece FORA do
+ * `cached`, de propósito: a chave é global (`allUsers:<limit>:<offset>`), então
+ * gravar uma lista já filtrada faria o recorte de um usuário valer para o
+ * próximo login no mesmo aparelho. Cacheia-se a lista crua; o filtro é por
+ * chamada.
+ */
 export async function getAllUsersDb(
   excludeUserId?: string,
   limit = 100,
   offset = 0,
 ): Promise<SearchUser[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-  return cached("allUsers", CACHE_TTL_MEDIUM, async () => {
-  try {
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("user_id, nickname, bio, photo")
-      .order("nickname", { ascending: true })
-      .range(offset, offset + limit - 1);
 
-    if (error) {
-      const errorMsg = error?.message || String(error);
-      const errorCode = error?.code || "UNKNOWN";
-      console.error(`Error fetching all users [${errorCode}]:`, errorMsg);
-      return [];
-    }
+  const [allUsers, blockedIds] = await Promise.all([
+    cached(`allUsers:${limit}:${offset}`, CACHE_TTL_MEDIUM, async () => {
+      try {
+        const { data, error } = await supabase!
+          .from("profiles")
+          .select("user_id, nickname, bio, photo")
+          .order("nickname", { ascending: true })
+          .range(offset, offset + limit - 1);
 
-    const allUsers = (data ?? []).map((row: any) => ({
-      id: String(row.user_id ?? ""),
-      nickname: String(row.nickname ?? "Usuário"),
-      bio: row.bio ? String(row.bio) : undefined,
-      photo: row.photo ? String(row.photo) : null,
-    }));
+        if (error) {
+          const errorMsg = error?.message || String(error);
+          const errorCode = error?.code || "UNKNOWN";
+          console.error(`Error fetching all users [${errorCode}]:`, errorMsg);
+          return [] as SearchUser[];
+        }
 
-    // Filter out the current user if excludeUserId is provided
-    if (excludeUserId) {
-      return allUsers.filter((user) => user.id !== excludeUserId);
-    }
+        return (data ?? []).map((row: any) => ({
+          id: String(row.user_id ?? ""),
+          nickname: String(row.nickname ?? "Usuário"),
+          bio: row.bio ? String(row.bio) : undefined,
+          photo: row.photo ? String(row.photo) : null,
+        })) as SearchUser[];
+      } catch (err: any) {
+        console.error("Error fetching all users:", err);
+        return [] as SearchUser[];
+      }
+    }),
+    // Esta lista é a porta dos fundos que `searchUsersDb` já fechava: em
+    // Buscar, ela aparece SEM digitar nada, com o botão de seguir ao lado do
+    // nome. Sem o filtro, bloquear alguém e abrir Buscar entregava a pessoa de
+    // volta, pronta para ser seguida.
+    getBlockedIdsDb().catch(() => [] as string[]),
+  ]);
 
-    return allUsers;
-  } catch (err: any) {
-    console.error("Error fetching all users:", err);
-    return [];
-  }
-
-  });
+  const blocked = new Set(blockedIds);
+  return allUsers.filter(
+    (u) => u.id !== excludeUserId && !blocked.has(u.id),
+  );
 }
 
 export async function followUserDb(followingId: string): Promise<boolean> {
@@ -5594,24 +5643,30 @@ export async function getFollowingIdsDb(): Promise<string[]> {
 // de propósito. Quem pode DESFAZER continua sendo só quem bloqueou (RLS).
 
 /**
- * Ids de todos os usuários invisíveis para o viewer: os que ele bloqueou e os
- * que o bloquearam.
+ * Linhas cruas de `user_blocks` que envolvem o viewer, nas duas direções.
+ *
+ * É a fonte única de `getBlockedIdsDb` e `getBlockedByMeIdsDb`, para que as
+ * duas leituras dividam UMA ida à rede e UMA entrada de cache — a direção é
+ * derivada em memória.
  *
  * É lida em todo carregamento de feed, busca e conversa, então mora no cache.
  * TTL curto (30s) porque a segunda direção — alguém me bloquear — é escrita por
  * TERCEIROS: não passa por `invalidateQueryCache` neste dispositivo, e o TTL é
  * a única defesa contra continuar exibindo quem acabou de me bloquear.
+ *
+ * A chave começa com `blockedIds` de propósito: `invalidateQueryCache` casa por
+ * PREFIXO, então as invalidações já espalhadas pelo app continuam valendo.
  */
-export async function getBlockedIdsDb(): Promise<string[]> {
+async function getBlockRowsDb(): Promise<{ blocker: string; blocked: string }[]> {
   if (!hasSupabaseConfig || !supabase) return [];
   // Viewer resolvido FORA do cached(): com viewer null (janela logo após o
   // login) uma lista vazia cacheada aqui é inofensiva para o feed, mas a mesma
   // classe de bug já mordeu em getFollowingIdsDb — seguimos a regra da casa.
   const viewer = await getViewer();
   if (!viewer) return [];
-  return cached(`blockedIds:${viewer.id}`, CACHE_TTL_SHORT, async () => {
+  return cached(`blockedIds:rows:${viewer.id}`, CACHE_TTL_SHORT, async () => {
 
-  const { data, error } = await supabase
+  const { data, error } = await supabase!
     .from("user_blocks")
     .select("blocker_id, blocked_id")
     .or(`blocker_id.eq.${viewer.id},blocked_id.eq.${viewer.id}`);
@@ -5624,16 +5679,47 @@ export async function getBlockedIdsDb(): Promise<string[]> {
     return [];
   }
 
+  return (data ?? []).map((row: any) => ({
+    blocker: String(row.blocker_id ?? ""),
+    blocked: String(row.blocked_id ?? ""),
+  }));
+
+  });
+}
+
+/**
+ * Ids de todos os usuários invisíveis para o viewer: os que ele bloqueou e os
+ * que o bloquearam. É a lista que esconde conteúdo — simétrica de propósito.
+ */
+export async function getBlockedIdsDb(): Promise<string[]> {
+  const viewer = await getViewer();
+  if (!viewer) return [];
+  const rows = await getBlockRowsDb();
+
   const out = new Set<string>();
-  for (const row of data ?? []) {
-    const blocker = String((row as any).blocker_id ?? "");
-    const blocked = String((row as any).blocked_id ?? "");
-    out.add(blocker === viewer.id ? blocked : blocker);
+  for (const row of rows) {
+    out.add(row.blocker === viewer.id ? row.blocked : row.blocker);
   }
   out.delete(viewer.id);
   return [...out];
+}
 
-  });
+/**
+ * Só a direção "EU bloquei", em ids.
+ *
+ * A diferença importa onde a UI precisa ESCREVER uma frase sobre o bloqueio: em
+ * quem eu bloqueei podemos dizer o que aconteceu e apontar o caminho para
+ * desfazer; em quem me bloqueou, não — confirmar isso vazaria a decisão da
+ * outra pessoa, que em nenhuma outra superfície do app é revelada.
+ *
+ * Para ESCONDER conteúdo continue usando `getBlockedIdsDb`: lá a simetria é o
+ * ponto.
+ */
+export async function getBlockedByMeIdsDb(): Promise<string[]> {
+  const viewer = await getViewer();
+  if (!viewer) return [];
+  const rows = await getBlockRowsDb();
+  return rows.filter((r) => r.blocker === viewer.id).map((r) => r.blocked);
 }
 
 /** Só os que EU bloqueei — é a lista que a tela "Contas bloqueadas" edita. */
@@ -5683,13 +5769,23 @@ export async function blockUserDb(targetUserId: string): Promise<boolean> {
   // desfecho que o usuário pediu, então não é erro.
   if (error && (error as any).code !== "23505") throw error;
 
-  // O trigger da migração desfaz o follow nos dois sentidos — o cache de
-  // seguidores fica velho se não invalidarmos junto.
+  // O trigger da migração desfaz o follow nos dois sentidos — todo cache que
+  // guarda o vínculo fica velho se não invalidarmos junto. `following` cobre
+  // por prefixo tanto a lista (`following:<uid>`) quanto os ids
+  // (`followingIds:<uid>`); `isFollowing` é o que alimenta o botão
+  // Seguir/Seguindo no perfil, e sem ele a tela continuava dizendo "Seguindo"
+  // depois do bloqueio. `activeStories` é o ring de flows do feed, que deriva
+  // da lista de seguidos.
   invalidateQueryCache("blockedIds");
-  invalidateQueryCache("followingIds");
+  invalidateQueryCache("following");
   invalidateQueryCache("followers");
+  invalidateQueryCache("isFollowing");
+  invalidateQueryCache("activeStories");
   invalidateQueryCache("userStats");
   invalidateQueryCache("conversations");
+  // A lista de notificações e o badge do sino também escondem o bloqueado.
+  invalidateQueryCache("notifications");
+  invalidateQueryCache("unreadNotifCount");
   return true;
 }
 
@@ -5708,6 +5804,9 @@ export async function unblockUserDb(targetUserId: string): Promise<boolean> {
 
   invalidateQueryCache("blockedIds");
   invalidateQueryCache("conversations");
+  invalidateQueryCache("notifications");
+  invalidateQueryCache("unreadNotifCount");
+  invalidateQueryCache("activeStories");
   return true;
 }
 
@@ -5855,8 +5954,25 @@ export async function getActiveStoriesDb(): Promise<StoryWithUser[]> {
 
   try {
     // Get current user's following IDs
-    const followingIds = await getFollowingIdsDb();
-    const userIdsToShow = [viewer.id, ...followingIds];
+    //
+    // O filtro de bloqueio é o mesmo de `getFeedPosts` e existe pelos mesmos
+    // dois motivos. (1) Direção "ele me bloqueou": o trigger desfaz o follow no
+    // banco, mas a lista que ESTE device leu continua cacheada por até
+    // CACHE_TTL_MEDIUM — sem o cruzamento, o flow de quem acabou de me bloquear
+    // seguiria no ring. (2) Direção "eu bloqueei": até 20260914 o trigger
+    // apagava de `followers`, tabela que o app não lê, então o vínculo em
+    // `following` sobrevivia e a pessoa bloqueada continuava aparecendo no ring
+    // como se ainda fosse seguida. A migração corrige o dado; isto aqui é a
+    // trava que faz o bloqueio valer no mesmo instante, sem esperar cache.
+    const [followingIds, blockedIds] = await Promise.all([
+      getFollowingIdsDb(),
+      getBlockedIdsDb(),
+    ]);
+    const blocked = new Set(blockedIds);
+    const userIdsToShow = [
+      viewer.id,
+      ...followingIds.filter((id) => !blocked.has(id)),
+    ];
 
     // Fetch flows and profiles in parallel
     const [flowResult, profilesResult] = await Promise.all([
@@ -6760,6 +6876,17 @@ export type Conversation = {
   lastMessageTime: string;
   unreadCount: number;
   isVerified?: boolean;
+  /**
+   * Há bloqueio entre as duas pontas (qualquer direção). A conversa continua na
+   * lista e o histórico continua legível — o que some é a barra de escrever.
+   */
+  isBlocked?: boolean;
+  /**
+   * O bloqueio foi decisão DESTE usuário. Só neste caso a UI pode nomear o que
+   * aconteceu e apontar como desfazer; quando é o contrário, a mensagem tem de
+   * ser neutra (ver `getBlockedByMeIdsDb`).
+   */
+  blockedByMe?: boolean;
 };
 
 // ─── Mídia de mensagem direta (bucket privado) ──────────────────────────────
@@ -7018,18 +7145,30 @@ export async function getConversationsDb(): Promise<Conversation[]> {
       return !deletions.some((d) => d.user_id === viewer.id);
     });
 
-    // A policy da migração 20260826 impede mensagem NOVA entre bloqueados, mas
-    // o histórico anterior ao bloqueio continua no banco — sem este filtro a
-    // conversa seguiria na lista, com foto e nome, como se nada tivesse
-    // acontecido.
-    const blocked = new Set(await getBlockedIdsDb());
+    // Bloquear NÃO apaga nem esconde a conversa (mudança de 14/09/2026). Até
+    // então a conversa sumia da lista, e o efeito era indistinguível de ter
+    // sido apagada: o usuário perdia o histórico de quem o incomodou — que é
+    // justamente o material que ele pode precisar guardar como evidência, para
+    // uma denúncia ou fora do app. Bloquear passa a fazer o que diz: encerra o
+    // contato daqui para frente, sem reescrever o passado.
+    //
+    // O que impede a interação é a policy `messages_insert_not_blocked`
+    // (migração 20260826) no banco, e não a ausência da conversa na lista. Aqui
+    // apenas MARCAMOS as duas pontas para a UI esconder a barra de escrever
+    // (`ConversationView`) — se ela ficasse, o envio falharia com erro de RLS,
+    // que é a pior forma possível de comunicar "você bloqueou esta pessoa".
+    const [blockedIds, blockedByMeIds] = await Promise.all([
+      getBlockedIdsDb(),
+      getBlockedByMeIdsDb(),
+    ]);
+    const blocked = new Set(blockedIds);
+    const blockedByMe = new Set(blockedByMeIds);
 
     // Group messages by conversation
     const conversationMap = new Map<string, (typeof visibleMessages)[0][]>();
     visibleMessages.forEach((msg: any) => {
       const otherUserId =
         msg.user_id === viewer.id ? msg.following_id : msg.user_id;
-      if (blocked.has(String(otherUserId))) return;
       if (!conversationMap.has(otherUserId)) {
         conversationMap.set(otherUserId, []);
       }
@@ -7074,6 +7213,8 @@ export async function getConversationsDb(): Promise<Conversation[]> {
         lastMessage: msgs[0]?.text || "",
         lastMessageTime: msgs[0]?.created_at || new Date().toISOString(),
         unreadCount,
+        isBlocked: blocked.has(userId),
+        blockedByMe: blockedByMe.has(userId),
       });
     }
 
@@ -7426,9 +7567,14 @@ export async function getFollowersDb(userId?: string): Promise<SearchUser[]> {
       return [];
     }
 
-    const followerIds = (data ?? []).map((row: any) =>
-      String(row.user_id ?? ""),
-    );
+    // Bloqueado não aparece em lista nenhuma — nem na minha, nem na de outra
+    // pessoa. O trigger `user_blocks_unfollow_trg` já desfaz o follow entre as
+    // duas pontas, mas isto cobre a lista de TERCEIROS (onde o vínculo é
+    // legítimo e continua existindo) e o intervalo até a migração rodar.
+    const blocked = new Set(await getBlockedIdsDb().catch(() => [] as string[]));
+    const followerIds = (data ?? [])
+      .map((row: any) => String(row.user_id ?? ""))
+      .filter((id: string) => id && !blocked.has(id));
 
     if (followerIds.length === 0) return [];
 
@@ -7481,9 +7627,11 @@ export async function getFollowingDb(
       return [];
     }
 
-    const followingIds = (data ?? []).map((row: any) =>
-      String(row.following_id ?? ""),
-    );
+    // Mesma regra da lista de seguidores logo acima.
+    const blocked = new Set(await getBlockedIdsDb().catch(() => [] as string[]));
+    const followingIds = (data ?? [])
+      .map((row: any) => String(row.following_id ?? ""))
+      .filter((id: string) => id && !blocked.has(id));
 
     if (followingIds.length === 0) return [];
 
@@ -8377,16 +8525,26 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
       return [];
     }
 
+    // Notificação de quem está em relação de bloqueio não aparece. O card traz
+    // nome, foto e — no tipo 1 — um botão de seguir: era a última superfície em
+    // que o bloqueado continuava visível e acionável. As linhas ficam no banco
+    // (o dedup e as contagens dependem delas); o que some é o card.
+    const notifBlocked = new Set(await getBlockedIdsDb());
+    const visibleNotifications = notifBlocked.size
+      ? notificationsData.filter((n: any) => !notifBlocked.has(String(n.follower_id)))
+      : notificationsData;
+    if (visibleNotifications.length === 0) return [];
+
     // Get all follower IDs and post IDs to fetch related data
-    const followerIds = [...new Set(notificationsData.map((n: any) => n.follower_id))];
+    const followerIds = [...new Set(visibleNotifications.map((n: any) => n.follower_id))];
     // Tipos cujo post_id NÃO guarda um post: 4/5/11 → id do grupo de duelo; 8/12/13 → id da promoção
-    const postIds = [...new Set(notificationsData.filter((n: any) => !NOTIF_TYPES_WITHOUT_POST.has(Number(n.type)) && !n.shots_id && !n.flow_id).map((n: any) => n.post_id).filter(Boolean))];
+    const postIds = [...new Set(visibleNotifications.filter((n: any) => !NOTIF_TYPES_WITHOUT_POST.has(Number(n.type)) && !n.shots_id && !n.flow_id).map((n: any) => n.post_id).filter(Boolean))];
     // shots_id may contain "flow:<id>" or "checkin:<id>" prefixed values — exclude those from the shots DB query
-    const shotNotifIds = [...new Set(notificationsData.filter((n: any) => n.shots_id && !String(n.shots_id).startsWith("flow:") && !String(n.shots_id).startsWith("checkin:")).map((n: any) => n.shots_id).filter(Boolean))];
-    const groupIds = [...new Set(notificationsData.filter((n: any) => n.type === 4 || n.type === 5 || n.type === 11).map((n: any) => n.post_id).filter(Boolean))];
+    const shotNotifIds = [...new Set(visibleNotifications.filter((n: any) => n.shots_id && !String(n.shots_id).startsWith("flow:") && !String(n.shots_id).startsWith("checkin:")).map((n: any) => n.shots_id).filter(Boolean))];
+    const groupIds = [...new Set(visibleNotifications.filter((n: any) => n.type === 4 || n.type === 5 || n.type === 11).map((n: any) => n.post_id).filter(Boolean))];
     // Direct flow_id column support
-    const flowResultIds = [...new Set(notificationsData.filter((n: any) => n.flow_id).map((n: any) => n.flow_id).filter(Boolean))];
-    const incentiveNotifications = notificationsData.filter((n: any) => n.type === 2);
+    const flowResultIds = [...new Set(visibleNotifications.filter((n: any) => n.flow_id).map((n: any) => n.flow_id).filter(Boolean))];
+    const incentiveNotifications = visibleNotifications.filter((n: any) => n.type === 2);
 
     // Fetch follower profiles, post photos, flow media, group names, and like data in parallel
     // Each query uses .catch() so a single failure doesn't abort the whole batch
@@ -8627,7 +8785,7 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
     }
 
     // Transform notifications table records to NotificationItem format
-    const notifications: NotificationItem[] = notificationsData
+    const notifications: NotificationItem[] = visibleNotifications
       .map((notif: any) => {
         const profile = profileMap.get(notif.follower_id);
         if (!profile) return null;
@@ -8773,12 +8931,21 @@ export async function getUnreadNotificationsCountDb(): Promise<number> {
 
     if (!data || data.length === 0) return 0;
 
+    // O mesmo filtro de bloqueio da lista (`getNotificationsDb`). Sem ele o sino
+    // marcaria pendência de um card que a lista não mostra — a pessoa abre as
+    // notificações atrás do "1" e não encontra nada novo.
+    const notifBlocked = new Set(await getBlockedIdsDb());
+    const visible = notifBlocked.size
+      ? data.filter((n: any) => !notifBlocked.has(String(n.follower_id)))
+      : data;
+    if (visible.length === 0) return 0;
+
     // Apply the same grouping as the UI: incentive notifications (type 2) for the same
     // post/shot are collapsed into a single entry regardless of incentive subtype or sender.
     const seenPostKeys = new Set<string>();
     let groupedCount = 0;
 
-    for (const n of data) {
+    for (const n of visible) {
       if (n.type === 2) {
         const key = String(n.flow_id ?? n.shots_id ?? n.post_id ?? n.id);
         if (!seenPostKeys.has(key)) {
@@ -12131,87 +12298,67 @@ export async function recordAccessSessionDb(userId: string, durationSeconds: num
 // ─── Delete Account ──────────────────────────────────────────────────────────
 
 /**
+ * Apaga as linhas do usuário chamando `delete_user_data` no banco.
+ *
+ * Existe como função no Postgres, e não como uma sequência de DELETEs aqui,
+ * por dois motivos que já custaram exclusões incompletas:
+ *
+ * 1. **DELETE sob RLS é no-op silencioso.** Tabela sem policy de DELETE para o
+ *    dono devolve "0 linhas" sem erro nenhum. Daqui era impossível distinguir
+ *    "não havia nada" de "a policy barrou". A função é `security definer`.
+ * 2. **A lista no cliente sempre atrasa.** Quando esta troca foi feita, 31
+ *    tabelas com coluna de usuário não eram tocadas por ninguém — quase todas
+ *    criadas depois da versão original. Ao lado do schema, a lista é revisada
+ *    junto com a migração que cria a tabela.
+ *
+ * Ver `docs/migrations/20260915-delete-user-data.sql`.
+ */
+async function deleteUserRowsDb(userId: string): Promise<Record<string, number> | null> {
+  const { data, error } = await (supabase as any).rpc("delete_user_data", {
+    p_user_id: userId,
+  });
+  if (error) {
+    // PGRST202 = a função não está no schema cache do PostgREST. Na prática é
+    // sempre a migração que não rodou (ou rodou e o cache não recarregou). A
+    // mensagem crua do PostgREST não diz isso a ninguém; esta diz.
+    if (error.code === "PGRST202") {
+      throw new Error(
+        "Migração 20260915-delete-user-data.sql não aplicada no Supabase",
+      );
+    }
+    throw error;
+  }
+  return (data ?? null) as Record<string, number> | null;
+}
+
+/**
  * Permanently deletes all data associated with a user across every table.
- * Order respects FK dependencies: dependent rows first, then parent rows.
+ *
+ * Ordem obrigatória: mídia do Storage → linhas → `auth.users`.
+ * A mídia vem primeiro porque a policy de DELETE do Storage depende de
+ * `auth.uid()`; depois que a conta sai de `auth.users` não há mais sessão para
+ * provar posse e o arquivo ficaria órfão para sempre.
+ *
+ * As duas últimas etapas normalmente acontecem juntas, dentro de
+ * `delete_user_data`. O `POST /api/delete-auth-user` só entra quando a função
+ * não teve privilégio para tocar no schema `auth`.
  */
 export async function deleteAllUserDataDb(userId: string): Promise<void> {
   if (!hasSupabaseConfig || !supabase) throw new Error("Supabase não configurado");
   assertUUID(userId, "ID do usuário");
 
-  // Helper: delete from a table by a column filter, ignoring "no rows" errors
-  const del = async (table: string, column: string, value: string) => {
-    const { error } = await (supabase as any).from(table).delete().eq(column, value);
-    if (error) console.error(`[deleteAllUserDataDb] ${table}.${column}:`, error.message);
-  };
-
-  // ── Batch 1: leaf tables with no children ───────────────────────────────
-  await Promise.all([
-    del("access_sessions", "user_id", userId),
-    del("screen_time_logs", "user_id", userId),
-    del("check_ins", "user_id", userId),
-    del("flow_complaint", "user_id", userId),
-    del("flow_user_viewed", "user_id", userId),
-    del("flow_user_viewed", "follower_id", userId),
-    del("shot_user_viewed", "user_id", userId),
-    del("shot_user_viewed", "follower_id", userId),
-    del("post_complaint", "user_id", userId),
-    del("shots_complaint", "user_id", userId),
-    del("user_complaint", "user_id", userId),
-    del("user_complaint", "follower_id", userId),
-    del("ranking", "user_id", userId),
-    del("user_goals", "user_id", userId),
-    del("user_habits_hist", "user_id", userId),
-    del("user_diets_hist", "user_id", userId),
-    del("user_workouts_hist", "user_id", userId),
-    del("duel_check_ins", "user_id", userId),
-    del("duel_group_participants", "user_id", userId),
-  ]);
-
-  // ── Batch 2: comments, likes and notifications (depend on posts/shots/flow) ─
-  await Promise.all([
-    del("comments", "user_id", userId),
-    del("likes", "user_id", userId),
-    del("flow_comments", "user_id", userId),
-    del("flow_likes", "user_id", userId),
-    del("shots_comments", "user_id", userId),
-    del("shots_likes", "user_id", userId),
-    del("notifications", "user_id", userId),
-    del("notifications", "follower_id", userId),
-    del("messages", "user_id", userId),
-    del("messages", "following_id", userId),
-  ]);
-
-  // ── Batch 3: follow graph ─────────────────────────────────────────────────
-  await Promise.all([
-    del("following", "user_id", userId),
-    del("following", "following_id", userId),
-    del("followers", "user_id", userId),
-    del("followers", "follower_id", userId),
-  ]);
-
-  // ── Batch 4: content owned by user ───────────────────────────────────────
-  await Promise.all([
-    del("routines", "user_id", userId),
-    del("user_workouts", "user_id", userId),
-    del("user_diets", "user_id", userId),
-    del("user_habits", "user_id", userId),
-    del("posts", "user_id", userId),
-    del("shots", "user_id", userId),
-    del("flow", "user_id", userId),
-    del("duel_groups", "created_by", userId),
-    del("commercial_profiles", "user_id", userId),
-  ]);
-
-  // ── Batch 4.5: mídia no Storage ──────────────────────────────────────────
-  // Antes do Batch 6 obrigatoriamente: a policy de DELETE do Storage depende de
-  // `auth.uid()`, e depois que a conta sai de `auth.users` não há mais sessão
-  // para provar posse — a mídia ficaria órfã para sempre.
+  // ── 1. Mídia no Storage — antes de tudo, enquanto a sessão existe ────────
   await purgeUserStorageDb(userId);
 
-  // ── Batch 5: profile (last — other tables may reference it) ──────────────
-  await del("profiles", "user_id", userId);
+  // ── 2. Linhas nas tabelas + auth.users, numa transação só, ignorando RLS ─
+  const removed = await deleteUserRowsDb(userId);
 
-  // ── Batch 6: delete from auth.users via server-side admin API ────────────
+  // A função encerra a conta em `auth.users` quando o dono dela alcança o
+  // schema `auth` — o que depende de qual role aplicou a migração e varia por
+  // projeto. `"auth.users"` no retorno é esse sinal. Veio? Acabou aqui.
+  if (removed && removed["auth.users"] > 0) return;
+
+  // ── 3. Fallback: encerrar a conta com a service role, do servidor ────────
   const { data: sessionData } = await (supabase as NonNullable<typeof supabase>).auth.getSession();
   const accessToken = sessionData?.session?.access_token;
   // Sem token não há como autenticar a exclusão. Falhar alto: as linhas do

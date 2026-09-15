@@ -49,6 +49,32 @@ export function specialMessageLabel(
 }
 
 /**
+ * Descrição do toast quando um envio (texto, foto ou áudio) falha.
+ *
+ * Existe por causa de um caso só, mas o caso importa: quando há bloqueio entre
+ * as duas pontas, a policy `messages_insert_not_blocked` (migração 20260826)
+ * recusa o INSERT e o Postgres devolve "new row violates row-level security
+ * policy for table messages" — texto que não diz nada a quem está na conversa.
+ * A UI normalmente nem chega aqui (a barra de escrever some quando a conversa
+ * está marcada como bloqueada), mas a marcação vem de um cache de TTL médio: se
+ * a outra pessoa bloqueia enquanto esta tela está aberta, o envio ainda parte.
+ *
+ * Qualquer outro erro continua mostrando a mensagem original — ela costuma ser
+ * a informação mais útil (rede, arquivo grande, etc.).
+ */
+export function sendErrorDescription(
+  err: any,
+  t: (key: TranslationKey) => string,
+): string {
+  const code = String(err?.code ?? "");
+  const message = String(err?.message ?? "");
+  if (code === "42501" || /row-level security/i.test(message)) {
+    return t("community_send_blocked_desc");
+  }
+  return message || t("retry");
+}
+
+/**
  * Prefixo de citação de uma resposta: `↩ <original>\n\n`. Usado por TODOS os
  * envios (texto, foto e áudio) para que a mídia enviada em cima de uma mensagem
  * marcada também apareça como resposta àquela mensagem.

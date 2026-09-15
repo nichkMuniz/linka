@@ -6,8 +6,23 @@
 > devolvem lista vazia para qualquer termo, o que faz a busca inteira parecer
 > quebrada. Com uma aba só, a barra de abas some.
 >
-> `searchUsersDb` filtra usuários bloqueados nos dois sentidos: sem isso, quem
-> você bloqueou continuaria alcançável pelo nome.
+> **Bloqueio: as quatro fontes da tela filtram (14/09/2026).**
+> `searchUsersDb` já filtrava desde o início — mas ele só responde a um termo
+> DIGITADO. A lista que a tela mostra ao abrir, sem busca nenhuma, vem de
+> `getAllUsersDb`, que **não filtrava**: bastava bloquear alguém e abrir Buscar
+> para a pessoa reaparecer, com o botão de seguir ao lado do nome. Agora:
+>
+> | Fonte | Aba | O que expunha |
+> |---|---|---|
+> | `getAllUsersDb` | Pessoas (lista inicial) | O perfil + botão de seguir |
+> | `searchUsersDb` | Pessoas (com termo) | — já filtrava |
+> | `searchRoutinesDb` | Treinos / Dietas | Nome e foto do **dono** da rotina |
+> | `searchContentByHashtagDb` | Tags | Posts e shots do bloqueado |
+>
+> Em `getAllUsersDb` o recorte por viewer acontece **fora** do `cached`: a chave
+> é global, então gravar a lista já filtrada faria o recorte de um usuário valer
+> para o próximo login no mesmo aparelho. Cacheia-se a lista crua. O mesmo ajuste
+> corrigiu o `excludeUserId`, que ia junto no payload cacheado.
 
 **Rota:** `/buscar`
 **Arquivo:** `client/pages/Search.tsx`

@@ -15,6 +15,7 @@ export {
   TERMS_URL,
   PRIVACY_URL,
   SUPPORT_URL,
+  EMAIL_CONFIRMED_URL,
   postShareUrl,
   profileShareUrl,
   isShareHost,

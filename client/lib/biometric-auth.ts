@@ -95,6 +95,29 @@ export async function enableBiometric(
   return true;
 }
 
+/**
+ * Atualiza a senha guardada no Keychain, sem novo prompt de biometria.
+ *
+ * Usado depois da troca de senha nas Configurações: lá o usuário acabou de
+ * digitar a senha atual (e ela foi verificada no servidor), então exigir Face ID
+ * de novo no mesmo fluxo só atrapalharia. Sem isto, a credencial guardada
+ * continuaria com a senha antiga e o login por biometria passaria a falhar com
+ * "credenciais inválidas" — em silêncio, até a pessoa tentar entrar.
+ *
+ * No-op quando a biometria não está ativada.
+ */
+export async function updateBiometricCredentials(
+  email: string,
+  password: string,
+): Promise<void> {
+  if (!isBiometricEnabled()) return;
+  try {
+    await NativeBiometric.setCredentials({ username: email, password, server: SERVER });
+  } catch {
+    // Keychain indisponível — a biometria volta a pedir senha, não é fatal.
+  }
+}
+
 /** Remove stored credentials from the Keychain and clear the enabled flag. */
 export async function disableBiometric(): Promise<void> {
   try {

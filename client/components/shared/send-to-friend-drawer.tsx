@@ -79,6 +79,11 @@ export function SendToFriendDrawer({ open, onOpenChange, content }: SendToFriend
         const merged: SearchUser[] = [];
         const seen = new Set<string>();
         for (const conv of conversations) {
+          // A conversa com alguém bloqueado continua existindo (o histórico é
+          // preservado de propósito), mas não serve de destino: a policy
+          // `messages_insert_not_blocked` recusa o envio no banco. Listar aqui
+          // seria oferecer uma ação que só pode falhar.
+          if (conv.isBlocked) continue;
           if (!seen.has(conv.userId)) {
             merged.push({ id: conv.userId, nickname: conv.userNickname, photo: conv.userPhoto });
             seen.add(conv.userId);

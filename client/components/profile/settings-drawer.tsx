@@ -15,6 +15,9 @@ import { LoadingSpinner } from "@/components/shared/animated-loading";
 import { ImageCropperDrawer, AVATAR_MAX_EXPORT } from "@/components/shared/image-cropper-drawer";
 import {
   updateUserProfileDb,
+  checkHandleExistsDb,
+  checkEmailExistsDb,
+  isValidEmail,
   createOrUpdateCommercialProfileDb,
   deleteCommercialProfileDb,
   getCommercialProfileDb,
@@ -44,16 +47,25 @@ import { supabase, resetSupabaseAuth } from "@/lib/supabase";
 import { safeExternalUrl, isSafeExternalUrl } from "@/lib/safe-url";
 import { Capacitor } from "@capacitor/core";
 import { Browser } from "@capacitor/browser";
-import { TERMS_URL, PRIVACY_URL, SUPPORT_URL } from "@/lib/share-url";
+import { TERMS_URL, PRIVACY_URL, SUPPORT_URL, EMAIL_CONFIRMED_URL } from "@/lib/share-url";
 import { PushNotifications } from "@capacitor/push-notifications";
 import { LocalNotifications } from "@capacitor/local-notifications";
 import { useLanguage } from "@/lib/language-context";
 import { FEATURES } from "@/lib/feature-flags";
+import { isStrongPassword, passwordRules } from "@/lib/password-rules";
 import { videoPosterSrc } from "@/lib/video-thumb";
 import { WeightHistoryDrawer } from "@/components/shared/weight-history-drawer";
 import { ReportProblemDrawer } from "@/components/shared/report-problem-drawer";
 import { BlockedAccountsDrawer } from "@/components/profile/blocked-accounts-drawer";
-import { isMonitoringEnabled } from "@/lib/monitoring";
+import { isMonitoringEnabled, reportHandledError } from "@/lib/monitoring";
+import {
+  PHYSICAL_LIMITS,
+  isAgeOutOfRange,
+  isHeightOutOfRange,
+  isWeightOutOfRange,
+  sanitizeIntInput,
+  sanitizeDecimalInput,
+} from "@/lib/physical-data";
 import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
 import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
 import {
@@ -83,11 +95,14 @@ import {
   Repeat,
   LineChart,
   Bug,
+  AlertTriangle,
+  Check,
 } from "lucide-react";
 import {
   isBiometricSupported,
   isBiometricEnabled,
   disableBiometric,
+  updateBiometricCredentials,
   type BiometricSupport,
 } from "@/lib/biometric-auth";
 
@@ -185,9 +200,23 @@ export function SettingsDrawer({
   const [isAccountOpen, setIsAccountOpen] = React.useState(false);
   const [editEmail, setEditEmail] = React.useState("");
   const [isChangingEmail, setIsChangingEmail] = React.useState(false);
+  // E-mail que passou a valer nesta sessão. O `userEmail` vem de `user.email` do
+  // auth-context, e lá o `setUserIfChanged` só troca o objeto quando muda o
+  // **id** — de propósito, para um refresh de token não invalidar os memos do
+  // app inteiro. O efeito colateral é que o evento USER_UPDATED não propaga o
+  // e-mail novo: sem este estado, a troca dava certo e a tela continuava
+  // mostrando o endereço antigo, parecendo que nada aconteceu.
+  const [changedEmail, setChangedEmail] = React.useState<string | null>(null);
+  const currentEmail = changedEmail ?? userEmail;
+  const emailFormatError = editEmail.trim().length > 0 && !isValidEmail(editEmail);
   const [editNickname, setEditNickname] = React.useState("");
   const [editBio, setEditBio] = React.useState("");
   const [editHandle, setEditHandle] = React.useState("");
+  // Disponibilidade do @ — mesma verificação do cadastro (Login.tsx, etapa 2),
+  // só que ignorando o próprio perfil: manter o handle atual não é colisão.
+  const [handleExists, setHandleExists] = React.useState<boolean | null>(null);
+  const [checkingHandle, setCheckingHandle] = React.useState(false);
+  const [showHandleChangeConfirm, setShowHandleChangeConfirm] = React.useState(false);
   const [editObjectives, setEditObjectives] = React.useState<string[]>([]);
   const [editPhotoFile, setEditPhotoFile] = React.useState<File | null>(null);
   const [editPhotoPreview, setEditPhotoPreview] = React.useState<string | null>(null);
@@ -199,8 +228,10 @@ export function SettingsDrawer({
   const [isSaving, setIsSaving] = React.useState(false);
   const [isResettingPassword, setIsResettingPassword] = React.useState(false);
   const [showPasswordForm, setShowPasswordForm] = React.useState(false);
+  const [currentPwd, setCurrentPwd] = React.useState("");
   const [newPwd, setNewPwd] = React.useState("");
   const [confirmPwd, setConfirmPwd] = React.useState("");
+  const [showCurrentPwdInput, setShowCurrentPwdInput] = React.useState(false);
   const [showNewPwdInput, setShowNewPwdInput] = React.useState(false);
   const [showConfirmPwdInput, setShowConfirmPwdInput] = React.useState(false);
   // --- Biometric login (Face ID / Touch ID) ---
@@ -220,10 +251,40 @@ export function SettingsDrawer({
     };
   }, []);
 
+  // Handle atual, normalizado como o banco guarda (sem "@", minúsculo). É o
+  // ponto de comparação tanto para pular a checagem quanto para decidir se
+  // houve mudança de verdade (e portanto se cabe o aviso).
+  const originalHandle = React.useMemo(
+    () => (profile.handle ?? "").replace(/^@/, "").trim().toLowerCase(),
+    [profile.handle],
+  );
+  const normalizedEditHandle = editHandle.trim().toLowerCase();
+  const handleChanged = normalizedEditHandle.length > 0 && normalizedEditHandle !== originalHandle;
+
+  // Checagem de disponibilidade com debounce de 500ms — espelha a etapa 2 do
+  // cadastro. Só roda enquanto a aba pública do editor está aberta.
+  React.useEffect(() => {
+    if (!isEditOpen || profileTab !== "public") return;
+    if (!handleChanged || normalizedEditHandle.length < 3) {
+      setHandleExists(null);
+      setCheckingHandle(false);
+      return;
+    }
+    setCheckingHandle(true);
+    const timer = setTimeout(async () => {
+      const exists = await checkHandleExistsDb(normalizedEditHandle, userId);
+      setHandleExists(exists);
+      setCheckingHandle(false);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [normalizedEditHandle, handleChanged, isEditOpen, profileTab, userId]);
+
   const openEditProfile = (tab: "public" | "personal" = "public") => {
     setEditNickname(profile.nickname);
     setEditBio(profile.bio ?? "");
     setEditHandle((profile.handle ?? "").replace(/^@/, ""));
+    setHandleExists(null);
+    setCheckingHandle(false);
     setEditObjectives(profile.objectives ?? []);
     setEditPhotoPreview(profile.photo ?? null);
     setEditPhotoFile(null);
@@ -252,6 +313,32 @@ export function SettingsDrawer({
       toast({ title: t("settings_toast_name_required"), description: t("settings_toast_name_required_desc"), variant: "destructive" });
       return;
     }
+    // Mesmas travas do cadastro: mínimo de 3 caracteres e @ livre. Só valem
+    // quando o handle mudou — quem não mexeu no campo salva direto.
+    if (handleChanged) {
+      if (normalizedEditHandle.length < 3) {
+        toast({ title: t("settings_toast_handle_short"), description: t("settings_toast_handle_short_desc"), variant: "destructive" });
+        return;
+      }
+      if (checkingHandle) {
+        toast({ title: t("settings_toast_handle_checking"), description: t("settings_toast_handle_checking_desc") });
+        return;
+      }
+      if (handleExists !== false) {
+        toast({ title: t("settings_toast_handle_taken"), description: t("settings_toast_handle_taken_desc"), variant: "destructive" });
+        return;
+      }
+      // Trocar o @ quebra quem procura pelo antigo — pede confirmação antes.
+      // Quem ainda não tinha handle não perde nada, então salva direto.
+      if (originalHandle.length > 0) {
+        setShowHandleChangeConfirm(true);
+        return;
+      }
+    }
+    await persistProfile();
+  };
+
+  const persistProfile = async () => {
     setIsSaving(true);
     try {
       let photoUrl: string | null = removePhoto ? null : (profile.photo ?? null);
@@ -269,7 +356,9 @@ export function SettingsDrawer({
         nickname: editNickname,
         bio: editBio,
         photo: photoUrl,
-        handle: editHandle.trim() || undefined,
+        // Minúsculo para casar com o índice único do banco e com o que o
+        // cadastro grava (Login.tsx) — o @ é case-insensitive na busca.
+        handle: normalizedEditHandle || undefined,
         objectives: editObjectives.length > 0 ? editObjectives : null,
       });
       if (updated) {
@@ -278,8 +367,17 @@ export function SettingsDrawer({
         setIsEditOpen(false);
       }
     } catch (err: any) {
-      toast({ title: t("settings_toast_profile_error"), description: err?.message || t("retry"), variant: "destructive" });
+      // Corrida: o @ foi ocupado entre a verificação e o save. Marca o campo
+      // como indisponível de novo para o usuário escolher outro.
+      if (err?.code === "HANDLE_TAKEN") {
+        setHandleExists(true);
+        toast({ title: t("settings_toast_handle_taken"), description: t("settings_toast_handle_taken_desc"), variant: "destructive" });
+      } else {
+        toast({ title: t("settings_toast_profile_error"), description: err?.message || t("retry"), variant: "destructive" });
+      }
     } finally {
+      // Fecha só no fim para o "Salvando…" aparecer no próprio diálogo.
+      setShowHandleChangeConfirm(false);
       setIsSaving(false);
     }
   };
@@ -650,6 +748,206 @@ export function SettingsDrawer({
     }
   };
 
+  /**
+   * Troca do e-mail de login.
+   *
+   * Antes era um `onClick` inline com `catch {}` mudo: qualquer falha virava o
+   * mesmo "Não foi possível alterar o email", sem log e sem ir ao Sentry — não
+   * dava para saber o motivo nem pelo painel. Agora cada motivo tem mensagem
+   * própria, e o que sobra é reportado com a mensagem real do servidor.
+   */
+  const handleChangeEmail = async () => {
+    const trimmed = editEmail.trim().toLowerCase();
+    if (!trimmed || trimmed === currentEmail.trim().toLowerCase()) return;
+
+    // Formato antes da rede: o GoTrue devolve 422 genérico para e-mail inválido.
+    if (!isValidEmail(trimmed)) {
+      toast({ title: t("settings_email_invalid"), description: t("settings_email_invalid_desc"), variant: "destructive" });
+      return;
+    }
+
+    setIsChangingEmail(true);
+    try {
+      // Mesma RPC do cadastro: dá o motivo exato ("já existe uma conta") em vez
+      // de esperar o 422 "Email address already registered by another user".
+      if (await checkEmailExistsDb(trimmed)) {
+        toast({ title: t("settings_email_taken"), description: t("settings_email_taken_desc"), variant: "destructive" });
+        return;
+      }
+
+      // Sem `emailRedirectTo`, o GoTrue usa a **Site URL** do projeto como
+      // destino do link — que estava no `http://localhost:3000` padrão do
+      // Supabase, ou seja, o e-mail de confirmação apontava para a máquina de
+      // quem recebia. A troca em si acontece no `/auth/v1/verify`, antes do
+      // redirecionamento; esta página só confirma e devolve ao app.
+      //
+      // ⚠️ Isto só tem efeito se a URL estiver na allowlist de **Redirect URLs**
+      // do painel do Supabase. Fora da lista, o GoTrue descarta o valor e cai na
+      // Site URL de novo (ver `EMAIL_CONFIRMED_URL` em shared/share-config.ts).
+      const { data, error } = await supabase.auth.updateUser(
+        { email: trimmed },
+        { emailRedirectTo: EMAIL_CONFIRMED_URL },
+      );
+      if (error) throw error;
+
+      // O projeto pode estar configurado para confirmar na hora ou para exigir
+      // confirmação por link. Em vez de chutar (a mensagem fixa prometia um
+      // e-mail que nem sempre é enviado), lê o que voltou: `email` já trocado =
+      // aplicado; `new_email` preenchido = pendente de confirmação.
+      const updatedEmail = String(data?.user?.email ?? "").toLowerCase();
+      const pendingEmail = String((data?.user as any)?.new_email ?? "").toLowerCase();
+
+      // O Face ID guarda e-mail + senha no Keychain. O e-mail guardado vai ficar
+      // errado — agora, se a troca já valeu, ou quando a pessoa clicar no link,
+      // se ficou pendente. Como não temos a senha aqui para regravar a
+      // credencial, o certo é desligar e avisar, em vez de deixar o login por
+      // biometria falhar em silêncio na próxima abertura do app.
+      if (isBiometricEnabled()) {
+        await disableBiometric();
+        setBiometricEnabled(false);
+        toast({ title: t("settings_biometric_reset_title"), description: t("settings_biometric_reset_desc") });
+      }
+
+      if (updatedEmail === trimmed) {
+        setChangedEmail(trimmed);
+        toast({ title: t("settings_email_changed"), description: t("settings_email_changed_desc") });
+      } else if (pendingEmail === trimmed) {
+        toast({ title: t("settings_email_confirm_sent"), description: t("settings_email_confirm_desc") });
+      } else {
+        // Resposta 200 sem refletir o pedido — não dá para prometer sucesso.
+        reportHandledError(new Error("updateUser devolveu 200 sem aplicar nem agendar a troca"), "settings:change-email", { updatedEmail, pendingEmail });
+        toast({ title: t("settings_email_error"), description: t("retry"), variant: "destructive" });
+      }
+    } catch (err: any) {
+      const code = String(err?.code ?? "");
+      const message = String(err?.message ?? "");
+      const lower = message.toLowerCase();
+      const status = Number(err?.status ?? 0);
+
+      // Sem rede: o fetch do supabase-js já tentou 4 vezes (fetchWithRetry).
+      if (!navigator.onLine || lower.includes("failed to fetch") || lower.includes("network")) {
+        toast({ title: t("settings_email_offline"), description: t("settings_email_offline_desc"), variant: "destructive" });
+        return;
+      }
+      // Sessão vencida — o caso mais provável de quem deixou o app em segundo
+      // plano por horas. Pedir de novo não resolve; precisa entrar de novo.
+      if (status === 401 || code === "session_not_found" || lower.includes("session missing") || lower.includes("jwt")) {
+        toast({ title: t("settings_email_session_expired"), description: t("settings_email_session_expired_desc"), variant: "destructive" });
+        return;
+      }
+      if (code === "email_exists" || lower.includes("already registered") || lower.includes("already been registered")) {
+        toast({ title: t("settings_email_taken"), description: t("settings_email_taken_desc"), variant: "destructive" });
+        return;
+      }
+      // Teto de envio de e-mail do projeto (o SMTP embutido do Supabase é de
+      // poucos por hora). Tentar de novo na hora só repete o erro.
+      if (status === 429 || code === "over_email_send_rate_limit" || lower.includes("for security purposes") || lower.includes("rate limit")) {
+        toast({ title: t("settings_email_rate_limit"), description: t("settings_email_rate_limit_desc"), variant: "destructive" });
+        return;
+      }
+      if (code === "email_address_invalid" || code === "validation_failed") {
+        toast({ title: t("settings_email_invalid"), description: t("settings_email_invalid_desc"), variant: "destructive" });
+        return;
+      }
+      // Desconhecido: mostra a mensagem do servidor em vez de escondê-la, e
+      // reporta (catch + toast sozinho nunca chega ao Sentry).
+      reportHandledError(err, "settings:change-email", { code, status });
+      toast({ title: t("settings_email_error"), description: message || t("retry"), variant: "destructive" });
+    } finally {
+      setIsChangingEmail(false);
+    }
+  };
+
+  /**
+   * Troca de senha.
+   *
+   * Duas correções em relação ao que existia:
+   *
+   * 1. **Exige a senha atual.** Sem isso, qualquer pessoa com o telefone
+   *    destravado na mão trocava a senha da conta em dois toques — e trocar a
+   *    senha é justamente o que tranca o dono de fora. O Supabase não expõe um
+   *    "conferir senha", então a verificação é um `signInWithPassword` com o
+   *    e-mail atual: se autentica, a senha confere. A sessão que volta é do
+   *    mesmo usuário (o `setUserIfChanged` do auth-context nem troca o objeto,
+   *    porque o id é o mesmo).
+   * 2. **Mesma regra de senha forte do cadastro** (`client/lib/password-rules.ts`).
+   *    Antes aqui pedia só 6 caracteres: dava para criar a conta com senha forte
+   *    e rebaixá-la para `123456` por este drawer.
+   */
+  const handleChangePassword = async () => {
+    if (!currentPwd) {
+      toast({ title: t("settings_password_current_required"), variant: "destructive" });
+      return;
+    }
+    if (!isStrongPassword(newPwd)) {
+      toast({ title: t("settings_password_error_weak"), description: t("settings_password_error_weak_desc"), variant: "destructive" });
+      return;
+    }
+    if (newPwd !== confirmPwd) {
+      toast({ title: t("settings_password_error_match"), variant: "destructive" });
+      return;
+    }
+    if (newPwd === currentPwd) {
+      toast({ title: t("settings_password_error_same"), description: t("settings_password_error_same_desc"), variant: "destructive" });
+      return;
+    }
+
+    setIsResettingPassword(true);
+    try {
+      const { error: authError } = await supabase.auth.signInWithPassword({
+        email: currentEmail,
+        password: currentPwd,
+      });
+      if (authError) {
+        const lower = String(authError.message ?? "").toLowerCase();
+        if (lower.includes("invalid login") || lower.includes("invalid credentials")) {
+          toast({ title: t("settings_password_current_wrong"), description: t("settings_password_current_wrong_desc"), variant: "destructive" });
+          return;
+        }
+        throw authError;
+      }
+
+      const { error } = await supabase.auth.updateUser({ password: newPwd });
+      if (error) throw error;
+
+      // A senha guardada no Keychain para o Face ID ficou velha — atualiza sem
+      // novo prompt (a identidade acabou de ser provada pela senha atual).
+      await updateBiometricCredentials(currentEmail, newPwd);
+
+      toast({ title: t("settings_password_changed"), description: t("settings_password_changed_desc") });
+      setShowPasswordForm(false);
+      setCurrentPwd("");
+      setNewPwd("");
+      setConfirmPwd("");
+    } catch (err: any) {
+      const code = String(err?.code ?? "");
+      const message = String(err?.message ?? "");
+      const lower = message.toLowerCase();
+      const status = Number(err?.status ?? 0);
+
+      if (!navigator.onLine || lower.includes("failed to fetch") || lower.includes("network")) {
+        toast({ title: t("settings_email_offline"), description: t("settings_email_offline_desc"), variant: "destructive" });
+        return;
+      }
+      // O GoTrue recusa repetir a senha anterior quando o projeto liga essa
+      // política — a checagem local acima não pega senha reaproveitada de trocas
+      // antigas, só a atual.
+      if (code === "same_password" || lower.includes("should be different")) {
+        toast({ title: t("settings_password_error_same"), description: t("settings_password_error_same_desc"), variant: "destructive" });
+        return;
+      }
+      if (status === 429 || code === "over_request_rate_limit" || lower.includes("for security purposes") || lower.includes("rate limit")) {
+        toast({ title: t("settings_email_rate_limit"), description: t("settings_password_rate_limit_desc"), variant: "destructive" });
+        return;
+      }
+      // `catch` + toast sozinho não chega ao Sentry — reporta explicitamente.
+      reportHandledError(err, "settings:change-password", { code, status });
+      toast({ title: t("settings_password_error_generic"), description: message || t("retry"), variant: "destructive" });
+    } finally {
+      setIsResettingPassword(false);
+    }
+  };
+
   // --- Personal Data ---
   const [personalDataForm, setPersonalDataForm] = React.useState({
     height: profile.height ?? "",
@@ -657,6 +955,13 @@ export function SettingsDrawer({
     age: profile.age ?? "",
   });
   const [isSavingPersonalData, setIsSavingPersonalData] = React.useState(false);
+
+  // Faixas de sanidade — as mesmas do cadastro (Login.tsx, etapa 2.8), lidas de
+  // `physical-data.ts` para as duas telas não divergirem de novo.
+  const heightError = isHeightOutOfRange(personalDataForm.height);
+  const weightError = isWeightOutOfRange(personalDataForm.weight);
+  const ageError = isAgeOutOfRange(personalDataForm.age);
+  const hasPhysicalErrors = heightError || weightError || ageError;
 
   // --- Histórico de peso (mesmo drawer do lembrete semanal em Metas) ---
   const [isWeightHistoryOpen, setIsWeightHistoryOpen] = React.useState(false);
@@ -696,6 +1001,12 @@ export function SettingsDrawer({
   }, [t]);
 
   const handleSavePersonalData = async () => {
+    // O botão já fica desabilitado, mas a trava aqui protege qualquer outro
+    // caminho de chamada (e deixa claro o motivo para quem ler o handler).
+    if (hasPhysicalErrors) {
+      toast({ title: t("settings_toast_physical_invalid"), description: t("settings_toast_physical_invalid_desc"), variant: "destructive" });
+      return;
+    }
     setIsSavingPersonalData(true);
     try {
       await Promise.all([
@@ -891,19 +1202,72 @@ export function SettingsDrawer({
                       {/* Handle */}
                       <div className="space-y-2">
                         <label className="text-sm font-medium" style={{ color: "#fff" }}>{t("settings_handle_label")}</label>
-                        <div className="flex items-center rounded-md overflow-hidden" style={{ border: "1px solid rgba(255,255,255,.12)" }}>
+                        <div
+                          className="flex items-center rounded-md overflow-hidden"
+                          style={{
+                            border: `1px solid ${
+                              handleChanged && handleExists === true
+                                ? "rgba(248,113,113,.7)"
+                                : handleChanged && handleExists === false
+                                ? "rgba(74,222,128,.7)"
+                                : "rgba(255,255,255,.12)"
+                            }`,
+                          }}
+                        >
                           <span className="px-3 py-2 text-sm select-none" style={{ background: "rgba(255,255,255,.1)", borderRight: "1px solid rgba(255,255,255,.12)", color: "rgba(255,255,255,.5)" }}>@</span>
                           <Input
                             value={editHandle}
-                            onChange={(e) => setEditHandle(e.target.value.replace(/[^a-zA-Z0-9_.]/g, ""))}
+                            onChange={(e) => {
+                              setEditHandle(e.target.value.replace(/[^a-zA-Z0-9_.]/g, ""));
+                              setHandleExists(null);
+                            }}
                             placeholder={t("settings_handle_placeholder")}
                             className="border-0 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-none"
                             style={{ background: "rgba(255,255,255,.07)", color: "#fff" }}
+                            maxLength={30}
+                            autoCapitalize="none"
+                            autoCorrect="off"
+                            autoComplete="off"
                           />
                         </div>
                         <p className="text-xs" style={{ color: "rgba(255,255,255,.4)" }}>{t("settings_handle_hint")}</p>
+                        {/* Disponibilidade em tempo real — mesmo retorno do cadastro */}
+                        {handleChanged && normalizedEditHandle.length < 3 && (
+                          <p className="text-xs" style={{ color: "rgba(255,255,255,.4)" }}>{t("settings_handle_too_short")}</p>
+                        )}
+                        {handleChanged && normalizedEditHandle.length >= 3 && checkingHandle && (
+                          <p className="text-xs" style={{ color: "rgba(255,255,255,.4)" }}>{t("settings_handle_checking")}</p>
+                        )}
+                        {handleChanged && normalizedEditHandle.length >= 3 && !checkingHandle && handleExists === true && (
+                          <p className="text-xs" style={{ color: "#f87171" }}>{t("settings_handle_taken")}</p>
+                        )}
+                        {handleChanged && normalizedEditHandle.length >= 3 && !checkingHandle && handleExists === false && (
+                          <p className="text-xs" style={{ color: "#4ade80" }}>{t("settings_handle_available")}</p>
+                        )}
+                        {/* Aviso: trocar o @ some com o endereço antigo */}
+                        {handleChanged && originalHandle.length > 0 && (
+                          <div
+                            className="flex items-start gap-2 rounded-xl p-2.5"
+                            style={{ background: "rgba(251,191,36,.1)", border: "1px solid rgba(251,191,36,.25)" }}
+                          >
+                            <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-[1px]" style={{ color: "#fbbf24" }} />
+                            <p className="text-xs leading-relaxed" style={{ color: "rgba(255,255,255,.7)" }}>
+                              {t("settings_handle_change_warning").replace("{old}", originalHandle)}
+                            </p>
+                          </div>
+                        )}
                       </div>
-                      <Button onClick={handleSaveProfile} disabled={isSaving} className="w-full rounded-full" style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}>
+                      <Button
+                        onClick={handleSaveProfile}
+                        disabled={
+                          isSaving ||
+                          // Handle novo só libera o save quando a verificação
+                          // voltou "disponível" (mesma regra do cadastro).
+                          (handleChanged && (checkingHandle || handleExists !== false))
+                        }
+                        className="w-full rounded-full"
+                        style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}
+                      >
                         {isSaving ? t("saving") : t("settings_save_changes")}
                       </Button>
                     </div>
@@ -911,7 +1275,23 @@ export function SettingsDrawer({
                     <div className="space-y-4">
                       <div className="space-y-2">
                         <label className="text-sm font-medium" style={{ color: "#fff" }}>{t("settings_height_label")}</label>
-                        <Input type="number" min={100} max={250} step={1} value={personalDataForm.height} onChange={(e) => setPersonalDataForm((prev) => ({ ...prev, height: String(Math.trunc(Number(e.target.value))) }))} placeholder={t("settings_height_placeholder")} style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }} />
+                        <Input
+                          type="number"
+                          inputMode="numeric"
+                          min={PHYSICAL_LIMITS.height.min}
+                          max={PHYSICAL_LIMITS.height.max}
+                          step={1}
+                          value={personalDataForm.height}
+                          // Sanitiza o texto cru em vez de `Math.trunc(Number(v))`:
+                          // aquele transformava campo vazio em "0", então não dava
+                          // para apagar a altura depois de preenchida.
+                          onChange={(e) => setPersonalDataForm((prev) => ({ ...prev, height: sanitizeIntInput(e.target.value) }))}
+                          placeholder={t("settings_height_placeholder")}
+                          style={{ background: "rgba(255,255,255,.07)", border: `1px solid ${heightError ? "rgba(248,113,113,.7)" : "rgba(255,255,255,.12)"}`, color: "#fff" }}
+                        />
+                        {heightError && (
+                          <p className="text-xs" style={{ color: "#f87171" }}>{t("physical_height_range")}</p>
+                        )}
                       </div>
                       <div className="space-y-2">
                         <div className="flex items-center justify-between gap-2">
@@ -933,7 +1313,22 @@ export function SettingsDrawer({
                           </button>
                           )}
                         </div>
-                        <Input type="number" min={30} max={300} step="0.1" value={personalDataForm.weight} onChange={(e) => setPersonalDataForm((prev) => ({ ...prev, weight: e.target.value }))} placeholder={t("settings_weight_placeholder")} style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }} />
+                        {/* type="text" + inputMode="decimal": com type="number" o
+                            iOS esconde o ponto e devolve "" em estado intermediário
+                            ("70."), impossibilitando digitar 70.5 (ver memória
+                            decimal-number-inputs-ios). */}
+                        <Input
+                          type="text"
+                          inputMode="decimal"
+                          maxLength={6}
+                          value={personalDataForm.weight}
+                          onChange={(e) => setPersonalDataForm((prev) => ({ ...prev, weight: sanitizeDecimalInput(e.target.value) }))}
+                          placeholder={t("settings_weight_placeholder")}
+                          style={{ background: "rgba(255,255,255,.07)", border: `1px solid ${weightError ? "rgba(248,113,113,.7)" : "rgba(255,255,255,.12)"}`, color: "#fff" }}
+                        />
+                        {weightError && (
+                          <p className="text-xs" style={{ color: "#f87171" }}>{t("physical_weight_range")}</p>
+                        )}
                         {FEATURES.weightTracking && (
                         <WeightHistoryDrawer
                           open={isWeightHistoryOpen}
@@ -946,7 +1341,20 @@ export function SettingsDrawer({
                       </div>
                       <div className="space-y-2">
                         <label className="text-sm font-medium" style={{ color: "#fff" }}>{t("settings_age_label")}</label>
-                        <Input type="number" min={10} max={120} step={1} value={personalDataForm.age} onChange={(e) => setPersonalDataForm((prev) => ({ ...prev, age: String(Math.trunc(Number(e.target.value))) }))} placeholder={t("settings_age_placeholder")} style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }} />
+                        <Input
+                          type="number"
+                          inputMode="numeric"
+                          min={PHYSICAL_LIMITS.age.min}
+                          max={PHYSICAL_LIMITS.age.max}
+                          step={1}
+                          value={personalDataForm.age}
+                          onChange={(e) => setPersonalDataForm((prev) => ({ ...prev, age: sanitizeIntInput(e.target.value) }))}
+                          placeholder={t("settings_age_placeholder")}
+                          style={{ background: "rgba(255,255,255,.07)", border: `1px solid ${ageError ? "rgba(248,113,113,.7)" : "rgba(255,255,255,.12)"}`, color: "#fff" }}
+                        />
+                        {ageError && (
+                          <p className="text-xs" style={{ color: "#f87171" }}>{t("physical_age_range")}</p>
+                        )}
                       </div>
                       {/* Objectives */}
                       <div className="space-y-2">
@@ -976,7 +1384,7 @@ export function SettingsDrawer({
                           })}
                         </div>
                       </div>
-                      <Button onClick={handleSavePersonalData} disabled={isSavingPersonalData} className="w-full rounded-full" style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}>
+                      <Button onClick={handleSavePersonalData} disabled={isSavingPersonalData || hasPhysicalErrors} className="w-full rounded-full" style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}>
                         {isSavingPersonalData ? t("saving") : t("save")}
                       </Button>
                     </div>
@@ -985,12 +1393,65 @@ export function SettingsDrawer({
               </DrawerContent>
             </Drawer>
 
+            {/* Confirmação da troca de @ — portal para document.body para ficar
+                acima do drawer de edição (mesmo padrão do delete de flow) */}
+            {showHandleChangeConfirm && createPortal(
+              <div
+                className="fixed inset-0 z-[10000] flex items-center justify-center pointer-events-none"
+                style={{
+                  paddingTop: "max(1rem, env(safe-area-inset-top))",
+                  paddingBottom: "max(1rem, env(safe-area-inset-bottom))",
+                  paddingLeft: "max(1rem, env(safe-area-inset-left))",
+                  paddingRight: "max(1rem, env(safe-area-inset-right))",
+                  background: "rgba(0,0,0,.6)",
+                }}
+              >
+                <div
+                  className="pointer-events-auto w-full max-w-[320px] rounded-2xl p-5"
+                  style={{
+                    background: "linear-gradient(rgba(30,28,40,.96),rgba(14,13,20,.98))",
+                    border: "1px solid rgba(255,255,255,.14)",
+                    backdropFilter: "blur(20px) saturate(160%)",
+                    WebkitBackdropFilter: "blur(20px) saturate(160%)",
+                  }}
+                >
+                  <p className="text-base font-semibold text-white mb-1.5">
+                    {t("settings_handle_confirm_title")}
+                  </p>
+                  <p className="text-sm mb-4" style={{ color: "rgba(255,255,255,.6)" }}>
+                    {t("settings_handle_confirm_desc")
+                      .replace("{old}", originalHandle)
+                      .replace("{new}", normalizedEditHandle)}
+                  </p>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      className="flex-1"
+                      onClick={() => setShowHandleChangeConfirm(false)}
+                      disabled={isSaving}
+                    >
+                      {t("cancel")}
+                    </Button>
+                    <Button
+                      className="flex-1"
+                      onClick={persistProfile}
+                      disabled={isSaving}
+                      style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}
+                    >
+                      {isSaving ? t("saving") : t("settings_handle_confirm_cta")}
+                    </Button>
+                  </div>
+                </div>
+              </div>,
+              document.body,
+            )}
+
             {/* Account & Security */}
             <Drawer open={isAccountOpen} onOpenChange={setIsAccountOpen}>
               <SettingsRow
                 label={t("settings_account_security")}
                 icon={<Settings className="h-4 w-4" />}
-                onClick={() => { setEditEmail(userEmail); setIsAccountOpen(true); }}
+                onClick={() => { setEditEmail(currentEmail); setIsAccountOpen(true); }}
               />
               <DrawerContent
                 handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
@@ -1015,29 +1476,23 @@ export function SettingsDrawer({
                       <label className="text-sm font-medium" style={{ color: "#fff" }}>{t("settings_email_label")}</label>
                       <Input
                         type="email"
+                        inputMode="email"
+                        autoCapitalize="none"
+                        autoCorrect="off"
+                        spellCheck={false}
                         value={editEmail}
                         onChange={(e) => setEditEmail(e.target.value)}
                         placeholder={t("settings_email_placeholder")}
-                        style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }}
+                        style={{ background: "rgba(255,255,255,.07)", border: `1px solid ${emailFormatError ? "rgba(248,113,113,.7)" : "rgba(255,255,255,.12)"}`, color: "#fff" }}
                       />
-                      {editEmail.trim() && editEmail.trim() !== userEmail && (
+                      {emailFormatError && (
+                        <p className="text-xs" style={{ color: "#f87171" }}>{t("settings_email_invalid_desc")}</p>
+                      )}
+                      {editEmail.trim().toLowerCase() !== currentEmail.trim().toLowerCase() && (
                         <>
                           <Button
-                            onClick={async () => {
-                              const trimmed = editEmail.trim();
-                              if (!trimmed || trimmed === userEmail) return;
-                              setIsChangingEmail(true);
-                              try {
-                                const { error } = await supabase.auth.updateUser({ email: trimmed });
-                                if (error) throw error;
-                                toast({ title: t("settings_email_confirm_sent"), description: t("settings_email_confirm_desc") });
-                              } catch {
-                                toast({ title: t("error"), description: t("settings_email_error"), variant: "destructive" });
-                              } finally {
-                                setIsChangingEmail(false);
-                              }
-                            }}
-                            disabled={isChangingEmail}
+                            onClick={handleChangeEmail}
+                            disabled={isChangingEmail || !editEmail.trim() || emailFormatError}
                             variant="outline"
                             className="w-full rounded-full"
                             style={{ background: "rgba(255,255,255,.08)", color: "rgba(255,255,255,.7)", border: "1px solid rgba(255,255,255,.12)" }}
@@ -1055,6 +1510,7 @@ export function SettingsDrawer({
                         className="flex items-center justify-between w-full"
                         onClick={() => {
                           setShowPasswordForm((v) => !v);
+                          setCurrentPwd("");
                           setNewPwd("");
                           setConfirmPwd("");
                         }}
@@ -1065,57 +1521,74 @@ export function SettingsDrawer({
                       <p className="text-xs" style={{ color: "rgba(255,255,255,.4)" }}>{t("settings_reset_password_hint")}</p>
                       {showPasswordForm && (
                         <div className="space-y-3 pt-1">
+                          {/* Senha atual — reautenticação antes de permitir a troca */}
+                          <div className="relative">
+                            <Input
+                              type={showCurrentPwdInput ? "text" : "password"}
+                              placeholder={t("settings_current_password")}
+                              value={currentPwd}
+                              onChange={(e) => setCurrentPwd(e.target.value)}
+                              autoComplete="current-password"
+                              className="pr-10 [&::-ms-reveal]:hidden [&::-webkit-credentials-auto-fill-button]:hidden"
+                              style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }}
+                            />
+                            <button type="button" className="absolute right-3 top-1/2 -translate-y-1/2" style={{ color: "rgba(255,255,255,.5)" }} onClick={() => setShowCurrentPwdInput((v) => !v)}>
+                              {showCurrentPwdInput ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                            </button>
+                          </div>
                           <div className="relative">
                             <Input
                               type={showNewPwdInput ? "text" : "password"}
                               placeholder={t("settings_new_password")}
                               value={newPwd}
                               onChange={(e) => setNewPwd(e.target.value)}
-                              className="pr-10"
+                              autoComplete="new-password"
+                              className="pr-10 [&::-ms-reveal]:hidden [&::-webkit-credentials-auto-fill-button]:hidden"
                               style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }}
                             />
                             <button type="button" className="absolute right-3 top-1/2 -translate-y-1/2" style={{ color: "rgba(255,255,255,.5)" }} onClick={() => setShowNewPwdInput((v) => !v)}>
                               {showNewPwdInput ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                             </button>
                           </div>
+                          {/* Mesmo checklist do cadastro (client/lib/password-rules.ts) */}
+                          {newPwd.length > 0 && (
+                            <ul className="grid gap-1">
+                              {passwordRules(newPwd).map(({ ok, key }) => (
+                                <li key={key} className="flex items-center gap-1.5 text-xs" style={{ color: ok ? "#4ade80" : "rgba(255,255,255,.45)" }}>
+                                  {ok ? <Check className="h-3 w-3 shrink-0" /> : <span className="h-3 w-3 shrink-0 rounded-full border border-current inline-block" />}
+                                  {t(key)}
+                                </li>
+                              ))}
+                            </ul>
+                          )}
                           <div className="relative">
                             <Input
                               type={showConfirmPwdInput ? "text" : "password"}
                               placeholder={t("settings_confirm_password")}
                               value={confirmPwd}
                               onChange={(e) => setConfirmPwd(e.target.value)}
-                              className="pr-10"
+                              autoComplete="new-password"
+                              className="pr-10 [&::-ms-reveal]:hidden [&::-webkit-credentials-auto-fill-button]:hidden"
                               style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }}
                             />
                             <button type="button" className="absolute right-3 top-1/2 -translate-y-1/2" style={{ color: "rgba(255,255,255,.5)" }} onClick={() => setShowConfirmPwdInput((v) => !v)}>
                               {showConfirmPwdInput ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                             </button>
                           </div>
+                          {confirmPwd.length > 0 && newPwd !== confirmPwd && (
+                            <p className="text-xs" style={{ color: "#f87171" }}>{t("login_passwords_mismatch")}</p>
+                          )}
+                          {confirmPwd.length > 0 && newPwd === confirmPwd && isStrongPassword(newPwd) && (
+                            <p className="text-xs" style={{ color: "#4ade80" }}>{t("login_passwords_match")}</p>
+                          )}
                           <Button
-                            onClick={async () => {
-                              if (newPwd.length < 6) {
-                                toast({ title: t("settings_password_error_short"), variant: "destructive" });
-                                return;
-                              }
-                              if (newPwd !== confirmPwd) {
-                                toast({ title: t("settings_password_error_match"), variant: "destructive" });
-                                return;
-                              }
-                              setIsResettingPassword(true);
-                              try {
-                                const { error } = await supabase.auth.updateUser({ password: newPwd });
-                                if (error) throw error;
-                                toast({ title: t("settings_password_changed"), description: t("settings_password_changed_desc") });
-                                setShowPasswordForm(false);
-                                setNewPwd("");
-                                setConfirmPwd("");
-                              } catch {
-                                toast({ title: t("settings_password_error_generic"), variant: "destructive" });
-                              } finally {
-                                setIsResettingPassword(false);
-                              }
-                            }}
-                            disabled={isResettingPassword || !newPwd || !confirmPwd}
+                            onClick={handleChangePassword}
+                            disabled={
+                              isResettingPassword ||
+                              !currentPwd ||
+                              !isStrongPassword(newPwd) ||
+                              newPwd !== confirmPwd
+                            }
                             className="w-full rounded-full"
                             style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}
                           >

@@ -26,12 +26,21 @@ import {
 } from "@/lib/network-status";
 import { getKeyboardHeight, subscribeKeyboardHeight } from "@/lib/keyboard";
 import { Upload, X, Check, ArrowLeft, Eye, EyeOff, Plus, Trash2, ScanFace } from "lucide-react";
-import { createOrUpdateCommercialProfileDb, saveCommercialPlansDb, type ServicePlan, checkEmailExistsDb, checkHandleExistsDb, invalidateProfileCache } from "@/lib/ritmofit-db";
+import { createOrUpdateCommercialProfileDb, saveCommercialPlansDb, type ServicePlan, checkEmailExistsDb, checkHandleExistsDb, invalidateProfileCache, isValidEmail } from "@/lib/ritmofit-db";
 import { ImageCropperDrawer, AVATAR_MAX_EXPORT } from "@/components/shared/image-cropper-drawer";
 import { LoginSplashOriginal } from "@/components/shared/login-splash-original";
 import { Browser } from "@capacitor/browser";
 import { TERMS_URL, PRIVACY_URL } from "@/lib/share-url";
 import { FEATURES } from "@/lib/feature-flags";
+import { isStrongPassword, passwordRules } from "@/lib/password-rules";
+import {
+  PHYSICAL_LIMITS,
+  isAgeOutOfRange,
+  isHeightOutOfRange,
+  isWeightOutOfRange,
+  sanitizeIntInput,
+  sanitizeDecimalInput,
+} from "@/lib/physical-data";
 import {
   isBiometricSupported,
   isBiometricEnabled,
@@ -51,10 +60,6 @@ import {
   AlertDialogCancel,
 } from "@/components/ui/alert-dialog";
 
-function isValidEmail(email: string) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-}
-
 function isValidUrl(url: string) {
   try {
     const u = new URL(url.startsWith("http") ? url : `https://${url}`);
@@ -62,10 +67,6 @@ function isValidUrl(url: string) {
   } catch {
     return false;
   }
-}
-
-function isStrongPassword(pwd: string) {
-  return pwd.length >= 8 && /[A-Z]/.test(pwd) && /[^a-zA-Z0-9]/.test(pwd);
 }
 
 function isEmailNotConfirmed(message: string | undefined) {
@@ -135,6 +136,10 @@ export default function Login() {
   const [photoPreview, setPhotoPreview] = React.useState<string>("");
   const [pendingLoginPhotoCropSrc, setPendingLoginPhotoCropSrc] = React.useState<string | null>(null);
   const pendingLoginPhotoFileRef = React.useRef<File | null>(null);
+  // O input de arquivo vive fora do <label> para que tanto o avatar quanto o
+  // botão possam abrir o seletor sem aninhar <button> dentro de <label> (o
+  // "X" de remover ficaria dentro da área clicável do rótulo).
+  const signupPhotoInputRef = React.useRef<HTMLInputElement | null>(null);
   const [pendingLoginLogoCropSrc, setPendingLoginLogoCropSrc] = React.useState<string | null>(null);
   const pendingLoginLogoFileRef = React.useRef<File | null>(null);
   const [bio, setBio] = React.useState("");
@@ -566,6 +571,10 @@ export default function Login() {
     } finally {
       setBusy(false);
     }
+  };
+
+  const openSignupPhotoPicker = () => {
+    signupPhotoInputRef.current?.click();
   };
 
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1135,14 +1144,10 @@ export default function Login() {
                   </div>
                   {newPassword.length > 0 && (
                     <ul className="grid gap-1 mt-1">
-                      {[
-                        { ok: newPassword.length >= 8, label: t("login_pwd_rule_min") },
-                        { ok: /[A-Z]/.test(newPassword), label: t("login_pwd_rule_upper") },
-                        { ok: /[^a-zA-Z0-9]/.test(newPassword), label: t("login_pwd_rule_special") },
-                      ].map(({ ok, label }) => (
-                        <li key={label} className={`flex items-center gap-1.5 text-xs ${ok ? "text-green-600" : "text-muted-foreground"}`}>
+                      {passwordRules(newPassword).map(({ ok, key }) => (
+                        <li key={key} className={`flex items-center gap-1.5 text-xs ${ok ? "text-green-600" : "text-muted-foreground"}`}>
                           {ok ? <Check className="h-3 w-3 shrink-0" /> : <span className="h-3 w-3 shrink-0 rounded-full border border-current inline-block" />}
-                          {label}
+                          {t(key)}
                         </li>
                       ))}
                     </ul>
@@ -1542,14 +1547,10 @@ export default function Login() {
                         </div>
                         {password.length > 0 && (
                           <ul className="grid gap-1 mt-1">
-                            {[
-                              { ok: password.length >= 8, label: t("login_pwd_rule_min") },
-                              { ok: /[A-Z]/.test(password), label: t("login_pwd_rule_upper") },
-                              { ok: /[^a-zA-Z0-9]/.test(password), label: t("login_pwd_rule_special") },
-                            ].map(({ ok, label }) => (
-                              <li key={label} className={`flex items-center gap-1.5 text-xs ${ok ? "text-green-600" : "text-muted-foreground"}`}>
+                            {passwordRules(password).map(({ ok, key }) => (
+                              <li key={key} className={`flex items-center gap-1.5 text-xs ${ok ? "text-green-600" : "text-muted-foreground"}`}>
                                 {ok ? <Check className="h-3 w-3 shrink-0" /> : <span className="h-3 w-3 shrink-0 rounded-full border border-current inline-block" />}
-                                {label}
+                                {t(key)}
                               </li>
                             ))}
                           </ul>
@@ -1706,7 +1707,14 @@ export default function Login() {
                         <div className="flex items-center gap-3">
                           {photoPreview ? (
                             <div className="relative w-16 h-16 shrink-0">
-                              <img src={photoPreview} alt={t("login_photo_preview_alt")} className="w-16 h-16 rounded-full object-cover border-2 border-border/60" />
+                              <button
+                                type="button"
+                                onClick={openSignupPhotoPicker}
+                                aria-label={t("login_change_photo")}
+                                className="block w-16 h-16 rounded-full overflow-hidden transition-transform active:scale-95"
+                              >
+                                <img src={photoPreview} alt={t("login_photo_preview_alt")} className="w-16 h-16 rounded-full object-cover border-2 border-border/60" />
+                              </button>
                               <button
                                 type="button"
                                 onClick={() => { setPhotoFile(null); setPhotoPreview(""); }}
@@ -1716,16 +1724,30 @@ export default function Login() {
                               </button>
                             </div>
                           ) : (
-                            <div className="w-16 h-16 rounded-full bg-muted border-2 border-dashed border-border/60 flex items-center justify-center shrink-0">
+                            <button
+                              type="button"
+                              onClick={openSignupPhotoPicker}
+                              aria-label={t("login_add_photo")}
+                              className="w-16 h-16 rounded-full bg-muted border-2 border-dashed border-border/60 flex items-center justify-center shrink-0 transition-transform active:scale-95"
+                            >
                               <Upload className="h-5 w-5 text-muted-foreground" />
-                            </div>
+                            </button>
                           )}
-                          <label className="relative flex-1">
-                            <Button type="button" variant="outline" className="rounded-full w-full" asChild>
-                              <span>{photoFile ? t("login_change_photo") : t("login_add_photo")}</span>
-                            </Button>
-                            <input type="file" accept="image/*" onChange={handlePhotoChange} className="hidden" />
-                          </label>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="rounded-full flex-1"
+                            onClick={openSignupPhotoPicker}
+                          >
+                            {photoFile ? t("login_change_photo") : t("login_add_photo")}
+                          </Button>
+                          <input
+                            ref={signupPhotoInputRef}
+                            type="file"
+                            accept="image/*"
+                            onChange={handlePhotoChange}
+                            className="hidden"
+                          />
                         </div>
                       </div>
 
@@ -2229,12 +2251,11 @@ export default function Login() {
                       </div>
 
                       {(() => {
-                        const ageNum = age === "" ? null : parseInt(age, 10);
-                        const heightNum = height === "" ? null : parseInt(height, 10);
-                        const weightNum = weight === "" ? null : parseFloat(weight);
-                        const ageError = ageNum !== null && (ageNum < 1 || ageNum > 100);
-                        const heightError = heightNum !== null && (heightNum < 100 || heightNum > 300);
-                        const weightError = weightNum !== null && (weightNum < 20 || weightNum > 200);
+                        // Faixas em `physical-data.ts` — as mesmas do drawer de
+                        // dados pessoais nas Configurações.
+                        const ageError = isAgeOutOfRange(age);
+                        const heightError = isHeightOutOfRange(height);
+                        const weightError = isWeightOutOfRange(weight);
                         const hasErrors = ageError || heightError || weightError;
 
                         return (
@@ -2246,16 +2267,16 @@ export default function Login() {
                                   id="signup_age"
                                   type="number"
                                   inputMode="numeric"
-                                  min={1}
-                                  max={100}
+                                  min={PHYSICAL_LIMITS.age.min}
+                                  max={PHYSICAL_LIMITS.age.max}
                                   step={1}
                                   value={age}
-                                  onChange={(e) => setAge(e.target.value.replace(/[^0-9]/g, ""))}
+                                  onChange={(e) => setAge(sanitizeIntInput(e.target.value))}
                                   placeholder={t("login_eg_age")}
                                   className={ageError ? "border-red-500" : ""}
                                 />
                                 {ageError && (
-                                  <p className="text-xs text-red-600">{t("login_age_range")}</p>
+                                  <p className="text-xs text-red-600">{t("physical_age_range")}</p>
                                 )}
                               </div>
                               <div className="grid gap-1">
@@ -2264,33 +2285,31 @@ export default function Login() {
                                   id="signup_height"
                                   type="number"
                                   inputMode="numeric"
-                                  min={100}
-                                  max={300}
+                                  min={PHYSICAL_LIMITS.height.min}
+                                  max={PHYSICAL_LIMITS.height.max}
                                   step={1}
                                   value={height}
-                                  onChange={(e) => setHeight(e.target.value.replace(/[^0-9]/g, ""))}
+                                  onChange={(e) => setHeight(sanitizeIntInput(e.target.value))}
                                   placeholder={t("login_eg_height")}
                                   className={heightError ? "border-red-500" : ""}
                                 />
                                 {heightError && (
-                                  <p className="text-xs text-red-600">{t("login_height_range")}</p>
+                                  <p className="text-xs text-red-600">{t("physical_height_range")}</p>
                                 )}
                               </div>
                               <div className="grid gap-1">
                                 <Label htmlFor="signup_weight">{t("login_weight")}</Label>
                                 <Input
                                   id="signup_weight"
-                                  type="number"
+                                  type="text"
                                   inputMode="decimal"
-                                  min={20}
-                                  max={200}
                                   value={weight}
-                                  onChange={(e) => setWeight(e.target.value)}
+                                  onChange={(e) => setWeight(sanitizeDecimalInput(e.target.value))}
                                   placeholder={t("login_eg_weight")}
                                   className={weightError ? "border-red-500" : ""}
                                 />
                                 {weightError && (
-                                  <p className="text-xs text-red-600">{t("login_weight_range")}</p>
+                                  <p className="text-xs text-red-600">{t("physical_weight_range")}</p>
                                 )}
                               </div>
                             </div>
@@ -2313,6 +2332,24 @@ export default function Login() {
                                 {t("login_next")}
                               </Button>
                             </div>
+
+                            {/* Atalho: sem ele, "Voltar" e "Próximo" sozinhos
+                                sugerem que os dados físicos são obrigatórios.
+                                Não limpa o que já foi digitado (mesmo comportamento
+                                do atalho do Step 2) — só descarta campo fora de
+                                faixa, que é o que trava o "Próximo". */}
+                            <button
+                              type="button"
+                              className="text-xs text-muted-foreground hover:text-foreground text-center transition-colors"
+                              onClick={() => {
+                                if (ageError) setAge("");
+                                if (heightError) setHeight("");
+                                if (weightError) setWeight("");
+                                setSignupStep(3);
+                              }}
+                            >
+                              {t("login_skip_physical")}
+                            </button>
                           </>
                         );
                       })()}
@@ -2325,7 +2362,7 @@ export default function Login() {
 
                       <div className="text-center space-y-1 mb-1">
                         <h3 className="font-semibold text-sm">{t("login_goal_title")}</h3>
-                        <p className="text-xs text-muted-foreground">{t("login_goal_desc")}</p>
+                        <p className="text-xs text-muted-foreground">{t("login_goal_desc")} <span className="font-medium">{t("login_optional")}</span></p>
                       </div>
 
                       <div className="grid gap-2">
@@ -2370,6 +2407,19 @@ export default function Login() {
                           {busy ? t("login_creating") : t("login_next")}
                         </Button>
                       </div>
+
+                      {/* Último passo: o atalho conclui o cadastro sem objetivo
+                          (`selectedSegments` vazio já é tratado por
+                          handleSignupStep3, que só manda `objectives` quando há
+                          seleção). Mesmo padrão de "Adicionar planos depois". */}
+                      <button
+                        type="button"
+                        className="text-xs text-muted-foreground hover:text-foreground text-center transition-colors disabled:opacity-50"
+                        onClick={handleSignupStep3}
+                        disabled={busy}
+                      >
+                        {t("login_skip_goals")}
+                      </button>
                     </div>
                   )}
                 </TabsContent>

@@ -373,11 +373,21 @@ para o modelo completo. O essencial:
 | Feed → "..." do post | Item **Bloquear** direto no `DropdownMenu`, ao lado das duas denúncias. É a superfície principal: o post é onde o incômodo aparece, não o perfil. Ao bloquear, o feed recarrega sem skeleton e o card some |
 | Detalhe do post → "..." | `UserSafetyDrawer`. Esta tela é o destino dos deep links e não tinha **nenhuma** ação de segurança — um link compartilhado de post abusivo abria só com "Compartilhar" |
 | Perfil de outro usuário → "..." | `UserSafetyDrawer` (denunciar + bloquear) |
-| Confirmação | `BlockUserDialog` (AlertDialog, não Drawer — bloquear é destrutivo e não pode fechar por arrasto acidental) |
+| Conversa privada → "..." | `UserSafetyDrawer` com `blockedByMe` — a linha vira **"Desbloquear"** quando o contato já está bloqueado por este usuário, porque a conversa com ele continua acessível |
+| Perfil de alguém bloqueado | Tela à parte em `Profile.tsx`: avatar + nome + aviso, **sem** seguir/mensagem/compartilhar/flows e sem conteúdo (o `loadProfile` nem busca). "Eu bloqueei" mostra **Desbloquear**; "ele me bloqueou" mostra "Perfil indisponível", sem revelar o motivo |
+| Notificações | Cards e badge do sino descartam quem está em relação de bloqueio (`getNotificationsDb`, `getUnreadNotificationsCountDb`) |
+| Confirmação | `BlockUserDialog` (AlertDialog, não Drawer — bloquear é destrutivo e não pode fechar por arrasto acidental). Ao concluir, dispara `ritmofit-blocks-changed` para derrubar o cache de módulo do feed — bloquear de fora da home não passava por reload nenhum |
 | Desfazer | Configurações → **Contas bloqueadas** (`BlockedAccountsDrawer`) |
 
 O caminho de volta não é opcional: como o bloqueado desaparece de todas as outras
 superfícies, essa lista é o **único** lugar de onde é possível desbloquear.
+
+**Exceção: a conversa privada permanece (14/09/2026).** Bloquear não apaga nem
+esconde a DM — o histórico continua na lista, com a barra de escrever trocada
+por um aviso. Apagar a conversa junto com o bloqueio tirava do usuário
+exatamente o registro que ele pode precisar guardar como evidência. A Guideline
+1.2 pede que o bloqueio **encerre o contato**, e quem garante isso é a policy
+`messages_insert_not_blocked` no banco, não o sumiço da conversa da tela.
 
 ### Aceite de termos
 
@@ -425,6 +435,17 @@ Aplicando a regra acima de forma sistemática, mais seis:
 | **Sticker de treino no flow** | Ícone de halter na barra do criador de flow, em duas etapas (captura e revisão), mais o drawer seletor. Virou a flag `workoutStickerOnFlow` |
 | **"Treinar junto" ANTES de começar o treino** | A barra dentro da sessão estava escondida, mas o convite principal acontece antes: `WorkoutPartyDrawer` aberto por `onTrainTogether` a partir da aba Rotinas, da lista e do detalhe da rotina |
 | **Footer com coluna fantasma** | `grid-cols-5` fixo no bottom nav. Com Shots escondido sobraram 4 itens em 5 colunas — os quatro encostados à esquerda e um vazio à direita |
+
+### Quarta passada
+
+| Furo | Onde |
+|---|---|
+| **"Compartilhar no Duelo" no resumo do treino** | O botão no `WorkoutSummaryOverlay` era guardado só por `data.userGroups.length > 0` — nunca por `FEATURES.duels`. Quem participou de um duelo em build de TestFlight ainda tinha grupos no banco, então o botão reaparecia ao finalizar (ou reabrir) um treino, publicando check-in numa feature sem tela. Agora o botão exige `FEATURES.duels` **e** os dois `getEnrichedDuelGroupsDb` do `Goals.tsx` (finalizar treino e reabrir resumo pelo ícone 📊) nem chegam a rodar com a flag desligada |
+
+Este é o caso exato da regra dos quatro pontos: a porta da Comunidade estava
+tapada, mas o **dado continuava existindo** no banco e uma segunda tela o
+buscava para decidir se desenhava o botão. Condição de exibição derivada de
+dados ("tem grupo?") não substitui a flag — dados antigos ressuscitam a porta.
 
 Nota sobre o `onTrainTogether`: a prop é **opcional**, e `routines-tab`,
 `routine-list-drawer` e `routine-detail-drawer` só desenham o botão quando ela
@@ -550,6 +571,7 @@ Varredura tela por tela antes de submeter. Achados, todos corrigidos:
 
 ### Banco (SQL Editor do Supabase)
 - [ ] Rodar `docs/migrations/20260826-user-blocks.sql`
+- [ ] Rodar `docs/migrations/20260914-block-unfollow-following.sql` — sem ela o bloqueio **não desfaz o follow** (a pessoa continua no ring de flows do feed)
 - [ ] Rodar `docs/migrations/20260827-messages-update-realtime.sql` — sem ela, reação e "visualizado" não atualizam ao vivo
 - [ ] Rodar as demais migrações pendentes (ver `MEMORY.md`)
 

@@ -27,6 +27,7 @@ export function UserSafetyDrawer({
   userId,
   userName,
   onBlocked,
+  blockedByMe = false,
   content,
 }: {
   open: boolean;
@@ -35,6 +36,17 @@ export function UserSafetyDrawer({
   userName: string;
   /** Chamado depois de bloquear — normalmente para sair da tela do bloqueado. */
   onBlocked?: () => void;
+  /**
+   * Este usuário JÁ foi bloqueado por quem está vendo — a linha vira
+   * "Desbloquear". Existe porque a conversa privada com alguém bloqueado
+   * continua acessível (ver `docs/07-comunidade.md`), e oferecer "Bloquear" a
+   * quem já está bloqueado faria o app parecer que o bloqueio não pegou.
+   *
+   * Só a direção "eu bloquei" muda a linha: se foi a OUTRA pessoa que bloqueou,
+   * a ação segue sendo "Bloquear" — bloquear de volta é decisão legítima, e é a
+   * única ponta que este usuário controla.
+   */
+  blockedByMe?: boolean;
   /**
    * Conteúdo específico em foco (o post aberto, o flow em exibição). Quando
    * informado, o menu ganha uma primeira linha para denunciar o CONTEÚDO, além
@@ -115,9 +127,18 @@ export function UserSafetyDrawer({
               className="w-full flex items-center gap-3 rounded-2xl p-4 text-left active:scale-[0.99] transition-all"
               style={rowStyle}
             >
-              <Ban className="h-[18px] w-[18px] shrink-0 text-destructive" />
-              <span className="text-sm font-medium flex-1 text-destructive">
-                {t("block_user_action").replace("{name}", userName)}
+              <Ban
+                className={`h-[18px] w-[18px] shrink-0 ${blockedByMe ? "" : "text-destructive"}`}
+                style={blockedByMe ? { color: "rgba(255,255,255,.7)" } : undefined}
+              />
+              <span
+                className={`text-sm font-medium flex-1 ${blockedByMe ? "" : "text-destructive"}`}
+                style={blockedByMe ? { color: "#fff" } : undefined}
+              >
+                {(blockedByMe ? t("unblock_user_action") : t("block_user_action")).replace(
+                  "{name}",
+                  userName,
+                )}
               </span>
             </button>
           </div>
@@ -147,6 +168,7 @@ export function UserSafetyDrawer({
         onOpenChange={setBlockOpen}
         userId={userId}
         userName={userName}
+        mode={blockedByMe ? "unblock" : "block"}
         onDone={onBlocked}
       />
     </>

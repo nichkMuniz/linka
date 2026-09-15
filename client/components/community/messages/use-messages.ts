@@ -14,6 +14,8 @@ import {
   deleteMessageForMeDb,
   deleteConversationForMeDb,
   getUserProfileDb,
+  getBlockedIdsDb,
+  getBlockedByMeIdsDb,
   setMessageEmojiDb,
   type Conversation,
   type MessageWithUser,
@@ -28,6 +30,7 @@ import { hasObjectionableContent } from "@/lib/content-filter";
 import {
   buildReplyPrefix,
   sameMessageList,
+  sendErrorDescription,
   type ViewMode,
 } from "@/components/community/community-helpers";
 
@@ -123,8 +126,15 @@ export function useMessages({
     // If no conversation yet, fetch the user's profile and open an empty conversation
     if (!loading) {
       convRestoredRef.current = userIdParam;
-      getUserProfileDb(userIdParam)
-        .then((profile) => {
+      // As flags de bloqueio vêm junto: esta conversa é montada à mão, sem
+      // passar por `getConversationsDb`, então sem elas a barra de escrever
+      // apareceria para alguém bloqueado e o envio morreria num erro de RLS.
+      Promise.all([
+        getUserProfileDb(userIdParam),
+        getBlockedIdsDb().catch(() => [] as string[]),
+        getBlockedByMeIdsDb().catch(() => [] as string[]),
+      ])
+        .then(([profile, blockedIds, blockedByMeIds]) => {
           if (profile) {
             const newConv: Conversation = {
               userId: userIdParam,
@@ -133,6 +143,8 @@ export function useMessages({
               lastMessage: "",
               lastMessageTime: new Date().toISOString(),
               unreadCount: 0,
+              isBlocked: blockedIds.includes(userIdParam),
+              blockedByMe: blockedByMeIds.includes(userIdParam),
             };
             setSelectedConversation(newConv);
             setViewMode("conversation");
@@ -141,13 +153,13 @@ export function useMessages({
         .catch((err: any) => {
           console.error("Error loading user profile for conversation:", err);
           toast({
-            title: "Erro ao abrir conversa",
-            description: err?.message || "Tente novamente.",
+            title: t("community_error_open_conversation"),
+            description: err?.message || t("retry"),
             variant: "destructive",
           });
         });
     }
-  }, [searchParams, conversations, loading, onRequestActive]);
+  }, [searchParams, conversations, loading, onRequestActive, t]);
 
   // Hide bottom nav when inside a private conversation
   React.useEffect(() => {
@@ -212,8 +224,8 @@ export function useMessages({
       } catch (err: any) {
         console.error("Error loading messages:", err);
         toast({
-          title: "Erro ao carregar mensagens",
-          description: err?.message || "Tente novamente.",
+          title: t("community_error_load_messages"),
+          description: err?.message || t("retry"),
           variant: "destructive",
         });
       } finally {
@@ -232,7 +244,7 @@ export function useMessages({
     return () => {
       cancelled = true;
     };
-  }, [selectedConversation?.userId, viewMode, setConversations]);
+  }, [selectedConversation?.userId, viewMode, setConversations, t]);
 
   // Auto-scroll to the last message: instant snap while the conversation is opening
   // (semente + chegada da rede), smooth scroll for messages sent/received afterwards.
@@ -350,8 +362,8 @@ export function useMessages({
     } catch (err: any) {
       console.error("Error sending message:", err);
       toast({
-        title: "Erro ao enviar mensagem",
-        description: err?.message || "Tente novamente.",
+        title: t("community_error_send_message"),
+        description: sendErrorDescription(err, t),
         variant: "destructive",
       });
     } finally {
@@ -391,15 +403,15 @@ export function useMessages({
         }
       } catch (err: any) {
         toast({
-          title: "Erro ao enviar foto",
-          description: err?.message || "Tente novamente.",
+          title: t("community_error_send_photo"),
+          description: sendErrorDescription(err, t),
           variant: "destructive",
         });
       } finally {
         setIsSendingPhoto(false);
       }
     },
-    [selectedConversation, replyingTo],
+    [selectedConversation, replyingTo, t],
   );
 
   const startRecording = React.useCallback(async () => {
@@ -434,12 +446,12 @@ export function useMessages({
       );
     } catch {
       toast({
-        title: "Sem acesso ao microfone",
-        description: "Permita o uso do microfone nas configurações.",
+        title: t("community_mic_denied_title"),
+        description: t("community_mic_denied_desc"),
         variant: "destructive",
       });
     }
-  }, [selectedConversation, isRecording]);
+  }, [selectedConversation, isRecording, t]);
 
   const stopRecordingAndSend = React.useCallback(async () => {
     const recorder = mediaRecorderRef.current;
@@ -487,14 +499,14 @@ export function useMessages({
       }
     } catch (err: any) {
       toast({
-        title: "Erro ao enviar áudio",
-        description: err?.message || "Tente novamente.",
+        title: t("community_error_send_audio"),
+        description: sendErrorDescription(err, t),
         variant: "destructive",
       });
     } finally {
       setIsSendingPhoto(false);
     }
-  }, [selectedConversation, replyingTo]);
+  }, [selectedConversation, replyingTo, t]);
 
   const cancelRecording = React.useCallback(() => {
     const recorder = mediaRecorderRef.current;
@@ -693,12 +705,12 @@ export function useMessages({
       .catch((err: any) => {
         console.error("Error refreshing conversations:", err);
         toast({
-          title: "Erro ao atualizar conversas",
-          description: err?.message || "Tente novamente.",
+          title: t("community_error_refresh_conversations"),
+          description: err?.message || t("retry"),
           variant: "destructive",
         });
       });
-  }, [searchParams, navigate, setConversations]);
+  }, [searchParams, navigate, setConversations, t]);
 
   // ── Toque longo na bolha: reagir, responder, apagar ───────────────────────
   const handleMessageLongPress = React.useCallback((message: MessageWithUser) => {
@@ -753,17 +765,17 @@ export function useMessages({
     try {
       await deleteConversationForMeDb(convToDelete.userId);
       setConversations((prev) => prev.filter((c) => c.userId !== convToDelete.userId));
-      toast({ title: "Conversa excluída!" });
+      toast({ title: t("community_conversation_deleted") });
     } catch (err: any) {
       toast({
-        title: "Erro ao excluir conversa",
-        description: err?.message || "Tente novamente.",
+        title: t("community_error_delete_conversation"),
+        description: err?.message || t("retry"),
         variant: "destructive",
       });
     } finally {
       setConvToDelete(null);
     }
-  }, [convToDelete, setConversations]);
+  }, [convToDelete, setConversations, t]);
 
   /** Abre uma conversa que ainda não existe, a partir de um usuário sugerido. */
   const openConversationWithUser = React.useCallback((conversation: Conversation) => {

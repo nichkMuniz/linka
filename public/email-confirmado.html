@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="robots" content="noindex" />
+  <title>Email confirmado — Linka</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f9f9f9;
+      color: #1a1a1a;
+      line-height: 1.7;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      background: #111;
+      color: #fff;
+      padding: 40px 24px;
+      text-align: center;
+    }
+    header h1 { font-size: 2rem; letter-spacing: -0.5px; }
+    header p { color: #aaa; margin-top: 8px; font-size: 0.95rem; }
+    main {
+      flex: 1;
+      max-width: 560px;
+      width: 100%;
+      margin: 48px auto;
+      padding: 0 24px 64px;
+      text-align: center;
+    }
+    .check {
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      background: #e8f5e9;
+      color: #2e7d32;
+      font-size: 2.2rem;
+      line-height: 72px;
+      margin: 0 auto 24px;
+    }
+    h2 { font-size: 1.35rem; margin-bottom: 10px; color: #111; }
+    p { margin-bottom: 14px; color: #444; }
+    .cta {
+      display: inline-block;
+      margin: 20px 0 8px;
+      padding: 14px 32px;
+      border-radius: 999px;
+      background: #4f8ef7;
+      color: #fff;
+      font-weight: 600;
+      text-decoration: none;
+    }
+    .note {
+      font-size: 0.85rem;
+      color: #888;
+    }
+    .lang-divider {
+      margin: 48px 0 32px;
+      border: 0;
+      border-top: 1px solid #e5e5e5;
+    }
+    footer {
+      text-align: center;
+      padding: 32px;
+      font-size: 0.85rem;
+      color: #999;
+      border-top: 1px solid #eee;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Linka</h1>
+  <p>Confirmação de email · Email confirmation</p>
+</header>
+
+<main>
+  <div class="check" aria-hidden="true">✓</div>
+
+  <h2>Email confirmado</h2>
+  <p>Seu novo endereço de email já está valendo. Use ele para entrar no Linka da próxima vez.</p>
+  <!-- Custom scheme (CFBundleURLSchemes do Info.plist): o Universal Link não
+       serve aqui, porque esta página É o destino dele — abrir o app precisa do
+       scheme. Em quem não tem o app instalado o toque simplesmente não faz
+       nada, por isso a linha de aviso logo abaixo. -->
+  <a class="cta" href="com.linka.meuapp://">Abrir o Linka</a>
+  <p class="note">Se o botão não abrir o aplicativo, volte para ele manualmente.</p>
+
+  <hr class="lang-divider" />
+
+  <h2>Email confirmed</h2>
+  <p>Your new email address is now active. Use it to sign in to Linka next time.</p>
+  <a class="cta" href="com.linka.meuapp://">Open Linka</a>
+  <p class="note">If the button doesn't open the app, switch back to it manually.</p>
+</main>
+
+<footer>
+  Linka · linkafit.com.br
+</footer>
+
+</body>
+</html>

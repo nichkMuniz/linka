@@ -34,7 +34,7 @@ export function RoutineCompletedToast() {
       setPayload(p);
       setTick((n) => n + 1);
       hapticSuccess();
-      timerRef.current = setTimeout(() => setPayload(null), 3200);
+      timerRef.current = setTimeout(() => setPayload(null), 5200);
     });
   }, []);
 

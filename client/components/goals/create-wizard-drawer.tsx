@@ -123,6 +123,12 @@ import {
   type WeightTrend,
 } from "@/lib/coach-profile";
 import { getExerciseShortCue } from "@/lib/exercise-coaching";
+import {
+  isAgeOutOfRange,
+  isHeightOutOfRange,
+  isWeightOutOfRange,
+  sanitizeDecimalInput,
+} from "@/lib/physical-data";
 
 type WizardStep =
   | "what"
@@ -414,6 +420,12 @@ export function CreateWizardDrawer({
   // altura/peso é assunto do Perfil; aqui o dado só é consultado. Fica editável
   // apenas o que o perfil não tem (senão não haveria como personalizar).
   const [lockedBodyFields, setLockedBodyFields] = React.useState<Set<BodyField>>(new Set());
+  // Campos travados já vieram de `profiles` e não são reescritos aqui, então
+  // não entram na trava do botão.
+  const hasBodyRangeErrors =
+    (!lockedBodyFields.has("age") && isAgeOutOfRange(bodyAge)) ||
+    (!lockedBodyFields.has("height") && isHeightOutOfRange(bodyHeight)) ||
+    (!lockedBodyFields.has("weight") && isWeightOutOfRange(bodyWeight));
   const [restrictions, setRestrictions] = React.useState<Set<JointRestriction>>(new Set());
   // tendência do peso corporal (histórico) — não é editável, só informa o motor
   const [weightTrend, setWeightTrend] = React.useState<WeightTrend | null>(null);
@@ -1853,6 +1865,16 @@ export function CreateWizardDrawer({
                   ["weight", "goals_quiz_body_weight", bodyWeight, setBodyWeight, "goals_quiz_body_weight_unit"],
                 ] as const).map(([field, labelKey, value, setValue, unitKey]) => {
                   const locked = lockedBodyFields.has(field);
+                  // Mesma faixa de sanidade do cadastro e das Configurações —
+                  // valor fora dela distorce o IMC e, por tabela, a prescrição.
+                  const outOfRange = !locked && (
+                    field === "age" ? isAgeOutOfRange(value)
+                      : field === "height" ? isHeightOutOfRange(value)
+                      : isWeightOutOfRange(value)
+                  );
+                  const rangeKey = field === "age" ? "physical_age_range"
+                    : field === "height" ? "physical_height_range"
+                    : "physical_weight_range";
                   return (
                     <div key={field} className="space-y-1.5">
                       <Label className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: "rgba(255,255,255,.5)" }}>
@@ -1875,16 +1897,20 @@ export function CreateWizardDrawer({
                           <Input
                             type="text"
                             inputMode="decimal"
+                            maxLength={6}
                             value={value}
-                            onChange={(e) => setValue(e.target.value.replace(/[^\d.,]/g, ""))}
+                            onChange={(e) => setValue(sanitizeDecimalInput(e.target.value))}
                             placeholder="—"
                             className="h-11 pr-9"
-                            style={{ fontSize: "16px", background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }}
+                            style={{ fontSize: "16px", background: "rgba(255,255,255,.07)", border: `1px solid ${outOfRange ? "rgba(248,113,113,.7)" : "rgba(255,255,255,.12)"}`, color: "#fff" }}
                           />
                           <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-semibold pointer-events-none" style={{ color: "rgba(255,255,255,.4)" }}>
                             {t(unitKey)}
                           </span>
                         </div>
+                      )}
+                      {outOfRange && (
+                        <p className="text-[10px] leading-tight" style={{ color: "#f87171" }}>{t(rangeKey)}</p>
                       )}
                     </div>
                   );
@@ -1943,6 +1969,7 @@ export function CreateWizardDrawer({
               <Button
                 className="w-full rounded-full h-12"
                 style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}
+                disabled={hasBodyRangeErrors}
                 onClick={() => {
                   setExpandedDay(null);
                   goTo("suggested-program");
@@ -1953,6 +1980,12 @@ export function CreateWizardDrawer({
               <button
                 type="button"
                 onClick={() => {
+                  // O atalho descarta o campo fora de faixa em vez de ficar
+                  // travado — mesmo comportamento do "personalizar depois" do
+                  // cadastro. Os três dados são opcionais aqui.
+                  if (isAgeOutOfRange(bodyAge)) setBodyAge("");
+                  if (isHeightOutOfRange(bodyHeight)) setBodyHeight("");
+                  if (isWeightOutOfRange(bodyWeight)) setBodyWeight("");
                   setExpandedDay(null);
                   goTo("suggested-program");
                 }}

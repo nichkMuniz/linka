@@ -4,6 +4,17 @@
 **Arquivo:** `client/pages/Notifications.tsx`
 **Layout:** AppLayout
 
+> **Notificações de usuários bloqueados não aparecem (14/09/2026).** Tanto a
+> lista (`getNotificationsDb`) quanto o badge do sino
+> (`getUnreadNotificationsCountDb`) descartam as linhas cujo `follower_id` está
+> em `getBlockedIdsDb()`. O card traz nome, foto e — no tipo 1 — um **botão de
+> seguir**: era a última superfície em que o bloqueado continuava visível e
+> acionável. As linhas **continuam no banco** (dedup e contagens dependem
+> delas); o filtro é só de exibição. Os dois lugares filtram juntos de
+> propósito: se só a lista filtrasse, o sino marcaria pendência de um card que
+> não existe, e a pessoa abriria as notificações atrás de um "1" que não leva a
+> nada.
+
 ---
 
 ## Objetivo

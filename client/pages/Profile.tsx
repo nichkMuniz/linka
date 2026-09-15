@@ -9,6 +9,8 @@ import {
   getFollowingDb,
   getFollowingStatusBatchDb,
   isFollowingDb,
+  getBlockedIdsDb,
+  getBlockedByMeIdsDb,
   getUserShotsDb,
   getTaggedPostsDb,
   getUserGoalsByUserIdDb,
@@ -44,6 +46,7 @@ import {
   invalidateProfileCache,
 } from "@/lib/ritmofit-db";
 import { formatTimeAgo } from "@/lib/utils";
+import { reportHandledError } from "@/lib/monitoring";
 import { openExternalUrl, isSafeExternalUrl } from "@/lib/safe-url";
 import {
   AlertDialog,
@@ -93,6 +96,7 @@ import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
 import { ProfileSkeleton } from "@/components/shared/animated-loading";
 import { ShareDrawer } from "@/components/shared/share-drawer";
 import { UserSafetyDrawer } from "@/components/shared/user-safety-drawer";
+import { BlockUserDialog } from "@/components/shared/block-user-dialog";
 import { FEATURES } from "@/lib/feature-flags";
 import { ImageCropperDrawer } from "@/components/shared/image-cropper-drawer";
 import { profileShareUrl } from "@/lib/share-url";
@@ -118,6 +122,7 @@ import {
   Lock,
   Play,
   UsersRound,
+  Ban,
 } from "lucide-react";
 import { resetSupabaseAuth, supabase } from "@/lib/supabase";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
@@ -203,6 +208,19 @@ export default function Profile() {
   });
   const [loading, setLoading] = React.useState(true);
   const [profileError, setProfileError] = React.useState(false);
+  /**
+   * Bloqueio entre o visitante e o dono deste perfil. Com bloqueio o perfil não
+   * mostra conteúdo nenhum — nem posts, nem abas, nem seguir/mensagem —, então
+   * a checagem roda ANTES das queries de conteúdo (ver `loadProfile`).
+   *
+   * `blockedByMe` separa as direções: só quem bloqueou pode ler o que
+   * aconteceu e desfazer. Ver `getBlockedByMeIdsDb`.
+   */
+  const [blockRelation, setBlockRelation] = React.useState<{
+    isBlocked: boolean;
+    blockedByMe: boolean;
+  }>({ isBlocked: false, blockedByMe: false });
+  const [unblockOpen, setUnblockOpen] = React.useState(false);
   // Batch 2 concluído — evita mostrar "(0)" nas tabs antes dos dados chegarem
   const [tabsDataLoaded, setTabsDataLoaded] = React.useState(false);
   const [userGoals, setUserGoals] = React.useState<UserGoal[]>([]);
@@ -317,6 +335,39 @@ export default function Profile() {
       setRoutines([]);
       setTabsDataLoaded(false);
       setLoading(true);
+    }
+
+    // Batch 0 — bloqueio. Vem ANTES de tudo porque decide se existe conteúdo a
+    // buscar: com bloqueio entre as pontas o perfil vira uma tela de aviso, e
+    // disparar os ~12 selects dos batches 1–3 seria pagar por dados que ninguém
+    // vai ver — além de deixá-los no estado do componente, de onde vazariam
+    // para a tela ao menor descuido em algum render futuro.
+    //
+    // O `catch(() => [])` mantém a regra da casa: falha de rede aqui não pode
+    // transformar um perfil normal numa tela de bloqueio.
+    if (isViewingOtherProfile) {
+      const [blockedIds, blockedByMeIds] = await Promise.all([
+        getBlockedIdsDb().catch(() => [] as string[]),
+        getBlockedByMeIdsDb().catch(() => [] as string[]),
+      ]);
+      if (isStale()) return;
+      const isBlocked = blockedIds.includes(profileUserId);
+      setBlockRelation({
+        isBlocked,
+        blockedByMe: blockedByMeIds.includes(profileUserId),
+      });
+      if (isBlocked) {
+        // Nome e foto continuam sendo buscados: são o que permite reconhecer de
+        // quem é o perfil na hora de desbloquear, e já são públicos em qualquer
+        // lista do app. Conteúdo, contagens e abas não.
+        const profileData = await getUserProfileDb(profileUserId).catch(() => null);
+        if (isStale()) return;
+        setProfile(profileData);
+        setLoading(false);
+        return;
+      }
+    } else {
+      setBlockRelation({ isBlocked: false, blockedByMe: false });
     }
 
     try {
@@ -779,7 +830,13 @@ export default function Profile() {
         navigate("/");
       }, 1500);
     } catch (err: any) {
+      // Reportar é obrigatório aqui, não opcional: `deleteAllUserDataDb` apaga
+      // TODAS as linhas do usuário antes de encerrar a conta em `auth.users`.
+      // Falhar no meio deixa uma conta viva e vazia — a pessoa consegue entrar,
+      // não vê nada e nem sempre consegue voltar ao botão de excluir. Sem este
+      // reporte o toast some e o caso fica invisível para nós.
       console.error("Error deleting account:", err);
+      reportHandledError(err, "profile:delete-account", { userId: user.id });
       toast({
         title: t("profile_toast_account_delete_error"),
         description: err?.message || t("retry"),
@@ -864,6 +921,114 @@ export default function Profile() {
       </div>
     );
   }
+
+  /**
+   * Perfil de alguém em relação de bloqueio.
+   *
+   * É um `return` próprio, e não um punhado de condicionais espalhados pelo
+   * corpo do perfil, por dois motivos. O primeiro é garantia: com uma tela
+   * separada é impossível um frame de conteúdo sobreviver por esquecimento — e
+   * o `loadProfile` nem chega a buscar posts, abas ou contagens. O segundo é
+   * que praticamente nada do perfil normal faz sentido aqui: seguir, mandar
+   * mensagem, compartilhar e ver os flows são todos contato com quem foi
+   * bloqueado.
+   *
+   * A frase depende da direção. Se fui eu que bloqueei, a tela nomeia o que
+   * aconteceu e oferece o "Desbloquear" — é a minha decisão, e preciso poder
+   * desfazê-la. Se foi a outra pessoa, a frase é neutra ("Perfil
+   * indisponível"): confirmar "fulano te bloqueou" entregaria uma decisão que o
+   * app não revela em nenhuma outra tela. O "..." continua acessível nos dois
+   * casos — denunciar quem me bloqueou é legítimo, e bloquear de volta é a
+   * única ponta que eu controlo.
+   */
+  if (isViewingOtherProfile && blockRelation.isBlocked) {
+    const blockedByMe = blockRelation.blockedByMe;
+    return (
+      <div className="relative min-h-[70vh] flex flex-col items-center justify-center px-8 text-center">
+        <button
+          onClick={() => navigate(-1)}
+          aria-label={t("goals_back")}
+          className="absolute z-30 flex items-center justify-center active:scale-95 transition-transform"
+          style={{ top: "8px", left: "12px", width: 40, height: 40, borderRadius: "50%", background: "rgba(255,255,255,.08)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }}
+        >
+          <ArrowLeft className="h-5 w-5" />
+        </button>
+        <button
+          onClick={() => setSafetyOpen(true)}
+          aria-label={t("user_safety_title")}
+          className="absolute z-30 flex items-center justify-center active:scale-95 transition-transform"
+          style={{ top: "8px", right: "12px", width: 40, height: 40, borderRadius: "50%", background: "rgba(255,255,255,.08)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }}
+        >
+          <MoreHorizontal className="h-[18px] w-[18px]" />
+        </button>
+
+        {/* Sem anel cônico: o ring abre os flows, que é conteúdo. */}
+        <div style={{ opacity: 0.55 }}>
+          <UserAvatar photo={profile.photo} nickname={profile.nickname} size="2xl" />
+        </div>
+
+        <h1 className="mt-4 text-white" style={{ fontSize: "19px", fontWeight: 740, letterSpacing: "-0.01em" }}>
+          {profile.nickname}
+        </h1>
+
+        <div
+          className="mt-5 flex flex-col items-center gap-2 w-full max-w-sm"
+          style={{ borderRadius: "22px", padding: "22px 20px", background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.08)" }}
+        >
+          <Ban className="h-6 w-6" style={{ color: "rgba(255,255,255,.45)" }} strokeWidth={1.6} />
+          <p style={{ fontSize: "15px", fontWeight: 620, color: "#fff" }}>
+            {blockedByMe
+              ? t("profile_blocked_by_me_title").replace("{name}", profile.nickname)
+              : t("profile_blocked_unavailable_title")}
+          </p>
+          <p style={{ fontSize: "13px", lineHeight: 1.5, color: "rgba(255,255,255,.5)" }}>
+            {blockedByMe
+              ? t("profile_blocked_by_me_desc")
+              : t("profile_blocked_unavailable_desc")}
+          </p>
+          {blockedByMe && (
+            <button
+              onClick={() => setUnblockOpen(true)}
+              className="mt-2 active:scale-95 transition-transform"
+              style={{ height: 42, padding: "0 22px", borderRadius: "21px", fontSize: "13.5px", fontWeight: 640, color: "#0a0b12", background: "linear-gradient(rgba(255,255,255,.95),rgba(255,255,255,.82))" }}
+            >
+              {t("unblock_user")}
+            </button>
+          )}
+        </div>
+
+        <UserSafetyDrawer
+          open={safetyOpen}
+          onOpenChange={setSafetyOpen}
+          userId={profileUserId ?? null}
+          userName={profile.nickname}
+          blockedByMe={blockedByMe}
+          onBlocked={() => loadProfile()}
+        />
+
+        <BlockUserDialog
+          open={unblockOpen}
+          onOpenChange={setUnblockOpen}
+          userId={profileUserId ?? null}
+          userName={profile.nickname}
+          mode="unblock"
+          // Recarrega no lugar: o perfil inteiro volta a aparecer, que é a
+          // confirmação mais direta de que o desbloqueio pegou.
+          onDone={() => loadProfile()}
+        />
+      </div>
+    );
+  }
+
+  // Quantas abas realmente vão para a tela. Decide se a linha precisa rolar —
+  // ver o comentário no `TabsList`. Mantido ao lado da lista de abas em
+  // condição: cada aba nova entra nos dois lugares.
+  const visibleTabCount =
+    1 + // Publicações, sempre presente
+    (FEATURES.profileExtraTabs ? 1 : 0) +
+    (FEATURES.profileExtraTabs && FEATURES.shots ? 1 : 0) +
+    (FEATURES.profileExtraTabs && FEATURES.postTags ? 1 : 0) +
+    (FEATURES.store && profileOffers.length > 0 ? 1 : 0);
 
   return (
     <div
@@ -1342,8 +1507,18 @@ export default function Profile() {
 
             No v1 sobra só "Publicações" (FEATURES.profileExtraTabs): quatro
             abas vazias num perfil recém-criado é o sinal mais forte de app
-            abandonado que existe, e nenhuma delas tem conteúdo no dia 1. */}
-        <TabsList className="w-full justify-start gap-5 !h-auto !bg-transparent !rounded-none !p-0 border-b border-white/10 overflow-x-auto no-scrollbar">
+            abandonado que existe, e nenhuma delas tem conteúdo no dia 1.
+
+            Por isso o `overflow-x-auto` é condicional: com uma aba só não há o
+            que rolar, e o container ainda assim arrastava / dava rubber-band no
+            WKWebView — uma faixa que se mexe sem ter conteúdo escondido parece
+            defeito. Continua ligado assim que existir mais de uma aba, então
+            religar as flags não traz o problema de layout de volta.
+
+            Sem abas extras não se declara overflow nenhum (em vez de
+            `overflow-hidden`): o sublinhado da aba ativa usa `-mb-px` para
+            cobrir a borda da lista, e ficaria recortado. */}
+        <TabsList className={`w-full justify-start gap-5 !h-auto !bg-transparent !rounded-none !p-0 border-b border-white/10 ${visibleTabCount > 1 ? "overflow-x-auto no-scrollbar" : ""}`}>
           <TabsTrigger
             value="posts"
             className="shrink-0 whitespace-nowrap !rounded-none !bg-transparent !shadow-none !px-0 pb-3 -mb-px border-b-2 border-transparent !text-white/45 data-[state=active]:!border-white data-[state=active]:!text-white text-[14px] font-[640]"
@@ -1912,23 +2087,33 @@ export default function Profile() {
                           <p className="text-sm" style={{ color: "rgba(255,255,255,.5)" }}>{t("profile_no_goals_created")}</p>
                         )}
                       </div>
-                    ) : selectedPost.userGoal || (selectedPost.user_goal_id && selectedPost.user_id === profileUserId) ? (
+                    ) : (() => {
                       /* `selectedPost.userGoal` vem batelado do banco (igual ao feed em
                          post.service.ts) e só existe quando a meta é pública — funciona
                          para post de qualquer autor, inclusive na aba "Marcações". Para
                          o post do PRÓPRIO dono do perfil, cai no fallback via `userGoals`
                          (lista completa, sem filtro de visibilidade) para não esconder
-                         uma meta privada do próprio dono nem perder o aviso "meta
-                         removida" quando a meta foi de fato apagada. */
-                      <div className="flex items-center gap-2 px-3 py-2 rounded-xl" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}>
-                        <span className="text-xs" style={{ color: "rgba(255,255,255,.45)" }}>{t("profile_goal_label")}</span>
-                        <span className="text-xs font-medium truncate" style={{ color: "#fff" }}>
-                          {selectedPost.userGoal?.description
-                            ?? userGoals.find((g) => g.id === selectedPost.user_goal_id)?.description
-                            ?? t("profile_goal_removed_label")}
-                        </span>
-                      </div>
-                    ) : null}
+                         uma meta privada do próprio dono.
+
+                         Sem descrição de nenhum dos dois lados, o `user_goal_id` é uma
+                         referência órfã (a meta foi apagada): o bloco inteiro some, como
+                         se o post nunca tivesse tido vínculo. Avisar "meta removida" não
+                         acrescenta nada — não há mais nada para onde ir. */
+                      const goalDescription =
+                        selectedPost.userGoal?.description
+                        ?? (selectedPost.user_goal_id && selectedPost.user_id === profileUserId
+                          ? userGoals.find((g) => g.id === selectedPost.user_goal_id)?.description
+                          : undefined);
+                      if (!goalDescription) return null;
+                      return (
+                        <div className="flex items-center gap-2 px-3 py-2 rounded-xl" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}>
+                          <span className="text-xs" style={{ color: "rgba(255,255,255,.45)" }}>{t("profile_goal_label")}</span>
+                          <span className="text-xs font-medium truncate" style={{ color: "#fff" }}>
+                            {goalDescription}
+                          </span>
+                        </div>
+                      );
+                    })()}
 
                     {/* Incentives + Comments */}
                     {isLoadingPostData && !isEditingPost && (

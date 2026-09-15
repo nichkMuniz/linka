@@ -568,6 +568,60 @@ import {
 
 > **Regra:** O `DrawerContent` base já eleva o sheet acima do teclado iOS — não recrie esse comportamento. A área scrollável deve usar `flex-1 min-h-0` (o shell é `flex flex-col`).
 
+### 9.5 Drawer com lista longa → barra de ações fixa
+
+Quando o sheet tem **uma lista de tamanho imprevisível** (exercícios de uma
+rotina, itens de um carrinho, participantes) **e** ações no rodapé, não coloque
+lista e ações no mesmo container rolável: a lista cresce e empurra as ações para
+fora da tela, obrigando a rolar tudo até o fim para achar o botão principal.
+
+O shell do `DrawerContent` é `flex flex-col` com `maxHeight: 90dvh` — divida em
+**três faixas**:
+
+```tsx
+<DrawerContent {...GLASS_SHEET_PROPS} style={GLASS_SHEET_STYLE}>
+  <DrawerHeader className="shrink-0">…</DrawerHeader>
+
+  {/* 2. única área com scroll — encolhe até caber */}
+  <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-3">
+    {items.map(…)}
+  </div>
+
+  {/* 3. barra de ações — sempre visível */}
+  <div
+    ref={actionsRef}
+    className="shrink-0 overflow-y-auto px-4 pt-3 space-y-3"
+    style={{
+      maxHeight: "min(60dvh, calc(100dvh - var(--keyboard-height, 0px) - 180px))",
+      paddingBottom: "calc(1rem + var(--keyboard-height, 0px))",
+      borderTop: "1px solid rgba(255,255,255,.08)",
+    }}
+  >
+    {/* editores inline abrem AQUI, acima dos botões que os abriram */}
+    <Button className="w-full rounded-full" style={GLASS_PRIMARY_BTN_STYLE}>Iniciar</Button>
+  </div>
+</DrawerContent>
+```
+
+Regras:
+
+- **`flex-1 min-h-0` na lista, `shrink-0` na barra.** É o `min-h-0` que permite
+  à lista encolher abaixo do conteúdo; sem ele o flex se recusa e o sheet estoura.
+- **Editores/formulários que a barra abre ficam na barra**, não no fim da lista —
+  senão o campo aparece fora da vista, que é o mesmo defeito de origem.
+- **A barra também é rolável, com teto.** Um editor alto (uma linha por item)
+  comeria o drawer inteiro. O `min(60dvh, …)` desconta `--keyboard-height` para a
+  soma das três faixas caber no clamp de `html.kb-open` (`global.css`) com o
+  teclado aberto.
+- **`useKeyboardInputScroll` aponta para a faixa que tem os campos** (em geral a
+  barra), e o `paddingBottom: calc(… + var(--keyboard-height, 0px))` vai no
+  **mesmo** container do ref.
+- O swipe-to-close do vaul continua funcionando com **dois** containers roláveis:
+  ele só cancela o dismiss quando o container arrastado não está em
+  `scrollTop === 0`.
+
+Em uso: `client/components/goals/routine-detail-drawer.tsx` (ver `docs/05-metas.md`).
+
 ### ~~9.x Padrão Premium~~ — removido em 07/09/2026
 
 O app **não vende nada**: não existe assinatura, plano (mensal, anual ou
@@ -600,6 +654,20 @@ toast({
 ```
 
 > **Regra:** Todo `async/await` com efeito colateral visível (criar, editar, deletar, seguir) **deve** ter toast de sucesso e de erro.
+
+#### Duração dos toasts (2026-09-15)
+
+Os tempos foram aumentados porque o padrão anterior não dava tempo de ler a mensagem antes dela sumir.
+
+| Componente | Arquivo | Antes | Agora |
+|---|---|---|---|
+| `Toaster` (Radix — `useToast`) | `client/components/ui/toaster.tsx` | 1000 ms | **3500 ms** |
+| `Sonner` (`toast()` da lib `sonner`) | `client/components/ui/sonner.tsx` | 3000 ms | **5000 ms** |
+| `IncentiveConfirmToast` | `client/components/shared/incentive-confirm-toast.tsx` | 3000 ms | **5000 ms** |
+| `RoutineCompletedToast` | `client/components/shared/routine-completed-toast.tsx` | 3200 ms | **5200 ms** |
+| `IncomingMessageToast` | `client/components/shared/incoming-message-toast.tsx` | 5000 ms | 5000 ms (inalterado) |
+
+> **Regra:** a duração é definida **uma vez** no componente base (`ToastProvider duration` / `Sonner duration`). Não passar `duration` em chamadas individuais de `toast()` — se uma mensagem precisa de mais tempo, o texto é que está longo demais.
 
 ### 10.2 Loading States
 
@@ -751,31 +819,27 @@ md:classe-desktop
 <div className="grid grid-cols-8 gap-0.5">
 ```
 
-### 12.5 Papel de parede de doodles (2026-08-13)
+### 12.5 Fundo da conversa privada (2026-09-14)
 
-Fundo ladrilhado de doodles, no espírito do fundo do WhatsApp. Hoje é usado na **conversa privada** da Comunidade.
+Camada de fundo neutra em CSS puro, usada na **conversa privada** da Comunidade. Substituiu o papel de parede ladrilhado de doodles (2026-08-13), que competia com as bolhas — a arte, o WebP derivado e o script gerador foram removidos do repositório.
 
 | Peça | Onde |
 |---|---|
-| Arte original | `public/background-mensagem.png` — fonte, não é a que a tela usa |
-| Asset em uso | `public/chat-wallpaper.webp` — ladrilho 2600×1370 espelhado em 2×2, derivado da arte |
-| Gerador | `scripts/build-chat-wallpaper.cjs` (`node scripts/build-chat-wallpaper.cjs`) |
-| Classe | `.chat-doodle-wallpaper` (`client/global.css`, `@layer utilities`) — `background-size: 1240px auto`, `repeat`, opaca |
+| Classe | `.chat-wallpaper` (`client/global.css`, `@layer utilities`) |
+| Composição | `background-color: hsl(var(--background))` + 2 brilhos radiais (roxo `rgba(123,63,242,.10)` no topo, azul `rgba(91,140,255,.07)` embaixo) + trama de pontos `rgba(255,255,255,.05)` a cada 26px |
+| Asset | nenhum — CSS puro |
 
 ```tsx
 // Dentro de um container posicionado (fixed/relative) e com overflow-hidden
-<div aria-hidden="true" className="chat-doodle-wallpaper pointer-events-none absolute inset-0 -z-10" />
+<div aria-hidden="true" className="chat-wallpaper pointer-events-none absolute inset-0 -z-10" />
 ```
 
 **Regras:**
 - `-z-10` deixa a camada acima do `background` do próprio container e abaixo do conteúdo em fluxo; não é preciso dar `z-index` aos irmãos
 - O container precisa de `overflow-hidden` e de posicionamento (`fixed`/`relative`)
 - Decoração de fundo: sempre `aria-hidden` e `pointer-events-none`
-- Ajuste de intensidade é por `filter: brightness()` na classe — **nunca** editando o arquivo de imagem
-- **Não usar `background-size: cover`** em container que muda de altura (a conversa encolhe quando o teclado abre): o fundo re-escala e dá um zoom junto com a animação. Tamanho fixo em px não tem esse problema
-- Ao trazer arte nova, verificar se ela é um **ladrilho contínuo**. Arte de tela (screenshot/wallpaper) quase nunca é — as figuras ficam cortadas nas bordas e o `repeat` cria emenda. A saída é espelhar (é o que o script faz) e dimensionar de modo que o quadrante fique **maior que a largura da tela**, para o eixo do espelho não aparecer
-
----
+- Fundo decorativo é **detalhe, não protagonista**: opacidade de branco até ~.05 e brilhos até ~.10. Acima disso passa a disputar leitura com as bolhas — foi o que derrubou o papel de parede anterior
+- **Não usar `background-size: cover`** em container que muda de altura (a conversa encolhe quando o teclado abre): o fundo re-escala e dá um zoom junto com a animação. Tamanho fixo (`100% 100%` para os brilhos, px para a trama) não tem esse problema
 
 ## 13. Animações e Transições
 

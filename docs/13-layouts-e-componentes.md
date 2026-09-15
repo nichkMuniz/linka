@@ -410,6 +410,7 @@ As URLs vêm de `client/lib/share-url.ts`, que reexporta a fonte única `shared/
 
 Drawer glass de **envio de post/shot para amigos via mensagem privada** (estilo Instagram):
 - Ao abrir, lista **conversas recentes primeiro** (`getConversationsDb`) seguidas de quem o usuário segue (`getFollowingDb`), sem duplicatas; busca global via `searchUsersDb` (debounce 300ms) permite enviar para quem não é seguido
+- **Conversas bloqueadas são puladas** (`conv.isBlocked`). Desde 14/09/2026 elas continuam na lista da Comunidade (o histórico é preservado de propósito), mas aqui seriam um **destino de envio** — e a policy `messages_insert_not_blocked` recusa a inserção, então a ação só poderia falhar
 - Preview compacto do conteúdo no topo (thumbnail do post ou frame do vídeo do shot + @autor)
 - Multi-seleção (mesmo padrão visual do `TagPeopleDrawer`, limite 10 destinatários) + campo de **mensagem opcional**
 - Ao enviar: `sendMessageDb(recipientId, "[post]:<id>" | "[shot]:<id>")` por destinatário (em paralelo); se houver texto opcional, é enviado como segunda mensagem; toast de sucesso/erro
@@ -687,6 +688,30 @@ Catálogos locais de exercícios e refeições:
 
 ---
 
+### password-rules.ts (regra de senha forte — 2026-09-14)
+**Arquivo:** `client/lib/password-rules.ts`
+
+Fonte única da regra de senha: **8 caracteres, 1 maiúscula, 1 caractere especial**. Vale no cadastro (`Login.tsx`), no "salvar nova senha" da recuperação por código e na troca de senha das Configurações — esta última exigia só 6 caracteres, ou seja, dava para criar a conta com senha forte e rebaixá-la pelo drawer de settings.
+
+- `passwordRules(pwd)` → `{ key, ok }[]` com as chaves de i18n na ordem de exibição (`pwd_rule_min`, `pwd_rule_upper`, `pwd_rule_special`), para as duas telas renderizarem o mesmo checklist ao vivo
+- `isStrongPassword(pwd)` é **derivada** de `passwordRules` — o checklist que o usuário vê e a trava que libera o botão não têm como discordar
+- `PASSWORD_MIN_LENGTH` exportada para quem precisar do número
+
+---
+
+### physical-data.ts (faixas de idade/altura/peso — 2026-09-14)
+**Arquivo:** `client/lib/physical-data.ts`
+
+Fonte única das faixas aceitas para os dados físicos do perfil e dos helpers de digitação correspondentes. Nasceu porque os mesmos três campos são editados em **quatro** lugares — cadastro (`Login.tsx`, Step 2.8), Configurações → Meu Perfil → Pessoal, quiz de rotina sugerida (`create-wizard-drawer.tsx`) e histórico de peso (`weight-history-drawer.tsx`) — e cada um carregava a sua cópia da faixa. Elas divergiram: as Configurações aceitavam 30–300 kg e 10–120 anos, o cadastro barrava fora de 20–200 kg e 1–100 anos, e o histórico de peso aceitava qualquer coisa abaixo de 1000 kg (saindo em silêncio quando não aceitava).
+
+- `PHYSICAL_LIMITS` — idade 1–100, altura 100–300 cm, peso 20–200 kg. Limites de **sanidade, não clínicos**
+- `isAgeOutOfRange` / `isHeightOutOfRange` / `isWeightOutOfRange` — `true` só quando o campo está **preenchido** e fora da faixa (os três dados são opcionais em todas as telas, então vazio nunca é erro)
+- `sanitizeIntInput` — só dígitos (idade e altura)
+- `sanitizeDecimalInput` — vírgula→ponto, um separador só, preservando o texto cru enquanto digita (peso). Ver a memória `decimal-number-inputs-ios`: input controlado por número descarta o "." no iOS
+- Mensagens: `physical_age_range` / `physical_height_range` / `physical_weight_range` (prefixo neutro justamente por não pertencerem a uma tela só)
+
+---
+
 ### network-status.ts
 **Arquivo:** `client/lib/network-status.ts`
 
@@ -717,6 +742,8 @@ Monitora conectividade:
 **Filtro de ruído (`ignoreErrors` + `beforeSend`):** rede indisponível (`Failed to fetch`, `Load failed`, …) **não é bug** — o app tem modo offline e já trata isso com a fila `lk:outbox`. Também são descartados aborts intencionais, `ResizeObserver loop`, `play() request was interrupted` (Shots/flows) e erros de sessão expirada que o app já resolve redirecionando ao login. Sem esse filtro a cota gratuita do Sentry queima em dias.
 
 **Eventos automáticos de `pnpm dev` são descartados (2026-08-14):** a primeira coisa que o `beforeSend` faz é devolver `null` quando `import.meta.env.DEV` é true, **exceto** para o relato manual (tag `report_source: in_app`, que continua saindo para dar como testar o drawer sem buildar). Motivo: o hot reload executa estados **intermediários de edição** — declaração já cortada, referência ainda no JSX — e o painel enchia de `ReferenceError` que parece bug de produção. Os sete primeiros issues não resolvidos do projeto eram exatamente isso. Ao triar um issue antigo, o critério manual continua valendo: **nome de variável legível na mensagem = ruído de dev**, porque o build de produção é minificado (`ReferenceError: Ce is not defined`).
+
+**Exceção ao critério acima — `Can't find variable: EmptyRanges` (2026-09-14):** nome legível **e** produção, porque o script nem é nosso. É bug do próprio WebKit: os getters `buffered`/`played`/`seekable` de `MediaController.NullMedia` (`modern-media-controls`) leem um `EmptyRanges` solto, que só existe como estático da classe. Dispara quando o `<video>` já foi coletado e o controle nativo ainda consulta os ranges — ou seja, ao **desmontar tela com vídeo** (Shots, viewer de flows, carrossel de post). Assinatura: `mechanism: onerror`, **sem stack**, `filename: undefined`, sempre `undefined:1705:541` (é builtin do WebKit, o mesmo `1705:541` aparece em apps de terceiros sem relação nenhuma com o nosso código). Corrigido em [bugs.webkit.org/318284](https://bugs.webkit.org/show_bug.cgi?id=318284) (`316507@main`, 04/07/2026), mas o **iOS 26.6 ainda embarca a versão com o bug** e não há nada a fazer do lado do app — entrou em `IGNORED_ERRORS`.
 
 **Privacidade (relevante para a nutrition label da App Store):** nenhum evento automático carrega e-mail, nome ou IP — `beforeSend` apaga esses campos e `sendDefaultPii: false`. O e-mail só sai do app quando a própria pessoa o digita no `ReportProblemDrawer`, que exibe a lista do que será enviado junto antes do envio.
 

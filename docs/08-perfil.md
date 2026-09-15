@@ -14,6 +14,22 @@
 >   **Denunciar** e **Bloquear**. Até então o perfil era a única superfície do app
 >   sem nenhuma das duas ações — e é exatamente onde o revisor da Apple procura.
 >   Depois de bloquear, a tela volta para a anterior.
+> - **Perfil de alguém bloqueado é uma tela à parte (14/09/2026).** Antes o
+>   perfil abria inteiro — posts, abas, contagens, flows — com os botões de
+>   **seguir, mandar mensagem, compartilhar e bloquear** como se nada tivesse
+>   acontecido, contradizendo o que a própria confirmação de bloqueio promete
+>   ("vocês não vão mais ver ... nem o perfil um do outro"). Agora `Profile.tsx`
+>   tem um `return` próprio para esse caso, com avatar, nome e um aviso; nenhuma
+>   ação de contato sobrevive.
+>   - A checagem roda no **batch 0** de `loadProfile`, antes de tudo: com
+>     bloqueio, os ~12 selects de conteúdo nem são disparados
+>   - **A frase depende da direção.** "Eu bloqueei" → nomeia o que houve e
+>     oferece **Desbloquear** (`BlockUserDialog mode="unblock"`), e o "..."
+>     também vira "Desbloquear" (`UserSafetyDrawer blockedByMe`). "Ele me
+>     bloqueou" → **"Perfil indisponível"**, sem dizer o motivo: confirmar isso
+>     entregaria uma decisão que o app não revela em nenhuma outra tela
+>   - O "..." continua acessível nos dois casos — denunciar quem me bloqueou é
+>     legítimo, e bloquear de volta é a única ponta que este usuário controla
 > - **Novo: Configurações → Contas bloqueadas** (`BlockedAccountsDrawer`).
 >   Como o bloqueado some de todas as outras superfícies, essa lista é o único
 >   lugar de onde é possível desbloquear.
@@ -73,6 +89,7 @@ Página de perfil do usuário. Exibe informações pessoais, estatísticas, cont
 > - **Nome/handle/bio alinhados à esquerda** (nome 21px peso 740, handle 13px branco .5, bio 13.5px branco .82).
 > - **Stats em 3 cards** (Posts, Seguidores, Seguindo) com `rounded-18px`, fundo `rgba(255,255,255,.05)`, número 17px peso 740.
 > - **Tabs em estilo underline** (transparente, indicador `border-b-2` branco no ativo) em vez do `TabsList` boxed. Com as abas **Treinos** e **Marcações** são até 5 abas, que não cabem na largura do iPhone — o `TabsList` ganhou `overflow-x-auto no-scrollbar` (gap reduzido para `gap-5`) e cada `TabsTrigger` é `shrink-0 whitespace-nowrap`, então a linha **rola na horizontal** em vez de comprimir/quebrar os rótulos.
+>   **O scroll é condicional desde 2026-09-14** (`visibleTabCount > 1`): no recorte v1 sobra só "Publicações", e a faixa continuava arrastando / dando rubber-band no WKWebView sem ter nada escondido — uma tira que se mexe à toa parece defeito. Com uma aba só não se declara overflow nenhum (e não `overflow-hidden`, que recortaria o sublinhado da aba ativa, desenhado com `-mb-px` por cima da borda da lista). Religar as flags devolve o scroll sozinho. `visibleTabCount` fica logo antes do `return` e precisa ser atualizado junto com qualquer aba nova.
 > - **Grids de posts/shots** em 3 colunas, `gap-[5px]`, itens `rounded-[14px]`.
 > - **Back chip** circular no topo-esquerdo apenas ao visualizar o perfil de outro usuário.
 > - O trigger do `SettingsDrawer` agora é externo (props `open`/`onOpenChange`/`hideTrigger`); a engrenagem e o botão "Editar perfil" abrem o mesmo drawer.
@@ -281,7 +298,9 @@ O chip "com fulano" / "com fulano e mais N" (mesmo padrão visual do `post-card.
 
 O chip "Meta: {descrição}" (fora do modo de edição) usa `selectedPost.userGoal` — um objeto batelado por `getPostGoalsBatchDb` (mesma query/shape de `post.service.ts`), que só existe quando a meta está pública (`visibility === 1`). Funciona para post de **qualquer** autor, inclusive na aba Marcações. Existia um bug duplo antes de 2026-08-17: `getUserPostsDb` selecionava `user_goal_id` do banco mas **descartava o campo ao montar o objeto de retorno**, então até o post do próprio dono do perfil (aba Posts) ficava sem o chip; e o guard `selectedPost.user_id === profileUserId` escondia o chip inteiro em qualquer post de outro autor (aba Marcações), mesmo com meta pública.
 
-Como `getPostGoalsBatchDb` só retorna metas públicas (para bater com o comportamento do feed, que esconde meta privada até do próprio autor rolando o feed), o Post Viewer mantém um **fallback** só para o post do próprio dono do perfil: se `selectedPost.userGoal` vier vazio mas `selectedPost.user_id === profileUserId`, cai para `userGoals.find(...)` — a lista completa (sem filtro de visibilidade) do dono, carregada no batch 2. Isso preserva duas coisas que só fazem sentido pro próprio dono olhando o próprio post: ver uma meta que ele mesmo marcou como privada, e o aviso "meta removida" quando a meta foi de fato apagada (referência órfã).
+Como `getPostGoalsBatchDb` só retorna metas públicas (para bater com o comportamento do feed, que esconde meta privada até do próprio autor rolando o feed), o Post Viewer mantém um **fallback** só para o post do próprio dono do perfil: se `selectedPost.userGoal` vier vazio mas `selectedPost.user_id === profileUserId`, cai para `userGoals.find(...)` — a lista completa (sem filtro de visibilidade) do dono, carregada no batch 2. Isso preserva o que só faz sentido pro próprio dono olhando o próprio post: ver uma meta que ele mesmo marcou como privada.
+
+**Meta apagada esconde o chip.** Se nem o batch nem o fallback devolvem uma descrição, o `user_goal_id` é uma referência órfã — a meta foi excluída. Desde 2026-09-14 o bloco inteiro **não é renderizado** nesse caso, e o post aparece como se nunca tivesse tido vínculo. Antes disso o chip exibia "Meta removida" (chave `profile_goal_removed_label`, hoje removida do `i18n.ts`), um rótulo sem ação possível: não há meta para abrir nem progresso para ver.
 
 ---
 
@@ -301,13 +320,38 @@ Aberto pelo botão "Editar perfil":
 |---|---|
 | Nome / Nickname | Input |
 | Bio | Textarea |
-| @ Usuário | Input (apenas letras, números, _ e .) → salvo em `profiles.handle` |
+| @ Usuário | Input (apenas letras, números, _ e ., máx. 30) → salvo em `profiles.handle` — com verificação de disponibilidade, ver abaixo |
 | Objetivos | Botões de seleção múltipla (mesmos do onboarding) → salvo em `profiles.objectives` |
 | Foto de perfil | Upload de imagem |
 | Banner | Upload de imagem |
 | Segmentos de interesse | Checkbox múltiplo |
 
 Botão "Salvar" → `updateUserProfileDb`
+
+### Troca do @usuário (validação)
+
+Editar o handle aqui passa pela **mesma validação do cadastro** (`Login.tsx`, etapa 2), com dois acréscimos: o próprio perfil é ignorado na checagem e a troca é confirmada antes de gravar.
+
+**Verificação de disponibilidade** — `checkHandleExistsDb(handle, userId)` (RPC `check_handle_exists`, `SECURITY DEFINER`), com debounce de **500ms**, só enquanto a aba "Público" do editor está aberta. O `userId` vai como `p_exclude_user`: manter o próprio @ não conta como colisão, então quem não mexe no campo salva normalmente.
+
+| Estado do campo | Retorno visual |
+|---|---|
+| Handle igual ao atual | Nenhum — sem checagem, sem aviso |
+| Menos de 3 caracteres | `settings_handle_too_short` |
+| Consultando | `settings_handle_checking` |
+| Ocupado | Borda vermelha + `settings_handle_taken` |
+| Livre | Borda verde + `settings_handle_available` |
+
+**Aviso de perda do @ antigo** — assim que o campo difere do handle atual (e já havia um handle), aparece um bloco âmbar com `AlertTriangle` informando que ninguém mais encontrará o usuário por `@{antigo}`, e que buscas e links antigos param de funcionar.
+
+**Travas no salvar** (`handleSaveProfile`):
+
+1. Botão "Salvar" desabilitado enquanto o handle novo não voltar como disponível (checando ou ocupado)
+2. Toasts de bloqueio: muito curto, ainda verificando, já em uso
+3. **Diálogo de confirmação** (portal para `document.body`, `z-[10000]`, mesmo visual do delete de flow) repetindo a consequência da troca — só aparece quando já existia um handle; quem ainda não tinha grava direto
+4. `persistProfile()` grava `handle` sempre em **minúsculo**, casando com o índice único do banco e com o que o cadastro escreve
+
+**Corrida na gravação** — se alguém tomar o @ entre a checagem e o save, o Postgres devolve `23505`; `updateUserProfileDb` agora anexa `code: "HANDLE_TAKEN"` ao erro, e o drawer reconhece esse código para remarcar o campo como indisponível e mostrar o toast traduzido (antes dependia da mensagem hardcoded em PT).
 
 ---
 
@@ -337,7 +381,80 @@ A correção tem três frentes (as duas primeiras valem para o app inteiro):
 | Configuração | Tipo | Descrição |
 |---|---|---|
 | Meu Perfil | Botão → Drawer aninhado com abas | Drawer unificado com duas abas: **Público** (foto, nome, bio, handle) e **Pessoal** (sexo, altura, peso, idade, objetivos). O campo **Peso** tem ao lado um botão **"Histórico"** (ícone `LineChart`) — ver abaixo |
-| Conta e Segurança | Botão → Drawer aninhado | Email (editável com confirmação via link), redefinir senha e zona de perigo (encerrar conta) |
+| Conta e Segurança | Botão → Drawer aninhado | Email (editável — ver abaixo), redefinir senha e zona de perigo (encerrar conta) |
+
+#### Encerrar conta (`handleDeleteAccount`)
+
+Exige digitar a palavra de confirmação (`profile_close_account_confirm_word`) e chama `deleteAllUserDataDb`, que roda **três etapas, nesta ordem obrigatória**:
+
+| # | Etapa | Onde | Por que nessa ordem |
+|---|---|---|---|
+| 1 | `purgeUserStorageDb` | cliente | A policy de DELETE do Storage depende de `auth.uid()`. Depois que a conta sai de `auth.users` não há sessão para provar posse e o arquivo fica órfão para sempre. |
+| 2 | `delete_user_data(p_user_id)` | **RPC no banco** | Uma transação só, `security definer` (ignora RLS). Apaga as linhas **e** `auth.users`. |
+| 3 | `POST {SHARE_BASE_URL}/api/delete-auth-user` | servidor | **Só como fallback**: quando o retorno da etapa 2 não traz `"auth.users"`, ou seja, a função não teve privilégio no schema `auth`. |
+
+**A etapa 2 virou função no banco (2026-09-15).** Antes eram ~45 DELETEs disparados do WebView, um por tabela, e isso falhava de duas formas ao mesmo tempo: **DELETE sob RLS é no-op silencioso** (tabela sem policy devolve "0 linhas" sem erro — o cliente logava um `console.error` que ninguém lê no device e seguia como se tivesse apagado) e **a lista atrasava** — conferindo o schema real contra o código, **31 tabelas com coluna de usuário nunca eram tocadas**, quase todas criadas depois da função original (`post_tags`, `flow_tags`, `user_blocks`, `workout_party_members`, `push_tokens`, `user_badges`, `user_weight_logs`, `user_food_logs`, `promotions`, `subscriptions`, `app_admins`, `routines.follower_id`, `diets/habits/workouts.created_by`, …). Toda tabela nova entrava com o mesmo defeito. Ver `docs/migrations/20260915-delete-user-data.sql` — **exige rodar a migração**; sem ela o erro é explícito ("Migração 20260915… não aplicada"), não um PGRST202 críptico.
+
+> ⚠️ Ao criar qualquer tabela com coluna de usuário, acrescente o par `tabela.coluna` ao array `v_targets` de `delete_user_data` **na mesma migração**. É o único lugar a manter.
+
+**Excluir uma conta pelo lado do admin:** `node scripts/delete-user.mjs <uuid>` (dry-run) e `--apply` para valer — faz Storage + linhas + `auth.users` num comando, na mesma ordem do app. Existe porque pelo painel do Supabase seriam dois lugares diferentes e é fácil parar no meio, deixando a conta viva e vazia.
+
+**A falha é reportada (`reportHandledError("profile:delete-account")`), não só exibida em toast (2026-09-14).** A ordem torna isso obrigatório: quando algo quebra depois dos lotes de DELETE e antes do `/api/delete-auth-user`, sobra uma **conta viva e vazia** — a pessoa entra, não vê nada e nem sempre alcança o botão de excluir de novo (o `profiles` já foi apagado). Com `catch` + toast sozinho esse caso era invisível no painel.
+
+#### Troca do email de login (Conta e Segurança) — corrigido em 2026-09-14
+
+A ação falhava **sem dizer por quê**: o `onClick` era inline e terminava em `catch {}` mudo, então qualquer motivo (email já cadastrado, sessão vencida, teto de envio, sem internet) virava o mesmo `"Não foi possível alterar o email."`, sem log e sem chegar ao Sentry — nem pelo painel dava para saber o que tinha acontecido.
+
+Agora é `handleChangeEmail`, com quatro correções:
+
+1. **Checagem antes da rede** — formato via `isValidEmail` e existência via `checkEmailExistsDb` (a **mesma RPC `check_email_exists` do cadastro**). Assim o caso mais comum, tentar migrar para um endereço que já tem conta, responde na hora com o motivo certo, em vez de esperar um 422 genérico do GoTrue.
+2. **Cada motivo com sua mensagem** — email inválido, já cadastrado, sessão expirada (401/`session_not_found`: pedir de novo não adianta, precisa entrar de novo), teto de envio (429/`over_email_send_rate_limit` — o SMTP embutido do Supabase é de poucos emails por hora) e offline. O que sobra mostra **a mensagem real do servidor** e chama `reportHandledError("settings:change-email")`, conforme a regra de que `catch` + toast sozinho nunca é capturado.
+3. **A mensagem de sucesso deixou de ser um chute.** Antes afirmava sempre "confirmação enviada, verifique seu novo email" — mas o envio do link depende da configuração do projeto, e prometer um email que nunca chega é indistinguível de falha. Agora o resultado é **lido da resposta**: `data.user.email` já trocado → "Email alterado"; `data.user.new_email` preenchido → "Confirmação enviada". Resposta 200 que não reflete nem um nem outro é reportada, não comemorada.
+4. **O endereço exibido atualiza.** `userEmail` vem de `user.email` do `auth-context`, onde `setUserIfChanged` só troca o objeto quando muda o **id** (de propósito: um refresh de token não pode invalidar os memos do app inteiro). O efeito colateral é que `USER_UPDATED` não propaga o email novo — a troca dava certo e o campo continuava mostrando o antigo. O drawer guarda o valor em `changedEmail` e usa `currentEmail = changedEmail ?? userEmail`.
+
+O helper `isValidEmail` saiu do `Login.tsx` para `client/lib/ritmofit-db.ts`, ao lado de `checkEmailExistsDb` — as duas telas que aceitam email precisam das duas checagens sempre juntas.
+
+**Destino do link de confirmação (mesma data).** O email que chegava era o template padrão do Supabase apontando para `http://localhost:3000`: sem `emailRedirectTo`, o GoTrue usa a **Site URL** do projeto como destino, e ela estava no valor padrão. A chamada agora passa `emailRedirectTo: EMAIL_CONFIRMED_URL` → `https://linkafit.com.br/email-confirmado` (página estática `public/email-confirmado.html`, que só confirma e devolve ao app pelo custom scheme — a troca em si já aconteceu no `/auth/v1/verify`, antes do redirecionamento). **Exige um passo manual no painel**: a URL precisa entrar na allowlist de Redirect URLs, senão o GoTrue a descarta e volta para a Site URL. Detalhes em `docs/19-compartilhamento-e-deep-links.md`.
+
+#### Troca de senha (Conta e Segurança) — 2026-09-14
+
+Duas falhas de segurança foram corrigidas na mesma entrega:
+
+**1. Não pedia a senha atual.** Qualquer pessoa com o telefone destravado na mão trocava a senha da conta em dois toques — e trocar a senha é justamente o que tranca o dono de fora. O formulário agora abre com o campo **Senha atual**.
+
+Como o Supabase não expõe um "conferir senha", a verificação é um `signInWithPassword` com o e-mail atual da conta: se autentica, a senha confere. A sessão que volta é do **mesmo usuário**, então o `setUserIfChanged` do `auth-context` nem troca o objeto (o id é o mesmo) e nada no app remonta. Um `signInWithPassword` que falha **não** derruba a sessão vigente.
+
+**2. A regra de senha era mais fraca que a do cadastro.** Aqui exigia 6 caracteres; o cadastro exige 8 + maiúscula + caractere especial. Dava para criar a conta com senha forte e, minutos depois, rebaixá-la para `123456` por este drawer. A regra virou **`client/lib/password-rules.ts`**, fonte única para o cadastro, o "salvar nova senha" da recuperação e este formulário — com o mesmo checklist ao vivo (`pwd_rule_min` / `pwd_rule_upper` / `pwd_rule_special`) e o mesmo retorno de "senhas conferem".
+
+`isStrongPassword` é **derivada** de `passwordRules`, então o checklist que o usuário vê e a trava que libera o botão não têm como discordar.
+
+Erros tratados um a um (senha atual em branco, senha atual incorreta, senha fraca, senhas diferentes, nova igual à atual, `same_password` do GoTrue, 429, offline); o que sobra vai para `reportHandledError("settings:change-password")`.
+
+**Efeito colateral tratado — credencial do Face ID.** O login por biometria guarda **email + senha** no Keychain (`client/lib/biometric-auth.ts`). Trocar qualquer um dos dois deixa a credencial obsoleta, e o Face ID passa a falhar com "credenciais inválidas" em silêncio, só na próxima vez que a pessoa tentar entrar:
+
+- **Troca de senha** → `updateBiometricCredentials(email, novaSenha)` regrava a credencial **sem novo prompt de biometria** (a identidade acabou de ser provada pela senha atual).
+- **Troca de email** → não temos a senha no fluxo, então não há como regravar: a biometria é **desativada** com aviso (`settings_biometric_reset_title`) pedindo para reativar. Vale também quando a troca fica pendente de confirmação por link, porque o email vai mudar depois, fora do app.
+
+#### Validação de altura, peso e idade (Meu Perfil → Pessoal)
+
+Os três campos eram gravados **sem nenhuma validação** — os atributos `min`/`max` do `<input type="number">` são decorativos, não barram digitação. Pior: as faixas estavam escritas à mão em cada tela e já tinham divergido (Configurações aceitava 30–300 kg e 10–120 anos; o cadastro barrava fora de 20–200 kg e 1–100 anos; o histórico de peso aceitava qualquer coisa até 1000 kg).
+
+As faixas agora vivem em **`client/lib/physical-data.ts`**, fonte única para o cadastro (`Login.tsx`, Step 2.8), este formulário, o quiz de rotina sugerida (`docs/05-metas.md`) e o histórico de peso:
+
+| Campo | Faixa | Chave da mensagem |
+|---|---|---|
+| Idade | 1 a 100 anos | `physical_age_range` |
+| Altura | 100 a 300 cm | `physical_height_range` |
+| Peso | 20 a 200 kg | `physical_weight_range` |
+
+São limites de **sanidade, não clínicos**: só barram o que é claramente erro de digitação. Campo vazio nunca é erro — os três dados seguem opcionais em todas as telas.
+
+Comportamento: valor fora da faixa pinta a borda de vermelho, mostra a mensagem abaixo do campo e **desabilita o botão "Salvar"** (`hasPhysicalErrors`); `handleSavePersonalData` repete a trava com toast (`settings_toast_physical_invalid`) para proteger qualquer outro caminho de chamada.
+
+Dois ajustes de digitação vieram junto:
+
+- **Altura e idade** usavam `String(Math.trunc(Number(v)))` no `onChange`, que transformava campo vazio em `"0"` — não dava para apagar a altura depois de preenchida. Agora usam `sanitizeIntInput` (só dígitos), como o cadastro.
+- **Peso** virou `type="text"` + `inputMode="decimal"` + `sanitizeDecimalInput` (vírgula→ponto, um separador só). Com `type="number"` o iOS esconde o ponto e devolve `""` em estado intermediário (`"70."`), impossibilitando digitar 70,5 — ver a memória `decimal-number-inputs-ios`. O mesmo vale para o input do histórico de peso e para os campos do quiz.
 
 #### Histórico de peso (Meu Perfil → Pessoal)
 
@@ -348,6 +465,7 @@ Conteúdo do drawer: peso atual em destaque + **variação total** desde o prime
 - Dados: `getWeightLogsDb(90)` / `addWeightLogDb` / `deleteWeightLogDb` (tabela `user_weight_logs`, um registro por dia via upsert)
 - Os logs são carregados **só ao abrir** o histórico (a maioria das visitas às configurações não o abre; a função já é cacheada por usuário)
 - `addWeightLogDb` também grava `profiles.weight`, então após registrar o campo Peso do formulário é atualizado localmente para não exibir valor defasado
+- O input do drawer respeita a **mesma faixa de 20–200 kg** (`isWeightOutOfRange`): antes aceitava qualquer valor abaixo de 1000 kg e, fora disso, `submitWeight` saía em silêncio — nem gravava, nem avisava. Agora a borda fica vermelha, a mensagem aparece e o botão "Registrar" fica desabilitado
 
 ### Seção: Negócio *(exibida apenas se o usuário tem perfil comercial)*
 

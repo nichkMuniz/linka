@@ -108,6 +108,16 @@ const IGNORED_ERRORS = [
   // Shots e no viewer de flows ao passar rápido entre itens.
   "The play() request was interrupted",
   "The request is not allowed by the user agent",
+  // Bug do PRÓPRIO WebKit, não nosso: os getters `buffered`/`played`/`seekable`
+  // de `MediaController.NullMedia` (modern-media-controls) leem um `EmptyRanges`
+  // solto, que só existe como estático da classe. Dispara quando o <video> já
+  // foi coletado e o controle nativo ainda consulta os ranges — ou seja, ao
+  // desmontar tela com vídeo (Shots, flows, carrossel de post). Corrigido em
+  // https://bugs.webkit.org/show_bug.cgi?id=318284 (WebKit 316507@main,
+  // 04/07/2026), mas o iOS 26.6 ainda embarca a versão com o bug. Chega sem
+  // stack (`undefined:1705:541`) porque o script é builtin do WebKit, e nada no
+  // app pode consertá-lo — é ruído puro.
+  "Can't find variable: EmptyRanges",
 ];
 
 /** Erros de sessão que o app já trata redirecionando para o login. */

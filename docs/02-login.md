@@ -137,11 +137,13 @@ Fluxo multi-etapas com 5 passos:
 |---|---|---|
 | Nome completo | Input text | Obrigatório |
 | @ de usuário | Input text | Obrigatório, **mínimo 3 caracteres** e **único** (ver abaixo). Só permite letras, números, `_` e `.`. Sem espaços/caracteres especiais. Salvo em `profiles.handle` **sem** o prefixo `@` (o `@` é apenas visual/exibição). |
-| Foto de perfil | File upload | Imagem (upload para bucket `posts`), opcional |
+| Foto de perfil | File upload | Imagem (upload para bucket `posts`), opcional. **Dois gatilhos abrem o seletor**: o botão "Adicionar foto"/"Trocar foto" e o próprio avatar (círculo tracejado vazio ou a miniatura já escolhida). O "X" sobre a miniatura continua apagando a foto sem abrir o seletor. |
 | Bio | Textarea | Descrição pessoal, opcional |
 | Perfil comercial | Toggle | Ativa campos de negócio |
 
-**Handle único (trava anti-duplicidade):** enquanto o usuário digita o `@`, é feita uma verificação com debounce (500ms) via RPC `check_handle_exists` (`checkHandleExistsDb`). Feedback inline: "Verificando disponibilidade…" / "❌ Esse @ já está em uso" / "✓ @ disponível". O botão **Próximo** (e o atalho "Personalizar depois") ficam desabilitados até o `@` ter ≥3 caracteres e estar disponível. A unicidade é garantida no banco por um índice único case-insensitive (`profiles_handle_unique_idx`); numa corrida rara, o `INSERT`/`UPDATE` retorna `23505` e o usuário é avisado. O mesmo `check_handle_exists` cobre a edição de handle nas Configurações.
+**Avatar clicável (2026-09-14):** o `<input type="file">` saiu de dentro do `<label>` e passou a ser acionado por `ref` (`signupPhotoInputRef` + `openSignupPhotoPicker`). O motivo é estrutural: com o input dentro do rótulo, tornar o avatar clicável exigiria envolver a miniatura no mesmo `<label>` — e o botão "X" de remover, que vive por cima dela, ficaria dentro da área clicável do rótulo (remover a foto reabriria o seletor). Ambos os gatilhos chamam o mesmo `handlePhotoChange`, que segue mandando a imagem para o `ImageCropperDrawer`.
+
+**Handle único (trava anti-duplicidade):** enquanto o usuário digita o `@`, é feita uma verificação com debounce (500ms) via RPC `check_handle_exists` (`checkHandleExistsDb`). Feedback inline: "Verificando disponibilidade…" / "❌ Esse @ já está em uso" / "✓ @ disponível". O botão **Próximo** (e o atalho "Personalizar depois") ficam desabilitados até o `@` ter ≥3 caracteres e estar disponível. A unicidade é garantida no banco por um índice único case-insensitive (`profiles_handle_unique_idx`); numa corrida rara, o `INSERT`/`UPDATE` retorna `23505` e o usuário é avisado. O mesmo `check_handle_exists` cobre a edição de handle nas Configurações (com `p_exclude_user` = próprio usuário, mais o diálogo de confirmação da troca — ver `docs/08-perfil.md`).
 
 **⭐ Causa raiz da foto que não gravava (correção 2026-07-21b):** o `profilePayload` incluía `email` (`profilePayload.email = authUser.email`), mas a tabela `profiles` **não tem coluna `email`** (o email vive em `auth.users`; só `commercial_profiles` tem `business_email`). No PostgREST, um UPDATE que cita coluna inexistente **falha a instrução inteira** (`PGRST204`), então **nada** do payload gravava — nem `photo`, nem `handle`, nem `nickname`. O nome e o @ apareciam mesmo assim porque quem os grava é o trigger `handle_new_user` (a partir do metadata); a foto não, porque o trigger nunca a define. **Fix: remover o campo `email` do payload.** As proteções abaixo (retry/erros) continuam válidas, mas não resolviam sozinhas — o payload estava "envenenado".
 
@@ -202,9 +204,15 @@ Permite adicionar múltiplos planos via botão "Adicionar plano". Cada plano pod
 | Sexo | Botões de seleção (Masculino / Feminino / Outro) | Opcional. Salvo em `profiles.gender`. |
 | Idade | Input number | Opcional. Salvo em `profiles.age`. |
 | Altura (cm) | Input number | Opcional. Salvo em `profiles.height`. |
-| Peso (kg) | Input number | Opcional. Salvo em `profiles.weight`. |
+| Peso (kg) | Input text + `inputMode="decimal"` | Opcional. Salvo em `profiles.weight`. |
 
-Todos os campos são opcionais. O botão "Próximo" sempre avança para o Step 3 (objetivos).
+Todos os campos são opcionais. O botão "Próximo" sempre avança para o Step 3 (objetivos) — exceto com valor fora de faixa, que o desabilita.
+
+**Regra de senha (2026-09-14):** 8 caracteres + 1 maiúscula + 1 caractere especial. A regra e o checklist ao vivo saíram do `Login.tsx` para **`client/lib/password-rules.ts`**, compartilhados com a troca de senha das Configurações (que exigia só 6 caracteres — ver `docs/08-perfil.md`). As chaves passaram de `login_pwd_rule_*` para `pwd_rule_*`.
+
+**Faixas aceitas (2026-09-14):** idade 1–100, altura 100–300 cm, peso 20–200 kg. Desde 14/09 elas não moram mais aqui: estão em **`client/lib/physical-data.ts`** (`isAgeOutOfRange` / `isHeightOutOfRange` / `isWeightOutOfRange`, mensagens `physical_*_range`), compartilhadas com o formulário de dados pessoais das Configurações, o quiz de rotina sugerida e o histórico de peso — antes cada tela tinha a sua cópia e elas divergiram. O campo Peso usa `type="text"` + `inputMode="decimal"` + `sanitizeDecimalInput` pelo motivo descrito na memória `decimal-number-inputs-ios`.
+
+**Atalho "Informar dados físicos depois →" (2026-09-14):** link discreto abaixo dos botões, no mesmo padrão visual de "Personalizar foto e bio depois" do Step 2. Existe porque a dupla Voltar/Próximo sozinha dá a entender que a etapa é obrigatória. **Não limpa** o que já foi digitado; apenas descarta o campo que estiver fora de faixa (o mesmo que trava o "Próximo") antes de avançar.
 
 ---
 
@@ -220,7 +228,11 @@ Seleção de objetivos fitness (múltipla escolha). Os valores selecionados são
 | yoga | 🧘 Yoga & Flexibilidade |
 | sports | ⚽ Esportes |
 
-**Botões:** Voltar | Próximo
+O cabeçalho marca a etapa como **(opcional)**, como no Step 2.8.
+
+**Botões:** Voltar | Próximo (é o `handleSignupStep3`, que cria a conta)
+
+**Atalho "Informar objetivos depois →" (2026-09-14):** por ser o último passo, o link **conclui o cadastro** — chama o mesmo `handleSignupStep3`, que só envia `objectives` quando há seleção. Mesmo padrão de "Adicionar planos depois" do wizard comercial. Desabilitado enquanto `busy`, para não disparar dois `signUp`.
 
 ---
 

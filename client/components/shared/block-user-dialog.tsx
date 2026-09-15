@@ -58,6 +58,15 @@ export function BlockUserDialog({
       if (isBlock) await blockUserDb(userId);
       else await unblockUserDb(userId);
 
+      // O feed guarda a lista carregada num cache de MÓDULO, que sobrevive à
+      // desmontagem da tela (ver `feedCache` em `client/pages/Index.tsx`).
+      // Bloquear de fora do feed — do perfil, do flow viewer — não passava por
+      // nenhum reload, então voltar para a home restaurava a lista antiga com o
+      // bloqueado ainda no ring de flows. O evento marca esse cache como sujo
+      // mesmo com a tela desmontada; quem bloqueia de dentro do próprio feed
+      // continua recarregando pelo `onDone`.
+      window.dispatchEvent(new CustomEvent("ritmofit-blocks-changed"));
+
       toast({
         title: t(isBlock ? "block_success_title" : "unblock_success_title"),
         description: isBlock

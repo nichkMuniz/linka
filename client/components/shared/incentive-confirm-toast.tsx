@@ -21,7 +21,7 @@ export function IncentiveConfirmToast() {
       if (timerRef.current) clearTimeout(timerRef.current);
       setActiveType(type);
       setTick((n) => n + 1);
-      timerRef.current = setTimeout(() => setActiveType(null), 3000);
+      timerRef.current = setTimeout(() => setActiveType(null), 5000);
     });
   }, []);
 

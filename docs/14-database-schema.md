@@ -883,7 +883,7 @@ Perfil público dos usuários da plataforma.
 **RLS / funções (migration `20260720-profiles-signup-fixes.sql`):**
 - `profiles_insert_own` (INSERT, `with check (auth.uid() = user_id)`) — sem ela, o `upsert` do cliente no cadastro/`ensureProfile` era barrado no braço de INSERT e falhava em silêncio (foto e handle não gravavam). Complementa `profiles_update_own`.
 - `profiles_handle_unique_idx` — índice único case-insensitive garante handle único global.
-- `check_handle_exists(p_handle text, p_exclude_user uuid default null) → boolean` — RPC `SECURITY DEFINER` (grant `anon, authenticated`) para checar disponibilidade de handle em tempo real no cadastro (`checkHandleExistsDb`), normalizando com/sem `@`.
+- `check_handle_exists(p_handle text, p_exclude_user uuid default null) → boolean` — RPC `SECURITY DEFINER` (grant `anon, authenticated`) para checar disponibilidade de handle em tempo real no cadastro e na edição de perfil das Configurações (`checkHandleExistsDb`), normalizando com/sem `@`. `p_exclude_user` ignora um perfil na busca — é o que permite ao usuário reabrir o editor sem que o próprio handle apareça como ocupado.
 - `handle_new_user` reescrito: grava `handle` **sem** `@`, com de-colisão por sufixo numérico (nunca quebra o `signUp` por handle duplicado).
 
 **Banimento (migration `20260811-admin-ban-user.sql`):**
@@ -1095,21 +1095,69 @@ desfaz.
   `not is_blocked_between(auth.uid(), following_id)`. Esta é a única parte do
   bloqueio que vive no banco: esconder no cliente resolve a leitura, mas não
   impede o abusador de **enviar**. Filtro de UI se contorna; policy, não.
-- `followers` — o trigger `user_blocks_unfollow_trg` apaga o follow **nos dois
-  sentidos** ao bloquear. Continuar seguindo alguém que você bloqueou o manteria
-  no feed "Seguindo" e nas contagens, e o bloqueio pareceria não ter funcionado.
+- `following` (e `followers`) — o trigger `user_blocks_unfollow_trg` apaga o
+  follow **nos dois sentidos** ao bloquear. Continuar seguindo alguém que você
+  bloqueou o manteria no feed "Seguindo", no ring de flows e nas contagens, e o
+  bloqueio pareceria não ter funcionado.
+
+  > **Corrigido em `docs/migrations/20260914-block-unfollow-following.sql`.** A
+  > versão original do trigger (20260826) apagava **só de `followers`** — tabela
+  > que o app nunca lê. Todo o produto trabalha em `following`
+  > (`getFollowingIdsDb`, `getFollowersDb`, `getFollowingDb`, `isFollowingDb`,
+  > `get_profile_counts`), então o vínculo sobrevivia ao bloqueio: a pessoa
+  > continuava no ring de flows do feed e marcada como seguida. O filtro de
+  > bloqueio em `getFeedPosts` escondia os **posts**, o que mascarou o defeito —
+  > os cards sumiam, o vínculo não. A migração corrige o trigger e faz o
+  > backfill dos follows que sobreviveram a bloqueios anteriores.
 
 **Onde é lido no cliente** (`client/lib/ritmofit-db.ts`):
 
 | Função | Uso |
 |---|---|
-| `getBlockedIdsDb()` | Ids invisíveis nos dois sentidos. Cache `blockedIds:<uid>` com **TTL curto (30s)** - "alguém me bloqueou" é escrita de TERCEIROS, não passa por `invalidateQueryCache` neste device, e o TTL é a única defesa contra continuar exibindo quem acabou de me bloquear |
+| `getBlockedIdsDb()` | Ids invisíveis nos dois sentidos — é a lista que **esconde** conteúdo, simétrica de propósito |
+| `getBlockedByMeIdsDb()` | Só a direção "EU bloqueei". Usada onde a UI precisa **escrever uma frase** sobre o bloqueio: em quem eu bloqueei dá para nomear o que houve e apontar como desfazer; em quem me bloqueou, não — confirmar isso vazaria uma decisão que o app não revela em nenhuma outra tela |
+| `getBlockRowsDb()` (interno) | Linhas cruas das duas direções. Fonte única das duas funções acima, para que dividam UMA ida à rede. Cache `blockedIds:rows:<uid>` com **TTL curto (30s)** — "alguém me bloqueou" é escrita de TERCEIROS, não passa por `invalidateQueryCache` neste device, e o TTL é a única defesa contra continuar exibindo quem acabou de me bloquear. A chave começa com `blockedIds` porque `invalidateQueryCache` casa por **prefixo** |
 | `getBlockedByMeDb()` | Só quem EU bloqueei, com perfil — alimenta "Contas bloqueadas" em Configurações |
-| `blockUserDb()` / `unblockUserDb()` | Escrita + invalidação de `blockedIds`, `followingIds`, `followers`, `userStats` e `conversations` |
+| `blockUserDb()` / `unblockUserDb()` | Escrita + invalidação de `blockedIds`, `following` (prefixo: cobre a lista e `followingIds`), `followers`, `isFollowing`, `activeStories`, `userStats` e `conversations` |
 
-Superfícies que aplicam o filtro: feed e Descobrir
-(`client/services/post.service.ts`), `searchUsersDb`, `getPostCommentsDb` e
-`getConversationsDb`.
+Superfícies que aplicam o filtro:
+
+| Onde | Função |
+|---|---|
+| Feed e Descobrir | `getFeedPosts` / `getDiscoverPosts` (`client/services/post.service.ts`) |
+| Ring de flows | `getActiveStoriesDb` |
+| Buscar — lista inicial | `getAllUsersDb` (o filtro fica **fora** do `cached`: a chave é global) |
+| Buscar — por nome | `searchUsersDb` |
+| Buscar — Treinos/Dietas | `searchRoutinesDb` (a rotina expõe nome e foto do dono) |
+| Buscar — Tags | `searchContentByHashtagDb` |
+| Listas de seguidores/seguindo | `getFollowersDb` / `getFollowingDb` (inclusive nas listas de TERCEIROS, onde o vínculo é legítimo) |
+| Comentários | `getPostCommentsDb` |
+| Pessoas marcadas no post | `getPostTagsBatchDb` — a marcação é um perfil dentro do post de **outra** pessoa: um post de quem eu sigo podia trazer junto quem eu bloqueei, com botão de seguir |
+| Enviar para amigo | `SendToFriendDrawer` |
+| Notificações + badge do sino | `getNotificationsDb` / `getUnreadNotificationsCountDb` — o card traz nome, foto e, no tipo 1, um botão de seguir. As linhas ficam no banco; só o card some |
+| Perfil | `Profile.tsx` vira uma tela de aviso, sem conteúdo nem ações de contato (ver `docs/08-perfil.md`) |
+
+> **A regra, para superfícies novas:** qualquer lista que mostre nome, foto ou
+> conteúdo de outro usuário precisa cruzar com `getBlockedIdsDb()`. As que
+> escaparam até 14/09/2026 foram sempre as mesmas duas categorias — listas que
+> aparecem **sem o usuário pedir** (a lista inicial de Buscar, as notificações)
+> e listas onde a pessoa aparece **de lado**, como dona de outra coisa (a rotina
+> em Treinos/Dietas).
+
+**Exceção deliberada — a conversa privada (14/09/2026).** `getConversationsDb`
+**não** filtra: a conversa com alguém bloqueado permanece na lista, com o
+histórico inteiro. Ela apenas marca `isBlocked`/`blockedByMe` para a UI esconder
+a barra de escrever. Filtrar ali equivalia a apagar a conversa aos olhos do
+usuário, que perdia o registro de quem o incomodou — o material que ele pode
+precisar guardar como evidência. Quem impede a interação é a policy
+`messages_insert_not_blocked`, não a ausência da conversa na lista. Ver
+`docs/07-comunidade.md`.
+
+> O cruzamento com `blockedIds` no cliente **não substitui** o trigger: ele
+> existe porque a lista de seguidos vive em cache de TTL médio e porque a
+> direção "ele me bloqueou" é escrita por terceiros, sem passar por
+> `invalidateQueryCache` neste device. O trigger corrige o dado; o filtro faz o
+> bloqueio valer no mesmo instante.
 
 ---
 
@@ -1779,6 +1827,33 @@ Migration: `docs/migrations/20260713-security-hardening.sql`. **As migrações v
 | `profile_hides_follow_lists(target)` | Idem para `hide_follow_lists` |
 | `viewer_follows(target)` | `auth.uid()` segue `target`? Usada na policy de `posts` |
 | `get_profile_counts(target)` | Devolve `posts_count`, `followers_count`, `following_count`. **Necessária**: com a RLS acima, um `count` direto devolveria 0 em perfis privados. O app mostra os números (só as listas e os posts ficam ocultos) — `getUserStatsDb` chama esta RPC |
+| `delete_user_data(p_user_id)` | Apaga **todas** as linhas do usuário numa transação e devolve `jsonb` com a contagem por `tabela.coluna`. Só o dono (`auth.uid() = p_user_id`) ou um admin pode chamar. Ver abaixo |
+
+#### `delete_user_data` — exclusão de conta (migração `20260915-delete-user-data.sql`)
+
+Substituiu os ~45 DELETEs que `deleteAllUserDataDb` disparava do WebView. Os dois defeitos que motivaram a troca:
+
+1. **DELETE sob RLS é no-op silencioso** (o mesmo padrão de `hist-delete-rls` e `admin-moderation`): tabela sem policy de DELETE para o dono devolve 0 linhas **sem erro**. Do cliente era impossível distinguir "não havia nada" de "a policy barrou".
+2. **A lista atrasava.** Conferindo o schema real contra o código, **31 tabelas com coluna de usuário nunca eram apagadas** — quase todas criadas depois da versão original da função.
+
+**Tem que ser FUNCTION, nunca PROCEDURE.** Já existia no banco uma `delete_user_data` criada com `CREATE PROCEDURE` — e era inalcançável: o PostgREST chama tudo via `SELECT`, então só expõe `FUNCTION`; procedure exige `CALL`, que não existe na REST API. Ela não aparecia nem na lista de RPCs do OpenAPI, e `supabase.rpc("delete_user_data")` devolvia `PGRST202`. Trocar o tipo com `create or replace` não funciona (`42809: cannot change routine kind`), por isso a migração começa com um bloco que varre `pg_proc` e derruba a rotina antiga seja qual for o tipo ou a assinatura.
+
+A varredura é um loop sobre pares `'tabela.coluna'` no array `v_targets`, com `exception when undefined_table or undefined_column` para a função rodar inteira num banco que ainda não tem alguma tabela. **A ordem do array é a ordem das FKs: filhos antes dos pais.**
+
+Dois pontos que não são óbvios:
+
+- **`flow.reposted_from_user` é `UPDATE … = null`, nunca DELETE.** A coluna aponta para a pessoa ORIGINAL, então a linha pertence a quem repostou — apagar por ela destruiria conteúdo de outro usuário.
+- **`diets/habits/workouts.created_by` entram na lista.** São os itens custom da pessoa; o catálogo geral tem `created_by` nulo e não é afetado.
+
+**`auth.users` ela apaga** (2026-09-15), na última instrução: como é `security definer`, roda com os privilégios do dono da função e alcança o schema `auth`; `auth.sessions`, `auth.identities` e `auth.refresh_tokens` caem por cascade. Como esse privilégio depende de qual role aplicou a migração, o DELETE fica num bloco que trata `insufficient_privilege` — o jsonb traz `"auth.users": 1` quando deu certo e **omite a chave** quando não deu. `deleteAllUserDataDb` lê esse sinal e só chama `api/delete-auth-user.ts` (service role) quando a chave não veio: o endpoint virou fallback, não etapa fixa.
+
+**Mídia no Storage ela não apaga** — e não deve. Dá para apagar as linhas de `storage.objects` no SQL, mas o arquivo físico no S3 não vai junto e, sem a linha, ele some de qualquer listagem: vira lixo pago e invisível, que nem o `sweep-orphan-media.mjs` acha depois. Apagar mídia exige a API do Storage — no app é `purgeUserStorageDb`, que roda **antes** (a policy de DELETE do Storage depende de `auth.uid()`).
+
+**Autorização — três caminhos, e só três:** o dono (`auth.uid() = p_user_id`), um admin do app (`is_app_admin`), ou **acesso direto ao banco** (SQL Editor, psql, migração). O terceiro caso existe porque o SQL Editor do Supabase não manda JWT — ali `auth.uid()` é NULL e a função respondia `42501: NOT_OWNER` até para o dono do projeto. Liberar não abre nada: quem tem conexão direta já apaga qualquer linha à mão; o preço da checagem era o admin não conseguir excluir uma conta manualmente, que é justamente quando isso é mais necessário. A detecção é `current_setting('request.jwt.claims', true) is null` — sem claims, a chamada não veio do PostgREST. Continuam barrados `anon` e qualquer autenticado mirando os dados de outra pessoa.
+
+Para excluir uma conta à mão, o caminho de um comando só é **`node scripts/delete-user.mjs <uuid> --apply`** (dry-run sem `--apply`): faz o Storage pela API e depois a RPC, na ordem certa. Fazendo pelo painel são dois lugares — o roteiro está no rodapé da migração.
+
+> ⚠️ **Toda tabela nova com coluna de usuário precisa entrar no `v_targets` na mesma migração que a cria.** É o único lugar a manter — e foi exatamente o passo que não existia antes.
 
 ### Bucket `chat-media`
 

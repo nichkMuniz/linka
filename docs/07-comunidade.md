@@ -6,8 +6,18 @@
 > lançamento. Sobra a aba **Mensagens**, e com uma aba só a barra de abas some
 > inteira: a tela abre direto na lista de conversas.
 >
-> Conversas com usuários bloqueados não aparecem na lista, e a policy
-> `messages_insert_not_blocked` impede o envio no banco — não só na UI.
+> **Conversa com alguém bloqueado permanece na lista (14/09/2026).** Até então
+> `getConversationsDb` filtrava as duas pontas e a conversa sumia — efeito
+> indistinguível de ter sido apagada. O usuário perdia o histórico de quem o
+> incomodou, que é justamente o material que ele pode precisar guardar como
+> evidência (para uma denúncia, ou fora do app). Agora a conversa fica, o
+> histórico continua legível, e o que sai é a **barra de escrever**, trocada por
+> um aviso. Apagar a conversa volta a ser decisão explícita do usuário (swipe →
+> "Apagar conversa"), não efeito colateral do bloqueio.
+>
+> Quem impede a interação é a policy `messages_insert_not_blocked` no banco, não
+> a UI. A barra some porque o envio **falharia** com erro de RLS, que é a pior
+> forma possível de comunicar "você bloqueou esta pessoa".
 
 **Rota:** `/comunidade`
 **Arquivo:** `client/pages/Community.tsx`
@@ -40,7 +50,7 @@ Hub social do aplicativo. Reúne mensagens diretas, duelos em grupo (desafios co
 
 ## Tab: Mensagens
 
-> **Visual (LinKa Glass — refatorado 2026-06-26):** A aba de Mensagens segue o design system LinKa Glass. A lista de conversas usa **cartões frosted-glass** empilhados (`rounded-[20px]`, fundo `rgba(255,255,255,.04)`, sem divisórias) em vez de linhas com `divide-y`. A busca é um pill de vidro; o botão de nova conversa é um círculo de vidro. Na conversa individual, as bolhas próprias usam **gradiente azul→roxo** (`linear-gradient(135deg,#5b8cff,#7b3ff2)`) e as do contato usam vidro translúcido (`rgba(255,255,255,.08)`), ambas com cantos `rounded-[20px]` e um canto "rabicho" reduzido. Header, banner de resposta e barra de envio têm fundo de vidro com blur. A **barra de input é mais alta** (pill de `52px` de altura mínima, `rounded-[26px]`, com highlight interno de vidro), os botões de mídia (câmera/galeria/microfone) são alvos circulares de `44px` com **fundo de vidro sutil** (`rgba(255,255,255,.05)` + borda) e ícones de **traço fino** (`strokeWidth 1.8`) para combinar com o glass, e o botão de enviar é um círculo de `48px` com gradiente azul→roxo e sombra. Todas as strings da aba usam `t()` (chaves `community_*`).
+> **Visual (LinKa Glass — refatorado 2026-06-26):** A aba de Mensagens segue o design system LinKa Glass. A lista de conversas usa **cartões frosted-glass** empilhados (`rounded-[20px]`, fundo `rgba(255,255,255,.04)`, sem divisórias) em vez de linhas com `divide-y`. A busca é um pill de vidro; o botão de nova conversa é um círculo de vidro. Na conversa individual, as bolhas próprias usam **gradiente azul→roxo** (`linear-gradient(135deg,#5b8cff,#7b3ff2)`) e as do contato usam vidro translúcido (`rgba(255,255,255,.08)`), ambas com cantos `rounded-[20px]` e um canto "rabicho" reduzido. Header, banner de resposta e barra de envio têm fundo de vidro com blur. A **barra de input é mais alta** (pill de `52px` de altura mínima, `rounded-[26px]`, com highlight interno de vidro), os botões de mídia (galeria/microfone) são alvos circulares de `44px` com **fundo de vidro sutil** (`rgba(255,255,255,.05)` + borda) e ícones de **traço fino** (`strokeWidth 1.8`) para combinar com o glass, e o botão de enviar é um círculo de `48px` com gradiente azul→roxo e sombra. Todas as strings da aba usam `t()` (chaves `community_*`).
 
 ### Vista: Lista de Conversas
 
@@ -74,8 +84,10 @@ Ao tocar no botão excluir revelado → soft-delete do histórico apenas para o 
 ### Segurança na conversa (2026-09-02 — Guideline 1.2)
 
 O header da conversa (`conversation-view.tsx`) tem um botão **"…"** à direita que
-abre o `UserSafetyDrawer` — **denunciar** e **bloquear** o contato. Ao bloquear,
-a view volta para a lista de conversas (`handleBackToConversations`).
+abre o `UserSafetyDrawer` — **denunciar** e **bloquear** (ou **desbloquear**) o
+contato. Ao bloquear, a view volta para a lista de conversas
+(`handleBackToConversations`), onde a conversa **continua** — agora marcada como
+bloqueada, sem barra de escrever.
 
 Por que aqui e não só no perfil: qualquer usuário pode iniciar uma DM com
 qualquer outro (`new-conversation-drawer.tsx` usa busca global, sem exigir que
@@ -173,13 +185,50 @@ Exibe:
 - Avatar + nome do contato + **insígnia do usuário** (`UserInsignias` component ao lado do nome)
 - Clicável → navega para o perfil do contato
 
-**Papel de parede (2026-08-13):**
-- A conversa individual tem fundo **ladrilhado de doodles** no espírito do WhatsApp, em vez do `bg-background` liso
-- Asset: `public/chat-wallpaper.webp` (2600×1370). É **derivado** — gerado por `scripts/build-chat-wallpaper.cjs` a partir da arte original em `public/background-mensagem.png`. O script recorta 1300×685 (tira as bordas e um glifo de estrela que a arte trazia em ~1325,707) e **espelha em 2×2**: a arte crua não é um ladrilho contínuo (as figuras estão cortadas nas bordas), então repeti-la direto criaria linha de emenda; o espelho casa as quatro bordas. Saída em WebP (alvo iOS 15+) — 1,2 MB de PNG viram ~120 KB. Refazer a arte = trocar o PNG e rodar o script de novo
-- Estilo: `.chat-doodle-wallpaper` em `client/global.css`. `background-size: 1240px auto` = 620px por quadrante espelhado, acima da largura de qualquer iPhone — assim o eixo vertical do espelho nunca aparece na tela e as figuras saem com ~70px. **Tamanho fixo em vez de `cover` é proposital:** o container encolhe quando o teclado abre, e `cover` faria o fundo dar um zoom acompanhando a animação
-- A arte já traz o próprio fundo e o próprio contraste, então a camada é **opaca** (sem `opacity`). O fundo da conversa fica num cinza-escuro um pouco mais claro que o `--background` do app — é o que dá a leitura de "superfície de conversa" do WhatsApp. Para clarear/escurecer, usar `filter: brightness()` na classe, nunca editar o arquivo
-- A camada é um `div` absoluto com `-z-10` dentro do container `fixed` da conversa: fica **acima** do `bg-background` do próprio container e **abaixo** de todo o conteúdo em fluxo (header, lista e barra de input), sem precisar dar `z-index` aos irmãos. Como não rola junto com a lista, o padrão fica **parado** enquanto as mensagens passam por cima (comportamento do WhatsApp). O container ganhou `overflow-hidden`
-- Header e barra de input continuam com `backdrop-filter`, então aparecem como vidro fosco **sobre** o padrão. As bolhas recebidas (`rgba(255,255,255,.08)`) deixam o doodle transparecer de leve — proposital, mantém o visual glass do app
+**Conversa bloqueada (14/09/2026):**
+- A conversa **não é apagada nem escondida** ao bloquear: ela continua na lista
+  (com um chip **"Bloqueado"** ao lado do nome) e o histórico continua inteiro e
+  legível. Quem bloqueia pode precisar dessas mensagens depois — como evidência
+  para uma denúncia, ou fora do app — e apagá-las junto com o bloqueio punia
+  quem já tinha sido incomodado
+- O que sai é a **barra de escrever**, substituída por um aviso com ícone `Ban`.
+  Some junto tudo que é escrita na conversa: emoji rápido, "Responder" no
+  overlay de long-press, e o arrasto-para-responder
+  (`SwipeableMessageBubble replyEnabled={false}` — o gesto nem anima, porque um
+  gesto que anima e não faz nada é pior do que um gesto que não existe)
+- **Apagar continua disponível** (para mim / para todos): é ação sobre a própria
+  cópia do histórico, não contato com o outro. Apagar a conversa volta a ser
+  decisão explícita (swipe → "Apagar conversa")
+- **A frase muda conforme a direção do bloqueio.** Se fui eu que bloqueei, a UI
+  nomeia o que aconteceu e aponta o caminho de volta (`community_blocked_by_me`
+  + Configurações › Contas bloqueadas). Se foi a outra pessoa, a frase é neutra
+  (`community_blocked_other`) — confirmar "fulano te bloqueou" entregaria uma
+  decisão que o app não revela em nenhuma outra tela. A direção vem de
+  `getBlockedByMeIdsDb()`; para **esconder** conteúdo continua valendo a lista
+  simétrica de `getBlockedIdsDb()`
+- Flags: `Conversation.isBlocked` / `Conversation.blockedByMe`, preenchidas por
+  `getConversationsDb` e também no caminho de deep link `?user=` (que monta a
+  conversa à mão, sem passar pela lista)
+- `SendToFriendDrawer` **pula** conversas bloqueadas: ali a conversa seria um
+  destino de envio, e o envio só pode falhar
+- O "..." do header (`UserSafetyDrawer`) recebe `blockedByMe` e troca a linha
+  para **"Desbloquear {nome}"** (`mode="unblock"` no `BlockUserDialog`). Só a
+  direção "eu bloquei" muda: se foi a outra pessoa, a linha segue "Bloquear" —
+  bloquear de volta é a única ponta que este usuário controla
+- Se a outra pessoa bloquear **com a conversa já aberta**, a flag só atualiza no
+  próximo carregamento da lista (cache de TTL médio) e o envio chega a partir.
+  Nesse caso o `42501` da policy vira uma frase legível
+  (`sendErrorDescription` em `community-helpers.ts`), e não a mensagem crua do
+  Postgres sobre row-level security
+
+**Fundo da conversa (2026-08-13, refeito em 2026-09-14):**
+- A conversa individual **não usa mais** o papel de parede ladrilhado de doodles (estilo WhatsApp). Ele competia visualmente com as bolhas e foi trocado por uma **camada neutra em CSS puro**, sem asset de imagem
+- Estilo: `.chat-wallpaper` em `client/global.css` — `background-color: hsl(var(--background))` + dois brilhos radiais bem discretos (roxo no topo, azul embaixo, as mesmas cores do gradiente do botão de enviar) + uma trama de pontos de 26px em `rgba(255,255,255,.05)`. Só o suficiente para a tela não ficar chapada
+- **Tamanho fixo (`100% 100%` / `26px`) em vez de `cover` é proposital:** o container encolhe quando o teclado abre, e `cover` faria o fundo dar um zoom acompanhando a animação
+- A camada continua **opaca**: o container já é `bg-background`, mas a conversa é toda desenhada em branco translúcido e depende de um fundo escuro estável
+- A camada é um `div` absoluto com `-z-10` dentro do container `fixed` da conversa: fica **acima** do `bg-background` do próprio container e **abaixo** de todo o conteúdo em fluxo (header, lista e barra de input), sem precisar dar `z-index` aos irmãos. Como não rola junto com a lista, o fundo fica **parado** enquanto as mensagens passam por cima. O container tem `overflow-hidden`
+- Header e barra de input continuam com `backdrop-filter`, então aparecem como vidro fosco **sobre** a camada
+- Removidos na troca: `public/chat-wallpaper.webp`, a arte `public/background-mensagem.png` e o gerador `scripts/build-chat-wallpaper.cjs` (~1,35 MB de asset morto que ia junto no bundle)
 - Vale só para a **conversa privada**; a vista de grupo/duelo segue com fundo liso
 
 **Lista de Mensagens:**
@@ -190,7 +239,7 @@ Exibe:
 - **Reações emoji** em cada mensagem (emoji picker ao segurar/clicar)
 
 **Campo de Envio (estilo Instagram):**
-- Ícone `Camera` à esquerda → abre câmera para capturar e enviar foto diretamente
+- **(2026-09-14)** O ícone `Camera` à esquerda foi **removido**: era redundante com o ícone `Image` da direita, que no iOS já abre o seletor nativo com a câmera como uma das opções. O `<input type="file">` oculto perdeu o `capture="environment"` (e, com ele, o vai-e-volta que removia/restaurava o atributo a cada clique na galeria); o spinner de `isSendingPhoto` passou para o botão da galeria, hoje o único caminho de envio de imagem
 - Input de texto centralizado com fundo arredondado (pill)
 - Ícone `Smile` dentro do input → abre `EmojiPicker` (componente `shared/emoji-picker.tsx`) com 4 categorias; o emoji selecionado é inserido no texto
 - Quando sem texto: ícones `Image` (galeria) e `Mic` (gravação de áudio) à direita

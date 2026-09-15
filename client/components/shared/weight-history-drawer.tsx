@@ -5,6 +5,7 @@ import { useLanguage } from "@/lib/language-context";
 import { PremiumGate } from "@/components/shared/premium-gate";
 import { TrendChart } from "@/components/shared/trend-chart";
 import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
+import { isWeightOutOfRange, sanitizeDecimalInput } from "@/lib/physical-data";
 import {
   GLASS_SHEET_PROPS,
   GLASS_SHEET_STYLE,
@@ -76,6 +77,8 @@ export function WeightHistoryDrawer({
   const { t, language } = useLanguage();
   const [input, setInput] = React.useState("");
   const [saving, setSaving] = React.useState(false);
+  // Mesma faixa do cadastro e das Configurações (client/lib/physical-data.ts).
+  const weightError = isWeightOutOfRange(input);
 
   // O input "registrar peso" fica no meio do scroll do drawer (gráfico acima,
   // histórico abaixo) — sem assistência ele some atrás do teclado no iOS.
@@ -89,8 +92,12 @@ export function WeightHistoryDrawer({
   const points = logs.map((l) => ({ label: fmtWeightDate(l.logged_at, language), value: l.weight }));
 
   const submitWeight = async (raw: string) => {
+    // Antes aceitava qualquer coisa abaixo de 1000 kg, e fora disso saía em
+    // silêncio (nem gravava, nem avisava). Agora usa a mesma faixa do cadastro
+    // e das Configurações — este input grava em `profiles.weight` também.
+    if (isWeightOutOfRange(raw)) return;
     const parsed = parseFloat(raw.replace(",", "."));
-    if (!Number.isFinite(parsed) || parsed <= 0 || parsed >= 1000) return;
+    if (!Number.isFinite(parsed)) return;
     setSaving(true);
     try {
       await onAddWeight(parsed);
@@ -148,17 +155,17 @@ export function WeightHistoryDrawer({
           <div className="mt-4 flex items-center gap-2">
             <div className="relative flex-1">
               <input
-                type="number"
+                type="text"
                 inputMode="decimal"
-                step="0.1"
+                maxLength={6}
                 value={input}
-                onChange={(e) => setInput(e.target.value)}
+                onChange={(e) => setInput(sanitizeDecimalInput(e.target.value))}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") submitWeight(input);
                 }}
                 placeholder={t("goals_weight_input_placeholder")}
                 className="w-full rounded-xl px-3 py-3 text-white placeholder:text-white/35 outline-none"
-                style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)" }}
+                style={{ background: "rgba(255,255,255,.07)", border: `1px solid ${weightError ? "rgba(248,113,113,.7)" : "rgba(255,255,255,.12)"}` }}
               />
               <span className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40" style={{ fontSize: "13px" }}>
                 {t("goals_weight_unit")}
@@ -166,13 +173,16 @@ export function WeightHistoryDrawer({
             </div>
             <button
               onClick={() => submitWeight(input)}
-              disabled={saving || !input.trim()}
+              disabled={saving || !input.trim() || weightError}
               className="rounded-xl px-4 py-3 text-sm font-semibold disabled:opacity-50"
               style={GLASS_PRIMARY_BTN_STYLE}
             >
               {t("goals_weight_log_cta")}
             </button>
           </div>
+          {weightError && (
+            <p className="mt-1.5 text-xs" style={{ color: "#f87171" }}>{t("physical_weight_range")}</p>
+          )}
 
           {/* Histórico (mais recente primeiro) */}
           {hasLogs && (

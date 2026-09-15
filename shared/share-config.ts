@@ -66,6 +66,25 @@ export const PRIVACY_URL = `${SHARE_BASE_URL}/privacidade`;
  */
 export const SUPPORT_URL = `${SHARE_BASE_URL}/suporte`;
 
+/**
+ * Página de aterrissagem do link de confirmação de troca de e-mail
+ * (`public/email-confirmado.html`).
+ *
+ * Por que existe: o GoTrue monta o link do e-mail como
+ * `<projeto>.supabase.co/auth/v1/verify?...&redirect_to=<destino>`, e o
+ * `<destino>` é a **Site URL** do projeto quando o app não manda nenhum — que
+ * vinha como o `http://localhost:3000` padrão do Supabase. O usuário recebia um
+ * e-mail apontando para a máquina dele.
+ *
+ * A troca em si acontece no `/auth/v1/verify`, ANTES do redirecionamento: esta
+ * página não valida nada, só confirma visualmente e devolve a pessoa ao app.
+ *
+ * ⚠️ Mandar `emailRedirectTo` não basta — a URL precisa estar na allowlist de
+ * **Redirect URLs** do painel do Supabase, senão o GoTrue ignora e volta a usar
+ * a Site URL (ou seja, o localhost de novo).
+ */
+export const EMAIL_CONFIRMED_URL = `${SHARE_BASE_URL}/email-confirmado`;
+
 // ─── Construtores de link ───────────────────────────────────────────────────
 // Mantidos alinhados com as rotas do React Router em `client/App.tsx` e com os
 // `components` do arquivo AASA. Rota nova compartilhável = mexer nos três.

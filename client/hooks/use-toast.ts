@@ -3,7 +3,7 @@ import * as React from "react";
 import type { ToastActionElement, ToastProps } from "@/components/ui/toast";
 
 const TOAST_LIMIT = 1;
-// Remove soon after closing (Radix handles the 5s auto-close duration).
+// Remove soon after closing (Radix handles the auto-close duration - see toaster.tsx).
 const TOAST_REMOVE_DELAY = 500;
 
 type ToasterToast = ToastProps & {

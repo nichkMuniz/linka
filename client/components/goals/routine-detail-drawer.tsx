@@ -108,7 +108,9 @@ export function RoutineDetailDrawer({
   const [expandedItem, setExpandedItem] = React.useState<string | null>(null);
   // Progressão de carga por exercício (lazy: carrega ao expandir a linha)
   const [progressByItem, setProgressByItem] = React.useState<Record<string, ExerciseProgressPoint[]>>({});
-  // O editor "renomear" abre um input no meio do scroll — mantê-lo acima do teclado.
+  // Os inputs (renomear, horário da rotina, horário por hábito) vivem todos na
+  // barra de ações, que tem scroll próprio — é ela que precisa rolar para manter
+  // o campo em foco acima do teclado, não a lista de itens.
   const scrollRef = React.useRef<HTMLDivElement | null>(null);
   useKeyboardInputScroll(scrollRef, !!card);
 
@@ -313,11 +315,12 @@ export function RoutineDetailDrawer({
           </div>
         </DrawerHeader>
 
-        <div
-          ref={scrollRef}
-          className="flex-1 overflow-y-auto px-4 space-y-3"
-          style={{ paddingBottom: "calc(2rem + var(--keyboard-height, 0px))" }}
-        >
+        {/* Lista de itens — a ÚNICA área que rola. `flex-1 min-h-0` deixa ela
+            encolher até caber: numa rotina com 15 exercícios a lista rola dentro
+            de si mesma e a barra de ações continua visível, em vez de empurrar
+            Renomear/Lembrete/Iniciar para fora da tela (antes era preciso rolar
+            o drawer inteiro até o fim para alcançá-los). */}
+        <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-3">
           {/* Items */}
           <div className="space-y-1.5">
             {orderedItems.map((item) => {
@@ -540,7 +543,23 @@ export function RoutineDetailDrawer({
               );
             })}
           </div>
+        </div>
 
+        {/* Barra de ações — fixa, fora do scroll da lista. Os editores inline
+            (renomear/lembrete/meta) abrem AQUI, logo acima dos botões que os
+            abriram, e não no fim da lista. O `maxHeight` existe só para o editor
+            mais alto (horário por hábito, uma linha por item) não comer o drawer
+            inteiro; com o teclado aberto ele desconta `--keyboard-height` pelo
+            mesmo motivo. */}
+        <div
+          ref={scrollRef}
+          className="shrink-0 overflow-y-auto px-4 pt-3 space-y-3"
+          style={{
+            maxHeight: "min(60dvh, calc(100dvh - var(--keyboard-height, 0px) - 180px))",
+            paddingBottom: "calc(1rem + var(--keyboard-height, 0px))",
+            borderTop: "1px solid rgba(255,255,255,.08)",
+          }}
+        >
           {/* Inline editors */}
           {editor === "rename" && (
             <div className="rounded-2xl p-3 space-y-2" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}>

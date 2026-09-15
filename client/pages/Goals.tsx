@@ -70,6 +70,7 @@ import {
 } from "@/lib/ritmofit-db";
 import {
   buildRoutineCards,
+  computeSequentialWorkoutDue,
   computeStreak,
   computeWeekCheckins,
   getSuggestedSetsForCard,
@@ -79,6 +80,7 @@ import {
   type RoutineItem,
   type WeekDayState,
 } from "@/components/goals/goals-helpers";
+import { SEQUENTIAL_OPEN_PARAM } from "@/hooks/use-routine-notifications";
 import { GoalsSkeleton } from "@/components/shared/animated-loading";
 import { addNetworkStatusListener, getNetworkStatus } from "@/lib/network-status";
 import { OUTBOX_SYNCED_EVENT } from "@/lib/offline-outbox";
@@ -227,6 +229,10 @@ export default function Goals() {
     doneCount: 0,
   });
   const [routineLastDates, setRoutineLastDates] = React.useState<Record<string, string>>({});
+  // As datas chegam DEPOIS do primeiro render (busca separada). Mapa vazio é
+  // ambíguo — "ainda carregando" ou "nunca treinou" —, então quem depende de
+  // saber a diferença (o rodízio sequencial) olha esta flag.
+  const [lastDatesLoaded, setLastDatesLoaded] = React.useState(false);
   const [userBadges, setUserBadges] = React.useState<UserBadge[]>([]);
   const [allBadges, setAllBadges] = React.useState<Badge[]>([]);
   // Escolha persistida do usuário (profiles.selected_badge_id) — não muda no check-in
@@ -318,7 +324,8 @@ export default function Goals() {
     // mas não bloqueia: a tela já pode desenhar as rotinas sem as datas.
     getRoutineLastDatesBatchDb(user.id, ws.map((w) => w.id))
       .then(setRoutineLastDates)
-      .catch(() => { /* datas ausentes só escondem o "último treino" */ });
+      .catch(() => { /* datas ausentes só escondem o "último treino" */ })
+      .finally(() => setLastDatesLoaded(true));
   }, [user]);
 
   /** Metas do usuário. */
@@ -525,8 +532,18 @@ export default function Goals() {
   React.useEffect(() => {
     const openRoutine = searchParams.get("openRoutine");
     if (!openRoutine || loading) return;
-    const match = cards.find((c) => c.key === openRoutine);
-    if (match) setSelectedCardKey(match.key);
+    // `seq` = lembrete do rodízio sequencial: a notificação não sabe qual
+    // rotina está devida (o rodízio anda por conclusão, depois do agendamento),
+    // então quem resolve é a tela, no momento do toque. Espera as datas de
+    // conclusão chegarem — sem elas o rodízio cairia sempre na primeira rotina.
+    if (openRoutine === SEQUENTIAL_OPEN_PARAM) {
+      if (!lastDatesLoaded) return;
+      const due = computeSequentialWorkoutDue(workoutCards, routineLastDates, localDateStr(new Date()));
+      if (due) setSelectedCardKey(due.card.key);
+    } else {
+      const match = cards.find((c) => c.key === openRoutine);
+      if (match) setSelectedCardKey(match.key);
+    }
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev);
@@ -535,7 +552,15 @@ export default function Goals() {
       },
       { replace: true },
     );
-  }, [searchParams, setSearchParams, cards, loading]);
+  }, [
+    searchParams,
+    setSearchParams,
+    cards,
+    workoutCards,
+    routineLastDates,
+    lastDatesLoaded,
+    loading,
+  ]);
 
   const selectedCard = cards.find((c) => c.key === selectedCardKey) ?? null;
   const selectedGoal = userGoals.find((g) => g.id === selectedGoalId) ?? null;
@@ -937,9 +962,14 @@ export default function Goals() {
     }
 
     // Duelos em que o usuário participa — habilitam o botão "Compartilhar no Duelo".
+    // Com FEATURES.duels desligada o botão não existe: nem buscamos os grupos.
     try {
-      const { myGroups } = await getEnrichedDuelGroupsDb(user.id);
-      const userGroups = myGroups.map((g) => ({ id: g.id, name: g.name }));
+      const userGroups = FEATURES.duels
+        ? (await getEnrichedDuelGroupsDb(user.id)).myGroups.map((g) => ({
+            id: g.id,
+            name: g.name,
+          }))
+        : [];
       if (userGroups.length > 0) {
         setSummaryData((prev) => (prev ? { ...prev, userGroups } : prev));
       }
@@ -985,7 +1015,7 @@ export default function Goals() {
       userGoalId: linkedUserGoal?.id ?? null,
       userGroups: [],
     });
-    if (!user) return;
+    if (!user || !FEATURES.duels) return;
     getEnrichedDuelGroupsDb(user.id)
       .then(({ myGroups }) => {
         const userGroups = myGroups.map((g) => ({ id: g.id, name: g.name }));

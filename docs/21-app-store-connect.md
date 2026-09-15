@@ -223,7 +223,7 @@ Chat aberto com estranhos **sem ponto de segurança na tela onde o abuso
 acontece** é o achado 1.2 mais provável num review.
 
 **Feito:**
-- **Conversa privada** — botão "…" no header abre o `UserSafetyDrawer` (denunciar + bloquear). Ao bloquear, volta para a lista de conversas.
+- **Conversa privada** — botão "…" no header abre o `UserSafetyDrawer` (denunciar + bloquear; vira "Desbloquear" para quem já foi bloqueado por este usuário). Ao bloquear, volta para a lista de conversas — onde a conversa **permanece**, com o histórico inteiro e sem barra de escrever (14/09/2026). O que encerra o contato é a policy `messages_insert_not_blocked`, não o sumiço da conversa; apagar o histórico de quem incomodou tirava da vítima o próprio registro do abuso.
 - **Comentários** — botão "…" em cada comentário de outra pessoa, mesmo drawer. Ao bloquear, a lista recarrega e os comentários do bloqueado somem (o filtro de `user_blocks` já existia no servidor).
 - **Detalhe do post** — o `UserSafetyDrawer` ganhou a prop `content`, que acrescenta "Denunciar publicação" acima de "Denunciar usuário". É a tela de destino dos deep links.
 - **Viewers de flow** — item "Bloquear" ao lado das duas denúncias, nos dois viewers.

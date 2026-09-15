@@ -3,7 +3,7 @@ import * as ReactDOM from "react-dom";
 import { useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
-  Camera,
+  Ban,
   Check,
   CheckCheck,
   Image,
@@ -51,6 +51,18 @@ export function ConversationView({ ctl }: { ctl: MessagesController }) {
   const conversation = ctl.selectedConversation;
   if (!conversation) return null;
 
+  /**
+   * Conversa com alguém bloqueado: ela CONTINUA aqui, com o histórico inteiro
+   * legível — quem bloqueia pode precisar dessas mensagens depois, como
+   * evidência para uma denúncia ou fora do app, e apagá-las junto com o
+   * bloqueio punia a vítima. O que sai é a barra de escrever: a policy
+   * `messages_insert_not_blocked` (migração 20260826) recusa a inserção no
+   * banco, então deixar o campo ali só renderia um erro de RLS no lugar de uma
+   * explicação. Some com ela a reação por emoji e o "responder", que são
+   * escrita na conversa pelos mesmos motivos.
+   */
+  const isBlocked = conversation.isBlocked === true;
+
   return ReactDOM.createPortal(
     <div
       className="fixed top-0 right-0 bg-background flex flex-col z-[100] overflow-hidden"
@@ -60,13 +72,15 @@ export function ConversationView({ ctl }: { ctl: MessagesController }) {
         transition: "bottom 0.25s cubic-bezier(0.22,0.61,0.36,1)",
       }}
     >
-      {/* Papel de parede de doodles (estilo WhatsApp). Fica fixo enquanto as
-          mensagens rolam por cima. O z-index negativo mantém a camada acima do
-          bg-background deste container e abaixo de todo o conteúdo em fluxo
-          (header, lista e barra de input), sem precisar empilhar os irmãos. */}
+      {/* Fundo da conversa (.chat-wallpaper em global.css): cor neutra com um
+          brilho discreto em cima/embaixo e uma trama de pontos. Fica fixo
+          enquanto as mensagens rolam por cima. O z-index negativo mantém a
+          camada acima do bg-background deste container e abaixo de todo o
+          conteúdo em fluxo (header, lista e barra de input), sem precisar
+          empilhar os irmãos. */}
       <div
         aria-hidden="true"
-        className="chat-doodle-wallpaper pointer-events-none absolute inset-0 -z-10"
+        className="chat-wallpaper pointer-events-none absolute inset-0 -z-10"
       />
 
       {/* Header */}
@@ -119,6 +133,7 @@ export function ConversationView({ ctl }: { ctl: MessagesController }) {
         onOpenChange={setSafetyOpen}
         userId={conversation.userId}
         userName={conversation.userNickname}
+        blockedByMe={conversation.blockedByMe === true}
         onBlocked={ctl.handleBackToConversations}
       />
 
@@ -165,6 +180,7 @@ export function ConversationView({ ctl }: { ctl: MessagesController }) {
                 <SwipeableMessageBubble
                   onReply={() => ctl.handleReplyToMessage(message)}
                   onLongPress={() => ctl.handleMessageLongPress(message)}
+                  replyEnabled={!isBlocked}
                 >
                   <div
                     onContextMenu={(e) => {
@@ -257,7 +273,7 @@ export function ConversationView({ ctl }: { ctl: MessagesController }) {
       </div>
 
       {/* Reply banner */}
-      {ctl.replyingTo && (
+      {ctl.replyingTo && !isBlocked && (
         <div
           className="flex-shrink-0 px-4 py-2 flex items-center gap-2"
           style={{
@@ -282,8 +298,38 @@ export function ConversationView({ ctl }: { ctl: MessagesController }) {
         </div>
       )}
 
-      {/* Input — estilo Instagram */}
-      {ctl.isRecording ? (
+      {/* Barra de escrever — ou o aviso de bloqueio no lugar dela */}
+      {isBlocked ? (
+        <div
+          className="flex-shrink-0 px-5 pt-4 flex items-start gap-3"
+          style={{
+            background: "linear-gradient(rgba(255,255,255,.08),rgba(255,255,255,.025))",
+            backdropFilter: "blur(30px) saturate(180%)",
+            WebkitBackdropFilter: "blur(30px) saturate(180%)",
+            borderTop: "1px solid rgba(255,255,255,.1)",
+            boxShadow: "inset 0 1px 0 rgba(255,255,255,.12)",
+            paddingBottom:
+              "max(1rem, calc(env(safe-area-inset-bottom) - var(--keyboard-height, 0px)))",
+          }}
+        >
+          <Ban className="h-[18px] w-[18px] text-white/45 flex-shrink-0 mt-0.5" strokeWidth={1.8} />
+          <div className="min-w-0">
+            {/* Só quem bloqueou pode ler o que aconteceu: dizer "fulano te
+                bloqueou" entregaria uma decisão que o app não revela em
+                nenhuma outra tela. Na direção inversa a frase é neutra. */}
+            <p className="text-[15px] text-white/75 leading-snug">
+              {conversation.blockedByMe
+                ? t("community_blocked_by_me").replace("{name}", conversation.userNickname)
+                : t("community_blocked_other")}
+            </p>
+            <p className="text-[13px] text-white/45 leading-snug mt-1">
+              {conversation.blockedByMe
+                ? t("community_blocked_by_me_hint")
+                : t("community_blocked_other_hint")}
+            </p>
+          </div>
+        </div>
+      ) : ctl.isRecording ? (
         /* ── Modo gravação ── */
         <div
           className="flex-shrink-0 px-3.5 pt-3 flex items-center gap-2"
@@ -355,31 +401,11 @@ export function ConversationView({ ctl }: { ctl: MessagesController }) {
               "max(0.85rem, calc(env(safe-area-inset-bottom) - var(--keyboard-height, 0px)))",
           }}
         >
-          {/* Câmera */}
-          <button
-            className="flex-shrink-0 w-11 h-11 rounded-full flex items-center justify-center text-white/70 hover:text-white hover:bg-white/[.1] active:scale-95 transition-all"
-            style={{
-              background: "rgba(255,255,255,.05)",
-              border: "1px solid rgba(255,255,255,.1)",
-            }}
-            onClick={() => ctl.photoInputRef.current?.click()}
-            disabled={ctl.isSendingPhoto}
-            title={t("community_send_camera_photo")}
-            aria-label={t("community_send_camera_photo")}
-          >
-            {ctl.isSendingPhoto ? (
-              <div className="h-5 w-5 border-2 border-white/60 border-t-transparent rounded-full animate-spin" />
-            ) : (
-              <Camera className="h-[21px] w-[21px]" strokeWidth={1.8} />
-            )}
-          </button>
-
           {/* Input de arquivo oculto */}
           <input
             ref={ctl.photoInputRef}
             type="file"
             accept="image/*"
-            capture="environment"
             className="hidden"
             onChange={(e) => {
               const file = e.target.files?.[0];
@@ -440,19 +466,16 @@ export function ConversationView({ ctl }: { ctl: MessagesController }) {
                 }}
                 title={t("community_send_from_gallery")}
                 aria-label={t("community_send_from_gallery")}
-                onClick={() => {
-                  if (ctl.photoInputRef.current) {
-                    ctl.photoInputRef.current.removeAttribute("capture");
-                    ctl.photoInputRef.current.click();
-                    setTimeout(
-                      () =>
-                        ctl.photoInputRef.current?.setAttribute("capture", "environment"),
-                      500,
-                    );
-                  }
-                }}
+                onClick={() => ctl.photoInputRef.current?.click()}
+                disabled={ctl.isSendingPhoto}
               >
-                <Image className="h-[21px] w-[21px]" strokeWidth={1.8} />
+                {/* O spinner de envio da foto vive aqui desde que o botão de
+                    câmera saiu — é o único caminho para mandar imagem. */}
+                {ctl.isSendingPhoto ? (
+                  <div className="h-5 w-5 border-2 border-white/60 border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <Image className="h-[21px] w-[21px]" strokeWidth={1.8} />
+                )}
               </button>
               {/* Microfone — iniciar gravação */}
               <button
@@ -506,27 +529,34 @@ export function ConversationView({ ctl }: { ctl: MessagesController }) {
                   </p>
                 </div>
 
-                {/* Emoji rápido */}
-                <div className="flex items-center justify-around px-4 py-3 border-b border-border/60">
-                  {QUICK_EMOJIS.map((emoji) => (
-                    <button
-                      key={emoji}
-                      onClick={() => ctl.handleReactToMessage(emoji)}
-                      className="text-2xl active:scale-125 transition-transform"
-                    >
-                      {emoji}
-                    </button>
-                  ))}
-                </div>
+                {/* Emoji rápido e "responder" são escrita NA conversa: com
+                    bloqueio entre as pontas, saem junto com a barra de
+                    escrever. Apagar continua disponível — é ação sobre a
+                    própria cópia do histórico, não contato com o outro. */}
+                {!isBlocked && (
+                  <div className="flex items-center justify-around px-4 py-3 border-b border-border/60">
+                    {QUICK_EMOJIS.map((emoji) => (
+                      <button
+                        key={emoji}
+                        onClick={() => ctl.handleReactToMessage(emoji)}
+                        className="text-2xl active:scale-125 transition-transform"
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
+                )}
 
                 {/* Ações */}
-                <button
-                  className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-muted/40 transition-colors text-left"
-                  onClick={() => ctl.handleReplyToMessage(pressed)}
-                >
-                  <ArrowLeft className="h-5 w-5 text-muted-foreground" />
-                  <span className="text-sm font-medium">{t("community_msg_reply")}</span>
-                </button>
+                {!isBlocked && (
+                  <button
+                    className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-muted/40 transition-colors text-left"
+                    onClick={() => ctl.handleReplyToMessage(pressed)}
+                  >
+                    <ArrowLeft className="h-5 w-5 text-muted-foreground" />
+                    <span className="text-sm font-medium">{t("community_msg_reply")}</span>
+                  </button>
+                )}
                 {canDeleteForMe && (
                   <button
                     className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-muted/40 transition-colors text-left border-t border-border/40 text-destructive"

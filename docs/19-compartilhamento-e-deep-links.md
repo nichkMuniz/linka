@@ -113,7 +113,17 @@ A função roda no **runtime Edge da Vercel**, sem dependências, e responde no 
 |---|---|
 | `/post/:id` | `/api/share?type=post&id=:id` |
 | `/usuario/:id` | `/api/share?type=profile&id=:id` |
+| `/termos`, `/privacidade`, `/suporte` | páginas estáticas em `public/` |
+| `/email-confirmado` | `public/email-confirmado.html` — ver abaixo |
 | resto | SPA (inclui `/reset-password`, que chega por e-mail) |
+
+### `/email-confirmado` — destino do link de troca de e-mail (2026-09-14)
+
+O GoTrue monta o link do e-mail de confirmação como `<projeto>.supabase.co/auth/v1/verify?…&redirect_to=<destino>`, e o `<destino>` é a **Site URL** do projeto quando o app não manda nenhum. Como a Site URL estava no `http://localhost:3000` padrão do Supabase, o e-mail de troca de endereço apontava para a máquina de quem o recebia. O `settings-drawer` passa `emailRedirectTo: EMAIL_CONFIRMED_URL` (`shared/share-config.ts`) para corrigir isso.
+
+**A troca acontece no `/auth/v1/verify`, ANTES do redirecionamento** — esta página não valida nada e não lê token nenhum; ela só confirma visualmente e devolve a pessoa ao app pelo custom scheme (`com.linka.meuapp://`). O Universal Link não serve aqui: esta página **é** o destino dele.
+
+> ⚠️ **Passo manual obrigatório no painel do Supabase.** Mandar `emailRedirectTo` não basta: a URL precisa estar na allowlist de **Authentication → URL Configuration → Redirect URLs**. Fora da lista, o GoTrue descarta o valor e volta a usar a Site URL — ou seja, o localhost de novo. Corrigir a **Site URL** para `https://linkafit.com.br` fecha o buraco também para os outros e-mails (recuperação de senha, convite), que não passam por este código.
 
 **O que a página entrega:**
 

@@ -2457,8 +2457,10 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed, onPartyRo
             : t("goals_summary_share_feed")}
         </button>
 
-        {/* Share to Duel */}
-        {data.userGroups.length > 0 && (
+        {/* Share to Duel — porta de entrada escondida no v1 (FEATURES.duels).
+            userGroups chega vazio com a flag off, mas o guard explícito evita
+            que um snapshot antigo com grupos reabra o botão. */}
+        {FEATURES.duels && data.userGroups.length > 0 && (
           <button
             onClick={() => {
               if (isSharing || isOffline) return;

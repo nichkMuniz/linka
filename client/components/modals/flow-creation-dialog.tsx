@@ -977,15 +977,21 @@ export function FlowCreationDialog({
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: { ideal: mode },
-          // Retrato explícito. Pedir 1920x1080 num aparelho EM PÉ fazia o WebKit
-          // procurar o modo de sensor mais próximo de 1920 de largura — podia
-          // entregar um modo bem maior que o necessário (canvas gigante para
-          // redesenhar a cada frame, preview engasgando) ou um 4:3 do qual o
-          // flow só aproveita uma faixa. Pedindo 1080x1920 em 9:16 a câmera
-          // entrega direto o formato que vai ser gravado.
-          width: { ideal: 1080 },
-          height: { ideal: RECORD_TARGET_HEIGHT },
-          aspectRatio: { ideal: RECORD_TARGET_ASPECT },
+          // NUNCA pedir enquadramento em retrato (1080x1920) nem `aspectRatio`
+          // aqui. O WebKit do iOS não entrega um modo de sensor 9:16: ele pega o
+          // preset mais próximo e RECORTA o centro do frame para satisfazer a
+          // restrição, reescalando o pedaço de volta para o tamanho pedido. O
+          // resultado é a câmera abrindo com um zoom enorme (e mais mole), que
+          // foi exatamente o que apareceu quando estas linhas pediam 9:16.
+          //
+          // Pedimos então o preset landscape padrão (o WebKit já devolve com as
+          // dimensões trocadas quando o aparelho está em pé) e deixamos o 9:16
+          // para quem de fato precisa dele: `centerCrop`, que recorta o canvas
+          // da gravação, e o `object-cover` do preview/viewer. O ganho de
+          // nitidez continua valendo — o recorte só saiu do sensor para o
+          // canvas.
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
           frameRate: { ideal: RECORD_FPS },
         },
         audio: false,
@@ -1004,6 +1010,16 @@ export function FlowCreationDialog({
           max: caps.zoom.max ?? 1,
           step: caps.zoom.step ?? 0.1,
         };
+        // O zoom da track não começa necessariamente em 1: em iPhones com
+        // câmera virtual (dupla/tripla) o fator nativo de abertura é maior. Se
+        // o estado da pinça assumisse 1, o primeiro gesto saltaria o
+        // enquadramento para um valor que o usuário nunca escolheu. Lemos o
+        // valor corrente da track em vez de forçar um.
+        const current = track?.getSettings?.() as any;
+        if (typeof current?.zoom === "number" && current.zoom > 0) {
+          zoomRef.current = current.zoom;
+          setZoom(current.zoom);
+        }
       }
       if (videoRef.current) {
         videoRef.current.srcObject = stream;

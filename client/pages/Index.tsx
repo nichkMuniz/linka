@@ -13,6 +13,7 @@ import { toast } from "@/components/ui/use-toast";
 import {
   getRoutinesByGoalIdDb,
   getRoutineItemsForViewDb,
+  getUserGoalsDb,
   getActiveStoriesDb,
   getFlowByIdDb,
   getUserProfileDb,
@@ -56,7 +57,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ChevronDown } from "lucide-react";
+import { Check, ChevronDown } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Capacitor } from "@capacitor/core";
 import { App as CapApp } from "@capacitor/app";
@@ -110,6 +111,19 @@ const feedCache: FeedCache = {
   hasMoreDiscover: true,
   scrollY: 0,
 };
+
+// Bloquear/desbloquear de FORA do feed (perfil, flow viewer) precisa derrubar
+// este cache mesmo com a tela desmontada — do contrário voltar para a home
+// restaura a lista antiga, com o bloqueado ainda no ring de flows e nos cards.
+// Por isso o listener vive no escopo do módulo, e não num efeito: um efeito só
+// existe enquanto o componente está montado, que é justamente o caso que falha.
+// Quem bloqueia de dentro do próprio feed continua recarregando pelo `onDone`
+// do BlockUserDialog; este caminho é o de quem chega de outra tela.
+if (typeof window !== "undefined") {
+  window.addEventListener("ritmofit-blocks-changed", () => {
+    feedCache.hydrated = false;
+  });
+}
 
 export default function Index() {
   const { user } = useAuth();
@@ -183,6 +197,7 @@ export default function Index() {
 
   const [isCopyingGoal, setIsCopyingGoal] = React.useState(false);
   const [hasAlreadyCopiedGoal, setHasAlreadyCopiedGoal] = React.useState(false);
+  const goalModalReqRef = React.useRef(0);
   const [isMarkingGoalComplete, setIsMarkingGoalComplete] = React.useState(false);
   const [completedGoalDescription, setCompletedGoalDescription] = React.useState<string | null>(null);
   const [copyingRoutineKeys, setCopyingRoutineKeys] = React.useState<Set<string>>(new Set());
@@ -703,6 +718,9 @@ export default function Index() {
   }, []);
 
   const openGoalModal = React.useCallback(async (post: PostWithStats) => {
+    // Cada abertura recebe um número: respostas de uma abertura anterior são
+    // descartadas em vez de pintar o estado da meta que está na tela agora.
+    const req = ++goalModalReqRef.current;
     setSelectedGoalPost(post);
     setGoalModalOpen(true);
     setExpandedRoutines(false);
@@ -714,18 +732,33 @@ export default function Index() {
     setLinkedRoutines([]);
 
     if (post.userGoal) {
+      const goalId = post.userGoal.goal_id;
+
+      // "Meta copiada" precisa sobreviver a fechar e reabrir o drawer (e à
+      // sessão), então quem responde é o banco: já existe uma user_goals do
+      // visitante com este goal_id? Se sim, o botão já nasce travado.
+      if (user && post.user_id !== user.id) {
+        getUserGoalsDb()
+          .then((goals) => {
+            if (goalModalReqRef.current !== req) return;
+            setHasAlreadyCopiedGoal(goals.some((g) => g.goal_id === goalId));
+          })
+          .catch(() => { /* sem rede: o botão segue liberado */ });
+      }
+
       setGoalRoutinesLoading(true);
       try {
-        const routines = await getRoutinesByGoalIdDb(post.userGoal.goal_id, post.user_id);
+        const routines = await getRoutinesByGoalIdDb(goalId, post.user_id);
+        if (goalModalReqRef.current !== req) return;
         setLinkedRoutines(routines);
       } catch (err) {
         console.error("Error fetching routines:", err);
-        setLinkedRoutines([]);
+        if (goalModalReqRef.current === req) setLinkedRoutines([]);
       } finally {
-        setGoalRoutinesLoading(false);
+        if (goalModalReqRef.current === req) setGoalRoutinesLoading(false);
       }
     }
-  }, []);
+  }, [user]);
 
   const handleToggleLinkedRoutine = React.useCallback(
     async (groupKey: string, type: number, name: string | undefined, targetUserId: string) => {
@@ -783,7 +816,6 @@ export default function Index() {
             variant: "destructive",
           });
           setHasAlreadyCopiedGoal(true);
-          setGoalModalOpen(false);
           return;
         }
       }
@@ -792,8 +824,9 @@ export default function Index() {
         title: t("feed_goal_copied"),
         description: t("feed_goal_copied_desc"),
       });
+      // O drawer fica aberto de propósito: é nele que o botão vira o estado
+      // travado "Meta copiada", que é a confirmação que sobrevive ao toast.
       setHasAlreadyCopiedGoal(true);
-      setGoalModalOpen(false);
     } catch (err: any) {
       console.error("Error copying goal:", err);
       toast({
@@ -1528,9 +1561,11 @@ export default function Index() {
                     <Button
                       onClick={handleCopyGoal}
                       disabled={isCopyingGoal || hasAlreadyCopiedGoal}
-                      className="flex-1 rounded-full gap-2 shrink-0 border-0"
-                      style={GLASS_PRIMARY_BTN_STYLE}
+                      variant={hasAlreadyCopiedGoal ? "outline" : "default"}
+                      className={`flex-1 rounded-full gap-2 shrink-0 ${hasAlreadyCopiedGoal ? "bg-transparent border-white/20 text-white disabled:opacity-100" : "border-0"}`}
+                      style={hasAlreadyCopiedGoal ? undefined : GLASS_PRIMARY_BTN_STYLE}
                     >
+                      {hasAlreadyCopiedGoal && !isCopyingGoal && <Check className="h-4 w-4 text-emerald-400" />}
                       {isCopyingGoal ? t("feed_goal_copying") : hasAlreadyCopiedGoal ? t("feed_goal_already_copied") : t("feed_goal_copy_btn")}
                     </Button>
                   </div>

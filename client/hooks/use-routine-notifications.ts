@@ -19,30 +19,76 @@ export function formatScheduledTime(time: string): string {
 
 const TYPE_LABELS_PT: Record<string, string> = { workout: "Treino", diet: "Refeição", habit: "Hábito" };
 const TYPE_LABELS_EN: Record<string, string> = { workout: "Workout", diet: "Meal", habit: "Habit" };
+const TYPE_PLURAL_PT: Record<string, string> = { workout: "Treinos", diet: "Refeições", habit: "Hábitos" };
+const TYPE_PLURAL_EN: Record<string, string> = { workout: "Workouts", diet: "Meals", habit: "Habits" };
+// Como chamar os ITENS de uma rotina ("3 exercícios", não "3 Treino").
+const ITEM_LABELS_PT: Record<string, string> = { workout: "exercícios", diet: "itens", habit: "hábitos" };
+const ITEM_LABELS_EN: Record<string, string> = { workout: "exercises", diet: "items", habit: "habits" };
 const TYPE_ICONS: Record<string, string> = { workout: "💪", diet: "🥗", habit: "✅" };
 
-function getTypeLabels(): Record<string, string> {
-  try {
-    const lang = localStorage.getItem("ritmofit-language") || "pt";
-    return lang === "en" ? TYPE_LABELS_EN : TYPE_LABELS_PT;
-  } catch {
-    return TYPE_LABELS_PT;
-  }
-}
+/**
+ * Sentinela gravada em `scheduled_days` pelas rotinas de TREINO no modo
+ * Sequencial (rodízio sem dias fixos). Duplicada aqui de propósito: importar
+ * `SEQUENTIAL_MARKER` de `@/components/goals/goals-helpers` arrastaria o
+ * catálogo de rotinas sugeridas para dentro do bundle do AppLayout, que monta
+ * este hook em toda a aplicação. Se o valor mudar lá, muda aqui também.
+ */
+const SEQUENTIAL_MARKER = "seq";
 
-// Textos do lembrete de FIM da janela do hábito. Ficam aqui (e não no i18n.ts)
-// pelo mesmo motivo dos TYPE_LABELS: o agendador roda fora do React, sem acesso
-// ao hook de idioma — lê o idioma direto do localStorage.
-const END_LABELS_PT = { one: "Hora de encerrar", many: "Hora de encerrar ({n} hábitos)" };
-const END_LABELS_EN = { one: "Time to wrap up", many: "Time to wrap up ({n} habits)" };
+/**
+ * Valor de `?openRoutine=` usado pelo lembrete do rodízio sequencial. A tela de
+ * Metas (Goals.tsx) troca isto pela rotina realmente devida no momento do toque
+ * — a notificação foi agendada antes das conclusões que movem o rodízio.
+ */
+export const SEQUENTIAL_OPEN_PARAM = "seq";
 
-function getEndLabels(): { one: string; many: string } {
+// Textos do agendador. Ficam aqui (e não no i18n.ts) porque o agendador roda
+// fora do React, sem acesso ao hook de idioma — lê o idioma do localStorage.
+const TEXTS_PT = {
+  /** rotina única, um item */
+  single: "Hora da sua rotina: {type}",
+  /** rotina única, vários itens no mesmo horário */
+  items: "Hora da sua rotina ({n} {items})",
+  /** rodízio sequencial: só uma rotina está devida, e qual depende das conclusões */
+  sequential: "Hora do seu treino de hoje",
+  /** 2+ rotinas diferentes no mesmo horário → um único lembrete */
+  mixedTitle: "Suas rotinas",
+  more: "{list} e mais {n}",
+  /** fim da janela do hábito */
+  endOne: "Hora de encerrar",
+  endMany: "Hora de encerrar ({n} hábitos)",
+};
+
+const TEXTS_EN: typeof TEXTS_PT = {
+  single: "Time for your routine: {type}",
+  items: "Time for your routine ({n} {items})",
+  sequential: "Time for today's workout",
+  mixedTitle: "Your routines",
+  more: "{list} and {n} more",
+  endOne: "Time to wrap up",
+  endMany: "Time to wrap up ({n} habits)",
+};
+
+type SchedulerLabels = {
+  type: Record<string, string>;
+  plural: Record<string, string>;
+  item: Record<string, string>;
+  texts: typeof TEXTS_PT;
+};
+
+function getSchedulerLabels(): SchedulerLabels {
+  let isEn = false;
   try {
-    const lang = localStorage.getItem("ritmofit-language") || "pt";
-    return lang === "en" ? END_LABELS_EN : END_LABELS_PT;
+    isEn = (localStorage.getItem("ritmofit-language") || "pt") === "en";
   } catch {
-    return END_LABELS_PT;
+    isEn = false;
   }
+  return {
+    type: isEn ? TYPE_LABELS_EN : TYPE_LABELS_PT,
+    plural: isEn ? TYPE_PLURAL_EN : TYPE_PLURAL_PT,
+    item: isEn ? ITEM_LABELS_EN : ITEM_LABELS_PT,
+    texts: isEn ? TEXTS_EN : TEXTS_PT,
+  };
 }
 
 /**
@@ -109,6 +155,148 @@ function entryToNotifId(id: string): number {
 }
 
 /**
+ * Uma rotina dentro de um horário. Vários itens da MESMA rotina (5 exercícios
+ * do "Treino A") viram uma entrada só, com `count` = nº de itens.
+ */
+type SlotRoutine = {
+  type: string;
+  /** null = rodízio sequencial (não dá para nomear qual está devida) */
+  name: string | null;
+  count: number;
+  sequential: boolean;
+  url: string;
+};
+
+/** Um horário da agenda: mesma hora + mesmos dias + mesma borda da janela. */
+type NotifSlot = {
+  time: string;
+  days: string;
+  phase: "start" | "end";
+  routines: Map<string, SlotRoutine>;
+};
+
+function routineUrl(type: string, name: string | null): string {
+  const routineKey = `${ROUTINE_TYPE_CODE[type] ?? type}::${name ?? ""}`;
+  return `/metas?openRoutine=${encodeURIComponent(routineKey)}`;
+}
+
+/**
+ * Agrupa os agendamentos em horários. Duas fusões acontecem aqui:
+ *
+ * 1. **Itens da mesma rotina** → um lembrete só (N exercícios, 1 notificação).
+ * 2. **Rotinas diferentes no mesmo horário** → um lembrete só, com os nomes no
+ *    corpo. Sem isso, 3 rotinas às 07:00 disparavam 3 notificações simultâneas.
+ *
+ * O rodízio **sequencial** é caso especial: todas as rotinas do rodízio viram
+ * UMA entrada (`__seq__`), porque só uma está devida por dia — e qual delas
+ * depende das conclusões, que mudam depois do agendamento. Por isso o lembrete
+ * é genérico e o toque abre a devida na hora (`openRoutine=seq`).
+ */
+function groupIntoSlots(schedules: RoutineScheduleEntry[]): NotifSlot[] {
+  const slots = new Map<string, NotifSlot>();
+
+  for (const e of schedules) {
+    if (!e.scheduled_time) continue;
+    const time = e.scheduled_time.slice(0, 5);
+    const rawDays = (e.scheduled_days ?? "").trim();
+    const sequential = e.type === "workout" && rawDays.toLowerCase() === SEQUENTIAL_MARKER;
+    // Rodízio não tem dias fixos → todo dia (a sentinela nunca chega ao parse).
+    const days = sequential ? "" : rawDays;
+    const phase = e.phase ?? "start";
+
+    // `phase` entra na chave: início e fim são lembretes distintos e não podem
+    // se fundir num só, mesmo que caiam no mesmo horário.
+    const slotKey = `${time}|${days}|${phase}`;
+    let slot = slots.get(slotKey);
+    if (!slot) {
+      slot = { time, days, phase, routines: new Map() };
+      slots.set(slotKey, slot);
+    }
+
+    const routineKey = sequential ? "__seq__" : `${e.type}|${e.name ?? ""}`;
+    const existing = slot.routines.get(routineKey);
+    if (existing) {
+      existing.count += 1;
+      continue;
+    }
+    slot.routines.set(routineKey, {
+      type: e.type,
+      name: sequential ? null : e.name,
+      count: 1,
+      sequential,
+      url: sequential
+        ? `/metas?openRoutine=${SEQUENTIAL_OPEN_PARAM}`
+        : routineUrl(e.type, e.name),
+    });
+  }
+
+  return Array.from(slots.values());
+}
+
+/** Título, corpo e destino do lembrete de um horário. */
+function describeSlot(slot: NotifSlot, labels: SchedulerLabels): {
+  title: string;
+  body: string;
+  url: string;
+} {
+  const { type: typeLabels, plural, item: itemLabels, texts } = labels;
+  const routines = Array.from(slot.routines.values());
+  const isEnd = slot.phase === "end";
+  const totalItems = routines.reduce((sum, r) => sum + r.count, 0);
+
+  // ── Um só lembrete nesse horário ──
+  if (routines.length === 1) {
+    const r = routines[0];
+    const typeLabel = typeLabels[r.type] || "Rotina";
+    const title = `${isEnd ? "🏁" : TYPE_ICONS[r.type] || "🔔"} ${r.name || typeLabel}`;
+    if (isEnd) {
+      return {
+        title,
+        body: r.count > 1 ? texts.endMany.replace("{n}", String(r.count)) : texts.endOne,
+        url: r.url,
+      };
+    }
+    if (r.sequential) {
+      return { title: `${TYPE_ICONS.workout} ${typeLabel}`, body: texts.sequential, url: r.url };
+    }
+    return {
+      title,
+      body:
+        r.count > 1
+          ? texts.items
+              .replace("{n}", String(r.count))
+              .replace("{items}", itemLabels[r.type] || typeLabel)
+          : texts.single.replace("{type}", typeLabel),
+      url: r.url,
+    };
+  }
+
+  // ── 2+ rotinas no mesmo horário → um único lembrete ──
+  const types = new Set(routines.map((r) => r.type));
+  const sameType = types.size === 1 ? routines[0].type : null;
+  const icon = isEnd ? "🏁" : sameType ? TYPE_ICONS[sameType] || "🔔" : "🔔";
+  const title = `${icon} ${
+    sameType ? plural[sameType] || texts.mixedTitle : texts.mixedTitle
+  }`;
+
+  if (isEnd) {
+    return { title, body: texts.endMany.replace("{n}", String(totalItems)), url: "/metas" };
+  }
+
+  // Corpo = nomes das rotinas (até 3; o resto vira "e mais N"). A entrada do
+  // rodízio entra pelo rótulo do tipo, já que não se sabe qual está devida.
+  const names = routines.map((r) => r.name || typeLabels[r.type] || "Rotina");
+  const shown = names.slice(0, 3);
+  const rest = names.length - shown.length;
+  const body =
+    rest > 0
+      ? texts.more.replace("{list}", shown.join(", ")).replace("{n}", String(rest))
+      : shown.join(", ");
+
+  return { title, body, url: "/metas" };
+}
+
+/**
  * Schedules (or re-schedules) all routine notifications using the native plugin.
  * Cancels all previous ones first to avoid duplicates.
  * Throws if scheduling fails so the caller can surface the error.
@@ -123,61 +311,26 @@ async function applySchedulesNative(schedules: RoutineScheduleEntry[]): Promise<
     // getPending/cancel may fail on first run — safe to continue
   }
 
-  // Group by routine (type + name + time + days) so N items of the same routine
-  // produce a single notification instead of N.
-  const groups = new Map<
-    string,
-    { type: string; name: string; time: string; days: string; count: number; phase: "start" | "end" }
-  >();
-  for (const e of schedules) {
-    if (!e.scheduled_time) continue;
-    const time = e.scheduled_time.slice(0, 5);
-    const days = (e.scheduled_days ?? "").trim();
-    const phase = e.phase ?? "start";
-    // `phase` entra na chave: início e fim são lembretes distintos e não podem
-    // se fundir num só, mesmo que caiam no mesmo horário.
-    const key = `${e.type}|${e.name ?? ""}|${time}|${days}|${phase}`;
-    const existing = groups.get(key);
-    if (existing) {
-      existing.count += 1;
-    } else {
-      groups.set(key, { type: e.type, name: e.name, time, days, count: 1, phase });
-    }
-  }
+  const labels = getSchedulerLabels();
+  const toSchedule = groupIntoSlots(schedules).flatMap<LocalNotificationSchema>((slot) => {
+    const { title, body, url } = describeSlot(slot, labels);
+    const base = { title, body, extra: { url } };
+    const slotKey = `${slot.time}|${slot.days}|${slot.phase}`;
 
-  const labels = getTypeLabels();
-  const endLabels = getEndLabels();
-  const toSchedule = Array.from(groups.values()).flatMap<LocalNotificationSchema>((g) => {
-    const isEnd = g.phase === "end";
-    const title = `${isEnd ? "🏁" : TYPE_ICONS[g.type] || "🔔"} ${g.name || labels[g.type] || "Rotina"}`;
-    const body = isEnd
-      ? g.count > 1
-        ? `${endLabels.many.replace("{n}", String(g.count))}`
-        : endLabels.one
-      : g.count > 1
-        ? `Hora da sua rotina (${g.count} ${labels[g.type] || "itens"})`
-        : `Hora da sua rotina: ${labels[g.type] || "item"}`;
-    const routineKey = `${ROUTINE_TYPE_CODE[g.type] ?? g.type}::${g.name ?? ""}`;
-    const base = {
-      title,
-      body,
-      extra: { url: `/metas?openRoutine=${encodeURIComponent(routineKey)}` },
-    };
-
-    const weekdays = parseWeekdays(g.days);
+    const weekdays = parseWeekdays(slot.days);
     // No weekday filter → daily repeat (backward-compatible).
     if (weekdays.length === 0) {
       return [{
         ...base,
-        id: entryToNotifId(`${g.type}|${g.name}|${g.time}|${g.phase}`),
-        schedule: { at: nextOccurrence(g.time), repeats: true, every: "day" as const },
+        id: entryToNotifId(slotKey),
+        schedule: { at: nextOccurrence(slot.time), repeats: true, every: "day" as const },
       }];
     }
     // One repeating notification per selected weekday.
-    const [hh, mm] = g.time.split(":").map(Number);
+    const [hh, mm] = slot.time.split(":").map(Number);
     return weekdays.map((capWeekday) => ({
       ...base,
-      id: entryToNotifId(`${g.type}|${g.name}|${g.time}|${capWeekday}|${g.phase}`),
+      id: entryToNotifId(`${slotKey}|${capWeekday}`),
       schedule: { on: { weekday: capWeekday, hour: hh, minute: mm }, repeats: true },
     }));
   });

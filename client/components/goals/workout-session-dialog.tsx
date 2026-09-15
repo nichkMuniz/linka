@@ -375,29 +375,47 @@ function workingSetLabels(series: Array<{ kind?: SetKind }>): string[] {
 //  - sem série anterior e sem histórico → neutro (cinza).
 // `up` = progrediu (verde), `down` = regrediu (vermelho), `neutral` = igual/sem base.
 type WeightTrend = "up" | "down" | "neutral";
-function computeWeightTrend(
+/**
+ * Resultado da comparação, e não só a seta: o tooltip do indicador precisa
+ * dizer **contra o quê** comparou. `source` separa os dois casos que a seta
+ * sozinha confunde — `history` é de fato "desde o último treino", `session` é
+ * a série anterior de agora. `null` = ainda não há base de comparação.
+ */
+type WeightProgress = {
+  trend: WeightTrend;
+  latestKg: number;
+  baselineKg: number;
+  source: "session" | "history" | null;
+};
+const NEUTRAL_PROGRESS: WeightProgress = {
+  trend: "neutral", latestKg: 0, baselineKg: 0, source: null,
+};
+function computeWeightProgress(
   series: Array<{ kg: number; completed: boolean; prevKg?: number; kind?: SetKind }>,
-): WeightTrend {
+): WeightProgress {
   // Aquecimento fora: a rampa é sempre mais leve que a série anterior, então
   // sem este filtro toda série de trabalho depois de um aquecimento apareceria
   // como "progrediu" e o primeiro aquecimento como "regrediu".
   const completed = series.filter((s) => s.completed && isWorkingSet(s.kind));
-  if (completed.length === 0) return "neutral";
+  if (completed.length === 0) return NEUTRAL_PROGRESS;
   const latest = completed[completed.length - 1];
   const latestKg = latest.kg || 0;
   let baseline: number;
+  let source: "session" | "history";
   if (completed.length >= 2) {
     // Série concluída anterior nesta sessão (0 é referência válida — peso do corpo).
     baseline = completed[completed.length - 2].kg || 0;
+    source = "session";
   } else {
     // 1ª série concluída → compara com o histórico da própria série.
     const prev = latest.prevKg || 0;
-    if (prev <= 0) return "neutral";
+    if (prev <= 0) return NEUTRAL_PROGRESS;
     baseline = prev;
+    source = "history";
   }
-  if (latestKg > baseline) return "up";
-  if (latestKg < baseline) return "down";
-  return "neutral";
+  const trend: WeightTrend =
+    latestKg > baseline ? "up" : latestKg < baseline ? "down" : "neutral";
+  return { trend, latestKg, baselineKg: baseline, source };
 }
 
 // ── Corrida ao ar livre (GPS) ───────────────────────────────────────────────
@@ -1263,6 +1281,11 @@ export function WorkoutSessionDialog({
 
   // Menu de contexto (⋯) — qual exercício está aberto
   const [menuId, setMenuId] = React.useState<string | null>(null);
+  // Roda de descanso aberta (toque longo no relógio) — chave do alvo:
+  // `workout_id` num exercício solto, `block:<primeiro id>` num bi/tri-set.
+  const [restPickerKey, setRestPickerKey] = React.useState<string | null>(null);
+  // Tooltip do indicador de progressão de carga — qual exercício está explicado.
+  const [trendInfoId, setTrendInfoId] = React.useState<string | null>(null);
   // Quais exercícios têm nota aberta (lápis)
   const [noteOpenIds, setNoteOpenIds] = React.useState<Set<string>>(new Set());
   // Picker de exercícios
@@ -2032,6 +2055,51 @@ export function WorkoutSessionDialog({
       e.stopPropagation();
     },
   };
+
+  // Toque longo (500ms) no relógio de descanso → abre a lista inteira de presets.
+  // O toque simples segue avançando um degrau por vez (rápido para corrigir de
+  // 60s para 90s); segurar evita os quatro toques que separavam 30s de 120s.
+  // Refs próprios: o toque longo do card ignora qualquer gesto nascido num
+  // `button`, então os dois nunca disputam o mesmo press.
+  const restPressTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const restPressFired = React.useRef(false);
+  const restPressOrigin = React.useRef<{ x: number; y: number } | null>(null);
+  const cancelRestPress = () => {
+    if (restPressTimer.current) clearTimeout(restPressTimer.current);
+    restPressTimer.current = null;
+    restPressOrigin.current = null;
+  };
+  React.useEffect(() => () => cancelRestPress(), []);
+  const restLongPressProps = (key: string) => ({
+    onPointerDown: (e: React.PointerEvent) => {
+      restPressFired.current = false;
+      restPressOrigin.current = { x: e.clientX, y: e.clientY };
+      restPressTimer.current = setTimeout(() => {
+        restPressFired.current = true;
+        void hapticMedium();
+        setMenuId(null);
+        setTrendInfoId(null);
+        setRestPickerKey(key);
+      }, 500);
+    },
+    onPointerMove: (e: React.PointerEvent) => {
+      const origin = restPressOrigin.current;
+      if (!origin) return;
+      if (Math.abs(e.clientX - origin.x) > 10 || Math.abs(e.clientY - origin.y) > 10) {
+        cancelRestPress();
+      }
+    },
+    onPointerUp: cancelRestPress,
+    onPointerCancel: cancelRestPress,
+    // Sem isto o `click` do pointerup ainda viria e avançaria um preset por
+    // baixo da lista que acabou de abrir.
+    onClickCapture: (e: React.MouseEvent) => {
+      if (!restPressFired.current) return;
+      restPressFired.current = false;
+      e.preventDefault();
+      e.stopPropagation();
+    },
+  });
 
   // Avisos da sessão (PR/recorde e validações) — renderizados DENTRO do overlay
   // porque o overlay é `position:fixed z-9999` portado ao body; um toast global
@@ -3415,12 +3483,15 @@ export function WorkoutSessionDialog({
             <div style={{
               display: "flex", alignItems: "center", gap: 10,
               padding: "10px 16px", borderBottom: `1px solid ${BORDER}`,
+              position: "relative",
             }}>
               <button
+                {...restLongPressProps(`block:${ids[0]}`)}
                 onClick={() => {
                   const idx = REST_PRESETS.indexOf(restSecs);
                   setBlockRest(ids, REST_PRESETS[(idx + 1) % REST_PRESETS.length]);
                 }}
+                aria-label={t("goals_rest_pick")}
                 style={{
                   background: "none", border: "none", cursor: "pointer",
                   display: "flex", alignItems: "center", gap: 5, padding: 0, opacity: 0.75,
@@ -3433,7 +3504,11 @@ export function WorkoutSessionDialog({
                 <span style={{ fontSize: 13, fontWeight: 600, color: MUTED_FG }}>
                   {t("goals_block_shared_rest")}: {fmtRest(restSecs)}
                 </span>
+                <svg width="9" height="9" viewBox="0 0 14 14" fill="none" style={{ marginLeft: -1 }}>
+                  <path d="M3 5l4 4 4-4" stroke={MUTED_FG} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
               </button>
+              {renderRestPicker(`block:${ids[0]}`, REST_PRESETS, restSecs, (secs) => setBlockRest(ids, secs))}
               <button
                 onClick={() => { for (const id of ids) removeFromSession(id); }}
                 style={{
@@ -3636,6 +3711,65 @@ export function WorkoutSessionDialog({
     );
   };
 
+  /**
+   * Painel de presets de descanso (toque longo no relógio). Renderiza ancorado
+   * ao container `position:relative` de quem chamou — a mesma linguagem do
+   * dropdown do ⋯: vidro escuro com blur, por cima do card.
+   *
+   * `presets` é a roda do próprio botão (curta no rest-pause), para a lista
+   * nunca oferecer um tempo que o cronômetro vai recusar.
+   */
+  const renderRestPicker = (
+    key: string,
+    presets: number[],
+    current: number,
+    apply: (secs: number) => void,
+  ) => {
+    if (restPickerKey !== key) return null;
+    return (
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          position: "absolute", top: "100%", left: 12, right: 12, marginTop: 4,
+          background: "rgba(30,28,42,0.82)", borderRadius: 16,
+          border: `1px solid ${BORDER}`,
+          backdropFilter: GLASS_BLUR, WebkitBackdropFilter: GLASS_BLUR,
+          boxShadow: "0 12px 32px rgba(0,0,0,0.4)",
+          zIndex: 25, padding: "10px 12px 12px",
+        }}
+      >
+        <p style={{
+          margin: "0 0 8px", fontSize: 11, fontWeight: 700,
+          letterSpacing: 0.5, textTransform: "uppercase",
+          color: MUTED_FG, opacity: 0.8,
+        }}>
+          {t("goals_rest_pick")}
+        </p>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+          {presets.map((secs) => {
+            const active = secs === current;
+            return (
+              <button
+                key={secs}
+                onClick={() => { apply(secs); setRestPickerKey(null); }}
+                style={{
+                  background: active ? "rgba(91,140,255,0.16)" : SURFACE,
+                  border: `1px solid ${active ? PRIMARY : BORDER}`,
+                  borderRadius: 12, padding: "8px 14px",
+                  fontSize: 13, fontWeight: 600,
+                  color: active ? PRIMARY : FG,
+                  cursor: "pointer", fontFamily: "'Inter', system-ui",
+                }}
+              >
+                {secs === 0 ? t("goals_rest_none") : fmtRest(secs)}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
   const content = (
     <div
       style={{
@@ -3644,7 +3778,11 @@ export function WorkoutSessionDialog({
         background: GLASS_ROOT_BG, fontFamily: "'Inter', system-ui, sans-serif",
         color: FG, overflow: "hidden",
       }}
-      onClick={() => { if (menuId) setMenuId(null); }}
+      onClick={() => {
+        if (menuId) setMenuId(null);
+        if (restPickerKey) setRestPickerKey(null);
+        if (trendInfoId) setTrendInfoId(null);
+      }}
     >
 
       {/* ── AURAS DE FUNDO (liquid glass) ────────────────────── */}
@@ -4088,7 +4226,8 @@ export function WorkoutSessionDialog({
           // Exercício marcado como "máquina zerada" → borda/realce dourado.
           const isMaxed = maxedExerciseIds.includes(item.workout_id);
           // Indicador de progressão de carga (não se aplica a cardio min/km).
-          const weightTrend: WeightTrend = isCardio ? "neutral" : computeWeightTrend(series);
+          const weightProgress = isCardio ? NEUTRAL_PROGRESS : computeWeightProgress(series);
+          const weightTrend: WeightTrend = weightProgress.trend;
           // Rampa de aquecimento: só quando ainda não há aquecimento no
           // exercício e existe carga de trabalho de onde derivar a progressão.
           const hasWarmup = series.some((s) => setKindOf(s) === "warmup");
@@ -4270,7 +4409,7 @@ export function WorkoutSessionDialog({
 
               {/* ── IMAGE AREA ─────────────────────────────── */}
               <div
-                onClick={() => { setMenuId(null); setExpandedId(isExpanded ? null : item.workout_id); }}
+                onClick={() => { setMenuId(null); setRestPickerKey(null); setTrendInfoId(null); setExpandedId(isExpanded ? null : item.workout_id); }}
                 style={{
                   position: "relative", width: "100%", height: 150,
                   // Fundo branco quando há foto — as ilustrações em linha escura
@@ -4341,7 +4480,7 @@ export function WorkoutSessionDialog({
 
               {/* ── VER / FECHAR SÉRIES BAR (sempre visível) ── */}
               <button
-                onClick={() => { setMenuId(null); setExpandedId(isExpanded ? null : item.workout_id); }}
+                onClick={() => { setMenuId(null); setRestPickerKey(null); setTrendInfoId(null); setExpandedId(isExpanded ? null : item.workout_id); }}
                 style={{
                   width: "100%", background: "none",
                   border: "none", borderTop: `1px solid ${BORDER}`,
@@ -4399,11 +4538,22 @@ export function WorkoutSessionDialog({
                         : weightTrend === "down" ? t("goals_weight_trend_down")
                         : t("goals_weight_trend_same");
                       return (
-                        <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setMenuId(null);
+                            setRestPickerKey(null);
+                            setTrendInfoId(trendInfoId === item.workout_id ? null : item.workout_id);
+                          }}
+                          aria-label={trendTitle}
+                          style={{
+                            background: "none", border: "none", padding: 0, cursor: "pointer",
+                            display: "flex", alignItems: "center", gap: 5,
+                          }}
+                        >
                           <svg
                             width="18" height="14" viewBox="0 0 18 14" fill="none"
                             opacity={!isMaxed && weightTrend === "neutral" ? 0.45 : 1}
-                            aria-label={trendTitle}
                           >
                             <title>{trendTitle}</title>
                             {!isMaxed && weightTrend === "down" ? (
@@ -4426,7 +4576,58 @@ export function WorkoutSessionDialog({
                               {t("goals_weight_trend_max_label")}
                             </span>
                           )}
-                        </span>
+                        </button>
+                      );
+                    })()}
+
+                    {/* Tooltip do indicador — a seta sozinha não diz contra o
+                        quê comparou, e "evoluiu" muda de sentido entre a série
+                        anterior de agora e o treino passado. */}
+                    {trendInfoId === item.workout_id && (() => {
+                      const { trend, latestKg, baselineKg, source } = weightProgress;
+                      const title =
+                        isMaxed ? t("goals_weight_trend_max")
+                        : trend === "up" ? t("goals_weight_trend_up")
+                        : trend === "down" ? t("goals_weight_trend_down")
+                        : t("goals_weight_trend_same");
+                      const titleColor =
+                        isMaxed ? "#eab308"
+                        : trend === "up" ? "#22c55e"
+                        : trend === "down" ? "#ef4444"
+                        : FG;
+                      const delta = latestKg - baselineKg;
+                      const body =
+                        isCardio ? t("goals_weight_trend_info_cardio")
+                        : source === null ? t("goals_weight_trend_info_none")
+                        : t(source === "history"
+                            ? "goals_weight_trend_info_history"
+                            : "goals_weight_trend_info_session")
+                            .replace("{from}", String(baselineKg))
+                            .replace("{to}", String(latestKg))
+                            .replace("{delta}", `${delta > 0 ? "+" : delta < 0 ? "−" : ""}${Math.abs(delta)}`);
+                      return (
+                        <div
+                          onClick={(e) => e.stopPropagation()}
+                          style={{
+                            position: "absolute", top: "100%", left: 12, right: 12, marginTop: 4,
+                            background: "rgba(30,28,42,0.82)", borderRadius: 16,
+                            border: `1px solid ${BORDER}`,
+                            backdropFilter: GLASS_BLUR, WebkitBackdropFilter: GLASS_BLUR,
+                            boxShadow: "0 12px 32px rgba(0,0,0,0.4)",
+                            zIndex: 25, padding: "12px 14px",
+                          }}
+                        >
+                          <p style={{
+                            margin: 0, fontSize: 13, fontWeight: 700, color: titleColor,
+                          }}>
+                            {title}
+                          </p>
+                          <p style={{
+                            margin: "5px 0 0", fontSize: 12, lineHeight: 1.4, color: MUTED_FG,
+                          }}>
+                            {body}
+                          </p>
+                        </div>
                       );
                     })()}
 
@@ -4445,39 +4646,55 @@ export function WorkoutSessionDialog({
                       </svg>
                     </button>
 
-                    {/* Relógio + preset de descanso (sem sentido no modo corrida GPS) */}
-                    {!isRunExercise && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        // No rest-pause a roda de presets é a curta (≤15s): oferecer
-                        // 90s num exercício cuja técnica é a micro-pausa seria
-                        // oferecer o que o cronômetro vai recusar.
-                        const presets = isRestPause ? REST_PAUSE_PRESETS : REST_PRESETS;
-                        const idx = presets.indexOf(restSecs);
-                        const next = presets[(idx + 1) % presets.length];
-                        setWorkoutExerciseRestTimes((prev) => ({ ...prev, [item.workout_id]: next }));
-                      }}
-                      style={{
-                        background: "none", border: "none", cursor: "pointer",
-                        display: "flex", alignItems: "center", gap: 5, padding: 0,
-                        opacity: 0.65,
-                      }}
-                    >
-                      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                        <circle cx="7" cy="7" r="5.5" stroke={MUTED_FG} strokeWidth="1.3"/>
-                        <path d="M7 4v3.5l2 1.5" stroke={MUTED_FG} strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-                      </svg>
-                      <span style={{ fontSize: 13, fontWeight: 600, color: MUTED_FG }}>
-                        {fmtRest(restSecs)}
-                      </span>
-                    </button>
-                    )}
+                    {/* Relógio + preset de descanso (sem sentido no modo corrida GPS).
+                        Toque = próximo preset; toque longo = lista inteira. */}
+                    {!isRunExercise && (() => {
+                      // No rest-pause a roda de presets é a curta (≤15s): oferecer
+                      // 90s num exercício cuja técnica é a micro-pausa seria
+                      // oferecer o que o cronômetro vai recusar.
+                      const presets = isRestPause ? REST_PAUSE_PRESETS : REST_PRESETS;
+                      const setRest = (secs: number) =>
+                        setWorkoutExerciseRestTimes((prev) => ({ ...prev, [item.workout_id]: secs }));
+                      return (
+                        <>
+                          <button
+                            {...restLongPressProps(item.workout_id)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const idx = presets.indexOf(restSecs);
+                              setRest(presets[(idx + 1) % presets.length]);
+                            }}
+                            aria-label={t("goals_rest_pick")}
+                            style={{
+                              background: "none", border: "none", cursor: "pointer",
+                              display: "flex", alignItems: "center", gap: 5, padding: 0,
+                              opacity: 0.65,
+                            }}
+                          >
+                            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                              <circle cx="7" cy="7" r="5.5" stroke={MUTED_FG} strokeWidth="1.3"/>
+                              <path d="M7 4v3.5l2 1.5" stroke={MUTED_FG} strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                            </svg>
+                            <span style={{ fontSize: 13, fontWeight: 600, color: MUTED_FG }}>
+                              {fmtRest(restSecs)}
+                            </span>
+                            {/* Chevron: a lista inteira mora atrás de um toque longo,
+                                e gesto invisível ninguém descobre sozinho. */}
+                            <svg width="9" height="9" viewBox="0 0 14 14" fill="none" style={{ marginLeft: -1 }}>
+                              <path d="M3 5l4 4 4-4" stroke={MUTED_FG} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
+                            </svg>
+                          </button>
+                          {renderRestPicker(item.workout_id, presets, restSecs, setRest)}
+                        </>
+                      );
+                    })()}
 
                     {/* ⋯ Menu de contexto */}
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
+                        setRestPickerKey(null);
+                        setTrendInfoId(null);
                         setMenuId(menuId === item.workout_id ? null : item.workout_id);
                       }}
                       style={{

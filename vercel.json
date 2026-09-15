@@ -15,6 +15,7 @@
     { "source": "/termos", "destination": "/termos.html" },
     { "source": "/privacidade", "destination": "/privacidade.html" },
     { "source": "/suporte", "destination": "/suporte.html" },
+    { "source": "/email-confirmado", "destination": "/email-confirmado.html" },
     { "source": "/(.*)", "destination": "/" }
   ]
 }

@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { ChevronRight, MessageCircle, PenSquare, Search } from "lucide-react";
+import { Ban, ChevronRight, MessageCircle, PenSquare, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -152,11 +152,26 @@ export function MessagesTab({
 
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-2 mb-0.5">
-                        <p
-                          className={`text-sm truncate ${conversation.unreadCount > 0 ? "font-semibold text-white" : "font-medium text-white/90"}`}
-                        >
-                          {conversation.userNickname}
-                        </p>
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <p
+                            className={`text-sm truncate ${conversation.unreadCount > 0 ? "font-semibold text-white" : "font-medium text-white/90"}`}
+                          >
+                            {conversation.userNickname}
+                          </p>
+                          {/* A conversa com quem foi bloqueado permanece na
+                              lista (o histórico é do usuário e pode virar
+                              evidência). Sem esta marca, encontrá-la aqui
+                              pareceria o bloqueio não ter funcionado. */}
+                          {conversation.isBlocked && (
+                            <span
+                              className="flex items-center gap-1 shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium text-white/50"
+                              style={{ background: "rgba(255,255,255,.07)" }}
+                            >
+                              <Ban className="h-2.5 w-2.5" strokeWidth={2} />
+                              {t("community_blocked_label")}
+                            </span>
+                          )}
+                        </div>
                         <p
                           className={`text-xs shrink-0 ${conversation.unreadCount > 0 ? "text-brand font-medium" : "text-white/40"}`}
                         >
