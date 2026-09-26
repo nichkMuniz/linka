@@ -24,7 +24,7 @@ let package = Package(
         .package(name: "CapgoBackgroundGeolocation", path: "..\..\..\node_modules\.pnpm\@capgo+background-geolocation@7.2.8_@capacitor+core@7.6.2\node_modules\@capgo\background-geolocation"),
         .package(name: "CapgoCapacitorNativeBiometric", path: "..\..\..\node_modules\.pnpm\@capgo+capacitor-native-bio_58e8312a69844743673a89b9dbf56e22\node_modules\@capgo\capacitor-native-biometric"),
         .package(name: "CapgoCapacitorPhotoLibrary", path: "..\..\..\node_modules\.pnpm\@capgo+capacitor-photo-library@7.2.11_@capacitor+core@7.6.2\node_modules\@capgo\capacitor-photo-library"),
-        .package(name: "SentryCapacitor", path: "..\..\..\node_modules\.pnpm\@sentry+capacitor@4.2.0_@ca_953d78c0439c016b13f0c64cb86e8318\node_modules\@sentry\capacitor")
+        .package(name: "SentryCapacitor", path: "..\..\..\node_modules\.pnpm\@sentry+capacitor@4.4.0_@ca_2103d601e45f7c1a07ef51e4dc0aaa5f\node_modules\@sentry\capacitor")
     ],
     targets: [
         .target(
