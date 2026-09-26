@@ -530,7 +530,7 @@ Dados carregados via `getRankingDb()`
 
 | Dado | Função DB |
 |---|---|
-| Conversas | `getConversationsDb()` |
+| Conversas | `getConversationsDb()` → RPC `get_conversation_summaries` (uma linha por conversa, sem limite de janela; ver `docs/14-database-schema.md` → messages) |
 | Mensagens de uma conversa | `getConversationMessagesDb(conversationId)` |
 | Semente de first paint da conversa (leitura síncrona, sem rede) | `peekConversationMessages(otherUserId)` |
 | Atualizar a semente da conversa | `cacheConversationMessages(otherUserId, messages)` |

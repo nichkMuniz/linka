@@ -400,6 +400,8 @@ Drawer glass de **marcação de pessoas em um post** (estilo Instagram). Seleç�
 
 Drawer glass de compartilhamento externo: share sheet nativa do iOS (`@capacitor/share`) + atalhos de WhatsApp, Instagram, Facebook, Telegram, X, "mais opções" e copiar link. Props: `open`, `onOpenChange`, `text`, `url?`, `title?`, `onSendToFriend?`.
 
+O card de prévia mostra só o `text` — a URL (com o id do post) **não é exibida** no drawer desde 2026-09-26, a pedido do produto. O link continua sendo enviado normalmente nos atalhos e no "copiar link".
+
 As URLs vêm de `client/lib/share-url.ts`, que reexporta a fonte única `shared/share-config.ts`. **O que acontece do outro lado do link** — Universal Links, custom scheme, prévia Open Graph e landing de instalação — está em `docs/19-compartilhamento-e-deep-links.md`.
 
 ---

@@ -1320,6 +1320,14 @@ export const translations = {
     flow_draft_permission_desc: "Libere o acesso às Fotos em Ajustes para salvar o rascunho",
     flow_draft_unsupported: "Recurso indisponível",
     flow_draft_unsupported_desc: "Atualize o app para salvar rascunhos na galeria",
+    // Flow — marcação de pessoas + repost
+    flow_tag_people: "Marcar pessoas",
+    flow_tagged_count: "{n} pessoas marcadas",
+    flow_repost_button: "Repostar no meu flow",
+    flow_reposting: "Repostando…",
+    flow_repost_success: "Flow repostado!",
+    flow_repost_success_desc: "Adicionado ao seu perfil.",
+    flow_repost_error: "Não foi possível repostar",
     // Flow — mini frame do treino citado (estilo "repost")
     flow_workout_button: "Citar um treino",
     flow_workout_picker_title: "Citar um treino",
@@ -3835,6 +3843,14 @@ export const translations = {
     flow_draft_permission_desc: "Allow Photos access in Settings to save the draft",
     flow_draft_unsupported: "Feature unavailable",
     flow_draft_unsupported_desc: "Update the app to save drafts to your gallery",
+    // Flow — people tagging + repost
+    flow_tag_people: "Tag people",
+    flow_tagged_count: "{n} people tagged",
+    flow_repost_button: "Repost to my flow",
+    flow_reposting: "Reposting…",
+    flow_repost_success: "Flow reposted!",
+    flow_repost_success_desc: "Added to your profile.",
+    flow_repost_error: "Couldn't repost",
     // Flow — workout mini frame ("repost" style)
     flow_workout_button: "Mention a workout",
     flow_workout_picker_title: "Mention a workout",

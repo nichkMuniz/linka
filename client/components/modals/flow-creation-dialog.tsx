@@ -3202,7 +3202,7 @@ export function FlowCreationDialog({
                     <button
                       onClick={() => setTagPeopleOpen(true)}
                       className="h-10 px-3 rounded-full bg-black/40 backdrop-blur flex items-center text-white text-sm font-semibold gap-1"
-                      aria-label="Marcar pessoas"
+                      aria-label={t("flow_tag_people")}
                     >
                       <AtSign className="h-4 w-4" />
                       {taggedUsers.length > 0 ? taggedUsers.length : ""}
@@ -3265,7 +3265,7 @@ export function FlowCreationDialog({
                     <span className="text-white/80 text-xs font-medium truncate">
                       {taggedUsers.length === 1
                         ? taggedUsers[0].nickname
-                        : `${taggedUsers.length} pessoas marcadas`}
+                        : t("flow_tagged_count").replace("{n}", String(taggedUsers.length))}
                     </span>
                   </button>
                 )}

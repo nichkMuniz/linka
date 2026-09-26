@@ -78,16 +78,16 @@ meta, e seus amigos incentivam com os 6 tipos.
 | `ranking` | ❌ | Com base pequena, expõe o tamanho do app |
 | `workoutParty` | ❌ | De 26/08, realtime, exige amigo treinando no mesmo horário |
 | `expertMode` | ❌ | Profundidade de power user; remove metade da superfície de bug da tela mais complexa |
-| `muscleAnatomy` | ❌ | Valor no mês 3, ruído no dia 1 |
+| `muscleAnatomy` | ✅ **religada 26/09** | Valor no mês 3, ruído no dia 1 |
 | `dietAndHabitRoutines` | ❌ | Rotinas de dieta e hábito (tipos 2 e 3). Cada tipo extra multiplica a superfície da tela mais complexa do app — catálogo, progresso e check-in próprios — para quem ainda não completou a primeira semana de treino |
 | `foodDiary` | ❌ | Diário Alimentar + catálogo TACO. Cai junto por construção: era acessível **só** pelo card "Dietas" |
 | `badges` | ❌ | Insígnias. Amarradas às duas coisas que saíram: as condições de desbloqueio dependem de rotinas de dieta/hábito, e parte do catálogo é premium (selo 👑) |
 | `weightTracking` | ❌ | Registro e histórico de peso. O monitoramento vem num momento próprio |
-| `workoutStickerOnFlow` | ❌ | Mini frame de treino colado no flow. Os dados vêm de `routines.last_summary` — quem ainda não treinou pelo app abre um seletor vazio. E o sticker fica gravado em `flow.text_elements`, então um flow criado hoje segue renderizando depois |
-| `workoutDetailOnPost` | ❌ | Botão "Ver treino" no post. O comparador é de 26/08 e não foi validado; o detalhe série a série é leitura densa demais para quem acabou de instalar. O card de resumo no post **continua** |
+| `workoutStickerOnFlow` | ✅ **religada 26/09** | Mini frame de treino colado no flow. Os dados vêm de `routines.last_summary` — quem ainda não treinou pelo app abre um seletor vazio. E o sticker fica gravado em `flow.text_elements`, então um flow criado hoje segue renderizando depois |
+| `workoutDetailOnPost` | ✅ **religada 26/09** | Botão "Ver treino" no post. O comparador é de 26/08 e não foi validado; o detalhe série a série é leitura densa demais para quem acabou de instalar. O card de resumo no post **continua** |
 | `gpsRun` | ❌ | Única razão para pedir localização **Always**. Ver seção 6 |
-| `hashtags` | ❌ | Função de volume: sem posts suficientes, devolve vazio |
-| `postTags` | ❌ | Marcar exige ter em quem marcar |
+| `hashtags` | ✅ **religada 26/09** | Função de volume: sem posts suficientes, devolve vazio |
+| `postTags` | ✅ **religada 26/09** | Marcar exige ter em quem marcar |
 | `postLocation` | ❌ | Alfinete de localização no post. Dado sensível com retorno nulo no v1 — sem hashtags nem busca por lugar, vira só um texto na legenda. Era a última justificativa de `NSLocationWhenInUseUsageDescription` |
 | `routineSearch` | ❌ | Idem — sem rotinas públicas, a busca parece quebrada |
 | `profileExtraTabs` | ❌ | 4 abas vazias num perfil novo = sinal de app abandonado |
@@ -597,18 +597,18 @@ Varredura tela por tela antes de submeter. Achados, todos corrigidos:
 - [ ] Feed abre em "Seguindo" para conta que já segue alguém, e em "Descobrir" para conta nova
 - [ ] Bloquear pelo "..." do post no feed faz o card sumir; idem no detalhe do post
 - [ ] Perfil: posts de treino (canvas) aparecem em "Publicações" junto com os demais
-- [ ] Nenhum botão "Ver treino" nos posts
+- [ ] Posts de treino mostram o botão "Ver treino" (feed, detalhe e post viewer do perfil); "Comparar" dentro do drawer
 - [ ] Detalhe da rotina não oferece trocar para Modo Expert
 - [ ] Botão "+" → nova rotina de treino: **não** pergunta Simplificado × Expert
-- [ ] Criar flow: sem ícone de halter (sticker de treino) nas duas etapas
+- [ ] Criar flow: ícone de halter (sticker de treino) nas duas etapas; conta sem treino vê o estado vazio
 - [ ] Aba Rotinas, lista e detalhe: nenhum botão "Treinar junto"
 - [ ] Bottom nav: 4 itens distribuídos por igual, sem espaço sobrando à direita
 - [ ] Bottom nav: "Novo post" sem círculo colorido, igual aos outros três
 - [ ] Metas: "Suas rotinas" mostra só o card Exercícios
 - [ ] Metas: sem card de peso, sem ⚖️ no card de streak, sem insígnias
 - [ ] Perfil, feed e conversa: nenhuma insígnia ao lado do nome
-- [ ] Terminar um treino: o resumo **não** tem seção "Marcar pessoas"
-- [ ] Editar um post: sem seção de marcações
+- [ ] Terminar um treino: o resumo tem a seção "Marcar pessoas" e a marcação chega ao post
+- [ ] Editar um post: seção de marcações funciona
 - [ ] iOS não pede Face ID em nenhum momento
 - [ ] Descobrir: posts do mais recente para o mais antigo, autores misturados
 - [ ] Flow aberto pelo perfil = mesma aparência do aberto pelo feed (sem botão play/pause)
@@ -617,16 +617,59 @@ Varredura tela por tela antes de submeter. Achados, todos corrigidos:
 - [ ] Conversa privada: reação e double check aparecem ao vivo nos dois aparelhos
 - [ ] Configurações: sem "Histórico" no peso e sem criar perfil comercial
 - [ ] Novo post: sem alfinete de localização na barra da legenda
+- [ ] Novo post: botão **#** na legenda; hashtag no post é tocável e abre `/tag/:tag`; aba Hashtags no Buscar (só posts, sem shots)
 - [ ] iOS não pede localização nem Face ID em momento nenhum (as chaves existem, mas as APIs nunca são chamadas)
 - [ ] Configurações → Dados pessoais: campo de peso existe, botão "Histórico" não
 - [ ] Cadastro não pergunta sobre perfil comercial
-- [ ] Criar um flow: sem botão "@" de marcar pessoas
+- [ ] Criar um flow: botão "@" marca pessoas; a pessoa marcada recebe push (type 16) e vê "Repostar no meu flow"
 - [ ] Conversa antiga com shot compartilhado mostra "conteúdo indisponível", não um card que não abre
 - [ ] Bloquear um usuário: some do feed, da busca e das conversas; DM falha
 - [ ] Configurações → Contas bloqueadas → desbloquear devolve tudo
 - [ ] Nenhum cadeado, blur ou paywall em lugar nenhum
 - [ ] Treino completo do início ao fim no modo Simplificado
 - [ ] Excluir conta funciona de verdade
+
+---
+
+## 8.1. Release de 26/09/2026 — Feed, Post, Novo Post e Flow
+
+Religadas: `postTags`, `hashtags`, `workoutDetailOnPost`, `workoutStickerOnFlow`.
+`postLocation` **continua desligada** (decisão do produto).
+
+Ajustes feitos junto:
+
+- **Hashtag sem Shots:** `searchContentByHashtagDb` só consulta `shots` com
+  `FEATURES.shots` ligada. Sem isso, a aba Hashtags e `/tag/:tag` mostravam
+  miniaturas de shot cujo toque ia para `/shots` (rota inexistente, cai no feed).
+- **Marcações no perfil seguem escondidas** (`profileExtraTabs`). A busca de
+  `getTaggedPostsDb` no Perfil agora exige as duas flags — antes rodaria a cada
+  abertura para alimentar uma aba invisível. Quem é marcado descobre pela
+  notificação, pelo "com fulano" do post e pelo flow.
+- **i18n:** a UI de marcação/repost do flow era PT fixo; ganhou as chaves
+  `flow_tag_people`, `flow_tagged_count` e `flow_repost_*`.
+
+Pré-requisitos no servidor (confirmar antes do build):
+
+- [ ] Migração `docs/migrations/20260710-post-tags.sql` aplicada
+- [ ] Migração `docs/migrations/20260729-flow-tags.sql` aplicada
+- [ ] `send-push-notification` publicada com os types 8/9 (post) e 16 (flow)
+
+---
+
+## 8.2. Release de 26/09/2026 — Anatomia muscular
+
+Religada: `muscleAnatomy`, **sem** `expertMode` — as duas são independentes.
+Nenhuma superfície da anatomia está dentro de UI do Expert, e a cobertura só
+descarta séries de aquecimento (que não existem no Simplificado).
+
+Volta: ficha anatômica no detalhe do exercício, no detalhe da rotina e no "i"
+do card durante o treino; card "Cobertura muscular da semana" em Metas.
+
+- [ ] Migração `docs/migrations/20260805-muscle-anatomy.sql` aplicada
+      (`select count(*) from workout_muscles;` > 0). Sem ela a flag liga mas
+      tudo some em silêncio — não quebra, só parece que a feature não voltou.
+- [ ] TestFlight: "i" de um exercício no treino mostra a ficha; após um treino,
+      o card de cobertura aparece em Metas
 
 ---
 

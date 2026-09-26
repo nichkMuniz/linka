@@ -7,6 +7,8 @@ import {
   togglePostIncentiveDb,
   getFollowingIdsDb,
   getBlockedIdsDb,
+  resolveUserGoalRef,
+  USER_GOAL_REF_COLUMNS,
   type PostWithLikes,
   type PostIncentiveType,
   type SearchUser,
@@ -24,6 +26,7 @@ export type PostWithStats = PostWithLikes & {
   userGoal?: {
     id: string;
     goal_id: string;
+    is_custom?: boolean;
     description: string;
     perc: number;
     duration: number;
@@ -101,17 +104,16 @@ export const getFeedPosts = async (
       if (goalIds.length > 0) {
         const { data: goalsData } = await supabase
           .from("user_goals")
-          .select("id, goal_id, duration, quantity, type_goal, perc, visibility, goals(description)")
+          .select(`id, duration, quantity, type_goal, perc, visibility, ${USER_GOAL_REF_COLUMNS}`)
           .in("id", goalIds.map(Number));
         if (goalsData?.length) {
           goalsData.forEach((g: any) => {
-            const description = Array.isArray(g.goals)
-              ? (g.goals[0]?.description ?? "")
-              : (g.goals?.description ?? "");
+            const ref = resolveUserGoalRef(g);
             map.set(String(g.id), {
               id: String(g.id),
-              goal_id: String(g.goal_id),
-              description,
+              goal_id: ref.goal_id,
+              is_custom: ref.is_custom,
+              description: ref.description,
               perc: Number(g.perc ?? 0),
               duration: Number(g.duration ?? 0),
               quantity: Number(g.quantity ?? 0),
@@ -209,17 +211,16 @@ export const getDiscoverPosts = async (
       if (goalIds.length > 0) {
         const { data: goalsData } = await supabase
           .from("user_goals")
-          .select("id, goal_id, duration, quantity, type_goal, perc, visibility, goals(description)")
+          .select(`id, duration, quantity, type_goal, perc, visibility, ${USER_GOAL_REF_COLUMNS}`)
           .in("id", goalIds.map(Number));
         if (goalsData?.length) {
           goalsData.forEach((g: any) => {
-            const description = Array.isArray(g.goals)
-              ? (g.goals[0]?.description ?? "")
-              : (g.goals?.description ?? "");
+            const ref = resolveUserGoalRef(g);
             map.set(String(g.id), {
               id: String(g.id),
-              goal_id: String(g.goal_id),
-              description,
+              goal_id: ref.goal_id,
+              is_custom: ref.is_custom,
+              description: ref.description,
               perc: Number(g.perc ?? 0),
               duration: Number(g.duration ?? 0),
               quantity: Number(g.quantity ?? 0),

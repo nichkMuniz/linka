@@ -57,12 +57,14 @@ Documentação técnica de todas as tabelas do banco de dados público (`public`
 | [user_food_logs](#user_food_logs) | Diário alimentar (alimentos consumidos por dia/refeição) |
 | [user_nutrition_goals](#user_nutrition_goals) | Meta diária de calorias/macros do usuário |
 | [user_goals](#user_goals) | Metas ativas do usuário |
+| [user_custom_goals](#user_custom_goals) | Metas personalizadas criadas pelo usuário (fora do catálogo) |
 | [user_habits](#user_habits) | Hábitos ativos do usuário |
 | [user_habits_hist](#user_habits_hist) | Histórico de hábitos do usuário |
 | [flow_user_viewed](#flow_user_viewed) | Registro de visualizações de Flows |
 | [user_workouts](#user_workouts) | Treinos salvos do usuário |
 | [user_workouts_hist](#user_workouts_hist) | Histórico de treinos realizados |
 | [workouts](#workouts) | Catálogo de treinos disponíveis |
+| [user_custom_workouts](#user_custom_workouts) | Exercícios criados pelo usuário (fora do catálogo) |
 | [muscles](#muscles) | Catálogo de músculos e porções (anatomia) |
 | [workout_muscles](#workout_muscles) | Recrutamento muscular por exercício (papel + ênfase) |
 
@@ -581,6 +583,13 @@ Registro de quem segue um usuário.
 
 **Índices** (`docs/migrations/20260702-performance-indexes.sql`): `followers_user_id_idx (user_id)`, `followers_follower_id_idx (follower_id)` — cobrem os filtros usados por `getFollowersDb`/`getFollowingIdsDb`.
 
+**Índice único** (`docs/migrations/20260925-followers-unfollow-sync.sql`): `followers_user_follower_uniq (user_id, follower_id)`.
+
+> **Espelho de `following`:** o cliente não escreve nesta tabela. A linha nasce de um trigger de espelho no INSERT de `following`, que não está versionado. Até 25/09/2026 **nada espelhava o DELETE**, então cada ciclo de seguir → deixar de seguir → seguir de novo deixava uma linha a mais. A migração `20260925-followers-unfollow-sync.sql` adiciona:
+> - `following_mirror_delete_trg` (AFTER DELETE em `following`, `following_mirror_delete()`, SECURITY DEFINER), que apaga o par correspondente;
+> - `followers_skip_duplicate_trg` (BEFORE INSERT, `followers_skip_duplicate()`), que descarta em silêncio um par que já existe, sem erro e sem disparar `trigger_notify_follow`;
+> - a limpeza das duplicatas e das linhas órfãs (o diagnóstico fica em `20260925-followers-dedupe.sql`).
+
 ---
 
 ## following
@@ -594,9 +603,11 @@ Registro de quem um usuário segue.
 | `created_at` | timestamptz | ✓ | `now()` | Data do follow |
 | `following_id` | uuid | — | — | Usuário sendo seguido |
 
-> **Nota:** `followers` e `following` são tabelas simétricas. Uma ação de follow deve inserir em ambas.
+> **Nota:** `followers` e `following` são tabelas simétricas. O app lê e escreve **só em `following`**. `followers` é mantida pelos triggers de espelho: INSERT pelo trigger legado e DELETE por `following_mirror_delete_trg`.
 
 **Índices** (`docs/migrations/20260702-performance-indexes.sql`): `following_user_id_idx (user_id)`, `following_following_id_idx (following_id)` — cobrem os filtros usados por `getFollowingDb`/`getFollowersDb`.
+
+**Travas** (`docs/migrations/20260925-following-dedupe.sql`): índice único `following_user_following_uniq (user_id, following_id)` e check `following_not_self (user_id <> following_id)`. Antes disso, `followUserDb` fazia insert cego e o `FollowButton` (que nasce como "Seguir" até `isFollowingDb` responder) gravava o mesmo par de novo. Agora o insert repetido falha com `23505`, e `followUserDb` trata esse código como sucesso. O trigger `following_mirror_delete_trg` só apaga o espelho em `followers` quando não sobra nenhuma linha do par.
 
 ---
 
@@ -612,7 +623,12 @@ Catálogo de metas pré-definidas disponíveis na plataforma.
 | `quantity` | bigint | ✓ | — | Quantidade alvo |
 | `created_at` | timestamptz | ✓ | `now()` | Data de criação |
 | `type` | smallint | — | — | Tipo da meta |
-| `created_by_user` | smallint | — | `0` | Flag: criado por usuário ou sistema |
+| `created_by_user` | smallint | — | `0` | Legado. `1` = meta personalizada gravada por build antigo; o trigger `user_goals_route_custom_goal_trg` a move para `user_custom_goals`. O catálogo deve ter só `0` |
+| `description_eng` | text | — | — | Descrição em inglês (`20260925-goals-description-eng.sql`). NULL em metas criadas pelo usuário |
+
+`type`: 1 = Fitness, 2 = Saúde, 3 = Hábitos. `duration` = dias (denominador do progresso); `quantity` = frequência semanal sugerida (1–7). Carga de 24 metas de catálogo em `docs/migrations/20260925-goals-catalog-seed.sql`.
+
+**Idioma:** toda leitura de `goals`, direta ou pelo embed `goals(description, description_eng)` de `user_goals`, passa por `localizedGoalDescription()` (`ritmofit-db.ts`), que usa `pickLocalized` e cai no português quando `description_eng` é NULL. Como nos outros catálogos, as chaves de cache incluem o idioma (`programmedGoals:<lang>`, `userGoals:<id>:<lang>`), e trocar o idioma reflete ao renavegar para a tela.
 
 ---
 
@@ -702,7 +718,9 @@ A identidade completa é o que permite ouvir **UPDATE** — reação com emoji
 ela o Realtime não consegue avaliar a RLS sobre a linha antiga (que chegaria só
 com a PK), e descarta o evento em silêncio.
 
-**Índices** (`docs/migrations/20260702-performance-indexes.sql`): `messages_user_id_idx (user_id)`, `messages_following_id_idx (following_id)`, `messages_following_id_read_idx (following_id, read)` (contagem de não lidas), `messages_created_at_idx (created_at DESC)` (ordenação de conversas).
+**Índices** (`docs/migrations/20260702-performance-indexes.sql`): `messages_user_id_idx (user_id)`, `messages_following_id_idx (following_id)`, `messages_following_id_read_idx (following_id, read)` (contagem de não lidas), `messages_created_at_idx (created_at DESC)` (ordenação de conversas). Desde `20260925-conversation-summaries.sql`: `messages_sender_recipient_created_idx (user_id, following_id, created_at DESC)` e `messages_recipient_sender_created_idx (following_id, user_id, created_at DESC)`.
+
+**Lista de conversas — `get_conversation_summaries()`** (`20260925-conversation-summaries.sql`, SECURITY INVOKER): devolve uma linha por conversa (`other_user_id`, `last_message`, `last_message_at`, `unread_count`), já descontando o que o usuário apagou (`message_deletions`), ordenada da mais recente. `getConversationsDb` chama a RPC e só completa perfil e bloqueio. Antes, o app lia as 500 mensagens mais recentes e agrupava no aparelho: quem conversava muito com poucas pessoas perdia as conversas antigas da lista, e as não lidas saíam menores que as reais. Esse caminho continua como fallback enquanto a migração não roda.
 
 ---
 
@@ -763,6 +781,8 @@ Notificações geradas para os usuários (follows, likes, comentários, duelos).
 | `duel_check_in_votes` | `trg_notify_check_in_vote` | `notify_check_in_vote()` | type 14 / 15 (check-in classificado / desclassificado) |
 | `duel_check_in_votes` | `trg_notify_check_in_vote_removed` | `notify_check_in_vote_removed()` | apaga a 14/15 quando o voto é desfeito |
 
+> **Dedup do type 1** (`docs/migrations/20260925-follow-notification-dedupe.sql`): a trigger `notifications_skip_duplicate_follow_trg` (BEFORE INSERT em `notifications`, `notifications_skip_duplicate_follow()`, SECURITY DEFINER) descarta uma type 1 se já existe outra do mesmo `follower_id` para o mesmo `user_id`. Por ser BEFORE, o push também não sai. Deixar de seguir **não** apaga a notificação antiga, de propósito: senão alternar seguir/deixar de seguir mandaria um push a cada vez. Índice parcial de apoio: `notifications_follow_pair_idx (user_id, follower_id) where type = 1`.
+>
 > A trigger `notify-push-on-notification` (AFTER INSERT em `notifications`) chama a edge function `send-push-notification` para qualquer linha inserida — ou seja, o push é automático.
 > As triggers de flow foram adicionadas em `docs/migrations/20260521-flow-notifications.sql`; a do tipo 18, em `docs/migrations/20260818-flow-comment-followup.sql`.
 >
@@ -930,7 +950,7 @@ Rotinas de treino dos usuários (estrutura de programação).
 | `type` | integer | ✓ | — | Tipo de rotina |
 | `created_at` | timestamptz | ✓ | `now()` | Data de criação |
 | `updated_at` | timestamp | — | `now()` | Data de atualização |
-| `goal_id` | bigint | — | — | Meta vinculada à rotina (id do catálogo `goals`, não `user_goals.id`). Zerado automaticamente pelo próprio app no dia seguinte a essa meta chegar a 100% (`unlinkCompletedGoalRoutinesDb`, ver `docs/05-metas.md`) — não é RLS nem trigger, é uma checagem no carregamento da tela de Metas. |
+| `goal_id` | bigint | — | — | Meta vinculada à rotina: a identidade da meta (`user_goals.goal_id ?? custom_goal_id`, ou seja, id de `goals` ou de `user_custom_goals`), não `user_goals.id`. Sem FK desde `20260925-user-custom-goals.sql`. Zerado automaticamente pelo próprio app no dia seguinte a essa meta chegar a 100% (`unlinkCompletedGoalRoutinesDb`, ver `docs/05-metas.md`) — não é RLS nem trigger, é uma checagem no carregamento da tela de Metas. |
 | `name` | text | — | — | Nome da rotina |
 | `last_summary` | jsonb | — | — | Snapshot do resumo do **último treino finalizado** desta rotina (mesmo formato de `WorkoutSummaryData`, sem `userId`/`userGroups` — resolvidos de novo ao reabrir): `routineName`, `totalSeries`, `totalVolume`, `durationSecs`, `badges`, `completedExercises`, `prExercises`, `machinedExercises`, `caloriesKcal` (kcal da sessão, desde 21/08/2026 — ausente nos snapshots anteriores), `completedAt`. Sobrescrito a cada "Finalizar" (`updateRoutineLastSummaryDb`) — nunca há mais de um snapshot por rotina, sempre o mais recente. `NULL` = rotina nunca executada. Gateia o ícone de "resumo do treino" no `routine-detail-drawer.tsx` (só aparece quando não-nulo). Migration: `docs/migrations/20260702-routine-last-summary.sql`. |
 | `training_mode` | text | ✓ | `'simple'` | **(2026-08-05)** Modo da experiência de treino desta rotina — a escolha do usuário no passo `routine-mode` do wizard. `'simple'` = tela clássica de registro (tabela KG × REPS); `'expert'` = série tipada (aquecimento/válida/falha), com o aquecimento contando no volume e na contagem de séries mas fora do PR e da progressão (ver `docs/05-metas.md`). `CHECK (training_mode IN ('simple','expert'))`. É **por rotina**, não por conta: o mesmo usuário pode ter "Peito/Tríceps" no expert e "Corrida de domingo" no simplificado. Só rotinas de treino (`type = 1`) perguntam; dieta/hábito ficam no default. Lido em `getUserRoutinesDb` → `RoutineCard.trainingMode` → prop `trainingMode` do `WorkoutSessionDialog`. Gravado por `updateRoutineTrainingModeDb` (por id, caminho do quiz) e `updateRoutineTrainingModeByNameDb` (por `user_id`+`type`+`name`, caminho "do zero", onde a linha nasce de trigger). Migration: `docs/migrations/20260805-training-mode.sql`. |
@@ -1220,7 +1240,8 @@ Metas ativas vinculadas a um usuário.
 | Coluna | Tipo | Obrigatório | Padrão | Descrição |
 |---|---|---|---|---|
 | `id` | bigint | PK (identity) | — | Identificador único |
-| `goal_id` | bigint | FK → `goals.id` | — | Meta do catálogo |
+| `goal_id` | bigint | FK → `goals.id` | — | Meta do catálogo. **NULL** quando a meta é personalizada |
+| `custom_goal_id` | bigint | FK → `user_custom_goals.id` ON DELETE CASCADE | — | Meta personalizada (`20260925-user-custom-goals.sql`). NULL em meta de catálogo |
 | `user_id` | uuid | ✓ | — | Usuário |
 | `type_goal` | smallint | ✓ | — | Tipo da meta |
 | `duration` | bigint | ✓ | — | Duração da meta (dias) |
@@ -1232,6 +1253,34 @@ Metas ativas vinculadas a um usuário.
 | `last_progress_date` | date | — | — | Data (YYYY-MM-DD) do último incremento de `days_completed`. Garante que **só a primeira rotina concluída no dia** (treino, dieta ou hábito, entre as vinculadas a esta meta) incrementa o progresso — conclusões seguintes no mesmo dia são ignoradas. Adicionada em 02/07/2026 (`supabase/migrations/20260702220000_add_last_progress_date_to_user_goals.sql`). |
 
 > RLS: o próprio usuário tem acesso total. Qualquer usuário autenticado pode **ler** metas com `visibility = 1` (política "Anyone can read public goals"). Migration: `20260427-user-goals-public-read.sql`.
+
+> **Identidade da meta no app:** `goal_id ?? custom_goal_id` (`resolveUserGoalRef` em `ritmofit-db.ts`). É esse valor que vai em `routines.goal_id`. Leituras usam `USER_GOAL_REF_COLUMNS` (embed de `goals` **e** de `user_custom_goals`).
+>
+> **Triggers** (`20260925-user-custom-goals.sql`):
+> - `user_goals_delete_custom_goal_trg` (AFTER DELETE): apaga a `user_custom_goals` da linha. O cliente não faz mais esse segundo delete.
+> - `user_goals_route_custom_goal_trg` (BEFORE INSERT): compatibilidade com builds antigos, que ainda gravam a meta personalizada em `goals` (`created_by_user = 1`). Move para `user_custom_goals`, troca `goal_id` por `custom_goal_id` e apaga a linha do catálogo.
+
+---
+
+## user_custom_goals
+
+Metas personalizadas criadas pelo usuário (passo `goal-custom` do wizard). Até 25/09/2026 elas iam para o catálogo `goals` com `created_by_user = 1`, sem dono. Migração: `docs/migrations/20260925-user-custom-goals.sql`.
+
+| Coluna | Tipo | Obrigatório | Padrão | Descrição |
+|---|---|---|---|---|
+| `id` | bigint | PK | `nextval` da **sequência de `goals.id`** | Compartilhada de propósito: um id existe em `goals` ou aqui, nunca nos dois, então `routines.goal_id` identifica a meta sem ambiguidade |
+| `user_id` | uuid | ✓ | — | Dono. FK → `auth.users` ON DELETE CASCADE |
+| `description` | text | ✓ | — | Texto da meta (1–200 caracteres). Sem tradução: é texto do usuário |
+| `type` | smallint | — | — | 1 = Fitness, 2 = Saúde, 3 = Hábitos |
+| `duration` | bigint | ✓ | — | Duração sugerida (dias) |
+| `quantity` | bigint | ✓ | — | Frequência semanal |
+| `created_at` | timestamptz | ✓ | `now()` | Criação |
+
+**RLS:** leitura pelo dono **ou** quando algum `user_goals` público (`visibility = 1`) aponta para a linha (mesma regra de `user_goals`: a meta aparece no card do post). Escrita (`insert`/`update`/`delete`) só do dono.
+
+**Copiar meta do feed:** meta de catálogo cria um `user_goals` com o mesmo `goal_id`. Meta personalizada cria uma `user_custom_goals` **nova** para quem copia (`createCustomGoalAndSelectDb`). Apontar para a do autor fazia as duas sumirem quando um apagava.
+
+> `routines.goal_id` **não tem FK para `goals`** (a migração remove, se existir): o valor pode estar em qualquer uma das duas tabelas.
 
 ---
 
@@ -1568,6 +1617,8 @@ Armazena os tokens APNs (iOS) de cada dispositivo registrado pelo usuário para 
 **RLS:** usuário só acessa seus próprios tokens.
 **Limpeza automática:** a Edge Function `send-push-notification` remove tokens `BadDeviceToken` / `Unregistered` automaticamente.
 
+**Um aparelho, um dono** (`docs/migrations/20260925-claim-push-token.sql`): o app grava o token pela RPC `claim_push_token(p_token, p_platform)` (SECURITY DEFINER), que apaga o mesmo token de qualquer outro usuário e faz o upsert para quem chamou. Antes, `savePushTokenDb` fazia esse delete direto no cliente, e a RLS o transformava em no-op silencioso: numa troca de conta sem logout, os pushes da conta anterior (inclusive prévia de DM) continuavam chegando no aparelho. Sem a migração, o app cai no caminho antigo.
+
 ---
 
 ## user_workouts
@@ -1577,7 +1628,7 @@ Treinos salvos / atribuídos a um usuário.
 | Coluna | Tipo | Obrigatório | Padrão | Descrição |
 |---|---|---|---|---|
 | `id` | bigint | PK (identity) | — | Identificador único |
-| `workout_id` | uuid | FK → `workouts.id` | — | Treino do catálogo |
+| `workout_id` | uuid | ✓ | — | Exercício: id de `workouts` (catálogo) **ou** de `user_custom_workouts` (personalizado). Desde `20260925-user-custom-workouts.sql` a FK virou o trigger `assert_workout_ref()`, que confere as duas tabelas |
 | `user_id` | uuid | ✓ | — | Usuário |
 | `created_at` | timestamptz | ✓ | `now()` | Data de associação |
 | `updated_at` | timestamp | — | `now()` | Data de atualização |
@@ -1602,7 +1653,7 @@ Histórico de treinos realizados pelo usuário.
 | `id` | uuid | PK | `gen_random_uuid()` | Identificador único |
 | `user_id` | uuid | FK → `auth.users` | — | Usuário |
 | `user_workout_id` | bigint | FK → `user_workouts.id` | — | Treino do usuário |
-| `workout_id` | uuid | FK → `workouts.id` | — | Treino do catálogo |
+| `workout_id` | uuid | ✓ | — | Exercício: id de `workouts` (catálogo) **ou** de `user_custom_workouts` (personalizado). Desde `20260925-user-custom-workouts.sql` a FK virou o trigger `assert_workout_ref()`, que confere as duas tabelas |
 | `kilos` | numeric | — | — | Carga total (kg) |
 | `volume` | varchar | — | — | Volume (texto livre) |
 | `calories` | numeric | — | — | **(escrita desde 21/08/2026)** Calorias gastas na **SESSÃO** inteira (kcal) — estimadas pelo app e ajustáveis pela pessoa na tela de treino (ver `docs/05-metas.md` → "Calorias gastas"). Como o histórico grava **uma linha por série**, o valor é preenchido na **primeira linha de cada finalização** e fica `NULL` nas demais: **toda leitura por sessão é `MAX(calories)`, nunca `SUM`** (somar multiplicaria o total pelo nº de séries). A coluna já existia e nunca era escrita — **sem migração**. `NULL` = treino anterior à feature ou sem base para estimar. |
@@ -1612,6 +1663,7 @@ Histórico de treinos realizados pelo usuário.
 | `time` | varchar | — | - | tempo decorrido |
 | `routine_id` | bigint | FK → `routines.id` | — | Rotina à qual o treino concluído pertence. Populada ao finalizar o treino a partir de `user_workouts.routine_id`. Usada para gatear a exibição do ícone de resumo da rotina (só aparece se houver ao menos um registro com `routine_id` correspondente). |
 | `set_kind` | text | — | — | **(2026-08-05)** Tipo da série executada, gravado só por rotinas no modo **expert** (`routines.training_mode`): `'warmup'` = aquecimento, `'normal'` = série válida, `'failure'` = série levada à falha, `'drop'` = queda de carga emendada na série anterior (**adicionado em `20260805-workout-techniques.sql`**, que recria o CHECK). `CHECK (set_kind IS NULL OR set_kind IN ('warmup','normal','failure','drop'))`. **`drop` conta como TRABALHO** (volume e PR incluem — é peso levantado de verdade) mas **não conta como SÉRIE** (`countsAsSeries` no `workout-session-dialog.tsx`): quem faz 3×10 com drop na última fez 3 séries, não 4. **`NULL` = série do modo simplificado ou anterior a 05/08/2026 → lida como `'normal'`.** O aquecimento **é gravado** (o registro do treino é fiel ao que foi feito) e **desde 12/08/2026 conta no volume e no contador de séries da sessão** (`countsAsSeries` só exclui o `drop`); o que ele não faz é virar marca — segue filtrado fora de toda leitura de carga/progressão: `getPreviousBestKgDb`, `getExerciseProgressionDb` e `getLastWorkoutSessionSeriesDb` aplicam `WORKING_SETS_FILTER` (`set_kind.is.null,set_kind.neq.warmup` — um `.neq` puro descartaria as linhas NULL, porque `NULL <> 'warmup'` é NULL e não TRUE no Postgres). Índice parcial `user_workouts_hist_working_sets_idx` cobre exatamente essas consultas. Migration: `docs/migrations/20260805-training-mode.sql`. |
+| `series` | smallint | — | — | **(2026-09-25)** Número da série, como aparece no cartão da sessão: aquecimento é numerado junto (2 de aquecimento + 3 normais = 1..5), drop **herda** o número da série de cima (é continuação dela, mesma regra de `countsAsSeries`), e série pulada não gera linha mas não renumera as seguintes (concluiu 1 e 3 → grava 1 e 3). Migração `20260925-workout-hist-series.sql`, que também preenche o histórico antigo (sessão = rajada do mesmo exercício sem intervalo > 5 min; ali a numeração é contínua, porque as puladas não existem). NULL = gravado por build antigo |
 
 **Remover exercício não apaga histórico.** Tirar um exercício da rotina durante o
 treino (`removeRoutineItemsKeepHistoryDb`) apaga só a linha de `user_workouts`;
@@ -1620,6 +1672,35 @@ as linhas de `user_workouts_hist` ficam com `user_workout_id` **NULL** (FK
 coluna ANTERIOR e progressão, que leem por `workout_id`. Não confundir com
 `deleteRoutineItemDb`, que apaga o histórico primeiro de propósito. Ver
 `docs/05-metas.md` → "A rotina é o que foi executado".
+
+---
+
+## user_custom_workouts
+
+Exercícios criados manualmente pelo usuário ("Criar novo exercício" no modo treino e "Criar Exercício Personalizado" no wizard). Até 25/09/2026 eles iam para o catálogo `workouts` com `created_by_user = true`. Migração: `docs/migrations/20260925-user-custom-workouts.sql`.
+
+| Coluna | Tipo | Obrigatório | Padrão | Descrição |
+|---|---|---|---|---|
+| `id` | uuid | PK | `gen_random_uuid()` | Mesmo tipo de `workouts.id`: `user_workouts.workout_id` e `user_workouts_hist.workout_id` guardam o id qualquer que seja a tabela de origem |
+| `user_id` | uuid | ✓ | — | Dono. FK → `auth.users` ON DELETE CASCADE |
+| `name` | text | ✓ | — | Nome (1–200 caracteres). Sem coluna em inglês: é texto do usuário |
+| `description` | text | ✓ | `` | Descrição |
+| `photo` | text | — | — | URL pública no bucket `posts` (`exercise-photos/{uid}/…`). Uma cópia de rotina reaproveita a mesma URL |
+| `muscle_group` | text | — | — | Grupo muscular (entra nas insígnias de cardio/força) |
+| `equipment` | text | — | — | Equipamento |
+| `type` | smallint | — | — | Mesmo significado de `workouts.type` |
+| `created_at` | timestamptz | ✓ | `now()` | Criação |
+
+**RLS:** leitura para qualquer usuário logado (como o catálogo: o nome aparece na rotina de outra pessoa, em treinar junto e em comparar treino); escrita só do dono.
+
+**Triggers e funções:**
+- `assert_workout_ref()` (BEFORE INSERT/UPDATE OF workout_id em `user_workouts`, `user_workouts_hist` e `training_day_exercises`): substitui a FK para `workouts`, aceitando id de qualquer uma das duas tabelas (erro `23503` se não existir).
+- `user_custom_workouts_cleanup_trg` (AFTER DELETE): apaga o histórico e os itens de rotina **do dono** que usavam o exercício.
+- `move_custom_workouts_out_of_catalog()`: move os personalizados que ainda estão em `workouts`. O dono mantém o id; outro usuário que usava o exercício ganha uma cópia própria. Reexecutável (`select public.move_custom_workouts_out_of_catalog();`), porque builds antigos continuam criando exercício em `workouts`.
+
+**Leitura no app:** nenhuma leitura de `user_workouts`/`user_workouts_hist` usa embed `workouts(...)` (sem FK o PostgREST não resolve). Os detalhes vêm de `fetchWorkoutDetailsByIds` (`ritmofit-db.ts`), que busca no catálogo e depois nos personalizados. Antes da migração a tabela não existe e o app continua gravando em `workouts` (`customWorkoutsTableMissing`).
+
+**Copiar rotina:** `copyRoutineToUserDb` cria uma cópia própria de cada exercício personalizado do autor (`cloneCustomWorkoutsForUser`).
 
 ---
 
@@ -1639,7 +1720,7 @@ Catálogo de treinos disponíveis na plataforma.
 | `muscle_group` | text | — | — | Grupo muscular principal. Para exercícios criados pelo usuário é **obrigatório** (escolhido num select com os grupos existentes). |
 | `equipment` | text | — | — | Equipamentos necessários / tipo de máquina. Preenchido pelo formulário "Criar novo exercício" (`createCustomWorkoutDb`). |
 | `wger_id` | integer | — | — | ID de referência no wger |
-| `created_by_user` | boolean | — | `false` | `true` quando o exercício foi criado manualmente pelo usuário via "Criar novo exercício" (modo treino) ou "Criar Exercício Personalizado". A foto sobe para o bucket `posts` (`uploadCustomExercisePhotoDb`) e fica em `photo` como URL pública; `description` guarda o "como executar". |
+| `created_by_user` | boolean | — | `false` | `true` quando o exercício foi criado manualmente pelo usuário via "Criar novo exercício" (modo treino) ou "Criar Exercício Personalizado". A foto sobe para o bucket `posts` (`uploadCustomExercisePhotoDb`) e fica em `photo` como URL pública; `description` guarda o "como executar". **Legado desde 25/09/2026:** exercício novo vai para [user_custom_workouts](#user_custom_workouts); o que ainda aparecer aqui com `true` veio de build antigo e é movido por `move_custom_workouts_out_of_catalog()`. |
 | `created_by` | uuid | — | — | FK → `auth.users` ON DELETE CASCADE. Dono do exercício custom; `NULL` nos itens de catálogo. Migração `20260714-custom-items-owner.sql`. Define a visibilidade em `getWorkoutsDb` (mesma regra de `diets.created_by`): o exercício custom aparece para o criador com ou sem vínculo em `user_workouts` |
 
 | `group_id` | text | — | — | **(2026-08-12)** FK → `workout_groups.id`. Movimento a que esta linha pertence — "Supino Inclinado com Halteres" é uma variação de `supino_inclinado`. `NULL` = exercício sem irmãos (~95 das 273 linhas de catálogo, e é o normal). Definido por **curadoria**, não derivado do nome: "Rosca Martelo" começa igual a "Rosca Direta" e é outro exercício. Índice parcial `workouts_group_idx`. Migration: `docs/migrations/20260812-workout-groups.sql` |

@@ -1,3 +1,4 @@
+import { reportHandledError } from "@/lib/monitoring";
 import { getUserSafe, hasSupabaseConfig, supabase, registerViewerCacheInvalidator, registerAuthUserReadyHandler } from "@/lib/supabase";
 import type { PostWorkoutSummary } from "@/lib/workout-summary-types";
 import { SHARE_BASE_URL } from "@/lib/share-url";
@@ -456,6 +457,44 @@ function pickLocalized(pt: any, eng: any): string {
     if (e.trim() !== "") return e;
   }
   return pt == null ? "" : String(pt);
+}
+
+/**
+ * Descrição de uma meta no idioma da UI. Aceita a linha de `goals` ou o
+ * embed `goals(description, description_eng)` de `user_goals`, que o
+ * PostgREST pode devolver como objeto ou como array. Meta criada pelo usuário
+ * não tem `description_eng` e cai no texto original.
+ */
+export function localizedGoalDescription(goal: any): string {
+  const g = Array.isArray(goal) ? goal[0] : goal;
+  if (!g) return "";
+  return pickLocalized(g.description, g.description_eng);
+}
+
+/**
+ * Colunas de `user_goals` que identificam e descrevem a meta. Meta de catálogo
+ * vive em `goals` (`goal_id`); meta personalizada vive em `user_custom_goals`
+ * (`custom_goal_id`, com `goal_id` NULL) — ver
+ * docs/migrations/20260925-user-custom-goals.sql.
+ */
+export const USER_GOAL_REF_COLUMNS =
+  "goal_id, custom_goal_id, goals(description, description_eng), user_custom_goals(description)";
+
+/**
+ * Identidade + descrição de uma linha de `user_goals` lida com
+ * `USER_GOAL_REF_COLUMNS`. A identidade (`goal_id` no app) é
+ * `goal_id ?? custom_goal_id`: é o valor que vai em `routines.goal_id`. As
+ * duas tabelas compartilham a sequência de ids, então nunca colidem.
+ */
+export function resolveUserGoalRef(row: any): { goal_id: string; description: string; is_custom: boolean } {
+  const isCustom = row?.custom_goal_id != null;
+  const key = isCustom ? row.custom_goal_id : row?.goal_id;
+  const custom = Array.isArray(row?.user_custom_goals) ? row.user_custom_goals[0] : row?.user_custom_goals;
+  return {
+    goal_id: key != null ? String(key) : "",
+    description: isCustom ? String(custom?.description ?? "") : localizedGoalDescription(row?.goals),
+    is_custom: isCustom,
+  };
 }
 
 // Nome no idioma que pickLocalized NÃO escolheu. Só serve para busca: quem usa o
@@ -1061,10 +1100,10 @@ export type ProgrammedGoal = {
 
 export async function getProgrammedGoalsDb(): Promise<ProgrammedGoal[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-  return cached("programmedGoals", CACHE_TTL_STATIC, async () => {
+  return cached(`programmedGoals:${getUiLanguage()}`, CACHE_TTL_STATIC, async () => {
   const { data, error } = await supabase
     .from("goals")
-    .select("id, description, duration, quantity, type, created_by_user")
+    .select("id, description, description_eng, duration, quantity, type, created_by_user")
     .eq("created_by_user", 0)
     .order("created_at", { ascending: false });
 
@@ -1079,7 +1118,7 @@ export async function getProgrammedGoalsDb(): Promise<ProgrammedGoal[]> {
     (row: any) =>
       ({
         id: String(row.id),
-        description: String(row.description ?? ""),
+        description: localizedGoalDescription(row),
         duration: Number(row.duration ?? 0),
         quantity: Number(row.quantity ?? 0),
         type: Number(row.type ?? ""),
@@ -1105,10 +1144,11 @@ export async function createCustomGoalAndSelectDb(
   if (duration <= 0 || duration > 3650) throw new Error("Duração inválida (1–3650 dias)");
   if (quantity <= 0 || quantity > 100000) throw new Error("Quantidade inválida");
 
-  // Insert goal and link to user in a sequential but validated chain
+  // Meta personalizada NÃO entra no catálogo `goals`: vive em
+  // `user_custom_goals`, com dono, e o `user_goals` aponta por `custom_goal_id`.
   const { data, error } = await supabase
-    .from("goals")
-    .insert({ description: description.trim(), type, duration, quantity, created_by_user: 1 })
+    .from("user_custom_goals")
+    .insert({ user_id: userId, description: description.trim(), type, duration, quantity })
     .select("id")
     .single();
 
@@ -1117,18 +1157,27 @@ export async function createCustomGoalAndSelectDb(
     throw error;
   }
 
-  const goalId = String(data.id);
+  const customGoalId = String(data.id);
 
-  try {
-    await createUserGoalDb(goalId, userId, type, duration, quantity);
-  } catch (linkError) {
-    // Attempt to clean up the orphaned goal if linking fails
-    try { await supabase.from("goals").delete().eq("id", goalId); } catch { /* ignore */ }
+  const { error: linkError } = await supabase.from("user_goals").insert({
+    goal_id: null,
+    custom_goal_id: customGoalId,
+    user_id: userId,
+    type_goal: type,
+    duration,
+    quantity,
+    visibility: 1,
+  });
+
+  if (linkError) {
+    console.error("Error linking custom goal:", linkError);
+    // Sem o user_goals a meta personalizada fica órfã: desfaz.
+    try { await supabase.from("user_custom_goals").delete().eq("id", customGoalId); } catch { /* ignore */ }
     throw linkError;
   }
 
-  invalidateQueryCache("programmedGoals"); invalidateQueryCache("userGoals"); invalidateQueryCache("selectedGoalIds");
-  return goalId;
+  invalidateQueryCache("userGoals"); invalidateQueryCache("selectedGoalIds");
+  return customGoalId;
 }
 
 export async function createUserGoalDb(
@@ -1206,13 +1255,8 @@ export async function updateUserGoalDb(
 export async function deleteUserGoalDb(userGoalId: string) {
   if (!hasSupabaseConfig || !supabase) return;
 
-  // Check if the linked goal was created by the user (custom goal) — if so, delete it too
-  const { data: userGoalRow } = await supabase
-    .from("user_goals")
-    .select("goal_id")
-    .eq("id", userGoalId)
-    .maybeSingle();
-
+  // Meta personalizada (`user_custom_goals`) sai junto pelo trigger
+  // `user_goals_delete_custom_goal_trg` — não precisa de um segundo delete aqui.
   const { error } = await supabase
     .from("user_goals")
     .delete()
@@ -1223,25 +1267,15 @@ export async function deleteUserGoalDb(userGoalId: string) {
     throw error;
   }
 
-  // If the goal was user-created, remove it from the goals table as well
-  if (userGoalRow?.goal_id) {
-    const { data: goalRow } = await supabase
-      .from("goals")
-      .select("id, created_by_user")
-      .eq("id", userGoalRow.goal_id)
-      .maybeSingle();
-
-    if (goalRow?.created_by_user === 1) {
-      await supabase.from("goals").delete().eq("id", userGoalRow.goal_id);
-    }
-  }
-
   invalidateQueryCache("userGoals"); invalidateQueryCache("selectedGoalIds");
 }
 
 export type UserGoal = {
   id: string;
+  /** Identidade da meta: `goals.id` (catálogo) ou `user_custom_goals.id` (personalizada). */
   goal_id: string;
+  /** true = meta personalizada (`user_custom_goals`). Ausente em cópias offline antigas. */
+  is_custom?: boolean;
   description: string;
   duration: number;
   quantity: number;
@@ -1259,7 +1293,7 @@ export async function getGoalByIdDb(goalId: string): Promise<UserGoal | null> {
 
   const { data, error } = await supabase
     .from("goals")
-    .select("id, description, duration, quantity, type")
+    .select("id, description, description_eng, duration, quantity, type")
     .eq("id", goalId)
     .maybeSingle();
 
@@ -1275,7 +1309,7 @@ export async function getGoalByIdDb(goalId: string): Promise<UserGoal | null> {
   return {
     id: String(data.id),
     goal_id: String(data.id),
-    description: String(data.description ?? ""),
+    description: localizedGoalDescription(data),
     duration: Number(data.duration ?? 0),
     quantity: Number(data.quantity ?? 0),
     type_goal: Number(data.type ?? 0),
@@ -1287,31 +1321,58 @@ export async function getGoalByIdDb(goalId: string): Promise<UserGoal | null> {
   };
 }
 
+/**
+ * Fallback das leituras de user_goals quando o embed falha: busca a descrição
+ * nas duas tabelas (catálogo e personalizadas) e devolve um Map pela
+ * identidade da meta (`goal_id ?? custom_goal_id`).
+ */
+async function fetchGoalDescriptionsByKey(rows: any[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (!supabase) return out;
+  const catalogIds = rows.filter((r) => r.custom_goal_id == null && r.goal_id != null).map((r) => r.goal_id);
+  const customIds = rows.filter((r) => r.custom_goal_id != null).map((r) => r.custom_goal_id);
+  const [catalog, custom] = await Promise.all([
+    catalogIds.length
+      ? supabase.from("goals").select("id, description, description_eng").in("id", catalogIds)
+      : Promise.resolve({ data: [] as any[] }),
+    customIds.length
+      ? supabase.from("user_custom_goals").select("id, description").in("id", customIds)
+      : Promise.resolve({ data: [] as any[] }),
+  ]);
+  (catalog.data ?? []).forEach((g: any) => out.set(String(g.id), localizedGoalDescription(g)));
+  (custom.data ?? []).forEach((g: any) => out.set(String(g.id), String(g.description ?? "")));
+  return out;
+}
+
+function mapUserGoalRow(row: any, descMap?: Map<string, string>): UserGoal {
+  const ref = resolveUserGoalRef(row);
+  const quantity = Number(row.quantity ?? 0);
+  const perc = Number(row.perc ?? 0);
+  const days_completed = row.days_completed != null
+    ? Number(row.days_completed)
+    : Math.round((perc / 100) * quantity);
+  return {
+    id: String(row.id),
+    goal_id: ref.goal_id,
+    is_custom: ref.is_custom,
+    description: descMap?.get(ref.goal_id) ?? ref.description,
+    duration: Number(row.duration ?? 0),
+    quantity,
+    type_goal: Number(row.type_goal ?? 0),
+    perc,
+    days_completed,
+    visibility: Number(row.visibility ?? 1),
+    created_at: row.created_at ? String(row.created_at) : null,
+  };
+}
+
+const USER_GOAL_BASE_COLUMNS =
+  "id, goal_id, custom_goal_id, duration, quantity, type_goal, perc, days_completed, visibility, created_at";
+
 export async function getUserGoalsByUserIdDb(
   userId: string,
 ): Promise<UserGoal[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-
-  const mapRows = (rows: any[], descMap: Map<string, string>): UserGoal[] =>
-    rows.map((row: any) => {
-      const quantity = Number(row.quantity ?? 0);
-      const perc = Number(row.perc ?? 0);
-      const days_completed = row.days_completed != null
-        ? Number(row.days_completed)
-        : Math.round((perc / 100) * quantity);
-      return {
-        id: String(row.id),
-        goal_id: String(row.goal_id ?? ""),
-        description: descMap.get(String(row.goal_id)) ?? String((row.goals as any)?.description ?? ""),
-        duration: Number(row.duration ?? 0),
-        quantity,
-        type_goal: Number(row.type_goal ?? 0),
-        perc,
-        days_completed,
-        visibility: Number(row.visibility ?? 1),
-        created_at: row.created_at ? String(row.created_at) : null,
-      } satisfies UserGoal;
-    });
 
   // Grava a cópia offline a cada leitura bem-sucedida (network-first)
   const finish = (rows: UserGoal[]): UserGoal[] => {
@@ -1322,19 +1383,19 @@ export async function getUserGoalsByUserIdDb(
   // Try with embedded join first
   const { data, error } = await supabase
     .from("user_goals")
-    .select("id, goal_id, duration, quantity, type_goal, perc, days_completed, visibility, created_at, goals(description)")
+    .select(`${USER_GOAL_BASE_COLUMNS}, ${USER_GOAL_REF_COLUMNS}`)
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
   if (!error) {
-    return finish(mapRows(data ?? [], new Map()));
+    return finish((data ?? []).map((row: any) => mapUserGoalRow(row)));
   }
 
   // Fallback (any error): fetch without join + manual batch lookup
   console.warn(`[getUserGoalsByUserIdDb] Join failed (${error.code}), using fallback`);
   const { data: fallback, error: fbError } = await supabase
     .from("user_goals")
-    .select("id, goal_id, duration, quantity, type_goal, perc, days_completed, visibility, created_at")
+    .select(USER_GOAL_BASE_COLUMNS)
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
@@ -1348,14 +1409,8 @@ export async function getUserGoalsByUserIdDb(
     return [];
   }
 
-  const goalIds = (fallback ?? []).map((r: any) => r.goal_id).filter(Boolean);
-  const descMap = new Map<string, string>();
-  if (goalIds.length > 0) {
-    const { data: goalsData } = await supabase.from("goals").select("id, description").in("id", goalIds);
-    (goalsData ?? []).forEach((g: any) => descMap.set(String(g.id), String(g.description ?? "")));
-  }
-
-  return finish(mapRows(fallback ?? [], descMap));
+  const descMap = await fetchGoalDescriptionsByKey(fallback ?? []);
+  return finish((fallback ?? []).map((row: any) => mapUserGoalRow(row, descMap)));
 }
 
 export async function getUserGoalsDb(): Promise<UserGoal[]> {
@@ -1375,7 +1430,7 @@ export async function getUserGoalsDb(): Promise<UserGoal[]> {
     }
     return [];
   }
-  return cached(`userGoals:${viewer.id}`, CACHE_TTL_OWN, async () => {
+  return cached(`userGoals:${viewer.id}:${getUiLanguage()}`, CACHE_TTL_OWN, async () => {
   return getUserGoalsByUserIdDb(viewer.id);
 
   });
@@ -1386,48 +1441,26 @@ export async function getUserGoalByIdDb(
 ): Promise<UserGoal | null> {
   if (!hasSupabaseConfig || !supabase) return null;
 
-  const buildGoal = (row: any, description: string): UserGoal => {
-    const quantity = Number(row.quantity ?? 0);
-    const perc = Number(row.perc ?? 0);
-    const days_completed = row.days_completed != null
-      ? Number(row.days_completed)
-      : Math.round((perc / 100) * quantity);
-    return {
-      id: String(row.id),
-      goal_id: String(row.goal_id ?? ""),
-      description,
-      duration: Number(row.duration ?? 0),
-      quantity,
-      type_goal: Number(row.type_goal ?? 0),
-      perc,
-      days_completed,
-      visibility: Number(row.visibility ?? 1),
-      created_at: row.created_at ? String(row.created_at) : null,
-    };
-  };
-
   // Try with embedded join first
   const { data, error } = await supabase
     .from("user_goals")
-    .select("id, goal_id, duration, quantity, type_goal, perc, days_completed, visibility, created_at, goals(description)")
+    .select(`${USER_GOAL_BASE_COLUMNS}, ${USER_GOAL_REF_COLUMNS}`)
     .eq("id", userGoalId)
     .maybeSingle();
 
   if (!error) {
-    if (!data) return null;
-    return buildGoal(data, String((data.goals as any)?.description ?? ""));
+    return data ? mapUserGoalRow(data) : null;
   }
 
   // Fallback (any error): two sequential queries
   console.warn(`[getUserGoalByIdDb] Join failed (${error.code}), using fallback`);
   const { data: fb } = await supabase
     .from("user_goals")
-    .select("id, goal_id, duration, quantity, type_goal, perc, days_completed, visibility, created_at")
+    .select(USER_GOAL_BASE_COLUMNS)
     .eq("id", userGoalId)
     .maybeSingle();
   if (!fb) return null;
-  const { data: goalData } = await supabase.from("goals").select("description").eq("id", fb.goal_id).maybeSingle();
-  return buildGoal(fb, String(goalData?.description ?? ""));
+  return mapUserGoalRow(fb, await fetchGoalDescriptionsByKey([fb]));
 }
 
 /**
@@ -1485,7 +1518,7 @@ async function applyGoalProgressOnlineDb(
     .update({ days_completed: newDaysCompleted, perc: Math.round(perc), last_progress_date: newLastDate })
     .eq("id", userGoalId)
     .eq("user_id", viewerId)
-    .select("id, goal_id, duration, quantity, type_goal, days_completed, perc, visibility, created_at")
+    .select("id, goal_id, custom_goal_id, duration, quantity, type_goal, days_completed, perc, visibility, created_at")
     .maybeSingle();
 
   if (error) {
@@ -1510,7 +1543,8 @@ async function applyGoalProgressOnlineDb(
   // caller não perder o "meta concluída".
   return {
     id: String(data.id),
-    goal_id: String(data.goal_id ?? ""),
+    goal_id: resolveUserGoalRef(data).goal_id,
+    is_custom: data.custom_goal_id != null,
     description: withDescription?.description ?? "",
     duration: Number(data.duration ?? 0),
     quantity: Number(data.quantity ?? 0),
@@ -1606,7 +1640,7 @@ export async function unlinkCompletedGoalRoutinesDb(userId: string): Promise<boo
   try {
     const { data: goals, error } = await supabase
       .from("user_goals")
-      .select("goal_id")
+      .select("goal_id, custom_goal_id")
       .eq("user_id", userId)
       .gte("perc", 100)
       .not("last_progress_date", "is", null)
@@ -1615,7 +1649,7 @@ export async function unlinkCompletedGoalRoutinesDb(userId: string): Promise<boo
     if (error || !goals || goals.length === 0) return false;
 
     const goalIds = Array.from(
-      new Set(goals.map((g: any) => g.goal_id).filter((id: unknown) => id != null)),
+      new Set(goals.map((g: any) => g.goal_id ?? g.custom_goal_id).filter((id: unknown) => id != null)),
     );
     if (goalIds.length === 0) return false;
 
@@ -1654,7 +1688,11 @@ export async function getUserSelectedGoalIdsDb(): Promise<string[]> {
     return [];
   }
 
-  return (data ?? []).map((row: any) => String(row.goal_id ?? ""));
+  // Só metas de CATÁLOGO: serve para esconder do catálogo o que já foi
+  // escolhido. Meta personalizada tem goal_id NULL e fica de fora.
+  return (data ?? [])
+    .filter((row: any) => row.goal_id != null)
+    .map((row: any) => String(row.goal_id));
 
   });
 }
@@ -1924,6 +1962,7 @@ export async function updateUserPersonalDataDb(
 export type PostUserGoal = {
   id: string;
   goal_id: string;
+  is_custom?: boolean;
   description: string;
   perc: number;
   duration: number;
@@ -1962,19 +2001,18 @@ export async function getPostGoalsBatchDb(
   try {
     const { data, error } = await supabase
       .from("user_goals")
-      .select("id, goal_id, duration, quantity, type_goal, perc, visibility, goals(description)")
+      .select(`id, duration, quantity, type_goal, perc, visibility, ${USER_GOAL_REF_COLUMNS}`)
       .in("id", uniqueIds.map(Number));
     if (error || !data) return result;
 
     for (const g of data as any[]) {
       if (Number(g.visibility ?? 1) !== 1) continue;
-      const description = Array.isArray(g.goals)
-        ? (g.goals[0]?.description ?? "")
-        : (g.goals?.description ?? "");
+      const ref = resolveUserGoalRef(g);
       result.set(String(g.id), {
         id: String(g.id),
-        goal_id: String(g.goal_id),
-        description,
+        goal_id: ref.goal_id,
+        is_custom: ref.is_custom,
+        description: ref.description,
         perc: Number(g.perc ?? 0),
         duration: Number(g.duration ?? 0),
         quantity: Number(g.quantity ?? 0),
@@ -2109,14 +2147,19 @@ export async function searchContentByHashtagDb(tag: string): Promise<HashtagItem
       .ilike("description", `%#${clean}%`)
       .order("created_at", { ascending: false })
       .limit(120),
-    supabase
-      .from("shots")
-      .select("id, video_url, description, created_at, user_id")
-      .ilike("description", `%#${clean}%`)
-      .not("video_url", "is", null)
-      .neq("video_url", "")
-      .order("created_at", { ascending: false })
-      .limit(120),
+    // Com FEATURES.shots desligada a rota /shots não existe: o toque num
+    // resultado de shot cairia no catch-all e jogaria o usuário no feed.
+    // Excluir aqui cobre as duas telas (aba Hashtags do Buscar e /tag/:tag).
+    FEATURES.shots
+      ? supabase
+          .from("shots")
+          .select("id, video_url, description, created_at, user_id")
+          .ilike("description", `%#${clean}%`)
+          .not("video_url", "is", null)
+          .neq("video_url", "")
+          .order("created_at", { ascending: false })
+          .limit(120)
+      : Promise.resolve({ data: [] as any[], error: null }),
   ]);
 
   const escaped = clean.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -2335,6 +2378,130 @@ function resolveWorkoutPhotoUrl(photo: string | null | undefined, wgerId?: numbe
   return data?.publicUrl ?? null;
 }
 
+// ─── Exercícios personalizados (user_custom_workouts) ────────────────────────
+//
+// Exercício criado pelo usuário vive em `user_custom_workouts`, fora do
+// catálogo `workouts` (migração 20260925-user-custom-workouts). Os ids são uuid
+// nas duas tabelas, então `user_workouts.workout_id` e
+// `user_workouts_hist.workout_id` guardam o mesmo id qualquer que seja a
+// origem — e por isso NENHUMA leitura pode depender de embed `workouts(...)`
+// (sem FK, o PostgREST não resolve o embed). Tudo passa por
+// `fetchWorkoutDetailsByIds`, que consulta as duas.
+//
+// O app precisa funcionar ANTES da migração (ela roda depois do build sair):
+// tabela inexistente = nenhum exercício personalizado nela, e a criação volta
+// a gravar em `workouts`.
+
+const CUSTOM_WORKOUTS_TABLE = "user_custom_workouts";
+let customWorkoutsTableMissing = false;
+
+function isMissingTableError(error: any): boolean {
+  const code = String(error?.code ?? "");
+  return code === "PGRST205" || code === "42P01";
+}
+
+/** Linha de exercício normalizada, venha do catálogo ou da tabela personalizada. */
+type WorkoutDetailRow = {
+  id: string;
+  name: string | null;
+  name_eng: string | null;
+  description: string | null;
+  description_eng: string | null;
+  photo: string | null;
+  muscle_group: string | null;
+  wger_id: number | null;
+  type: number | null;
+  created_by_user: boolean;
+  created_by: string | null;
+  group_id: string | null;
+  equipment?: string | null;
+  source: "catalog" | "custom";
+};
+
+const WORKOUT_DETAIL_COLUMNS =
+  "id, name, name_eng, description, description_eng, photo, muscle_group, wger_id, type, created_by_user, created_by, group_id";
+const CUSTOM_WORKOUT_COLUMNS = "id, user_id, name, description, photo, muscle_group, equipment, type";
+
+function catalogRowToDetail(row: any): WorkoutDetailRow {
+  return {
+    id: String(row.id),
+    name: row.name ?? null,
+    name_eng: row.name_eng ?? null,
+    description: row.description ?? null,
+    description_eng: row.description_eng ?? null,
+    photo: row.photo ?? null,
+    muscle_group: row.muscle_group ?? null,
+    wger_id: row.wger_id ?? null,
+    type: row.type != null ? Number(row.type) : null,
+    created_by_user: row.created_by_user === true,
+    created_by: row.created_by ? String(row.created_by) : null,
+    group_id: row.group_id ? String(row.group_id) : null,
+    source: "catalog",
+  };
+}
+
+function customRowToDetail(row: any): WorkoutDetailRow {
+  return {
+    id: String(row.id),
+    name: row.name ?? null,
+    name_eng: null,
+    description: row.description ?? null,
+    description_eng: null,
+    photo: row.photo ?? null,
+    muscle_group: row.muscle_group ?? null,
+    wger_id: null,
+    type: row.type != null ? Number(row.type) : null,
+    created_by_user: true,
+    created_by: row.user_id ? String(row.user_id) : null,
+    group_id: null,
+    equipment: row.equipment ?? null,
+    source: "custom",
+  };
+}
+
+/** Consulta `user_custom_workouts`; tabela inexistente (antes da migração) = vazio. */
+async function selectCustomWorkouts(
+  apply: (q: any) => any,
+): Promise<WorkoutDetailRow[]> {
+  if (customWorkoutsTableMissing || !supabase) return [];
+  const { data, error } = await apply(supabase.from(CUSTOM_WORKOUTS_TABLE).select(CUSTOM_WORKOUT_COLUMNS));
+  if (error) {
+    if (isMissingTableError(error)) customWorkoutsTableMissing = true;
+    else console.error("Error fetching custom workouts:", error.message);
+    return [];
+  }
+  return ((data ?? []) as any[]).map(customRowToDetail);
+}
+
+/**
+ * Detalhes (nome, foto, grupo…) de exercícios por id, procurando no catálogo
+ * e depois nos personalizados. Id que não está em nenhuma das duas fica fora
+ * do Map (quem chama mostra o texto padrão).
+ */
+async function fetchWorkoutDetailsByIds(ids: Array<string | null | undefined>): Promise<Map<string, WorkoutDetailRow>> {
+  const out = new Map<string, WorkoutDetailRow>();
+  if (!supabase) return out;
+  const unique = [...new Set(ids.filter((id): id is string => !!id).map(String))];
+  if (unique.length === 0) return out;
+
+  // Lotes para a URL do .in() não estourar com rotinas grandes.
+  const CHUNK = 100;
+  for (let i = 0; i < unique.length; i += CHUNK) {
+    const { data } = await supabase
+      .from("workouts")
+      .select(WORKOUT_DETAIL_COLUMNS)
+      .in("id", unique.slice(i, i + CHUNK));
+    for (const row of (data ?? []) as any[]) out.set(String(row.id), catalogRowToDetail(row));
+  }
+
+  const missing = unique.filter((id) => !out.has(id));
+  for (let i = 0; i < missing.length; i += CHUNK) {
+    const rows = await selectCustomWorkouts((q) => q.in("id", missing.slice(i, i + CHUNK)));
+    for (const row of rows) out.set(row.id, row);
+  }
+  return out;
+}
+
 export async function getWorkoutsDb(): Promise<Workout[]> {
   if (!hasSupabaseConfig || !supabase) return [];
   const viewer = await getViewer();
@@ -2374,7 +2541,14 @@ export async function getWorkoutsDb(): Promise<Workout[]> {
     .eq("user_id", userId) : { data: [] };
   const savedIds = new Set((links ?? []).map((r: any) => r.workout_id).filter(Boolean));
 
-  return (allData ?? [])
+  // Exercícios personalizados na tabela própria (depois da migração
+  // 20260925-user-custom-workouts). Antes dela a lista volta vazia e os
+  // personalizados continuam vindo de `workouts` pelo filtro abaixo.
+  const ownCustom = userId
+    ? await selectCustomWorkouts((q) => q.eq("user_id", userId).order("created_at", { ascending: false }))
+    : [];
+
+  const catalogRows = (allData ?? [])
     .filter((r: any) => {
       if (r.wger_id != null) return true;      // item de catálogo (importado do wger.de) — sempre visível
       if (!r.created_by_user) return true;     // item sem flag de criação manual — visível
@@ -2386,6 +2560,8 @@ export async function getWorkoutsDb(): Promise<Workout[]> {
       return savedIds.has(String(r.id));
     })
     .map(mapRow);
+  // Personalizados primeiro, como já saíam (ordem por created_at desc).
+  return [...ownCustom.map(mapRow), ...catalogRows];
   });
 }
 
@@ -2536,13 +2712,22 @@ export async function getCatalogWorkoutsFromDb(): Promise<Array<{
     .eq("user_id", userId) : { data: [] };
   const savedIds = new Set((links ?? []).map((r: any) => r.workout_id).filter(Boolean));
 
-  return (allData ?? [])
-    .filter((r: any) => {
+  // Personalizados do usuário na tabela própria (vazio antes da migração
+  // 20260925-user-custom-workouts). Ordem alfabética junto com o catálogo.
+  const ownCustom = userId
+    ? await selectCustomWorkouts((q) => q.eq("user_id", userId))
+    : [];
+
+  return [
+    ...(allData ?? []).filter((r: any) => {
       if (r.wger_id != null) return true;
       if (!r.created_by_user) return true;
       return savedIds.has(String(r.id));
-    })
-    .map(mapRow);
+    }),
+    ...ownCustom,
+  ]
+    .map(mapRow)
+    .sort((a, b) => a.name.localeCompare(b.name));
   });
 }
 
@@ -2557,23 +2742,52 @@ export async function createCustomWorkoutDb(
   const viewer = await getViewer();
   if (!viewer) throw new Error("Não autenticado");
 
-  // created_by = dono do item. É o que faz o exercício custom sobreviver mesmo
-  // que o usuário abandone o drawer sem montar a rotina (ver getWorkoutsDb).
-  const insertData: Record<string, any> = {
-    name,
-    description,
-    muscle_group: muscleGroup || null,
-    created_by_user: true,
-    created_by: viewer.id,
-  };
-  if (photo) insertData.photo = photo;
-  if (equipment) insertData.equipment = equipment;
+  // Destino: a tabela própria `user_custom_workouts`. Enquanto a migração
+  // 20260925-user-custom-workouts não roda, cai no catálogo `workouts` com
+  // created_by (o comportamento anterior).
+  let data: any = null;
+  let error: any = null;
 
-  const { data, error } = await supabase
-    .from("workouts")
-    .insert(insertData)
-    .select("id, name, description, photo, muscle_group")
-    .single();
+  if (!customWorkoutsTableMissing) {
+    const customInsert: Record<string, any> = {
+      user_id: viewer.id,
+      name,
+      description: description ?? "",
+      muscle_group: muscleGroup || null,
+    };
+    if (photo) customInsert.photo = photo;
+    if (equipment) customInsert.equipment = equipment;
+    ({ data, error } = await supabase
+      .from(CUSTOM_WORKOUTS_TABLE)
+      .insert(customInsert)
+      .select("id, name, description, photo, muscle_group")
+      .single());
+    if (error && isMissingTableError(error)) {
+      customWorkoutsTableMissing = true;
+      error = null;
+      data = null;
+    }
+  }
+
+  if (!data && !error) {
+    // created_by = dono do item. É o que faz o exercício custom sobreviver mesmo
+    // que o usuário abandone o drawer sem montar a rotina (ver getWorkoutsDb).
+    const insertData: Record<string, any> = {
+      name,
+      description,
+      muscle_group: muscleGroup || null,
+      created_by_user: true,
+      created_by: viewer.id,
+    };
+    if (photo) insertData.photo = photo;
+    if (equipment) insertData.equipment = equipment;
+
+    ({ data, error } = await supabase
+      .from("workouts")
+      .insert(insertData)
+      .select("id, name, description, photo, muscle_group")
+      .single());
+  }
 
   if (error) {
     console.error("Error creating custom workout:", error);
@@ -2591,6 +2805,41 @@ export async function createCustomWorkoutDb(
     // um refetch do catálogo.
     isCustom: true,
   };
+}
+
+/**
+ * Onde está o exercício personalizado DESTE usuário: na tabela própria (depois
+ * da migração 20260925-user-custom-workouts) ou ainda no catálogo `workouts`
+ * (criado antes dela, ou por um build antigo). `null` = não é dele.
+ */
+async function locateOwnCustomWorkout(
+  workoutId: string,
+  viewerId: string,
+): Promise<{ table: string; ownerColumn: string; photo: string | null } | null> {
+  if (!supabase) return null;
+  const custom = await selectCustomWorkouts((q) => q.eq("id", workoutId).eq("user_id", viewerId));
+  if (custom.length > 0) {
+    return { table: CUSTOM_WORKOUTS_TABLE, ownerColumn: "user_id", photo: custom[0].photo };
+  }
+  const { data } = await supabase
+    .from("workouts")
+    .select("photo")
+    .eq("id", workoutId)
+    .eq("created_by", viewerId)
+    .maybeSingle();
+  if (!data) return null;
+  return { table: "workouts", ownerColumn: "created_by", photo: ((data as any).photo as string | null) ?? null };
+}
+
+/**
+ * Foto de exercício que ninguém mais usa — nem no catálogo (imagens por nome,
+ * `manual/shared/{slug}`) nem em outro exercício personalizado (a cópia de uma
+ * rotina reaproveita a foto do original).
+ */
+async function unreferencedWorkoutPhotos(urls: string[]): Promise<string[]> {
+  const notInCatalog = await filterUnreferencedUrls(urls, "workouts", ["photo"]);
+  if (customWorkoutsTableMissing) return notInCatalog;
+  return filterUnreferencedUrls(notInCatalog, CUSTOM_WORKOUTS_TABLE, ["photo"]);
 }
 
 /**
@@ -2623,22 +2872,18 @@ export async function updateCustomWorkoutDb(
   if (updates.photo !== undefined) payload.photo = updates.photo;
   if (Object.keys(payload).length === 0) return;
 
-  // Foto anterior, para limpar o Storage depois da troca.
-  let previousPhoto: string | null = null;
-  if (updates.photo !== undefined) {
-    const { data: prev } = await supabase
-      .from("workouts")
-      .select("photo")
-      .eq("id", workoutId)
-      .maybeSingle();
-    previousPhoto = ((prev as any)?.photo as string | null) ?? null;
+  const location = await locateOwnCustomWorkout(workoutId, viewer.id);
+  if (!location) {
+    throw new Error("Não foi possível editar este exercício (ele não é seu ou foi removido).");
   }
+  // Foto anterior, para limpar o Storage depois da troca.
+  const previousPhoto = updates.photo !== undefined ? location.photo : null;
 
   const { data, error } = await supabase
-    .from("workouts")
+    .from(location.table)
     .update(payload)
     .eq("id", workoutId)
-    .eq("created_by", viewer.id)
+    .eq(location.ownerColumn, viewer.id)
     .select("id");
 
   if (error) {
@@ -2652,9 +2897,7 @@ export async function updateCustomWorkoutDb(
   // Foto de exercício pode ser COMPARTILHADA entre linhas do catálogo (imagens
   // por nome, `manual/shared/{slug}`), então só apaga o que mais ninguém usa.
   if (previousPhoto && previousPhoto !== updates.photo) {
-    await removeStorageObjects(
-      await filterUnreferencedUrls([previousPhoto], "workouts", ["photo"]),
-    );
+    await removeStorageObjects(await unreferencedWorkoutPhotos([previousPhoto]));
   }
 
   // O nome/foto aparecem tanto no catálogo quanto nos itens de rotina (join).
@@ -2680,12 +2923,11 @@ export async function deleteCustomWorkoutDb(workoutId: string): Promise<void> {
   const viewer = await getViewer();
   if (!viewer) throw new Error("Usuário não autenticado");
 
-  // 0. Foto, lida antes de qualquer delete (depois a linha some).
-  const { data: prevWorkout } = await supabase
-    .from("workouts")
-    .select("photo")
-    .eq("id", workoutId)
-    .maybeSingle();
+  // 0. Onde o exercício está, e a foto (lida antes de qualquer delete).
+  const location = await locateOwnCustomWorkout(workoutId, viewer.id);
+  if (!location) {
+    throw new Error("Não foi possível apagar este exercício (ele não é seu ou foi removido).");
+  }
 
   // 1. Histórico deste exercício (antes dos vínculos, para não violar FK).
   const { error: histError } = await supabase
@@ -2703,12 +2945,14 @@ export async function deleteCustomWorkoutDb(workoutId: string): Promise<void> {
     .eq("workout_id", workoutId);
   if (linkError) throw linkError;
 
-  // 3. Linha do catálogo — só o dono; detecta o no-op silencioso de RLS.
+  // 3. O exercício — só o dono; detecta o no-op silencioso de RLS. Na tabela
+  // própria, o trigger user_custom_workouts_cleanup_trg também apagaria os
+  // passos 1 e 2; eles ficam aqui porque valem para os dois lugares.
   const { data, error } = await supabase
-    .from("workouts")
+    .from(location.table)
     .delete()
     .eq("id", workoutId)
-    .eq("created_by", viewer.id)
+    .eq(location.ownerColumn, viewer.id)
     .select("id");
   if (error) {
     console.error("Error deleting custom workout:", error);
@@ -2720,11 +2964,8 @@ export async function deleteCustomWorkoutDb(workoutId: string): Promise<void> {
 
   // Imagem de exercício pode ser compartilhada por nome entre linhas do
   // catálogo (`manual/shared/{slug}`) — só apaga a que ficou sem dono.
-  const workoutPhoto = (prevWorkout as any)?.photo as string | null;
-  if (workoutPhoto) {
-    await removeStorageObjects(
-      await filterUnreferencedUrls([workoutPhoto], "workouts", ["photo"]),
-    );
+  if (location.photo) {
+    await removeStorageObjects(await unreferencedWorkoutPhotos([location.photo]));
   }
 
   invalidateQueryCache("workouts:");
@@ -3967,12 +4208,9 @@ export async function getRoutineItemsForViewDb(
           : await baseQuery.is("name", null);
       if (error || !data || data.length === 0) return [];
 
-      // Step 2: fetch workout names from workouts table
-      const workoutIds = [...new Set(data.map((r: any) => r.workout_id).filter(Boolean))];
-      const { data: workoutsData } = workoutIds.length > 0
-        ? await supabase.from("workouts").select("id, name, name_eng").in("id", workoutIds)
-        : { data: [] };
-      const nameMap = new Map((workoutsData ?? []).map((w: any) => [String(w.id), pickLocalized(w.name, w.name_eng)]));
+      // Step 2: nomes — catálogo ou exercício personalizado
+      const details = await fetchWorkoutDetailsByIds(data.map((r: any) => r.workout_id));
+      const nameMap = new Map([...details.values()].map((w) => [w.id, pickLocalized(w.name, w.name_eng)]));
 
       const seen = new Set<string>();
       return data.filter((r: any) => {
@@ -4505,87 +4743,18 @@ export async function getUserWorkoutsDb(
   userId: string,
 ): Promise<UserWorkoutWithDetails[]> {
   if (!hasSupabaseConfig || !supabase) return [];
+  // Sem embed `workouts(...)`: o exercício pode estar no catálogo ou em
+  // `user_custom_workouts` (ver fetchWorkoutDetailsByIds).
   const { data, error } = await supabase
     .from("user_workouts")
     .select(
-      "id, workout_id, user_id, name, created_at, scheduled_time, scheduled_days, notes, routine_id, time_to_rest, technique, technique_group, order_index, workouts(name, name_eng, photo, description, description_eng, muscle_group, wger_id, created_by_user, created_by)",
+      "id, workout_id, user_id, name, created_at, scheduled_time, scheduled_days, notes, routine_id, time_to_rest, technique, technique_group, order_index",
     )
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
   if (error) {
-    const errorMsg = error?.message || String(error);
-    const errorCode = error?.code || "UNKNOWN";
-    const errorDetails = (error?.details || error?.message || "").toLowerCase();
-
-    // Silently handle relationship errors - try without join and fetch workouts separately
-    if (
-      errorDetails.includes("relationship") ||
-      errorCode === "PGRST200" ||
-      errorMsg.includes("relationship")
-    ) {
-      console.warn(
-        `[getUserWorkoutsDb] Relationship error detected, using fallback method: ${errorMsg}`,
-      );
-
-      const { data: dataFallback, error: errorFallback } = await supabase
-        .from("user_workouts")
-        .select(
-          "id, workout_id, user_id, name, created_at, scheduled_time, scheduled_days, routine_id, time_to_rest",
-        )
-        .eq("user_id", userId)
-        .order("created_at", { ascending: false });
-
-      if (!errorFallback && dataFallback) {
-        // Fetch workout details separately
-        const workoutIds = dataFallback
-          .map((row: any) => row.workout_id)
-          .filter(Boolean);
-        const workoutDetailsMap: { [key: string]: any } = {};
-
-        if (workoutIds.length > 0) {
-          const { data: workoutsData } = await supabase
-            .from("workouts")
-            .select("id, name, name_eng, photo, description, description_eng, muscle_group, wger_id")
-            .in("id", workoutIds);
-
-          if (workoutsData) {
-            workoutsData.forEach((w: any) => {
-              workoutDetailsMap[String(w.id)] = w;
-            });
-          }
-        }
-
-        return (dataFallback ?? []).map((row: any) => {
-          const workoutDetails = workoutDetailsMap[String(row.workout_id)];
-          return {
-            id: String(row.id ?? ""),
-            workout_id: String(row.workout_id ?? ""),
-            user_id: String(row.user_id ?? ""),
-            name: row.name ? String(row.name) : null,
-            workoutName: pickLocalized(workoutDetails?.name, workoutDetails?.name_eng) || "Exercício desconhecido",
-            workoutPhoto: resolveWorkoutPhotoUrl(workoutDetails?.photo, workoutDetails?.wger_id),
-            workoutDescription: pickLocalized(workoutDetails?.description, workoutDetails?.description_eng) || undefined,
-            muscle_group: workoutDetails?.muscle_group || null,
-            created_at: row.created_at ? String(row.created_at) : null,
-            scheduled_time: row.scheduled_time ? String(row.scheduled_time) : null,
-            scheduled_days: row.scheduled_days ? String(row.scheduled_days) : null,
-            notes: row.notes ? String(row.notes) : null,
-            routine_id: row.routine_id != null ? String(row.routine_id) : null,
-            time_to_rest: row.time_to_rest != null ? Number(row.time_to_rest) : null,
-          };
-        });
-      } else if (errorFallback) {
-        const fallbackMsg = errorFallback?.message || String(errorFallback);
-        const fallbackCode = errorFallback?.code || "UNKNOWN";
-        console.error(
-          `[getUserWorkoutsDb] Fallback also failed [${fallbackCode}]:`,
-          fallbackMsg,
-        );
-      }
-    }
-
-    console.error(`Error fetching user workouts [${errorCode}]:`, errorMsg);
+    console.error(`Error fetching user workouts [${error.code || "UNKNOWN"}]:`, error.message);
     // Sem rede: última cópia local (a tela de Metas continua funcionando offline)
     if (isTransientNetworkError(error)) {
       const off = offlineCopyRead<UserWorkoutWithDetails[]>(`userWorkouts:${userId}`);
@@ -4594,29 +4763,32 @@ export async function getUserWorkoutsDb(
     return [];
   }
 
-  const rows = (data ?? []).map((row: any) => ({
-    id: String(row.id ?? ""),
-    workout_id: String(row.workout_id ?? ""),
-    user_id: String(row.user_id ?? ""),
-    name: row.name ? String(row.name) : null,
-    workoutName: pickLocalized((row.workouts as any)?.name, (row.workouts as any)?.name_eng) || "Exercício desconhecido",
-    workoutPhoto: resolveWorkoutPhotoUrl((row.workouts as any)?.photo, (row.workouts as any)?.wger_id),
-    workoutDescription: pickLocalized((row.workouts as any)?.description, (row.workouts as any)?.description_eng) || undefined,
-    muscle_group: (row.workouts as any)?.muscle_group || null,
-    created_at: row.created_at ? String(row.created_at) : null,
-    scheduled_time: row.scheduled_time ? String(row.scheduled_time) : null,
-    scheduled_days: row.scheduled_days ? String(row.scheduled_days) : null,
-    notes: row.notes ? String(row.notes) : null,
-    routine_id: row.routine_id != null ? String(row.routine_id) : null,
-    time_to_rest: row.time_to_rest != null ? Number(row.time_to_rest) : null,
-    technique: toWorkoutTechnique(row.technique),
-    technique_group: row.technique_group ? String(row.technique_group) : null,
-    order_index: row.order_index != null ? Number(row.order_index) : null,
-    // Editável só quando o exercício do catálogo é custom E pertence a quem pediu.
-    isCustom:
-      !!(row.workouts as any)?.created_by_user &&
-      String((row.workouts as any)?.created_by ?? "") === userId,
-  }));
+  const details = await fetchWorkoutDetailsByIds((data ?? []).map((row: any) => row.workout_id));
+
+  const rows = (data ?? []).map((row: any) => {
+    const w = details.get(String(row.workout_id));
+    return {
+      id: String(row.id ?? ""),
+      workout_id: String(row.workout_id ?? ""),
+      user_id: String(row.user_id ?? ""),
+      name: row.name ? String(row.name) : null,
+      workoutName: pickLocalized(w?.name, w?.name_eng) || "Exercício desconhecido",
+      workoutPhoto: resolveWorkoutPhotoUrl(w?.photo, w?.wger_id),
+      workoutDescription: pickLocalized(w?.description, w?.description_eng) || undefined,
+      muscle_group: w?.muscle_group || null,
+      created_at: row.created_at ? String(row.created_at) : null,
+      scheduled_time: row.scheduled_time ? String(row.scheduled_time) : null,
+      scheduled_days: row.scheduled_days ? String(row.scheduled_days) : null,
+      notes: row.notes ? String(row.notes) : null,
+      routine_id: row.routine_id != null ? String(row.routine_id) : null,
+      time_to_rest: row.time_to_rest != null ? Number(row.time_to_rest) : null,
+      technique: toWorkoutTechnique(row.technique),
+      technique_group: row.technique_group ? String(row.technique_group) : null,
+      order_index: row.order_index != null ? Number(row.order_index) : null,
+      // Editável só quando o exercício é personalizado E pertence a quem pediu.
+      isCustom: !!w?.created_by_user && String(w?.created_by ?? "") === userId,
+    };
+  });
   offlineCopyWrite(`userWorkouts:${userId}`, rows);
   return rows;
 }
@@ -5075,7 +5247,7 @@ export async function getRoutineSchedulesDb(
   const [workoutsRes, dietsRes, habitsRes] = await Promise.all([
     supabase
       .from("user_workouts")
-      .select("id, name, scheduled_time, scheduled_days, workouts(name, name_eng)")
+      .select("id, name, workout_id, scheduled_time, scheduled_days")
       .eq("user_id", userId)
       .not("scheduled_time", "is", null),
     supabase
@@ -5092,11 +5264,17 @@ export async function getRoutineSchedulesDb(
 
   const results: RoutineScheduleEntry[] = [];
 
+  // Nome do exercício só é necessário quando o item não tem nome de rotina.
+  const workoutDetails = await fetchWorkoutDetailsByIds(
+    (workoutsRes.data ?? []).filter((row: any) => !row.name).map((row: any) => row.workout_id),
+  );
+
   (workoutsRes.data ?? []).forEach((row: any) => {
+    const w = workoutDetails.get(String(row.workout_id));
     results.push({
       id: String(row.id),
       type: "workout",
-      name: row.name || pickLocalized((row.workouts as any)?.name, (row.workouts as any)?.name_eng) || "Treino",
+      name: row.name || pickLocalized(w?.name, w?.name_eng) || "Treino",
       scheduled_time: String(row.scheduled_time),
       scheduled_days: row.scheduled_days ? String(row.scheduled_days) : null,
     });
@@ -5319,48 +5497,26 @@ export async function getRoutineWorkoutsDb(userId: string, routineName: string |
   try {
     const baseQuery = supabase
       .from("user_workouts")
-      .select("id, workout_id, workouts(name, name_eng)")
-      .eq("user_id", userId)
-      .limit(30);
-    const { data, error } = routineName
-      ? await baseQuery.eq("name", routineName)
-      : await baseQuery.is("name", null);
-
-    if (!error && data) {
-      return data.map((r: any) => ({
-        id: String(r.id),
-        itemId: String(r.workout_id),
-        itemName: pickLocalized((r.workouts as any)?.name, (r.workouts as any)?.name_eng) || "Exercício",
-      }));
-    }
-
-    // Fallback: fetch without join then resolve names separately
-    const fbBase = supabase
-      .from("user_workouts")
       .select("id, workout_id")
       .eq("user_id", userId)
       .limit(30);
-    const { data: fb } = routineName
-      ? await fbBase.eq("name", routineName)
-      : await fbBase.is("name", null);
+    const { data } = routineName
+      ? await baseQuery.eq("name", routineName)
+      : await baseQuery.is("name", null);
 
-    if (!fb?.length) return [];
+    if (!data?.length) return [];
 
-    const workoutIds = fb.map((r: any) => r.workout_id).filter(Boolean);
-    const namesMap: Record<string, string> = {};
-    if (workoutIds.length > 0) {
-      const { data: wData } = await supabase
-        .from("workouts")
-        .select("id, name, name_eng")
-        .in("id", workoutIds);
-      (wData ?? []).forEach((w: any) => { namesMap[String(w.id)] = pickLocalized(w.name, w.name_eng); });
-    }
+    // Catálogo ou exercício personalizado (sem embed — ver fetchWorkoutDetailsByIds).
+    const details = await fetchWorkoutDetailsByIds(data.map((r: any) => r.workout_id));
 
-    return fb.map((r: any) => ({
-      id: String(r.id),
-      itemId: String(r.workout_id),
-      itemName: namesMap[String(r.workout_id)] || "Exercício",
-    }));
+    return data.map((r: any) => {
+      const w = details.get(String(r.workout_id));
+      return {
+        id: String(r.id),
+        itemId: String(r.workout_id),
+        itemName: pickLocalized(w?.name, w?.name_eng) || "Exercício",
+      };
+    });
   } catch {
     return [];
   }
@@ -5419,6 +5575,50 @@ export async function getRoutineDietsDb(userId: string, routineName: string | nu
 }
 
 // Copy all workouts, diets or habits from one user to another
+/**
+ * Copiar a rotina de outra pessoa: cada exercício PERSONALIZADO dela (tabela
+ * `user_custom_workouts`) vira uma cópia própria de quem copia. Apontar para o
+ * original deixaria a rotina copiada sem o exercício quando o dono o apagasse
+ * (o trigger de limpeza só leva as linhas DO DONO).
+ *
+ * Devolve id original → id da cópia. Exercício de catálogo, do próprio
+ * usuário, ou personalizado antigo ainda em `workouts` (antes da migração
+ * 20260925-user-custom-workouts) fica fora do Map e é referenciado como antes.
+ */
+async function cloneCustomWorkoutsForUser(
+  workoutIds: Array<string | null | undefined>,
+  targetUserId: string,
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (!supabase) return out;
+  const details = await fetchWorkoutDetailsByIds(workoutIds);
+  const toClone = [...details.values()].filter(
+    (w) => w.source === "custom" && w.created_by !== targetUserId,
+  );
+  for (const w of toClone) {
+    const { data, error } = await supabase
+      .from(CUSTOM_WORKOUTS_TABLE)
+      .insert({
+        user_id: targetUserId,
+        name: w.name ?? "",
+        description: w.description ?? "",
+        photo: w.photo,
+        muscle_group: w.muscle_group,
+        equipment: w.equipment ?? null,
+        type: w.type,
+      })
+      .select("id")
+      .single();
+    if (error) throw new Error(error.message);
+    out.set(w.id, String(data.id));
+  }
+  if (toClone.length > 0) {
+    invalidateQueryCache("workouts:");
+    invalidateQueryCache("catalogWorkouts:");
+  }
+  return out;
+}
+
 export async function copyRoutineToUserDb(
   sourceUserId: string,
   targetUserId: string,
@@ -5440,8 +5640,13 @@ export async function copyRoutineToUserDb(
 
     if (error || !data?.length) throw new Error("Nenhum treino encontrado.");
 
+    const workoutIdMap = await cloneCustomWorkoutsForUser(
+      data.map((row: any) => row.workout_id),
+      targetUserId,
+    );
+
     const toInsert = data.map((row: any) => ({
-      workout_id: row.workout_id,
+      workout_id: workoutIdMap.get(String(row.workout_id)) ?? row.workout_id,
       user_id: targetUserId,
       name: row.name ?? null,
     }));
@@ -5554,7 +5759,10 @@ export async function followUserDb(followingId: string): Promise<boolean> {
     following_id: followingId,
   });
 
-  if (error) {
+  // 23505 = o par já existe (índice único following_user_following_uniq).
+  // Acontece quando o botão ainda mostrava "Seguir" por estado/cache velho:
+  // o usuário já segue, então é sucesso, não erro.
+  if (error && error.code !== "23505") {
     const errorMsg = error?.message || String(error);
     const errorCode = error?.code || "UNKNOWN";
     console.error(`Error following user [${errorCode}]:`, errorMsg);
@@ -7119,6 +7327,74 @@ async function sendMessageNotificationDb(
   }
 }
 
+type ConversationSummary = {
+  userId: string;
+  lastMessage: string;
+  lastMessageTime: string;
+  unreadCount: number;
+};
+
+/**
+ * Uma linha por conversa, ordenada da mais recente para a mais antiga. `null`
+ * = falhou (quem chama devolve lista vazia, como antes).
+ *
+ * Quem monta é a RPC `get_conversation_summaries` (migração
+ * 20260925-conversation-summaries): a última mensagem e as não lidas de CADA
+ * conversa, sem limite de janela. O caminho antigo — as 500 mensagens mais
+ * recentes agrupadas aqui — fica só como fallback enquanto a migração não
+ * roda: nele, quem troca muita mensagem com poucas pessoas perde as conversas
+ * mais antigas da lista, e as não lidas saem menores que as reais.
+ */
+async function getConversationSummaries(viewerId: string): Promise<ConversationSummary[] | null> {
+  if (!supabase) return null;
+
+  const { data, error } = await supabase.rpc("get_conversation_summaries");
+  if (!error) {
+    return ((data ?? []) as any[]).map((row) => ({
+      userId: String(row.other_user_id),
+      lastMessage: String(row.last_message ?? ""),
+      lastMessageTime: String(row.last_message_at ?? new Date().toISOString()),
+      unreadCount: Number(row.unread_count ?? 0),
+    }));
+  }
+
+  const rpcMissing = error.code === "PGRST202" || error.code === "42883";
+  if (!rpcMissing) {
+    console.error("Error fetching conversation summaries:", error.message);
+    reportHandledError(error, "getConversationSummaries");
+    return null;
+  }
+
+  // Fallback: migração ainda não aplicada.
+  const { data: messages, error: msgError } = await supabase
+    .from("messages")
+    .select("id, user_id, following_id, text, read, created_at, message_deletions!left(user_id)")
+    .or(`user_id.eq.${viewerId},following_id.eq.${viewerId}`)
+    .order("created_at", { ascending: false })
+    .limit(500);
+
+  if (msgError) {
+    console.error("Error fetching conversations:", msgError);
+    return null;
+  }
+
+  const byUser = new Map<string, ConversationSummary>();
+  for (const msg of (messages ?? []) as any[]) {
+    const deletions: { user_id: string }[] = msg.message_deletions ?? [];
+    if (deletions.some((d) => d.user_id === viewerId)) continue;
+    const otherUserId = msg.user_id === viewerId ? msg.following_id : msg.user_id;
+    if (!otherUserId) continue;
+    let entry = byUser.get(otherUserId);
+    if (!entry) {
+      // Ordem decrescente: a primeira vista é a última mensagem da conversa.
+      entry = { userId: otherUserId, lastMessage: msg.text || "", lastMessageTime: msg.created_at, unreadCount: 0 };
+      byUser.set(otherUserId, entry);
+    }
+    if (msg.following_id === viewerId && msg.read === 0) entry.unreadCount += 1;
+  }
+  return Array.from(byUser.values());
+}
+
 export async function getConversationsDb(): Promise<Conversation[]> {
   if (!hasSupabaseConfig || !supabase) return [];
   const viewer = await getViewer();
@@ -7126,24 +7402,8 @@ export async function getConversationsDb(): Promise<Conversation[]> {
   return cached(`conversations:${viewer.id}`, CACHE_TTL_MEDIUM, async () => {
 
   try {
-    // Get recent messages excluding ones soft-deleted by the viewer
-    const { data: messages, error } = await supabase
-      .from("messages")
-      .select("id, user_id, following_id, text, read, created_at, message_deletions!left(user_id)")
-      .or(`user_id.eq.${viewer.id},following_id.eq.${viewer.id}`)
-      .order("created_at", { ascending: false })
-      .limit(500);
-
-    if (error) {
-      console.error("Error fetching conversations:", error);
-      return [];
-    }
-
-    // Filter out messages soft-deleted by the viewer
-    const visibleMessages = (messages ?? []).filter((msg: any) => {
-      const deletions: { user_id: string }[] = msg.message_deletions ?? [];
-      return !deletions.some((d) => d.user_id === viewer.id);
-    });
+    const summaries = await getConversationSummaries(viewer.id);
+    if (!summaries) return [];
 
     // Bloquear NÃO apaga nem esconde a conversa (mudança de 14/09/2026). Até
     // então a conversa sumia da lista, e o efeito era indistinguível de ter
@@ -7164,19 +7424,8 @@ export async function getConversationsDb(): Promise<Conversation[]> {
     const blocked = new Set(blockedIds);
     const blockedByMe = new Set(blockedByMeIds);
 
-    // Group messages by conversation
-    const conversationMap = new Map<string, (typeof visibleMessages)[0][]>();
-    visibleMessages.forEach((msg: any) => {
-      const otherUserId =
-        msg.user_id === viewer.id ? msg.following_id : msg.user_id;
-      if (!conversationMap.has(otherUserId)) {
-        conversationMap.set(otherUserId, []);
-      }
-      conversationMap.get(otherUserId)?.push(msg);
-    });
-
     // Batch-fetch all conversation partner profiles in a single query
-    const otherUserIds = Array.from(conversationMap.keys()).filter(Boolean);
+    const otherUserIds = summaries.map((c) => c.userId).filter(Boolean);
     const profileMap = new Map<string, { nickname: string; photo: string | null; bio: string | null; is_verified: boolean }>();
 
     if (otherUserIds.length > 0) {
@@ -7198,11 +7447,8 @@ export async function getConversationsDb(): Promise<Conversation[]> {
     // Build conversations from map (no serial awaits)
     const conversations: Conversation[] = [];
 
-    for (const [userId, msgs] of conversationMap.entries()) {
+    for (const { userId, lastMessage, lastMessageTime, unreadCount } of summaries) {
       const profile = profileMap.get(userId) ?? { nickname: "Usuário", photo: null, bio: null, is_verified: false };
-      const unreadCount = msgs.filter(
-        (msg) => msg.following_id === viewer.id && msg.read === 0,
-      ).length;
 
       conversations.push({
         userId,
@@ -7210,8 +7456,8 @@ export async function getConversationsDb(): Promise<Conversation[]> {
         userPhoto: profile.photo,
         userBio: profile.bio,
         isVerified: profile.is_verified,
-        lastMessage: msgs[0]?.text || "",
-        lastMessageTime: msgs[0]?.created_at || new Date().toISOString(),
+        lastMessage,
+        lastMessageTime,
         unreadCount,
         isBlocked: blocked.has(userId),
         blockedByMe: blockedByMe.has(userId),
@@ -10004,28 +10250,36 @@ async function insertWorkoutHistRowDb(p: {
   dateCompleted: string;
   setKind?: SetKind | null;
   calories?: number | null;
+  series?: number | null;
 }): Promise<void> {
-  const { error } = await supabase!
-    .from("user_workouts_hist")
-    .insert([
-      {
-        user_id: p.userId,
-        user_workout_id: p.userWorkoutId,
-        workout_id: p.workoutId,
-        kilos: p.kilos,
-        volume: p.volume,
-        routine_id: p.routineId != null ? Number(p.routineId) : null,
-        date_completed: p.dateCompleted,
-        // NULL no modo simplificado (que não tipa séries) — a leitura trata
-        // NULL como 'normal', então nada muda para quem já usava o app.
-        set_kind: p.setKind ?? null,
-        // Gasto calórico da SESSÃO, não desta série: vem preenchido em UMA
-        // linha por finalização (a primeira) e NULL em todas as outras. Somar
-        // a coluna multiplicaria o valor pelo nº de séries — a leitura por
-        // sessão é sempre um MAX (ver getRecentCompletedRoutinesDb).
-        calories: p.calories ?? null,
-      },
-    ]);
+  const row: Record<string, unknown> = {
+    user_id: p.userId,
+    user_workout_id: p.userWorkoutId,
+    workout_id: p.workoutId,
+    kilos: p.kilos,
+    volume: p.volume,
+    routine_id: p.routineId != null ? Number(p.routineId) : null,
+    date_completed: p.dateCompleted,
+    // NULL no modo simplificado (que não tipa séries) — a leitura trata
+    // NULL como 'normal', então nada muda para quem já usava o app.
+    set_kind: p.setKind ?? null,
+    // Gasto calórico da SESSÃO, não desta série: vem preenchido em UMA
+    // linha por finalização (a primeira) e NULL em todas as outras. Somar
+    // a coluna multiplicaria o valor pelo nº de séries — a leitura por
+    // sessão é sempre um MAX (ver getRecentCompletedRoutinesDb).
+    calories: p.calories ?? null,
+    // Número da série como o usuário viu no cartão (aquecimento numerado
+    // junto; drop herda o número da série de cima). Migração
+    // 20260925-workout-hist-series.
+    series: p.series ?? null,
+  };
+  let { error } = await supabase!.from("user_workouts_hist").insert([row]);
+  // Coluna `series` ainda não existe (migração não aplicada): grava sem ela
+  // em vez de perder a série — o histórico é o que importa.
+  if (error && error.code === "PGRST204" && String(error.message ?? "").includes("series")) {
+    delete row.series;
+    ({ error } = await supabase!.from("user_workouts_hist").insert([row]));
+  }
   if (error) throw error;
 }
 
@@ -10047,11 +10301,14 @@ export async function saveWorkoutHistoryDb(
   // Calorias gastas na SESSÃO inteira (kcal). Deve ser passado em UMA única
   // série por finalização — as demais gravam NULL. Ver o comentário do insert.
   calories: number | null = null,
+  // Número da série (1, 2, 3…) como aparece no cartão da sessão. Drop recebe
+  // o número da série a que pertence.
+  series: number | null = null,
 ): Promise<void> {
   if (!hasSupabaseConfig || !supabase) return;
 
   const stamp = dateCompleted ?? new Date().toISOString();
-  const payload = { userId, userWorkoutId, workoutId, kilos, volume, routineId, dateCompleted: stamp, setKind, calories };
+  const payload = { userId, userWorkoutId, workoutId, kilos, volume, routineId, dateCompleted: stamp, setKind, calories, series };
 
   // Offline: a série vai para a fila (com a data original) e a rotina passa a
   // constar como executada agora na cópia local — Hub do Hoje, anel semanal e
@@ -13574,18 +13831,21 @@ async function _getWorkoutHistDaysDb(userId: string): Promise<WorkoutHistDay[]> 
   // mais recentes continuam cobrindo dias distintos de sobra.
   const { data } = await supabase
     .from("user_workouts_hist")
-    .select("date_completed, workouts!inner(muscle_group)")
+    .select("date_completed, workout_id")
     .eq("user_id", userId)
     .order("date_completed", { ascending: false })
     .limit(3000);
   if (!data) return [];
+  // Grupo muscular vem do catálogo ou do exercício personalizado. Linha cujo
+  // exercício não existe mais fica de fora (era o que o !inner fazia).
+  const details = await fetchWorkoutDetailsByIds((data as any[]).map((r) => r.workout_id));
   return (data as any[])
     .map((r) => {
       const d = new Date(String(r.date_completed));
       if (isNaN(d.getTime())) return null;
-      // FK simples volta como objeto, mas o supabase-js tipa o embed como array.
-      const w = Array.isArray(r.workouts) ? r.workouts[0] : r.workouts;
-      return { day: fmtLocalDate(d), muscleGroup: normalizeMuscleGroup(w?.muscle_group) };
+      const w = details.get(String(r.workout_id));
+      if (!w) return null;
+      return { day: fmtLocalDate(d), muscleGroup: normalizeMuscleGroup(w.muscle_group) };
     })
     .filter((r): r is WorkoutHistDay => r !== null);
 }
@@ -15643,7 +15903,24 @@ export async function savePushTokenDb(token: string, platform: "ios" | "android"
   if (!hasSupabaseConfig || !supabase) return;
   const viewer = await getViewer();
   if (!viewer) return;
-  // Remove este token de qualquer outro usuário que o possua (troca de conta no mesmo dispositivo)
+  // O token identifica o APARELHO: tirar de qualquer outro usuário (troca de
+  // conta no mesmo iPhone) e gravar para este. Precisa ser a RPC SECURITY
+  // DEFINER — pela RLS o delete de token alheio é no-op silencioso, e os
+  // pushes da conta anterior continuavam chegando neste aparelho.
+  const { error: rpcError } = await supabase.rpc("claim_push_token", {
+    p_token: token,
+    p_platform: platform,
+  });
+  if (!rpcError) return;
+
+  // Migração 20260925-claim-push-token ainda não aplicada: caminho antigo
+  // (grava o token, mas não consegue tirá-lo de outra conta).
+  const rpcMissing = rpcError.code === "PGRST202" || rpcError.code === "42883";
+  if (!rpcMissing) {
+    console.error("Error claiming push token:", rpcError.message);
+    reportHandledError(rpcError, "savePushTokenDb");
+    return;
+  }
   await supabase
     .from("push_tokens")
     .delete()
@@ -15981,6 +16258,8 @@ registerOutboxExecutor("workout_hist", async (p: any) => {
     // como 'normal' e passava a ser contada como série própria (`countsAsSeries`
     // só exclui o drop), inflando o total do treino sincronizado offline.
     setKind: SET_KINDS.includes(p.setKind) ? (p.setKind as SetKind) : null,
+    // Payloads enfileirados antes de 25/09/2026 não têm `series` → NULL.
+    series: Number.isFinite(Number(p.series)) && Number(p.series) >= 1 ? Number(p.series) : null,
     // Idem: payloads enfileirados antes da feature de calorias não têm a chave.
     calories: p.calories != null ? Number(p.calories) : null,
   });

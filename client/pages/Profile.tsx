@@ -417,7 +417,7 @@ export default function Profile() {
         FEATURES.store ? getCommercialProfileDb(profileUserId) : Promise.resolve(null),
         FEATURES.store ? getCommercialOffersByUserIdDb(profileUserId) : Promise.resolve([]),
         FEATURES.store ? getCommercialPlansDb(profileUserId) : Promise.resolve([]),
-        FEATURES.postTags ? getTaggedPostsDb(profileUserId) : Promise.resolve([]),
+        FEATURES.profileExtraTabs && FEATURES.postTags ? getTaggedPostsDb(profileUserId) : Promise.resolve([]),
       ]);
       if (isStale()) return;
       setRoutines(routinesData);

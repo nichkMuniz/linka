@@ -676,11 +676,11 @@ export function FlowViewerModal({
       const reposted = await repostStoryDb(story.id);
       toast(
         reposted
-          ? { title: "Flow repostado!", description: "Adicionado ao seu perfil." }
-          : { title: "Não foi possível repostar", variant: "destructive" },
+          ? { title: t("flow_repost_success"), description: t("flow_repost_success_desc") }
+          : { title: t("flow_repost_error"), variant: "destructive" },
       );
     } catch {
-      toast({ title: "Não foi possível repostar", variant: "destructive" });
+      toast({ title: t("flow_repost_error"), variant: "destructive" });
     } finally {
       setIsReposting(false);
     }
@@ -1110,7 +1110,7 @@ export function FlowViewerModal({
                         style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)" }}
                       >
                         <Repeat2 className="h-4 w-4" />
-                        {isReposting ? "Repostando…" : "Repostar no meu flow"}
+                        {isReposting ? t("flow_reposting") : t("flow_repost_button")}
                       </button>
                     )}
 

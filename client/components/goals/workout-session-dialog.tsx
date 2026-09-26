@@ -2492,7 +2492,7 @@ export function WorkoutSessionDialog({
   };
 
   // Criar um exercício próprio quando o usuário não acha na lista.
-  // Persiste no catálogo (created_by_user), insere na lista do picker e já o seleciona.
+  // Persiste em user_custom_workouts (createCustomWorkoutDb), insere na lista do picker e já o seleciona.
   const handleCreateExercise = async () => {
     const name = createName.trim();
     const muscle = createMuscle.trim();
@@ -3105,6 +3105,19 @@ export function WorkoutSessionDialog({
       for (const [workoutId, series] of exerciseEntries) {
         const completed = series.filter((s) => s.completed);
 
+        // Número de cada série como aparece no cartão (mesma regra de
+        // workingSetLabels): aquecimento numera junto, drop herda o número da
+        // série de cima. Calculado sobre TODAS as séries, não só as concluídas,
+        // para que pular a 2ª grave "1" e "3" — o que o usuário viu.
+        const seriesNumbers = new Map<object, number>();
+        {
+          let n = 0;
+          for (const s of series) {
+            if (countsAsSeries(setKindOf(s))) n += 1;
+            seriesNumbers.set(s, Math.max(n, 1));
+          }
+        }
+
         const row = allItemsForSave.find((w) => w.workout_id === workoutId);
         const isCardio = isCardioExercise(row?.muscle_group, workoutId);
         // Avulso: o id do item é sintético, então o vínculo vem da linha que
@@ -3148,6 +3161,7 @@ export function WorkoutSessionDialog({
             // leitura trata como 'normal'.
             isExpert ? kind : null,
             caloriesSaved ? null : sessionCaloriesToSave,
+            seriesNumbers.get(serie) ?? null,
           );
           caloriesSaved = true;
         }

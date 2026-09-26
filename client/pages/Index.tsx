@@ -21,6 +21,7 @@ import {
   deleteOldStoriesDb,
   getMyViewedFlowUserIdsDb,
   createUserGoalDb,
+  createCustomGoalAndSelectDb,
   updateUserGoalDb,
   deletePostDb,
   getPostLikeUsersDb,
@@ -741,7 +742,16 @@ export default function Index() {
         getUserGoalsDb()
           .then((goals) => {
             if (goalModalReqRef.current !== req) return;
-            setHasAlreadyCopiedGoal(goals.some((g) => g.goal_id === goalId));
+            // Meta personalizada: a cópia ganha id próprio (ver
+            // handleCopyGoal), então o casamento é pela descrição.
+            const source = post.userGoal!;
+            setHasAlreadyCopiedGoal(
+              goals.some((g) =>
+                source.is_custom
+                  ? g.is_custom && g.description.trim() === source.description.trim()
+                  : g.goal_id === goalId,
+              ),
+            );
           })
           .catch(() => { /* sem rede: o botão segue liberado */ });
       }
@@ -779,13 +789,27 @@ export default function Index() {
 
     setIsCopyingGoal(true);
     try {
-      await createUserGoalDb(
-        selectedGoalPost.userGoal.goal_id,
-        user.id,
-        selectedGoalPost.userGoal.type_goal,
-        selectedGoalPost.userGoal.duration,
-        selectedGoalPost.userGoal.quantity,
-      );
+      const source = selectedGoalPost.userGoal;
+      if (source.is_custom) {
+        // Meta personalizada é do autor (user_custom_goals): quem copia ganha
+        // uma meta personalizada PRÓPRIA com o mesmo texto. Apontar para a do
+        // autor faria as duas sumirem quando um dos dois apagasse.
+        await createCustomGoalAndSelectDb(
+          user.id,
+          source.description,
+          source.type_goal,
+          source.duration,
+          source.quantity,
+        );
+      } else {
+        await createUserGoalDb(
+          source.goal_id,
+          user.id,
+          source.type_goal,
+          source.duration,
+          source.quantity,
+        );
+      }
 
       if (linkedRoutines.length > 0) {
         const seen = new Set<string>();

@@ -120,7 +120,7 @@ export const FEATURES = {
    *
    * Adiado: valor real no mês 3, ruído no dia 1.
    */
-  muscleAnatomy: false,
+  muscleAnatomy: true,
 
   /**
    * Rotinas de **dieta** e de **hábito** (tipos 2 e 3 em `routines`).
@@ -186,7 +186,7 @@ export const FEATURES = {
    * flow criado com ele hoje continua renderizando depois — mais um motivo
    * para não deixar criar antes da hora.
    */
-  workoutStickerOnFlow: false,
+  workoutStickerOnFlow: true,
 
   /**
    * Botão "Ver treino" nos posts — abre o detalhe da sessão que gerou o post,
@@ -197,7 +197,7 @@ export const FEATURES = {
    * para quem acabou de instalar o app. O post continua mostrando o card de
    * resumo do treino normalmente; o que sai é o aprofundamento.
    */
-  workoutDetailOnPost: false,
+  workoutDetailOnPost: true,
 
   /**
    * Corrida ao ar livre com GPS em background.
@@ -225,10 +225,10 @@ export const FEATURES = {
   // ───────────────────────────────────────────────────────────────────────────
 
   /** Hashtags: aba em Buscar, rota /tag/:tag e o botão # na legenda. */
-  hashtags: false,
+  hashtags: true,
 
   /** Marcar pessoas em posts e flows. */
-  postTags: false,
+  postTags: true,
 
   /**
    * Marcar a localização numa publicação (o alfinete na barra da legenda).

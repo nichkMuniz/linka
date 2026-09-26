@@ -5,7 +5,7 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import { toast } from "@/components/ui/use-toast";
-import { Copy, Link, ExternalLink, SendHorizontal } from "lucide-react";
+import { Copy, Link, SendHorizontal } from "lucide-react";
 import { Share } from "@capacitor/share";
 import { Browser } from "@capacitor/browser";
 import { useLanguage } from "@/lib/language-context";
@@ -131,8 +131,6 @@ export function ShareDrawer({
     }
   };
 
-  const displayUrl = shareUrl.replace(/^https?:\/\//, "");
-
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
       <DrawerContent
@@ -153,10 +151,6 @@ export function ShareDrawer({
         <div className="px-4 pb-3">
           <div className="rounded-2xl overflow-hidden shadow-sm p-3 space-y-1" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}>
             <p className="text-sm line-clamp-2 leading-snug" style={{ color: "#fff" }}>{text}</p>
-            <div className="flex items-center gap-1.5 text-xs text-primary">
-              <ExternalLink className="h-3 w-3 shrink-0" />
-              <span className="truncate font-medium">{displayUrl}</span>
-            </div>
           </div>
         </div>
 
