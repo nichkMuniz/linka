@@ -1,5 +1,8 @@
 # Tela: Shots (Clipes)
 
+> **Menções "@" (2026-09-27):** o campo de comentário do shot tem autocomplete de `@` (`MentionSuggestions`); mencionar alguém gera notificação **type 20** pelo banco (`notify_shot_comment_mentions`). `@handle` em comentários e na legenda aparece em azul e abre o perfil ao toque. Ver `docs/13-layouts-e-componentes.md` e `docs/10-notificacoes.md`.
+
+
 **Rota:** `/shots`
 **Arquivo:** `client/pages/Shots.tsx`
 **Layout:** ShotsLayout (layout customizado para vídeos)

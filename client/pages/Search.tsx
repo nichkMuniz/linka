@@ -20,7 +20,7 @@ import {
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/components/ui/use-toast";
 import { ChevronDown, ChevronUp, Copy, Dumbbell, Users, Salad, SearchX, Hash, Video } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useLanguage } from "@/lib/language-context";
 import { FEATURES } from "@/lib/feature-flags";
 import { UserAvatar } from "@/components/shared/user-avatar";
@@ -157,12 +157,28 @@ function RoutineCard({
   );
 }
 
+// Só abas visíveis (feature flags) podem ser restauradas da URL.
+const SEARCH_TABS = [
+  "people",
+  ...(FEATURES.routineSearch ? ["workouts", "diets"] : []),
+  ...(FEATURES.hashtags ? ["hashtags"] : []),
+];
+
 export default function Search() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const { t } = useLanguage();
-  const [activeTab, setActiveTab] = React.useState("people");
-  const [searchQuery, setSearchQuery] = React.useState("");
+  // Aba e busca vivem também na URL (?tab=&q=, com replace): abrir um post e
+  // voltar remonta esta tela, e sem isso ela caía sempre em "Pessoas" com a
+  // busca vazia — perdendo a tag que a pessoa estava explorando.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [activeTab, setActiveTab] = React.useState(() => {
+    const tab = searchParams.get("tab");
+    return tab && SEARCH_TABS.includes(tab) ? tab : "people";
+  });
+  const [searchQuery, setSearchQuery] = React.useState(() => searchParams.get("q") ?? "");
+  const searchQueryRef = React.useRef(searchQuery);
+  searchQueryRef.current = searchQuery;
   const [allUsers, setAllUsers] = React.useState<SearchUser[]>([]);
   const [searchUsers, setSearchUsers] = React.useState<SearchUser[]>([]);
   const [searchWorkouts, setSearchWorkouts] = React.useState<RoutineResult[]>([]);
@@ -192,7 +208,8 @@ export default function Search() {
     Promise.all([getAllUsersDb(user.id), getFollowingIdsDb(), getCopiedRoutineKeysDb(user.id)])
       .then(([users, followingIdsList, copiedKeys]) => {
         setAllUsers(users);
-        setSearchUsers(users);
+        // Busca restaurada da URL já preencheu os resultados — não sobrescrever.
+        if (!searchQueryRef.current.trim()) setSearchUsers(users);
         setFollowingIds(new Set(followingIdsList));
         setCopiedKeys(copiedKeys);
       })
@@ -205,13 +222,13 @@ export default function Search() {
     if (activeTab === "workouts" && allWorkouts.length === 0) {
       setIsLoadingWorkouts(true);
       searchRoutinesDb("", 1, user?.id)
-        .then((data) => { setAllWorkouts(data); setSearchWorkouts(data); })
+        .then((data) => { setAllWorkouts(data); if (!searchQueryRef.current.trim()) setSearchWorkouts(data); })
         .catch((err) => console.error("Error loading workouts:", err))
         .finally(() => setIsLoadingWorkouts(false));
     } else if (activeTab === "diets" && allDiets.length === 0) {
       setIsLoadingDiets(true);
       searchRoutinesDb("", 2, user?.id)
-        .then((data) => { setAllDiets(data); setSearchDiets(data); })
+        .then((data) => { setAllDiets(data); if (!searchQueryRef.current.trim()) setSearchDiets(data); })
         .catch((err) => console.error("Error loading diets:", err))
         .finally(() => setIsLoadingDiets(false));
     }
@@ -258,6 +275,28 @@ export default function Search() {
     },
     [activeTab, allUsers, allWorkouts, allDiets, user?.id],
   );
+
+  // Espelha aba + busca na URL (replace: não empilha histórico a cada tecla).
+  React.useEffect(() => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (activeTab === "people") next.delete("tab"); else next.set("tab", activeTab);
+        if (searchQuery) next.set("q", searchQuery); else next.delete("q");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [activeTab, searchQuery, setSearchParams]);
+
+  // Voltando de um post/perfil com busca na URL → refaz a busca uma vez.
+  const restoredSearchRef = React.useRef(false);
+  React.useEffect(() => {
+    if (restoredSearchRef.current || !user) return;
+    restoredSearchRef.current = true;
+    if (searchQuery.trim()) handleSearch(searchQuery);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
 
   const handleSuggestedTagClick = (tag: string) => {
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);

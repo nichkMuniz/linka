@@ -669,6 +669,8 @@ Os tempos foram aumentados porque o padrão anterior não dava tempo de ler a me
 
 > **Regra:** a duração é definida **uma vez** no componente base (`ToastProvider duration` / `Sonner duration`). Não passar `duration` em chamadas individuais de `toast()` — se uma mensagem precisa de mais tempo, o texto é que está longo demais.
 
+> **Fechamento automático garantido (2026-09-27):** o timer do Radix pausa em `window.blur` e só retoma em `window.focus`, com o estado "pausado" guardado no **provider** (vale para todos os toasts seguintes). No WKWebView do iOS um `blur` sem `focus` de volta (alerta nativo, Face ID, share sheet, app em segundo plano) deixava **todo toast seguinte preso na tela** até fechar no X — "em alguns aparelhos", porque dependia do que a pessoa fez antes na sessão. Agora a duração vive em `TOAST_DURATION` (`client/hooks/use-toast.ts`, usado também pelo `ToastProvider`) e o próprio `toast()` agenda o `dismiss` — independente do Radix. O `ToastViewport` também ficou `pointer-events-none`: a faixa vazia no topo bloqueava toques no header e um toque nela pausava o timer (o toast em si segue tocável/arrastável).
+
 ### 10.2 Loading States
 
 ```tsx
@@ -840,6 +842,10 @@ Camada de fundo neutra em CSS puro, usada na **conversa privada** da Comunidade.
 - Decoração de fundo: sempre `aria-hidden` e `pointer-events-none`
 - Fundo decorativo é **detalhe, não protagonista**: opacidade de branco até ~.05 e brilhos até ~.10. Acima disso passa a disputar leitura com as bolhas — foi o que derrubou o papel de parede anterior
 - **Não usar `background-size: cover`** em container que muda de altura (a conversa encolhe quando o teclado abre): o fundo re-escala e dá um zoom junto com a animação. Tamanho fixo (`100% 100%` para os brilhos, px para a trama) não tem esse problema
+
+### 12.6 Moldura de repost de flow (2026-09-27)
+
+Conteúdo **de outra pessoa** exibido dentro do próprio flow (repost) vai num card: palco original reduzido a 80% como bloco, `border-radius: 28px`, borda `rgba(255,255,255,.14)`, sombra `0 24px 60px -18px rgba(0,0,0,.8)`, fundo `linear-gradient(160deg,#1c2340,#241a3a 55%,#0e0d14)`, e chip glass do autor original no topo esquerdo. Implementação única em `FlowRepostFrame` — não recriar.
 
 ## 13. Animações e Transições
 

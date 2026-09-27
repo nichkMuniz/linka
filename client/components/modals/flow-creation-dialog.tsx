@@ -3,7 +3,8 @@ import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
-import { TagPeopleDrawer } from "@/components/shared/tag-people-drawer";
+import { TagPeopleDrawer, MAX_TAGGED_PEOPLE } from "@/components/shared/tag-people-drawer";
+import { MentionSuggestions, addMentionToTagged } from "@/components/shared/mention-suggestions";
 import {
   FlowWorkoutSticker,
   WORKOUT_STICKER_WIDTH,
@@ -791,6 +792,7 @@ export function FlowCreationDialog({
   const [description, setDescription] = React.useState("");
   // Pessoas marcadas no flow (estilo Instagram) + drawer de seleção.
   const [taggedUsers, setTaggedUsers] = React.useState<SearchUser[]>([]);
+  const descriptionRef = React.useRef<HTMLTextAreaElement | null>(null);
   const [tagPeopleOpen, setTagPeopleOpen] = React.useState(false);
   // Mini frame do último treino citado no flow (estilo "repost"): um único
   // sticker por flow, arrastável e redimensionável como as frases. `null` = o
@@ -2900,7 +2902,7 @@ export function FlowCreationDialog({
                   onChange={(e) => setEditingValue(e.target.value)}
                   onClick={(e) => e.stopPropagation()}
                   maxLength={200}
-                  placeholder="Digite aqui..."
+                  placeholder={t("flow_text_placeholder")}
                   className="w-full bg-transparent leading-relaxed placeholder:text-white/60 resize-none outline-none border-0 pointer-events-auto"
                   style={{
                     textShadow: editingStyle.backgroundColor ? "none" : "0 1px 6px rgba(0,0,0,0.45)",
@@ -2915,6 +2917,20 @@ export function FlowCreationDialog({
                   }}
                   rows={3}
                   autoFocus
+                />
+                {/* "@" no texto do flow (T + Aa) → sugestões; a pessoa escolhida entra
+                    nas marcações do flow (flow_tags → notificação type 16). */}
+                <MentionSuggestions
+                  inputRef={textareaRef}
+                  value={editingValue}
+                  onChange={setEditingValue}
+                  onPick={
+                    FEATURES.postTags
+                      ? (u) => setTaggedUsers((prev) => addMentionToTagged(prev, u, MAX_TAGGED_PEOPLE))
+                      : undefined
+                  }
+                  placement="below"
+                  className="max-h-[168px] overflow-y-auto"
                 />
               </div>
             )}
@@ -3007,7 +3023,7 @@ export function FlowCreationDialog({
                   disabled={(texts.length === 0 && !workoutSticker) || isSubmitting || isLoading}
                   className="w-full rounded-full"
                 >
-                  {isSubmitting || isLoading ? "Enviando..." : "Compartilhar flow"}
+                  {isSubmitting || isLoading ? t("sending") : t("flow_share_button")}
                 </Button>
                 {(texts.length > 0 || workoutSticker) && saveDraftButton}
               </div>
@@ -3160,7 +3176,7 @@ export function FlowCreationDialog({
                     onChange={(e) => setEditingValue(e.target.value)}
                     onClick={(e) => e.stopPropagation()}
                     maxLength={200}
-                    placeholder="Digite aqui..."
+                    placeholder={t("flow_text_placeholder")}
                     className="w-full bg-transparent leading-relaxed placeholder:text-white/60 resize-none outline-none border-0 pointer-events-auto"
                     style={{
                       textShadow: editingStyle.backgroundColor ? "none" : "0 1px 6px rgba(0,0,0,0.45)",
@@ -3175,6 +3191,20 @@ export function FlowCreationDialog({
                     }}
                     rows={3}
                     autoFocus
+                  />
+                  {/* "@" no texto do flow (T + Aa) → sugestões; a pessoa escolhida entra
+                      nas marcações do flow (flow_tags → notificação type 16). */}
+                  <MentionSuggestions
+                    inputRef={textareaRef}
+                    value={editingValue}
+                    onChange={setEditingValue}
+                    onPick={
+                      FEATURES.postTags
+                        ? (u) => setTaggedUsers((prev) => addMentionToTagged(prev, u, MAX_TAGGED_PEOPLE))
+                        : undefined
+                    }
+                    placement="below"
+                    className="max-h-[168px] overflow-y-auto"
                   />
                 </div>
               </>
@@ -3269,19 +3299,35 @@ export function FlowCreationDialog({
                     </span>
                   </button>
                 )}
-                <Textarea
-                  placeholder="Adicione uma descrição..."
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  maxLength={200}
-                  className="resize-none h-20 bg-black/40 backdrop-blur border-white/20 text-white placeholder:text-white/60"
-                />
+                <div className="relative">
+                  <Textarea
+                    ref={descriptionRef}
+                    placeholder={t("flow_description_placeholder")}
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    maxLength={200}
+                    className="resize-none h-20 bg-black/40 backdrop-blur border-white/20 text-white placeholder:text-white/60"
+                  />
+                  {/* "@" na descrição → sugestão; a escolhida entra nas marcações
+                      do flow (flow_tags → notificação type 16). */}
+                  <MentionSuggestions
+                    inputRef={descriptionRef}
+                    value={description}
+                    onChange={setDescription}
+                    onPick={
+                      FEATURES.postTags
+                        ? (u) => setTaggedUsers((prev) => addMentionToTagged(prev, u, MAX_TAGGED_PEOPLE))
+                        : undefined
+                    }
+                    placement="above"
+                  />
+                </div>
                 <Button
                   onClick={handleSubmitMedia}
                   disabled={isSubmitting || isLoading}
                   className="w-full rounded-full"
                 >
-                  {isSubmitting || isLoading ? "Enviando..." : "Compartilhar flow"}
+                  {isSubmitting || isLoading ? t("sending") : t("flow_share_button")}
                 </Button>
                 {saveDraftButton}
               </div>

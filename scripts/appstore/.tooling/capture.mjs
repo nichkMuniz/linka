@@ -11,10 +11,17 @@
 import { chromium } from "playwright";
 import sharp from "sharp";
 import { mkdirSync } from "node:fs";
-import { REF, SESSION, TABLES } from "./fixtures.mjs";
+import { LANG, REF, SESSION, TABLES } from "./fixtures.mjs";
 
 const BASE = "http://localhost:8080";
-const OUT = "../../../docs/appstore";
+// `LK_LANG=en node capture.mjs` gera o conjunto em inglês em docs/appstore/en/.
+const EN = LANG === "en";
+const OUT = EN ? "../../../docs/appstore/en" : "../../../docs/appstore";
+
+/** Textos da interface que o script procura/clica — seguem o idioma do app. */
+const UI = EN
+  ? { iniciar: "Start workout", seguindo: "Following", concluir: "Mark set as done" }
+  : { iniciar: "Iniciar treino", seguindo: "Seguindo", concluir: "Marcar série como concluída" };
 
 /**
  * Tamanhos exatos que a App Store exige. `viewport × deviceScaleFactor` dá o
@@ -40,11 +47,11 @@ const SCREENS = [
   {
     id: "2-treino",
     path: "/metas",
-    acoes: ["Iniciar treino"],
+    acoes: [UI.iniciar],
     espera: 3500,
     series: [[60, 12], [70, 10], [80, 8]],
   },
-  { id: "3-feed", path: "/", wait: "Seguindo" },
+  { id: "3-feed", path: "/", wait: UI.seguindo },
   { id: "4-perfil", path: "/perfil" },
   { id: "5-comunidade", path: "/comunidade" },
 ];
@@ -89,8 +96,21 @@ const CARDS = {
   "flow-4": { acento: "#f97316", rotulo: "TREINO DE HOJE", numero: "Ombros", sub: "Larissa", chips: [], de: "#3a2312", para: "#1a1009" },
 };
 
+/** Mesmos cards em inglês — só os textos mudam. */
+const CARDS_EN = {
+  "camila-pernas": { rotulo: "YOUR WORKOUT IN NUMBERS", sub: "Leg extension", chips: ["1h 6m", "21 sets", "24.4 t"] },
+  "rafael-costas": { rotulo: "YOUR WORKOUT IN NUMBERS", sub: "Back and biceps", chips: ["18 sets", "19.8 t", "70 kg"] },
+  "marina-ombros": { rotulo: "YOUR WORKOUT IN NUMBERS", numero: "12.6 t", sub: "Shoulders and core", chips: ["52m", "15 sets", "22 kg"] },
+  "diego-peito": { rotulo: "YOUR WORKOUT IN NUMBERS", numero: "15.2 t", sub: "Chest and triceps", chips: ["55m", "16 sets", "85 kg"] },
+  "flow-1": { rotulo: "TODAY'S WORKOUT", numero: "Legs" },
+  "flow-2": { rotulo: "TODAY'S WORKOUT", numero: "Back" },
+  "flow-3": { rotulo: "TODAY'S WORKOUT", numero: "Chest" },
+  "flow-4": { rotulo: "TODAY'S WORKOUT", numero: "Shoulders" },
+};
+
 async function cardTreino(slug) {
-  const c = CARDS[slug] ?? CARDS["camila-pernas"];
+  const base = CARDS[slug] ?? CARDS["camila-pernas"];
+  const c = EN ? { ...base, ...(CARDS_EN[slug] ?? {}) } : base;
   const W = 1080, H = 1080;
   const chips = c.chips
     .map((txt, i) => {
@@ -189,7 +209,7 @@ async function main() {
     const ctx = await browser.newContext({
       viewport: { width: dev.w, height: dev.h },
       deviceScaleFactor: dev.dsf,
-      locale: "pt-BR",
+      locale: EN ? "en-US" : "pt-BR",
       colorScheme: "dark",
       isMobile: dev.id.startsWith("iphone"),
       hasTouch: true,
@@ -269,18 +289,21 @@ async function main() {
     });
 
     await ctx.addInitScript(
-      ([ref, sess]) => {
+      ([ref, sess, lang]) => {
         localStorage.setItem(`sb-${ref}-auth-token`, JSON.stringify(sess));
         // O app localiza pelo idioma do aparelho; fixamos para as duas telas
         // saírem no mesmo idioma.
-        localStorage.setItem("lk:lang", "pt");
+        // A chave que o app lê é `ritmofit-language` (language-context.tsx e
+        // getUiLanguage); `lk:lang` fica por compatibilidade com rodadas antigas.
+        localStorage.setItem("ritmofit-language", lang);
+        localStorage.setItem("lk:lang", lang);
         // Sessão de treino minimizada é persistida em `linka_active_workout`
         // (ver client/lib/workout-context.tsx). Sem limpar, o FAB "Treino em
         // andamento" reaparece flutuando sobre TODA tela seguinte.
         localStorage.removeItem("linka_active_workout");
         localStorage.removeItem("rest_timer_end_at");
       },
-      [REF, SESSION],
+      [REF, SESSION, LANG],
     );
 
     for (const s of SCREENS) {
@@ -316,7 +339,7 @@ async function main() {
         // O botão tem aria-label próprio — bem mais estável que caminhar a
         // árvore por xpath, que resolvia para um elemento em animação e nunca
         // ficava "stable".
-        const concluir = page.getByLabel("Marcar série como concluída").first();
+        const concluir = page.getByLabel(UI.concluir).first();
         await concluir.scrollIntoViewIfNeeded().catch(() => {});
         await concluir.click({ force: true, timeout: 8000 }).catch(() => {});
         await page.waitForTimeout(1000);

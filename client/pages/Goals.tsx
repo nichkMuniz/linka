@@ -495,11 +495,13 @@ export default function Goals() {
     }
   }, [navigateToFeedAfterCelebration, unlockedBadges, completedGoal, goalToShare, navigate]);
 
-  // Chegando de outra tela (ex.: Novo Post) pedindo para já abrir o wizard de criação de meta
+  // Chegando de outra tela pedindo para já abrir o wizard: de meta (ex.: Novo
+  // Post) ou de rotina de treino (ex.: "Vincular rotinas" do drawer de meta do feed)
   React.useEffect(() => {
-    if (searchParams.get("action") === "create-goal") {
-      setCreateGoalFlow(true);
-      setCreateType(null);
+    const action = searchParams.get("action");
+    if (action === "create-goal" || action === "create-routine") {
+      setCreateGoalFlow(action === "create-goal");
+      setCreateType(action === "create-goal" ? null : 1);
       setCreateOpen(true);
       setSearchParams(
         (prev) => {
@@ -1519,6 +1521,14 @@ export default function Goals() {
         onEditGoal={handleEditGoal}
         onDeleteGoal={handleDeleteGoal}
         onToggleRoutineLink={handleToggleRoutineLink}
+        onCreateRoutine={() => {
+          // Fecha o detalhe e abre o wizard direto na rotina de treino (mesmo
+          // caminho do deep link ?action=create-routine).
+          setSelectedGoalId(null);
+          setCreateGoalFlow(false);
+          setCreateType(1);
+          setCreateOpen(true);
+        }}
       />
 
       {FEATURES.badges && (

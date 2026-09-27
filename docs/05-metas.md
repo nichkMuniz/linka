@@ -123,6 +123,8 @@
 
 A tela de **Novo Post** (`docs/04-novo-post.md`) linka para cá quando o usuário não tem metas ou toca em "+ Nova meta" no seletor de meta do post. Em vez de só navegar para `/metas`, a navegação inclui `?action=create-goal`; um `useEffect` em `Goals.tsx` lê esse parâmetro via `useSearchParams`, chama a mesma lógica do `openCreateGoal()` (`setCreateGoalFlow(true)` + `setCreateType(null)` + `setCreateOpen(true)`, abrindo o wizard direto em `goal-origin`) e remove o parâmetro da URL (`setSearchParams(..., { replace: true })`) para não reabrir o wizard num refresh/voltar. Qualquer outra tela que queira abrir o wizard de meta direto pode reutilizar o mesmo parâmetro.
 
+Do mesmo jeito, `?action=create-routine` abre o wizard direto na criação de **rotina de treino** (`setCreateGoalFlow(false)` + `setCreateType(1)` + `setCreateOpen(true)`, entrando em `routine-mode`/`routine-origin`). Usado pelo botão **"Vincular Rotinas"** do drawer de progresso da meta no Feed (2026-09-27), que antes só levava à tela de Metas.
+
 ## Fluxo de criação (wizard)
 
 `create-wizard-drawer.tsx` — bottom sheet em etapas com navegação de volta. A criação de rotina agora é **somente treino** (o seletor de tipo Treino/Dieta/Hábito foi removido). O passo genérico **"O que criar?" (`what`) não é mais usado como entrada** na tela de Metas: a criação de rotina entra direto em `routine-mode` (tocando num card de tipo) e a de meta entra direto em `goal-origin` (CTA "+ Criar nova meta"). O passo `what` permanece no componente, mas só seria atingido por um `initialStep="what"` explícito.
@@ -373,6 +375,8 @@ Duas consultas (histórico + ligações de anatomia dos exercícios envolvidos),
 
 Músculos com 0 séries na semana **e** ≥ 10 dias sem estímulo relevante. Ordenadas por "há mais tempo" primeiro, com os **nunca treinados no fim**: quem nunca treinou panturrilha provavelmente não quer, enquanto quem parou há 3 semanas esqueceu.
 
+**Lacuna tocável → exercícios do músculo (2026-09-27).** No drawer, cada linha de "Sem estímulo" é um botão (dica `goals_coverage_gaps_tap_hint`). O toque troca o conteúdo do **mesmo drawer** — sem empilhar outro — para "Exercícios para {músculo}" (`goals_coverage_exercises_for`, seta de voltar no header), listando `getWorkoutsByMuscleDb(muscle.id, 50)`: a consulta inversa de `workout_muscles`, do exercício que mais enfatiza o músculo para o que menos, com corte em ênfase 50 (o músculo é parte relevante do movimento, não coadjuvante) e sem exercícios custom de outros usuários. Tocar num exercício abre o `ItemDetailDrawer` (foto + como executar) por cima. Fechar o drawer volta sempre à visão geral. Só leitura — não adiciona o exercício a nenhuma rotina.
+
 ### Gate premium
 
 `PremiumGate feature="charts"` sobre o card inteiro. **Desde 07/09/2026 o gate é passthrough puro** — não bloqueia nada, porque o app não vende assinatura (`docs/17-premium.md`). O wrapper ficou só para marcar onde a cobrança viveria.
@@ -618,6 +622,7 @@ Conteúdo em `client/lib/i18n.ts` (`goals_tech_*`), PT e EN. Os passos vão numa
   - Título, placeholder de busca e estados usam i18n (`goals_add_exercise`, `goals_search_exercise`, `goals_browse_list`/`goals_browse_muscle`/`goals_browse_count`, `goals_browse_parts_label`/`goals_browse_parts_all`/`goals_browse_anatomy_sorted`, `goals_picker_loading`, `goals_picker_empty`, `goals_picker_confirm`, `goals_picker_confirm_empty`, `goals_create_exercise`, `goals_create_exercise_name`, `goals_create_exercise_muscle`, `goals_create_exercise_muscle_placeholder`, `goals_create_exercise_equipment`(`_placeholder`), `goals_create_exercise_howto`(`_placeholder`), `goals_create_exercise_photo`(`_cta`/`_remove`), `goals_create_exercise_save`).
 - **Minimizar** → barra flutuante global do `app-layout.tsx` (contrato `workoutMinimized`/`pendingReopen` mantido); o timer de descanso continua correndo e é exibido na barra
 - **Finalizar** (com confirmação) → grava `user_workouts_hist` por série concluída → check-in automático (`createCheckInDb`) → badges (`awardBadgesForCheckInsDb`) → +1 progresso na meta vinculada à rotina (`incrementGoalProgressDb`) → carrega os duelos do usuário (`getEnrichedDuelGroupsDb` → `myGroups`) → abre o **Resumo do treino** (`workout-summary-overlay.tsx`)
+  - **Limpar descrição (2026-09-27):** no Resumo do treino, acima da legenda (que nasce com a descrição automática de `generateDefaultDescription`), o botão **"Limpar descrição"** (`goals_summary_clear_description`) esvazia o campo e já foca nele (teclado aberto) para o usuário escrever a própria. Com o campo vazio, o mesmo lugar mostra **"Usar descrição automática"** (`goals_summary_restore_description`), que regenera o texto — desfaz uma limpeza sem querer. O placeholder `goals_summary_description_placeholder` aparece com o campo vazio
 - **Conquistas do treino:**
   - **PR all-time em tempo real** (`prExercises` + aviso ⚡) — ao concluir uma série de força acima do melhor peso **anterior** do exercício, mostra o banner de recorde. A gravação no resumo (`prExercises`) **exige rede** (`canDetectAllTimePR` = online + Supabase alcançável): offline a comparação com o histórico do banco é pulada para não gerar falso PR.
   - **Máquina zerada — flag interativa (17/07/2026):** ao concluir uma série (não-cardio) **acima de `MACHINE_MAXED_KG` (120 kg)**, aparece um **prompt dourado** perguntando "⚡ Zerou a máquina?" (`goals_machine_prompt_*`) com **[Zerei!]** / **[Agora não]**. É uma conquista **confirmada pelo usuário**, não automática — carga pesada nem sempre é "zerar a máquina". Se confirmar:
@@ -1031,7 +1036,7 @@ Agora `buildRoutineCards` prioriza o **`routine_id` já gravado nos itens** (FK 
 
 ## Detalhe da meta
 
-`goal-detail-drawer.tsx` — drawer com progresso (%), stats (dias concluídos/restantes), edição inline de duração/frequência e exclusão (com confirmação). A seção **"Rotinas vinculadas"** lista **todas** as rotinas do usuário como chips selecionáveis: a rotina vinculada a esta meta aparece destacada (gradiente azul/roxo + ✓); tocar num chip vincula (ou desvincula) a rotina à meta via `updateRoutineGoalDb` (`onToggleRoutineLink` → `loadData`). Como uma rotina só tem um `goal_id`, vincular uma rotina já ligada a outra meta a move para esta. Se o usuário não tem rotinas, exibe o estado vazio `goals_gd_no_routines_available`.
+`goal-detail-drawer.tsx` — drawer com progresso (%), stats (dias concluídos/restantes), edição inline de duração/frequência e exclusão (com confirmação). A seção **"Rotinas vinculadas"** lista **todas** as rotinas do usuário como chips selecionáveis: a rotina vinculada a esta meta aparece destacada (gradiente azul/roxo + ✓); tocar num chip vincula (ou desvincula) a rotina à meta via `updateRoutineGoalDb` (`onToggleRoutineLink` → `loadData`). Como uma rotina só tem um `goal_id`, vincular uma rotina já ligada a outra meta a move para esta. Se o usuário não tem rotinas, exibe o estado vazio `goals_gd_no_routines_available`. Desde 2026-09-27, abaixo dele aparece o botão **"Criar nova rotina"** (`goals_gd_create_routine`, prop opcional `onCreateRoutine`): em Metas fecha o detalhe e abre o `CreateWizardDrawer` direto na rotina de treino (mesmo caminho do `?action=create-routine`); no Perfil (só o próprio) navega para `/metas?tab=rotinas&action=create-routine`. A rotina criada não é vinculada automaticamente à meta — o usuário vincula pelo chip ao reabrir o detalhe.
 
 ### Compartilhar meta concluída (16/07/2026)
 
@@ -1090,6 +1095,10 @@ Meta que chega a 100% **não desvincula a rotina na hora** — o usuário ainda 
 | Perfil fitness (pré-preenche o quiz do "Sugerido") + restrições articulares | `getFitnessProfileDb` |
 | Corpo do usuário para a prescrição (sexo/idade/altura/peso) | `getUserProfileDb` |
 | Tendência do peso corporal (ajuste de cardio e avisos do treinador) | `getWeightLogsDb` |
+
+**Busca no catálogo de metas (2026-09-27):** o passo `goal-catalog` do `CreateWizardDrawer` tem um campo de busca fixo no topo (`goals_catalog_search_placeholder`, `fontSize: 16px` contra o zoom do iOS, botão X para limpar). O filtro (`visibleCatalogGoals`) roda no cliente sobre a lista já carregada: ignora acento e maiúscula e exige que **todas** as palavras digitadas apareçam na descrição. A busca zera ao entrar no passo. Sem resultado, mostra "Nenhuma meta encontrada para \"{q}\"" (`goals_catalog_search_empty`) e um atalho para **criar a meta do zero** (`goal-custom`).
+
+**Filtro rápido por tipo (2026-09-27):** logo abaixo da busca (no mesmo bloco fixo), chips **Todas / Fitness / Saúde / Hábitos** com a contagem de cada um (`goals.type`: 1/2/3; rótulos `goals_catalog_filter_all` + `goals_type_*`). Só aparecem os tipos que têm meta disponível para o usuário (sem chip que leve a lista vazia) e a fileira some se só existir um tipo. Combina com a busca (tipo **e** palavras) e volta para "Todas" ao entrar no passo.
 
 ### Recarga em fatias (2026-08-11)
 

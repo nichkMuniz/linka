@@ -149,10 +149,12 @@ Seção "MARCAR PESSOAS · OPCIONAL" logo abaixo da seção de metas, para marca
 
 - Botão tracejado **"Marcar"** (ícone `UserRoundPlus`) abre o **`TagPeopleDrawer`** (`client/components/shared/tag-people-drawer.tsx`): lista quem o usuário segue (`getFollowingDb`) e, ao digitar na busca, também procura qualquer pessoa do app (`searchUsersDb`, debounce de 300ms, resultados mesclados sem duplicatas e sem o próprio usuário). Seleção por toque (check com gradiente da marca), botão "Concluir" fecha o drawer
 - Máximo de **10 pessoas por post** (`MAX_TAGGED_PEOPLE`); ao exceder, toast destrutivo (`tag_people_max_title`/`tag_people_max_desc`)
+- Quem ainda **não segue ninguém** vê no drawer o botão **"Encontrar pessoas"**, que leva à tela Buscar para procurar e seguir gente; o rascunho do post é mantido e, na volta, os recém-seguidos já aparecem no drawer (ver `TagPeopleDrawer` em `docs/13-layouts-e-componentes.md`)
 - Cada pessoa selecionada vira um **chip** (avatar + nickname + `X` para remover) ao lado do botão "Marcar"
 - A seleção persiste na sessão (`newpost_tagged_users`) junto com o restante do rascunho e é limpa ao publicar
 - Ao publicar, os IDs vão no 5º parâmetro de `createPostDb`, que insere em `post_tags` **após** criar o post (falha na marcação não derruba o post). A trigger `trg_notify_post_tag` gera notificação **type 9** ("marcou você em uma publicação") para cada marcado — ver `docs/14-database-schema.md` e `docs/10-notificacoes.md`
 - Não disponível para SHOT
+- **Marcar digitando "@" (2026-09-27):** na legenda, digitar `@` abre o `MentionSuggestions` abaixo do campo (quem o usuário segue + busca global). Escolher alguém insere `@handle` no texto **e** adiciona a pessoa aos marcados (mesma lista/limite do botão "Marcar" → notificação type 9). Na legenda de SHOT o `@` também é sugerido, mas só vira texto (shot não tem marcação). Ver `docs/13-layouts-e-componentes.md`
 
 ### Botão Publicar
 - Fixo no rodapé com `env(safe-area-inset-bottom)`
@@ -194,7 +196,7 @@ Campos automaticamente salvos na sessão:
 |---|---|
 | Carregando metas | Spinner no Select de metas |
 | Enviando post | Botão desabilitado com ícone de loading |
-| Upload concluído | Toast de sucesso → redirecionamento |
+| Upload concluído | Toast de sucesso → redireciona para o Feed na aba **"Seguindo"** (`state: { refreshFeed: true, showFollowing: true }`), com o post recém-publicado no topo — vale também para quem ainda não segue ninguém (ver `docs/01-feed.md`) |
 | Erro no upload | Toast destrutivo com mensagem |
 | Sem Supabase | Toast de aviso e botão desabilitado |
 

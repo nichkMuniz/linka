@@ -77,7 +77,7 @@ const TITLE_BY_TYPE: Record<number, string> = {
   7: "Reação no check-in 🏆",
   8: "Comentário na promoção 🛍️",
   9: "Você foi marcado 📸",
-  10: "Nova mensagem 💌",
+  10: "Nova mensagem",
   11: "Check-in no duelo 💪",
   12: "Curtida na promoção ❤️",
   13: "Promoção expirada ⏳",
@@ -87,6 +87,7 @@ const TITLE_BY_TYPE: Record<number, string> = {
   17: "Resposta ao seu flow 🎞️",
   18: "Responderam no flow 💬",
   19: "Convite para treinar 💪",
+  20: "Você foi mencionado 💬",
 };
 
 // Mesmos nomes exibidos no app (INCENTIVE_CONFIG / i18n)
@@ -234,6 +235,10 @@ async function buildBody(
     // AGORA — o texto precisa dizer isso, senão o push some no meio dos outros.
     case 19:
       return `${name} te chamou pra treinar agora.`;
+    // Menção "@" num comentário (trigger notify_comment_mentions). O conteúdo
+    // quase nunca é do destinatário — por isso sem "no seu post".
+    case 20:
+      return `${name} mencionou você num comentário.`;
     default:
       return "Você tem uma nova notificação no LinKa.";
   }

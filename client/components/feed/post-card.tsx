@@ -1,4 +1,5 @@
 import * as React from "react";
+import { useOpenProfileByHandle } from "@/hooks/use-open-profile-by-handle";
 import { AnimatePresence, motion } from "framer-motion";
 import { PostIncentiveButton } from "@/components/shared/post-incentive-button";
 import { QuickIncentiveOverlay } from "@/components/shared/quick-incentive-overlay";
@@ -65,6 +66,7 @@ function PostCardImpl({
   onDelete,
 }: PostCardProps) {
   const navigate = useNavigate();
+  const openProfileByHandle = useOpenProfileByHandle();
   const { t } = useLanguage();
   const isOwner = post.user_id === currentUserId;
   const [quickOverlayVisible, setQuickOverlayVisible] = React.useState(false);
@@ -338,7 +340,7 @@ function PostCardImpl({
             >
               {!isDescTruncatable || descExpanded ? (
                 <>
-                  {renderWithHashtags(description, (tag) => navigate(`/tag/${encodeURIComponent(tag)}`))}
+                  {renderWithHashtags(description, (tag) => navigate(`/tag/${encodeURIComponent(tag)}`), openProfileByHandle)}
                   {isDescTruncatable && descExpanded && (
                     <> <button
                       type="button"
@@ -351,7 +353,7 @@ function PostCardImpl({
                 </>
               ) : (
                 <>
-                  {renderWithHashtags(truncatedDescription, (tag) => navigate(`/tag/${encodeURIComponent(tag)}`))}
+                  {renderWithHashtags(truncatedDescription, (tag) => navigate(`/tag/${encodeURIComponent(tag)}`), openProfileByHandle)}
                   {"... "}
                   <button
                     type="button"

@@ -1,7 +1,8 @@
 import * as React from "react";
-import { Dumbbell, Flame, Timer, Trophy } from "lucide-react";
+import { Dumbbell, Flame, ImageOff, Timer, Trophy } from "lucide-react";
 import { useLanguage } from "@/lib/language-context";
-import type { StoryTextElement, StoryWorkoutSticker } from "@/lib/ritmofit-db";
+import { UserAvatar } from "@/components/shared/user-avatar";
+import type { StoryPostSticker, StoryTextElement, StoryWorkoutSticker } from "@/lib/ritmofit-db";
 
 /**
  * Mini frame do treino citado no flow (estilo "repost" do Instagram).
@@ -53,11 +54,13 @@ interface FlowWorkoutStickerProps {
   data: StoryWorkoutSticker;
   /** 1 = tamanho base (WORKOUT_STICKER_WIDTH) */
   scale?: number;
+  /** No viewer o sticker abre o detalhe do treino — mostra a dica de toque. */
+  interactive?: boolean;
   /** origem do `scale` — o autor arrasta pelo centro, o viewer também centraliza */
   className?: string;
 }
 
-export function FlowWorkoutSticker({ data, scale = 1, className }: FlowWorkoutStickerProps) {
+export function FlowWorkoutSticker({ data, scale = 1, className, interactive = false }: FlowWorkoutStickerProps) {
   const { t } = useLanguage();
 
   const exercises = Array.isArray(data.exercises) ? data.exercises : [];
@@ -70,6 +73,9 @@ export function FlowWorkoutSticker({ data, scale = 1, className }: FlowWorkoutSt
 
   return (
     <div
+      // Alvo de toque no viewer: as zonas de navegação ficam por cima, então elas
+      // testam o retângulo DESTE elemento (já com scale/moldura de repost).
+      data-flow-workout-sticker=""
       className={className}
       style={{
         width: WORKOUT_STICKER_WIDTH,
@@ -177,6 +183,15 @@ export function FlowWorkoutSticker({ data, scale = 1, className }: FlowWorkoutSt
           )}
         </div>
       )}
+
+      {interactive && (
+        <p
+          className="text-center"
+          style={{ marginTop: 8, fontSize: 9.5, fontWeight: 700, color: "#9db8ff" }}
+        >
+          {t("flow_workout_tap_hint")}
+        </p>
+      )}
     </div>
   );
 }
@@ -210,13 +225,74 @@ function StickerChip({
 }
 
 /**
- * Um elemento sobreposto ao flow, já posicionado (x/y em %). Frase ou mini
- * frame de treino — fonte única usada pelo `FlowViewer` e pelo
- * `FlowViewerModal`, para os dois renderizarem exatamente o mesmo resultado.
+ * Moldura de um post do feed compartilhado no flow — mesma linguagem visual da
+ * moldura de repost (card arredondado, borda clara, sombra, chip do autor).
+ * A foto é a do post, referenciada (não copiada): se o post sumir, o card cai
+ * num aviso de "post indisponível" em vez de quebrar.
+ *
+ * `data-flow-post-sticker` é o alvo de toque do viewer (as zonas de navegação
+ * ficam por cima) — o toque abre `/post/:id`.
  */
-export function FlowElementView({ el }: { el: StoryTextElement }) {
+export function FlowPostCard({ data, interactive = false }: { data: StoryPostSticker; interactive?: boolean }) {
+  const { t } = useLanguage();
+  const [broken, setBroken] = React.useState(false);
+
+  return (
+    <div
+      data-flow-post-sticker=""
+      style={{
+        width: "min(80vw, 380px)",
+        borderRadius: 26,
+        overflow: "hidden",
+        background: "linear-gradient(rgba(32,30,44,.96),rgba(13,12,19,.98))",
+        border: "1px solid rgba(255,255,255,.16)",
+        boxShadow: "0 24px 60px -18px rgba(0,0,0,.8)",
+        color: "#fff",
+      }}
+    >
+      {/* Autor do post — como no Instagram */}
+      <div className="flex items-center gap-2" style={{ padding: "10px 12px" }}>
+        <UserAvatar photo={data.authorPhoto ?? null} nickname={data.authorNickname} className="h-7 w-7 shrink-0" />
+        <span className="truncate" style={{ fontSize: 13, fontWeight: 700 }}>{data.authorNickname}</span>
+      </div>
+
+      {broken ? (
+        <div
+          className="flex flex-col items-center justify-center gap-2"
+          style={{ aspectRatio: "1 / 1", background: "rgba(255,255,255,.04)" }}
+        >
+          <ImageOff className="h-6 w-6" style={{ color: "rgba(255,255,255,.4)" }} />
+          <span style={{ fontSize: 12, color: "rgba(255,255,255,.5)" }}>{t("flow_post_unavailable")}</span>
+        </div>
+      ) : (
+        <img
+          src={data.photo}
+          alt=""
+          draggable={false}
+          onError={() => setBroken(true)}
+          className="block w-full select-none pointer-events-none"
+          style={{ maxHeight: "56dvh", objectFit: "cover" }}
+        />
+      )}
+
+      {interactive && (
+        <p className="text-center" style={{ padding: "9px 12px", fontSize: 12, fontWeight: 700, color: "#9db8ff" }}>
+          {t("flow_post_tap_hint")}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Um elemento sobreposto ao flow, já posicionado (x/y em %). Frase ou mini
+ * frame de treino — usado pelo `FlowViewer` (rota do feed e modo embutido do
+ * perfil — é um viewer só).
+ */
+export function FlowElementView({ el, interactive = false }: { el: StoryTextElement; interactive?: boolean }) {
   const isWorkout = el.kind === "workout" && !!el.workout;
-  const hasBg = !isWorkout && !!el.style?.backgroundColor;
+  const isPost = el.kind === "post" && !!el.post;
+  const hasBg = !isWorkout && !isPost && !!el.style?.backgroundColor;
 
   return (
     <div
@@ -226,12 +302,14 @@ export function FlowElementView({ el }: { el: StoryTextElement }) {
         top: `${el.y}%`,
         transform: "translate(-50%, -50%)",
         width: "max-content",
-        maxWidth: isWorkout ? "92vw" : "80vw",
-        padding: isWorkout ? 0 : "0 0.5rem",
+        maxWidth: isWorkout || isPost ? "92vw" : "80vw",
+        padding: isWorkout || isPost ? 0 : "0 0.5rem",
       }}
     >
-      {isWorkout ? (
-        <FlowWorkoutSticker data={el.workout as StoryWorkoutSticker} scale={el.scale ?? 1} />
+      {isPost ? (
+        <FlowPostCard data={el.post as StoryPostSticker} interactive={interactive} />
+      ) : isWorkout ? (
+        <FlowWorkoutSticker data={el.workout as StoryWorkoutSticker} scale={el.scale ?? 1} interactive={interactive} />
       ) : (
         <p
           className="leading-relaxed break-words whitespace-pre-wrap"

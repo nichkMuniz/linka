@@ -34,14 +34,73 @@ export const GLASS_ACTION: React.CSSProperties = {
 // Caption description truncation — same limit used everywhere a post caption renders
 export const DESC_MAX_CHARS = 80;
 
-// Renderiza a legenda destacando hashtags em azul. Quando `onHashtagClick` é
+// Menção "@usuario" dentro de um token — mesmo conjunto de caracteres do handle
+// (`MENTION_HANDLE_CHARS`). Ponto/hífen no FIM saem do handle ("@ana." é fim de
+// frase), igual ao que o trigger de notificação faz.
+function splitMention(token: string): { handle: string; rest: string } | null {
+  const m = token.match(/^@([a-z0-9._-]+)/i);
+  if (!m) return null;
+  const handle = m[1].replace(/[.-]+$/, "");
+  if (!handle) return null;
+  return { handle, rest: token.slice(1 + handle.length) };
+}
+
+function renderMention(
+  key: React.Key,
+  handle: string,
+  rest: string,
+  onMentionClick?: (handle: string) => void,
+) {
+  return (
+    <React.Fragment key={key}>
+      <span
+        role={onMentionClick ? "button" : undefined}
+        tabIndex={onMentionClick ? 0 : undefined}
+        className={`text-[#9db8ff] font-medium${onMentionClick ? " cursor-pointer" : ""}`}
+        onClick={
+          onMentionClick
+            ? (e) => {
+                e.stopPropagation();
+                onMentionClick(handle);
+              }
+            : undefined
+        }
+      >
+        {"@" + handle}
+      </span>
+      {rest}
+    </React.Fragment>
+  );
+}
+
+/**
+ * Comentários: destaca só as menções "@usuario" (hashtag em comentário segue
+ * texto puro). Com `onMentionClick`, a menção abre o perfil.
+ */
+export function renderWithMentions(
+  text: string,
+  onMentionClick?: (handle: string) => void,
+) {
+  return text.split(/(\s+)/).map((token, i) => {
+    const mention = token.startsWith("@") ? splitMention(token) : null;
+    return mention ? renderMention(i, mention.handle, mention.rest, onMentionClick) : token;
+  });
+}
+
+// Renderiza a legenda destacando hashtags (e menções @usuario) em azul. Quando `onHashtagClick` é
 // fornecido, cada hashtag vira clicável (navega para a página da hashtag). O token
 // pode carregar pontuação no fim (ex.: "#fit,") — só a parte "#tag" fica clicável.
 export function renderWithHashtags(
   text: string,
   onHashtagClick?: (tag: string) => void,
+  /** Toque numa menção "@usuario" (abre o perfil). Sem ele a menção só fica destacada. */
+  onMentionClick?: (handle: string) => void,
 ) {
   return text.split(/(\s+)/).map((token, i) => {
+    if (token.startsWith("@")) {
+      const mention = splitMention(token);
+      return mention ? renderMention(i, mention.handle, mention.rest, onMentionClick) : token;
+    }
     if (!token.startsWith("#") || token.length <= 1) return token;
     const m = token.match(/^#([\p{L}\p{N}_]+)/u);
     if (!m) return token;

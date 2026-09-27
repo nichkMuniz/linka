@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Target, Trash2, ChevronLeft, ChevronRight, UserRoundPlus, X } from "lucide-react";
+import { Target, Trash2, ChevronLeft, ChevronRight, UserRoundPlus, X, Check } from "lucide-react";
 import {
   Drawer,
   DrawerContent,
@@ -18,7 +18,8 @@ import {
 } from "@/lib/ritmofit-db";
 import { ImageWithFallback } from "@/components/shared/image-with-fallback";
 import { UserAvatar } from "@/components/shared/user-avatar";
-import { TagPeopleDrawer } from "@/components/shared/tag-people-drawer";
+import { TagPeopleDrawer, MAX_TAGGED_PEOPLE } from "@/components/shared/tag-people-drawer";
+import { MentionSuggestions, addMentionToTagged } from "@/components/shared/mention-suggestions";
 import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
 import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
 import { useLanguage } from "@/lib/language-context";
@@ -46,6 +47,7 @@ export function EditPostDrawer({ open, onOpenChange, post, onSaved }: EditPostDr
   const viewportHeight = useKeyboardAwareHeight();
   // A legenda fica logo abaixo da foto (mid-scroll) — teclado não pode cobri-la.
   const scrollRef = React.useRef<HTMLDivElement | null>(null);
+  const descriptionRef = React.useRef<HTMLTextAreaElement | null>(null);
   useKeyboardInputScroll(scrollRef, open);
   const [userGoals, setUserGoals] = React.useState<Array<{ id: string; description: string }>>([]);
   const [isLoadingGoals, setIsLoadingGoals] = React.useState(false);
@@ -60,7 +62,9 @@ export function EditPostDrawer({ open, onOpenChange, post, onSaved }: EditPostDr
   React.useEffect(() => {
     if (open && post) {
       setDescription(post.description || "");
-      setGoalId(post.user_goal_id || null);
+      // `user_goals.id` é bigint: o post traz o vínculo como NÚMERO e a lista de
+      // metas como string — sem normalizar, nenhuma opção aparecia selecionada.
+      setGoalId(post.user_goal_id != null && post.user_goal_id !== "" ? String(post.user_goal_id) : null);
       setPhotoIndex(0);
 
       const allPhotos = Array.isArray(post.photos) && post.photos.length > 0
@@ -80,6 +84,10 @@ export function EditPostDrawer({ open, onOpenChange, post, onSaved }: EditPostDr
         .catch(() => setTaggedUsers([]));
     }
   }, [open, post]);
+
+  // Vínculo ORIGINAL do post (o que está salvo hoje) — marca o selo "Vinculada".
+  const linkedGoalId =
+    post?.user_goal_id != null && post.user_goal_id !== "" ? String(post.user_goal_id) : null;
 
   const handleSave = async () => {
     if (!post) return;
@@ -193,18 +201,34 @@ export function EditPostDrawer({ open, onOpenChange, post, onSaved }: EditPostDr
             </div>
           )}
 
-          <textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder={t("editpost_description_placeholder")}
-            rows={4}
-            className="w-full px-3 py-2 rounded-2xl text-sm resize-none focus:outline-none"
-            style={{
-              background: "rgba(255,255,255,.07)",
-              border: "1px solid rgba(255,255,255,.12)",
-              color: "#fff",
-            }}
-          />
+          <div className="relative">
+            <textarea
+              ref={descriptionRef}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder={t("editpost_description_placeholder")}
+              rows={4}
+              className="w-full px-3 py-2 rounded-2xl text-sm resize-none focus:outline-none"
+              style={{
+                background: "rgba(255,255,255,.07)",
+                border: "1px solid rgba(255,255,255,.12)",
+                color: "#fff",
+              }}
+            />
+            {/* "@" na legenda → sugestão; a pessoa escolhida entra nas marcações
+                (setPostTagsDb notifica só quem é novo). */}
+            <MentionSuggestions
+              inputRef={descriptionRef}
+              value={description}
+              onChange={setDescription}
+              onPick={
+                FEATURES.postTags
+                  ? (u) => setTaggedUsers((prev) => addMentionToTagged(prev, u, MAX_TAGGED_PEOPLE))
+                  : undefined
+              }
+              placement="below"
+            />
+          </div>
 
           <div className="space-y-2">
             <label className="flex items-center gap-1.5 text-sm font-medium" style={{ color: "rgba(255,255,255,.7)" }}>
@@ -232,23 +256,41 @@ export function EditPostDrawer({ open, onOpenChange, post, onSaved }: EditPostDr
                 >
                   {t("editpost_no_goal_option")}
                 </button>
-                {userGoals.map((goal) => (
-                  <button
-                    key={goal.id}
-                    type="button"
-                    onClick={() => setGoalId(goal.id)}
-                    className="w-full text-left px-3 py-2.5 rounded-2xl text-sm transition-colors"
-                    style={goalId === goal.id
-                      ? { border: "1px solid rgba(91,140,255,.5)", background: "rgba(91,140,255,.15)", color: "#5b8cff", fontWeight: 500 }
-                      : { border: "1px solid rgba(255,255,255,.1)", background: "rgba(255,255,255,.06)", color: "rgba(255,255,255,.7)" }
-                    }
-                  >
-                    <div className="flex items-center gap-2">
-                      <Target className="h-3.5 w-3.5 flex-shrink-0" />
-                      <span className="truncate">{goal.description}</span>
-                    </div>
-                  </button>
-                ))}
+                {/* A meta hoje vinculada ao post vem primeiro e leva o selo
+                    "Vinculada" — a seleção (✓) mostra o que será salvo. */}
+                {[...userGoals]
+                  .sort((a, b) => Number(b.id === linkedGoalId) - Number(a.id === linkedGoalId))
+                  .map((goal) => {
+                    const selected = goalId === goal.id;
+                    const isLinked = goal.id === linkedGoalId;
+                    return (
+                      <button
+                        key={goal.id}
+                        type="button"
+                        onClick={() => setGoalId(goal.id)}
+                        aria-pressed={selected}
+                        className="w-full text-left px-3 py-2.5 rounded-2xl text-sm transition-colors"
+                        style={selected
+                          ? { border: "1px solid rgba(91,140,255,.5)", background: "rgba(91,140,255,.15)", color: "#5b8cff", fontWeight: 500 }
+                          : { border: "1px solid rgba(255,255,255,.1)", background: "rgba(255,255,255,.06)", color: "rgba(255,255,255,.7)" }
+                        }
+                      >
+                        <div className="flex items-center gap-2">
+                          <Target className="h-3.5 w-3.5 flex-shrink-0" />
+                          <span className="truncate flex-1">{goal.description}</span>
+                          {isLinked && (
+                            <span
+                              className="shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-semibold"
+                              style={{ background: "rgba(34,197,94,.16)", color: "#4ade80", border: "1px solid rgba(34,197,94,.35)" }}
+                            >
+                              {t("editpost_goal_linked_badge")}
+                            </span>
+                          )}
+                          {selected && <Check className="h-4 w-4 shrink-0" />}
+                        </div>
+                      </button>
+                    );
+                  })}
               </div>
             )}
           </div>

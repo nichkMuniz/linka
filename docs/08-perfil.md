@@ -294,6 +294,10 @@ Incentivos e comentários continuam liberados normalmente (é um post público c
 
 O chip "com fulano" / "com fulano e mais N" (mesmo padrão visual do `post-card.tsx` do feed, ícone `UsersRound`) aparece no Post Viewer sempre que `selectedPost.taggedUsers` não está vazio — 1 pessoa navega direto ao perfil dela, 2+ abre um `FollowListDrawer` com a lista completa (título "Pessoas marcadas"). Antes de 2026-08-17, `getUserPostsDb` e `getTaggedPostsDb` não buscavam `post_tags`, então a marcação feita no feed (que usa `post.service.ts`, já batelado) sumia ao abrir o mesmo post pelo perfil (aba Posts ou aba Marcações) — as duas funções agora chamam `getPostTagsBatchDb` em lote, igual ao feed.
 
+### Responder a meta de outra pessoa (2026-09-27)
+
+No perfil de **outro** usuário, tocar numa meta abre o `GoalDetailDrawer` em modo leitura com a seção **"Responder a meta de {nome}"**: campo de texto + enviar. O texto vai como **mensagem privada** para o dono (`sendMessageDb`, payload `[goalreply]:<userGoalId>|<texto>`), e a conversa mostra o card da meta respondida (`GoalReplyMessage`, ver `docs/07-comunidade.md`). Prop `replyTo={{ userId, nickname }}` (só com `isViewingOtherProfile`); some no próprio perfil. Limite de 900 caracteres; bloqueio entre as partes → toast com `sendErrorDescription`. Push = tipo 10 ("te enviou uma mensagem") — sem migração nem redeploy.
+
 ### Meta vinculada no Post Viewer
 
 O chip "Meta: {descrição}" (fora do modo de edição) usa `selectedPost.userGoal` — um objeto batelado por `getPostGoalsBatchDb` (mesma query/shape de `post.service.ts`), que só existe quando a meta está pública (`visibility === 1`). Funciona para post de **qualquer** autor, inclusive na aba Marcações. Existia um bug duplo antes de 2026-08-17: `getUserPostsDb` selecionava `user_goal_id` do banco mas **descartava o campo ao montar o objeto de retorno**, então até o post do próprio dono do perfil (aba Posts) ficava sem o chip; e o guard `selectedPost.user_id === profileUserId` escondia o chip inteiro em qualquer post de outro autor (aba Marcações), mesmo com meta pública.
@@ -301,6 +305,8 @@ O chip "Meta: {descrição}" (fora do modo de edição) usa `selectedPost.userGo
 Como `getPostGoalsBatchDb` só retorna metas públicas (para bater com o comportamento do feed, que esconde meta privada até do próprio autor rolando o feed), o Post Viewer mantém um **fallback** só para o post do próprio dono do perfil: se `selectedPost.userGoal` vier vazio mas `selectedPost.user_id === profileUserId`, cai para `userGoals.find(...)` — a lista completa (sem filtro de visibilidade) do dono, carregada no batch 2. Isso preserva o que só faz sentido pro próprio dono olhando o próprio post: ver uma meta que ele mesmo marcou como privada.
 
 **Meta apagada esconde o chip.** Se nem o batch nem o fallback devolvem uma descrição, o `user_goal_id` é uma referência órfã — a meta foi excluída. Desde 2026-09-14 o bloco inteiro **não é renderizado** nesse caso, e o post aparece como se nunca tivesse tido vínculo. Antes disso o chip exibia "Meta removida" (chave `profile_goal_removed_label`, hoje removida do `i18n.ts`), um rótulo sem ação possível: não há meta para abrir nem progresso para ver.
+
+**Editar: meta vinculada destacada (2026-09-27).** No modo de edição, a meta hoje vinculada vem primeiro, com o selo verde **"Vinculada"** (`editpost_goal_linked_badge`), e a selecionada tem ✓. `user_goal_id` chega como **número** (bigint) e as metas da lista como string: sem `String(...)` nenhuma opção aparecia marcada e o fallback acima nunca achava a meta. Os dois pontos agora normalizam o id.
 
 ---
 
@@ -567,7 +573,7 @@ Aberto ao clicar nas estatísticas:
 ## Stories do Perfil
 
 - Exibe ring de story ativo no avatar (se o usuário tem story ativo)
-- Ao clicar no avatar → abre `FlowViewerModal`
+- Ao clicar no avatar → abre o **`FlowViewer` em modo embutido** (`embedded={{ stories: profileStories, storyId, onNavigate, onClose, onDeleted }}`, carregado com `React.lazy`) — o **mesmo** viewer da rota `/flows/:id` do feed, com o mesmo layout e as mesmas funções. O antigo `FlowViewerModal` foi removido em 2026-09-27 (ver `docs/13-layouts-e-componentes.md`). Ao fechar, ressincroniza os flows vistos (`getMyViewedFlowUserIdsDb`); excluir um flow o tira de `profileStories`
 - Apenas stories do próprio perfil são mostrados aqui
 - **Abre no 1º flow ainda não visto** (`pickFlowEntry`, `client/lib/flow-entry.ts`): o visitante que já viu os flows antigos vai direto ao novo, em vez de recomeçar do mais antigo. O conjunto de vistos vem de `getMyViewedFlowUserIdsDb` (carregado junto dos stories e ressincronizado ao **fechar** o viewer). No **próprio** perfil nenhum flow conta como visto (`recordFlowViewDb` ignora o dono), então o ring sempre começa do primeiro — igual ao Instagram.
 - **Abertura sem espera (`prefetchFlowMedia`):** assim que `getUserActiveStoriesDb` responde, o 1º flow é aquecido em modo `"metadata"` (capa inteira + cabeçalho do vídeo); no `onPointerDown` do ring o modo sobe para `"auto"` e o clipe começa a baixar ~200ms antes do modal montar. Somado à capa (`flow.poster_url`), o flow abre já exibindo o frame.
@@ -581,7 +587,7 @@ Um segmento por flow do usuário; o segmento ativo enche conforme o tempo do flo
 | Imagem / texto | Timer de 8s (`setInterval` de 50ms), só avança depois que a mídia carrega (`mediaReady`) |
 | Vídeo | `timeupdate` alimenta o progresso e `ended` avança para o próximo flow. A duração de referência é `flow.duration_ms` (medida no post), **não** o `video.duration` |
 
-**Regras de implementação (vale para `FlowViewerModal` e para a página `FlowViewer`):**
+**Regras de implementação (do `FlowViewer` — viewer único, rota e modo embutido):**
 
 - **Cada `<video>` carrega sua própria identidade**: `data-story-id` (a qual flow pertence) e `data-duration-ready` (a duração finita já foi resolvida). Durante a transição do `AnimatePresence` o vídeo do flow **anterior continua montado e tocando**, então `timeupdate`, `ended`, `error`, `loadeddata` e o `ref` só são aceitos quando `data-story-id` bate com o flow atual (`currentStoryIdRef`, atualizado **no render**, nunca em efeito — os eventos de mídia chegam antes dos efeitos).
 - **Nunca guardar o "duração pronta" num ref do componente.** Era a causa do bug com mais de um vídeo: o reset do ref na troca de flow apagava o "pronto" que o vídeo novo já tinha sinalizado no `loadedmetadata`, e a barra ficava travada em 0 para sempre (o `loadedmetadata` só dispara uma vez por elemento).

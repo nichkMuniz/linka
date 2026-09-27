@@ -12,6 +12,7 @@ import {
   Plus,
   Repeat2,
   RotateCcw,
+  Search,
   Sparkles,
   Target,
   X,
@@ -439,6 +440,11 @@ export function CreateWizardDrawer({
 
   // goal state
   const [programmedGoals, setProgrammedGoals] = React.useState<ProgrammedGoal[]>([]);
+  // Busca no catálogo de metas (pela descrição) — o catálogo tem dezenas de
+  // opções e rolar tudo era o único jeito de achar uma.
+  const [goalSearch, setGoalSearch] = React.useState("");
+  // Filtro rápido por tipo (`goals.type`: 1 Fitness, 2 Saúde, 3 Hábitos). null = todas.
+  const [goalTypeFilter, setGoalTypeFilter] = React.useState<number | null>(null);
   const [selectedGoalIds, setSelectedGoalIds] = React.useState<string[]>([]);
   const [goalsLoading, setGoalsLoading] = React.useState(false);
   const [goalDescription, setGoalDescription] = React.useState("");
@@ -575,6 +581,8 @@ export function CreateWizardDrawer({
   // lazy-load programmed goals when entering goal catalog
   React.useEffect(() => {
     if (!open || step !== "goal-catalog") return;
+    setGoalSearch("");
+    setGoalTypeFilter(null);
     setGoalsLoading(true);
     Promise.all([getProgrammedGoalsDb(), getUserSelectedGoalIdsDb()])
       .then(([goals, ids]) => {
@@ -584,6 +592,31 @@ export function CreateWizardDrawer({
       .catch(() => toast({ title: t("goals_load_error"), variant: "destructive" }))
       .finally(() => setGoalsLoading(false));
   }, [open, step]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Catálogo sem as metas que o usuário já tem, filtrado pela busca: ignora
+  // acento e maiúscula, e TODAS as palavras digitadas precisam aparecer na
+  // descrição ("perder peso 30" acha "Perder peso em 30 dias").
+  // Metas que o usuário ainda não tem — base dos chips de tipo (contagem) e da lista.
+  const availableCatalogGoals = React.useMemo(
+    () => programmedGoals.filter((g) => !selectedGoalIds.includes(g.id)),
+    [programmedGoals, selectedGoalIds],
+  );
+  const visibleCatalogGoals = React.useMemo(() => {
+    const norm = (v: string) => v.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+    const words = norm(goalSearch).split(/\s+/).filter(Boolean);
+    return availableCatalogGoals.filter((g) => {
+      if (goalTypeFilter !== null && g.type !== goalTypeFilter) return false;
+      if (words.length === 0) return true;
+      const desc = norm(g.description ?? "");
+      return words.every((w) => desc.includes(w));
+    });
+  }, [availableCatalogGoals, goalSearch, goalTypeFilter]);
+  // Só os tipos que têm meta disponível viram chip (sem chip que leva a lista vazia).
+  const catalogTypeCounts = React.useMemo(() => {
+    const counts = new Map<number, number>();
+    for (const g of availableCatalogGoals) counts.set(g.type, (counts.get(g.type) ?? 0) + 1);
+    return [1, 2, 3].filter((tp) => counts.has(tp)).map((tp) => ({ type: tp, count: counts.get(tp)! }));
+  }, [availableCatalogGoals]);
 
   // Pré-preenche o quiz com o perfil fitness salvo na última criação de
   // programa (só preenche o que o usuário ainda não respondeu nesta sessão).
@@ -3132,13 +3165,73 @@ export function CreateWizardDrawer({
           {/* ── Step: goal catalog ───────────────────────────────── */}
           {step === "goal-catalog" && (
             <>
+              {/* Busca fixa no topo enquanto a lista rola */}
+              <div
+                className="sticky top-0 z-10 -mx-1 px-1 pb-2"
+                style={{ background: "linear-gradient(rgba(22,21,30,.98) 80%, rgba(22,21,30,0))" }}
+              >
+                <div className="relative">
+                  <Search
+                    className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+                    style={{ color: "rgba(255,255,255,.4)" }}
+                  />
+                  <Input
+                    value={goalSearch}
+                    onChange={(e) => setGoalSearch(e.target.value)}
+                    placeholder={t("goals_catalog_search_placeholder")}
+                    className="pl-9 pr-9 rounded-full"
+                    // 16px evita o zoom automático do iOS ao focar
+                    style={{ fontSize: "16px", background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }}
+                  />
+                  {goalSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setGoalSearch("")}
+                      aria-label={t("goals_catalog_search_clear")}
+                      className="absolute right-3 top-1/2 -translate-y-1/2"
+                      style={{ color: "rgba(255,255,255,.5)" }}
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
+                {/* Filtro rápido por tipo — combina com a busca */}
+                {catalogTypeCounts.length > 1 && (
+                  <div className="flex gap-2 overflow-x-auto pt-2.5 -mx-1 px-1" style={{ scrollbarWidth: "none" }}>
+                    {[
+                      { type: null as number | null, label: t("goals_catalog_filter_all"), count: availableCatalogGoals.length },
+                      ...catalogTypeCounts.map(({ type, count }) => ({
+                        type: type as number | null,
+                        label: t(type === 1 ? "goals_type_fitness" : type === 2 ? "goals_type_health" : "goals_type_habits"),
+                        count,
+                      })),
+                    ].map((chip) => {
+                      const active = goalTypeFilter === chip.type;
+                      return (
+                        <button
+                          key={chip.type ?? "all"}
+                          type="button"
+                          onClick={() => setGoalTypeFilter(chip.type)}
+                          aria-pressed={active}
+                          className="shrink-0 rounded-full px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors active:scale-95"
+                          style={active
+                            ? { background: "rgba(255,255,255,.92)", color: "#0a0b12" }
+                            : { background: "rgba(255,255,255,.07)", color: "rgba(255,255,255,.7)", border: "1px solid rgba(255,255,255,.12)" }}
+                        >
+                          {chip.label}
+                          <span style={{ opacity: 0.55, marginLeft: 5 }}>{chip.count}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
               {goalsLoading ? (
                 <div className="flex justify-center py-8">
                   <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                 </div>
               ) : (
-                programmedGoals
-                  .filter((g) => !selectedGoalIds.includes(g.id))
+                visibleCatalogGoals
                   .map((g) => (
                     <div key={g.id} className="rounded-2xl p-4 space-y-3" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}>
                       <p className="text-sm font-semibold" style={{ color: "#fff" }}>{g.description}</p>
@@ -3162,8 +3255,21 @@ export function CreateWizardDrawer({
                     </div>
                   ))
               )}
-              {!goalsLoading && programmedGoals.filter((g) => !selectedGoalIds.includes(g.id)).length === 0 && (
-                <p className="text-sm text-center py-8" style={{ color: "rgba(255,255,255,.5)" }}>{t("goals_empty")}</p>
+              {!goalsLoading && visibleCatalogGoals.length === 0 && (
+                goalSearch.trim() ? (
+                  // Nada no catálogo com esse termo → oferece criar a meta do zero
+                  <div className="flex flex-col items-center gap-3 py-8">
+                    <p className="text-sm text-center" style={{ color: "rgba(255,255,255,.5)" }}>
+                      {t("goals_catalog_search_empty").replace("{q}", goalSearch.trim())}
+                    </p>
+                    <Button size="sm" variant="outline" className="rounded-full" onClick={() => goTo("goal-custom")}>
+                      <Pencil className="h-4 w-4 mr-1.5" />
+                      {t("goals_onboarding_create_title")}
+                    </Button>
+                  </div>
+                ) : (
+                  <p className="text-sm text-center py-8" style={{ color: "rgba(255,255,255,.5)" }}>{t("goals_empty")}</p>
+                )
               )}
             </>
           )}

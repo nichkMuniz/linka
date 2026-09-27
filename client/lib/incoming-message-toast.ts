@@ -33,3 +33,33 @@ export function subscribeIncomingMessageToast(listener: Listener): () => void {
     listeners.delete(listener);
   };
 }
+
+/**
+ * Notificação social recebida com o app ABERTO (incentivo, comentário, seguidor,
+ * marcação…) — mesmo pop up in-app da mensagem. Antes o AppLayout agendava uma
+ * notificação LOCAL nativa, que o iOS não exibe com o app em primeiro plano:
+ * o usuário só descobria pelo sino. O texto chega pronto (notification-copy.ts),
+ * então este canal não depende do tipo.
+ */
+export type IncomingNotificationPayload = {
+  /** Quem originou (`notifications.follower_id`) — foto no avatar do banner. */
+  actorId: string | null;
+  title: string;
+  body: string;
+  /** Destino do toque — o mesmo deep link do push (`notificationDeepLink`). */
+  url: string;
+};
+
+type NotificationListener = (payload: IncomingNotificationPayload) => void;
+const notificationListeners = new Set<NotificationListener>();
+
+export function showIncomingNotificationToast(payload: IncomingNotificationPayload): void {
+  notificationListeners.forEach((l) => l(payload));
+}
+
+export function subscribeIncomingNotificationToast(listener: NotificationListener): () => void {
+  notificationListeners.add(listener);
+  return () => {
+    notificationListeners.delete(listener);
+  };
+}

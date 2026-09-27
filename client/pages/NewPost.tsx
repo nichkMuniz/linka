@@ -50,7 +50,8 @@ import { getNativeMediaUrl, getCompressedVideoUrl, compressVideoBlob, purgeStale
 import { Geolocation } from "@capacitor/geolocation";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { EmojiPickerDrawer } from "@/components/shared/emoji-picker-drawer";
-import { TagPeopleDrawer } from "@/components/shared/tag-people-drawer";
+import { TagPeopleDrawer, MAX_TAGGED_PEOPLE } from "@/components/shared/tag-people-drawer";
+import { MentionSuggestions, addMentionToTagged } from "@/components/shared/mention-suggestions";
 import { FEATURES } from "@/lib/feature-flags";
 import {
   InlineCropPreview,
@@ -871,7 +872,7 @@ export default function NewPost() {
       sessionStorage.removeItem("newpost_goal_id");
       sessionStorage.removeItem("newpost_tagged_users");
       sessionStorage.removeItem("newpost_step");
-      navigate("/", { state: { refreshFeed: true } });
+      navigate("/", { state: { refreshFeed: true, showFollowing: true } });
     } catch (err: any) {
       if (uploadedPaths.length > 0) supabase!.storage.from("posts").remove(uploadedPaths).catch(() => {});
       toast({ title: t("newpost_post_error"), description: err?.message || t("newpost_try_later"), variant: "destructive" });
@@ -1458,8 +1459,8 @@ export default function NewPost() {
           )}
         </div>
 
-        {/* Caption glass card */}
-        <div style={{
+        {/* Caption glass card — `relative` ancora a lista de menções (@) */}
+        <div className="relative" style={{
           borderRadius: 24, padding: 16, minHeight: 150,
           background: "linear-gradient(rgba(255,255,255,.06),rgba(255,255,255,.025))",
           backdropFilter: "blur(20px)",
@@ -1478,6 +1479,19 @@ export default function NewPost() {
             className="resize-none border-0 shadow-none focus-visible:ring-0 p-0 bg-transparent w-full text-white placeholder:text-white/40"
             style={{ fontSize: 15, lineHeight: 1.5, minHeight: 118 }}
             rows={5}
+          />
+          {/* "@" na legenda: sugere pessoas; no post a escolhida também vira
+              marcação (é a marcação que notifica — type 9). */}
+          <MentionSuggestions
+            inputRef={captionTextareaRef}
+            value={activeText}
+            onChange={(v) => (mediaType === "post" ? setDescription(v) : setVideoDescription(v))}
+            onPick={
+              mediaType === "post" && FEATURES.postTags
+                ? (u) => setTaggedUsers((prev) => addMentionToTagged(prev, u, MAX_TAGGED_PEOPLE))
+                : undefined
+            }
+            placement="below"
           />
         </div>
 

@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/use-toast";
 import { UserAvatar } from "@/components/shared/user-avatar";
+import { useNavigate } from "react-router-dom";
 import { getFollowingDb, searchUsersDb, type SearchUser } from "@/lib/ritmofit-db";
 import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
 import { useAuth } from "@/hooks/useAuth";
@@ -48,6 +49,7 @@ export function TagPeopleDrawer({
   const [following, setFollowing] = React.useState<SearchUser[]>([]);
   const [searchResults, setSearchResults] = React.useState<SearchUser[]>([]);
   const [isLoading, setIsLoading] = React.useState(false);
+  const navigate = useNavigate();
   const searchTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   React.useEffect(() => {
@@ -82,6 +84,15 @@ export function TagPeopleDrawer({
 
   const selectedIds = React.useMemo(() => new Set(selected.map((u) => u.id)), [selected]);
 
+  // Quem ainda não segue ninguém tinha a lista vazia e nenhum caminho além de
+  // adivinhar um nome na busca. "Encontrar pessoas" leva à tela de Buscar para
+  // procurar e seguir gente; o rascunho do post sobrevive (sessionStorage +
+  // imageDraft no NewPost) e as pessoas seguidas aparecem aqui na volta.
+  const handleFindPeople = () => {
+    onOpenChange(false);
+    navigate("/buscar");
+  };
+
   // Seguidos filtrados pela busca + resultados globais, sem duplicatas e sem o próprio usuário
   const visibleUsers = React.useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -98,6 +109,8 @@ export function TagPeopleDrawer({
     }
     return merged.filter((u) => u.id !== user?.id);
   }, [following, searchResults, search, user?.id]);
+
+  const followsNobody = !isLoading && following.length === 0 && !search.trim();
 
   const toggleUser = (u: SearchUser) => {
     if (selectedIds.has(u.id)) {
@@ -168,8 +181,24 @@ export function TagPeopleDrawer({
                   </div>
                 ))}
               </div>
+            ) : followsNobody ? (
+              <div className="flex flex-col items-center gap-3 py-8 px-4">
+                <UserRoundPlus className="h-7 w-7" style={{ color: "rgba(255,255,255,.3)" }} />
+                <p className="text-sm text-center" style={{ color: "rgba(255,255,255,.6)" }}>
+                  {t("tag_people_no_following")}
+                </p>
+                <Button
+                  onClick={handleFindPeople}
+                  className="rounded-full border-0 gap-2"
+                  style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}
+                >
+                  <Search className="h-4 w-4" />
+                  {t("feed_find_people")}
+                </Button>
+              </div>
             ) : visibleUsers.length > 0 ? (
-              visibleUsers.map((u) => {
+              <>
+              {visibleUsers.map((u) => {
                 const isSelected = selectedIds.has(u.id);
                 return (
                   <button
@@ -196,7 +225,8 @@ export function TagPeopleDrawer({
                     </div>
                   </button>
                 );
-              })
+              })}
+              </>
             ) : (
               <div className="flex flex-col items-center gap-2 py-8">
                 <UserRoundPlus className="h-7 w-7" style={{ color: "rgba(255,255,255,.3)" }} />

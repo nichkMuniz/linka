@@ -3547,6 +3547,56 @@ export type RecentWorkoutSession = {
   exercises: Array<{ name: string; sets: number; kg: number; isCardio?: boolean }>;
 };
 
+/**
+ * Detalhe do treino citado num sticker de flow (`FlowWorkoutDetailDrawer`).
+ *
+ * O sticker só guarda até 8 exercícios. A sessão COMPLETA vive em
+ * `routines.last_summary` do autor — mas só é a MESMA sessão enquanto
+ * `completedAt` bater com a data do sticker (se o autor treinou a rotina de
+ * novo, o snapshot já é outro e `exercises` volta null: o drawer usa o sticker).
+ *
+ * `routineName` é o nome REAL da rotina no banco (o sticker pode trazer o
+ * `last_summary.routineName`); é por ele que `copyRoutineToUserDb` acha os
+ * `user_workouts` (pode ser null: rotina sem nome). `found: false` = a rotina
+ * não existe mais → cópia indisponível.
+ */
+export async function getFlowWorkoutSessionDb(
+  authorId: string,
+  stickerName: string,
+  completedAt: string,
+): Promise<{
+  found: boolean;
+  routineName: string | null;
+  exercises: Array<{ name: string; sets: number; kg: number; isCardio?: boolean }> | null;
+}> {
+  const empty = { found: false, routineName: null, exercises: null };
+  if (!hasSupabaseConfig || !supabase || !authorId) return empty;
+  const { data, error } = await supabase
+    .from("routines")
+    .select("name, last_summary")
+    .eq("user_id", authorId)
+    .eq("type", 1);
+  if (error || !data) return empty;
+  const match = (data as any[]).find(
+    (r) => (r.last_summary?.routineName || r.name) === stickerName || r.name === stickerName,
+  );
+  if (!match) return empty;
+  const summary = match.last_summary as RoutineLastSummary | null;
+  const sameSession = !!summary?.completedAt && summary.completedAt === completedAt;
+  return {
+    found: true,
+    routineName: match.name ?? null,
+    exercises: sameSession
+      ? (summary!.completedExercises ?? []).map((e) => ({
+          name: e.name,
+          sets: Number(e.totalSets ?? 0),
+          kg: Number(e.bestKg ?? 0),
+          isCardio: e.isCardio || undefined,
+        }))
+      : null,
+  };
+}
+
 export async function getRecentWorkoutSessionsDb(
   userId: string,
   limit = 12,
@@ -5323,6 +5373,8 @@ export type SearchUser = {
   nickname: string;
   bio?: string;
   photo?: string | null;
+  /** @usuário SEM o "@" (minúsculo). É o que a menção insere no texto. */
+  handle?: string | null;
 };
 
 export async function searchUsersDb(query: string): Promise<SearchUser[]> {
@@ -5334,7 +5386,7 @@ export async function searchUsersDb(query: string): Promise<SearchUser[]> {
   const [{ data, error }, blockedIds] = await Promise.all([
     supabase
       .from("profiles")
-      .select("user_id, nickname, bio, photo")
+      .select("user_id, nickname, bio, photo, handle")
       .ilike("nickname", searchQuery)
       .limit(20),
     getBlockedIdsDb(),
@@ -5358,7 +5410,60 @@ export async function searchUsersDb(query: string): Promise<SearchUser[]> {
       nickname: String(row.nickname ?? "Usuário"),
       bio: row.bio ? String(row.bio) : undefined,
       photo: row.photo ? String(row.photo) : null,
+      handle: row.handle ? String(row.handle) : null,
     }));
+}
+
+/** Caracteres válidos de um @usuário (mesmo conjunto de `cleanHandle`). */
+export const MENTION_HANDLE_CHARS = "a-z0-9._-";
+
+/**
+ * Sugestões do autocomplete de "@": busca por handle OU apelido. O termo é o
+ * pedaço digitado depois do "@" — sanitizado para os caracteres de handle,
+ * o que também o torna seguro dentro do filtro `or()` do PostgREST. Só volta
+ * quem tem handle (é o handle que vai para o texto) e respeita bloqueios.
+ */
+export async function searchMentionUsersDb(term: string): Promise<SearchUser[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+  const q = term.toLowerCase().replace(new RegExp(`[^${MENTION_HANDLE_CHARS}]`, "g"), "");
+  if (!q) return [];
+  const viewer = await getViewer();
+  const [{ data, error }, blockedIds] = await Promise.all([
+    supabase
+      .from("profiles")
+      .select("user_id, nickname, photo, handle")
+      .or(`handle.ilike.${q}%,nickname.ilike.%${q}%`)
+      .not("handle", "is", null)
+      .limit(8),
+    getBlockedIdsDb(),
+  ]);
+  if (error) {
+    console.error("Erro na busca de menção:", error.message);
+    return [];
+  }
+  const blocked = new Set(blockedIds);
+  return (data ?? [])
+    .filter((row: any) => row.handle && !blocked.has(String(row.user_id)) && String(row.user_id) !== viewer?.id)
+    .map((row: any) => ({
+      id: String(row.user_id),
+      nickname: String(row.nickname ?? "Usuário"),
+      photo: row.photo ? String(row.photo) : null,
+      handle: String(row.handle),
+    }));
+}
+
+/** Resolve um @usuário (com ou sem "@") para o id — toque numa menção abre o perfil. */
+export async function getUserIdByHandleDb(handle: string): Promise<string | null> {
+  if (!hasSupabaseConfig || !supabase) return null;
+  const h = handle.replace(/^@/, "").toLowerCase();
+  if (!h) return null;
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("user_id")
+    .ilike("handle", h)
+    .limit(1);
+  if (error || !data?.length) return null;
+  return String(data[0].user_id);
 }
 
 export type SearchWorkout = {
@@ -6053,19 +6158,35 @@ export type StoryWorkoutSticker = {
 };
 
 /**
+ * Post do feed compartilhado no flow ("Seu flow" no compartilhar). O flow não
+ * copia a foto: guarda a referência e o viewer desenha a moldura ao vivo —
+ * tocar nela abre `/post/:postId`.
+ */
+export type StoryPostSticker = {
+  postId: string;
+  /** 1ª foto do post (URL pública do bucket `posts`) */
+  photo: string;
+  authorId: string;
+  authorNickname: string;
+  authorPhoto?: string | null;
+};
+
+/**
  * Elemento sobreposto ao flow. `kind` ausente ou `"text"` = frase (formato
  * original, mantido para todos os flows já publicados); `"workout"` = mini
- * frame do treino, cujo conteúdo vem em `workout`.
+ * frame do treino, cujo conteúdo vem em `workout`; `"post"` = moldura de um
+ * post do feed (`post`).
  */
 export type StoryTextElement = {
   text: string;
   x: number;
   y: number;
   style?: StoryTextStyle;
-  kind?: "text" | "workout";
+  kind?: "text" | "workout" | "post";
   /** escala do mini frame de treino (1 = tamanho base) */
   scale?: number;
   workout?: StoryWorkoutSticker;
+  post?: StoryPostSticker;
 }; // x/y in %
 // Enquadramento da mídia (vídeo): scale unitário, x/y em % do tamanho do elemento
 export type StoryMediaTransform = { scale: number; x: number; y: number };
@@ -6106,8 +6227,14 @@ export type StoryWithUser = Story & {
   taggedUsers?: SearchUser[];
   /** Atribuição de repost: apelido de quem postou o flow original. */
   repostedFromNickname?: string | null;
+  /** Atribuição de repost: foto de quem postou o flow original (moldura do repost). */
+  repostedFromPhoto?: string | null;
 };
 
+// Com a atribuição de repost (migração 20260729-flow-tags) — é o que o viewer usa
+// para desenhar a moldura do flow original.
+const FLOW_COLS_REPOST =
+  "id, user_id, description, media_url, poster_url, duration_ms, background_color, text_position, text_elements, media_transform, reposted_from, reposted_from_user, created_at";
 // Com a duração real do vídeo (migração 20260812-flow-duration)
 const FLOW_COLS_DURATION =
   "id, user_id, description, media_url, poster_url, duration_ms, background_color, text_position, text_elements, media_transform, created_at";
@@ -6121,16 +6248,17 @@ const FLOW_COLS_TEXT =
   "id, user_id, description, media_url, background_color, text_position, text_elements, created_at";
 const FLOW_COLS_BASE =
   "id, user_id, description, media_url, background_color, created_at";
-// Degradação em camadas: DURATION → POSTER → FULL → TEXT → BASE (cada queda remove só
-// o que falta). A primeira query da sessão paga o erro 42703 e o cache guarda o nível.
+// Degradação em camadas: REPOST → DURATION → POSTER → FULL → TEXT → BASE (cada queda
+// remove só o que falta). A primeira query da sessão paga o erro 42703 e o cache guarda o nível.
 const FLOW_COLS_TIERS = [
+  FLOW_COLS_REPOST,
   FLOW_COLS_DURATION,
   FLOW_COLS_POSTER,
   FLOW_COLS_FULL,
   FLOW_COLS_TEXT,
   FLOW_COLS_BASE,
 ];
-let flowColsCache = FLOW_COLS_DURATION;
+let flowColsCache = FLOW_COLS_REPOST;
 
 // PostgREST code for "undefined column"
 const isMissingColumnError = (err: any) =>
@@ -6147,6 +6275,38 @@ async function selectFlow(builder: (cols: string) => any): Promise<{ data: any[]
     result = await builder(FLOW_COLS_TIERS[idx]);
   }
   return { data: result.data ?? [], error: result.error };
+}
+
+/**
+ * Preenche `repostedFromNickname`/`repostedFromPhoto` dos flows que são repost.
+ * O autor original não é necessariamente alguém que o viewer segue (o perfil dele
+ * não vem na query de perfis do ring), por isso é uma busca à parte — e só
+ * acontece quando há repost na lista. Falha → flows seguem sem atribuição (a
+ * moldura cai para o rótulo genérico "Repost").
+ */
+async function attachRepostAuthors<T extends { reposted_from_user?: string | null }>(
+  stories: T[],
+): Promise<(T & { repostedFromNickname?: string | null; repostedFromPhoto?: string | null })[]> {
+  const ids = [...new Set(stories.map((s) => s.reposted_from_user).filter(Boolean))] as string[];
+  if (ids.length === 0 || !supabase) return stories;
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("user_id, nickname, photo")
+    .in("user_id", ids);
+  if (error) {
+    console.error("Erro ao buscar autores originais dos reposts:", error.message);
+    return stories;
+  }
+  const map = new Map<string, { nickname: string | null; photo: string | null }>();
+  (data ?? []).forEach((p: any) =>
+    map.set(String(p.user_id), { nickname: p.nickname ?? null, photo: p.photo ?? null }),
+  );
+  return stories.map((s) => {
+    const author = s.reposted_from_user ? map.get(String(s.reposted_from_user)) : undefined;
+    return author
+      ? { ...s, repostedFromNickname: author.nickname, repostedFromPhoto: author.photo }
+      : s;
+  });
 }
 
 export async function getActiveStoriesDb(): Promise<StoryWithUser[]> {
@@ -6212,7 +6372,7 @@ export async function getActiveStoriesDb(): Promise<StoryWithUser[]> {
       });
     });
 
-    return storyList.map((story: any) => {
+    return attachRepostAuthors(storyList.map((story: any) => {
       const profile = profileMap.get(story.user_id) ?? { nickname: "Usuário", photo: null};
       return {
         ...story,
@@ -6221,7 +6381,7 @@ export async function getActiveStoriesDb(): Promise<StoryWithUser[]> {
         userNickname: profile.nickname,
         userPhoto: profile.photo,
       };
-    });
+    }));
   } catch (err: any) {
     console.error("Error fetching active stories:", err);
     return [];
@@ -6257,13 +6417,13 @@ export async function getUserActiveStoriesDb(userId: string): Promise<StoryWithU
 
       const profile = profileResult.data?.[0];
 
-      return flowResult.data.map((story: any) => ({
+      return attachRepostAuthors(flowResult.data.map((story: any) => ({
         ...story,
         id: String(story.id),
         user_id: String(story.user_id),
         userNickname: profile?.nickname ?? "Usuário",
         userPhoto: profile?.photo ?? null,
-      }));
+      })));
     } catch (err: any) {
       console.error("Error fetching user stories:", err);
       return [];
@@ -6303,13 +6463,13 @@ export async function getExpiredUserFlowsDb(): Promise<StoryWithUser[]> {
 
     const profile = profileResult.data?.[0];
 
-    return flowResult.data.map((story: any) => ({
+    return attachRepostAuthors(flowResult.data.map((story: any) => ({
       ...story,
       id: String(story.id),
       user_id: String(story.user_id),
       userNickname: profile?.nickname ?? "Usuário",
       userPhoto: profile?.photo ?? null,
-    }));
+    })));
   } catch (err: any) {
     console.error("Error fetching expired flows:", err);
     return [];
@@ -6337,13 +6497,14 @@ export async function getFlowByIdDb(flowId: string): Promise<StoryWithUser | nul
 
     const profile = profileRows?.[0];
 
-    return {
+    const [withAuthor] = await attachRepostAuthors([{
       ...story,
       id: String(story.id),
       user_id: String(story.user_id),
       userNickname: profile?.nickname ?? "Usuário",
       userPhoto: profile?.photo ?? null,
-    };
+    }]);
+    return withAuthor;
   } catch (err: any) {
     console.error("Error fetching flow by id:", err);
     return null;
@@ -6486,11 +6647,39 @@ export async function repostStoryDb(flowId: string): Promise<Story | null> {
     original.text_elements ?? null,
     original.media_transform ?? null,
     undefined,
-    { fromFlowId: original.id, fromUser: original.user_id },
+    // Repost de um repost credita o flow de ORIGEM (como no Instagram) — senão a
+    // moldura mostraria quem repostou no meio do caminho, não quem criou.
+    original.reposted_from
+      ? { fromFlowId: String(original.reposted_from), fromUser: original.reposted_from_user ?? original.user_id }
+      : { fromFlowId: original.id, fromUser: original.user_id },
     // Reaproveita capa e duração do original — o repost abre e sincroniza a barra
     // exatamente como o flow de origem (é o mesmo arquivo de mídia).
     { posterUrl: original.poster_url ?? null, durationMs: original.duration_ms ?? null },
   );
+}
+
+/**
+ * O usuário logado já repostou este flow? Olha `flow.reposted_from` nos flows
+ * DELE — sem limite de 24h: um repost antigo ainda conta. Se o repost foi
+ * apagado, volta a ser possível repostar. Falha/coluna ausente → `false` (não
+ * bloqueia o botão por engano).
+ */
+export async function hasRepostedFlowDb(flowId: string): Promise<boolean> {
+  if (!hasSupabaseConfig || !supabase) return false;
+  const viewer = await getViewer();
+  if (!viewer) return false;
+  const numericId = Number(flowId);
+  const { data, error } = await supabase
+    .from("flow")
+    .select("id")
+    .eq("user_id", viewer.id)
+    .eq("reposted_from", Number.isFinite(numericId) ? numericId : flowId)
+    .limit(1);
+  if (error) {
+    console.error("Erro ao verificar repost:", error.message);
+    return false;
+  }
+  return (data?.length ?? 0) > 0;
 }
 
 export async function deleteOldStoriesDb(): Promise<boolean> {
@@ -7884,7 +8073,7 @@ export async function getFollowingDb(
     // Fetch profile data for each user being followed
     const { data: profiles, error: profileError } = await supabase!
       .from("profiles")
-      .select("user_id, nickname, bio, photo")
+      .select("user_id, nickname, bio, photo, handle")
       .in("user_id", followingIds);
 
     if (profileError) {
@@ -7897,6 +8086,7 @@ export async function getFollowingDb(
       nickname: String(row.nickname ?? "Usuário"),
       bio: row.bio ? String(row.bio) : undefined,
       photo: row.photo ? String(row.photo) : null,
+      handle: row.handle ? String(row.handle) : null,
     }));
   } catch (err: any) {
     console.error("Error getting following:", err);
@@ -8702,7 +8892,7 @@ export async function toggleUserHabitCompletionDb(
 // Notifications functionality
 export type NotificationItem = {
   id: string;
-  type: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18; // 1 = new follower, 2 = incentive, 3 = comment, 4 = duel invite, 5 = join request, 6 = comment reaction, 7 = check-in reaction, 8 = promotion comment, 9 = tagged in post, 10 = private message, 11 = duel check-in, 12 = promotion like, 13 = promotion expired, 14 = check-in classificado, 15 = check-in desclassificado, 16 = tagged in flow, 17 = resposta a um flow (mensagem privada, só push), 18 = comentaram no flow em que você também comentou
+  type: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 20; // 1 = new follower, 2 = incentive, 3 = comment, 4 = duel invite, 5 = join request, 6 = comment reaction, 7 = check-in reaction, 8 = promotion comment, 9 = tagged in post, 10 = private message, 11 = duel check-in, 12 = promotion like, 13 = promotion expired, 14 = check-in classificado, 15 = check-in desclassificado, 16 = tagged in flow, 17 = resposta a um flow (mensagem privada, só push), 18 = comentaram no flow em que você também comentou, 20 = mencionado (@) num comentário
   userId: string;
   userNickname: string;
   userPhoto: string | null;

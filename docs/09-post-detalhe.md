@@ -1,5 +1,10 @@
 # Tela: Detalhe do Post
 
+> **"Seu flow" no compartilhar (2026-09-27):** no próprio post com foto, o `ShareDrawer` oferece publicar a 1ª foto no flow (`sharePostToFlow`, ver `docs/13-layouts-e-componentes.md`).
+
+> **Menções "@" (2026-09-27):** `@handle` na legenda aparece em azul e abre o perfil ao toque (`renderWithHashtags` + `useOpenProfileByHandle`). Os comentários (`PostCommentsDialog`) têm autocomplete de `@` e a menção notifica (type 20).
+
+
 > **Novo (27/08/2026) — ações de segurança no menu "..."**
 > Esta tela é o destino dos deep links: um link compartilhado de um post abusivo
 > abria aqui com **nenhuma** ação disponível além de "Compartilhar". Posts de
@@ -58,7 +63,7 @@ Como a tela sempre exibe exatamente **1 post**, ela não tem scroll de página �
 
 ### Card do Post (Glass)
 - Wrapper com `borderRadius: 28px` e sombra pronunciada (`0 20px 44px -16px rgba(0,0,0,.7)`), mesmo padrão visual do `PostCard` do feed
-- Foto/carrossel via `PostCarousel` (`objectFit="cover"`, `hideDots`, indicador de página renderizado externamente); sem foto → gradiente determinístico por `post.id` (`getPostGradient`, `client/lib/post-visuals.tsx`)
+- Foto/carrossel via `PostCarousel` (`objectFit="cover"`, `hideDots`, `hideCounter`, indicador de página renderizado externamente — o contador "1/N" do carrossel foi ocultado em 2026-09-27 porque ficava atrás do menu "⋮" no canto superior direito); sem foto → gradiente determinístico por `post.id` (`getPostGradient`, `client/lib/post-visuals.tsx`)
 - Overlay de gradiente escuro (`transparent` no meio → `rgba(0,0,0,.65)` embaixo) para garantir contraste do texto branco
 
 ### Pill de Identidade (topo-esquerda, sobreposta)

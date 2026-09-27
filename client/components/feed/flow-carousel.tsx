@@ -11,6 +11,7 @@ import { UserAvatar } from "@/components/shared/user-avatar";
 import { hapticLight } from "@/lib/haptics";
 import { prefetchFlowMedia } from "@/lib/media-prefetch";
 import { pickFlowEntry } from "@/lib/flow-entry";
+import { useLanguage } from "@/lib/language-context";
 
 interface FlowCarouselProps {
   stories: StoryWithUser[];
@@ -32,6 +33,7 @@ export function FlowCarousel({
   onStoryView,
 }: FlowCarouselProps) {
   const navigate = useNavigate();
+  const { t } = useLanguage();
   // Group stories by user — always overwrite so the last entry (oldest, since array is newest-first) is stored.
   // This ensures clicking opens from the first (oldest) story posted.
   const storyMap = new Map<string, StoryWithUser>();
@@ -122,16 +124,16 @@ export function FlowCarousel({
                 </div>
               </div>
               <span className="text-[11px] text-center truncate max-w-[62px] text-white/85 font-medium">
-                Você
+                {t("feed_flow_you")}
               </span>
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-40">
             <DropdownMenuItem onClick={handleViewFlow}>
-              Ver flow
+              {t("profile_view_flow")}
             </DropdownMenuItem>
             <DropdownMenuItem onClick={onAddStoryClick}>
-              Novo flow
+              {t("feed_flow_new")}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -148,7 +150,7 @@ export function FlowCarousel({
               <div className="h-full w-full rounded-full overflow-hidden" style={{ border: "2px solid #06070c" }}>
                 <UserAvatar
                   photo={currentUserPhoto}
-                  nickname={currentUserNickname ?? "Você"}
+                  nickname={currentUserNickname ?? t("feed_flow_you")}
                   className="h-full w-full"
                 />
               </div>
@@ -161,7 +163,7 @@ export function FlowCarousel({
             </div>
           </div>
           <span className="text-[11px] text-center text-white/65 whitespace-nowrap">
-            Você
+            {t("feed_flow_you")}
           </span>
         </button>
       )}

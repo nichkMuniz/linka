@@ -63,7 +63,9 @@ import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
 import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
 import { hapticLight, hapticMedium } from "@/lib/haptics";
 import { cn } from "@/lib/utils";
-import { renderWithHashtags } from "@/lib/post-visuals";
+import { renderWithHashtags, renderWithMentions } from "@/lib/post-visuals";
+import { MentionSuggestions } from "@/components/shared/mention-suggestions";
+import { useOpenProfileByHandle } from "@/hooks/use-open-profile-by-handle";
 import { UserInsignias } from "@/components/profile/user-insignias";
 import { releaseVideoElement } from "@/lib/media-prefetch";
 
@@ -186,6 +188,16 @@ export default function Shots() {
   const [togglingIncentives, setTogglingIncentives] = React.useState<Set<string>>(new Set());
   const commentsListRef = React.useRef<HTMLDivElement>(null);
   const [commentsOpen, setCommentsOpen] = React.useState(false);
+  const commentInputRef = React.useRef<HTMLInputElement | null>(null);
+  const openProfileByHandle = useOpenProfileByHandle();
+  // Menção no comentário/legenda abre o perfil — fecha o drawer antes de sair.
+  const handleMentionClick = React.useCallback(
+    (handle: string) => {
+      setCommentsOpen(false);
+      openProfileByHandle(handle);
+    },
+    [openProfileByHandle],
+  );
   const [selectedShot, setSelectedShot] = React.useState<ShotWithUser | null>(
     null,
   );
@@ -1403,7 +1415,7 @@ export default function Shots() {
                       >
                         {!isDescTruncatable || isExpanded ? (
                           <>
-                            {renderWithHashtags(description, (tag) => navigate(`/tag/${encodeURIComponent(tag)}`))}
+                            {renderWithHashtags(description, (tag) => navigate(`/tag/${encodeURIComponent(tag)}`), openProfileByHandle)}
                             {isDescTruncatable && isExpanded && (
                               <> <button
                                 type="button"
@@ -1416,7 +1428,7 @@ export default function Shots() {
                           </>
                         ) : (
                           <>
-                            {renderWithHashtags(truncatedDescription, (tag) => navigate(`/tag/${encodeURIComponent(tag)}`))}
+                            {renderWithHashtags(truncatedDescription, (tag) => navigate(`/tag/${encodeURIComponent(tag)}`), openProfileByHandle)}
                             {"... "}
                             <button
                               type="button"
@@ -1792,7 +1804,7 @@ export default function Shots() {
                         className="break-words"
                         style={{ margin: "3px 0 7px", fontSize: "13.5px", lineHeight: "1.45", color: "rgba(255,255,255,.82)" }}
                       >
-                        {comment.text}
+                        {renderWithMentions(comment.text, handleMentionClick)}
                       </p>
                     )}
 
@@ -1840,7 +1852,7 @@ export default function Shots() {
           {/* Input bar */}
           {selectedShot && (
             <div
-              className="flex-shrink-0 flex items-center gap-[10px] px-[16px]"
+              className="relative flex-shrink-0 flex items-center gap-[10px] px-[16px]"
               style={{
                 paddingTop: "12px",
                 paddingBottom: "max(28px, env(safe-area-inset-bottom))",
@@ -1856,7 +1868,15 @@ export default function Shots() {
               />
 
               {/* Input field */}
+              {/* "@" → sugestões acima da barra (notificação de menção = type 20) */}
+              <MentionSuggestions
+                inputRef={commentInputRef}
+                value={commentText}
+                onChange={setCommentText}
+                className="mx-4"
+              />
               <input
+                ref={commentInputRef}
                 type="text"
                 placeholder={t("comments_placeholder")}
                 value={commentText}

@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Activity, ChevronRight } from "lucide-react";
+import { Activity, ArrowLeft, ChevronRight, Loader2 } from "lucide-react";
 import {
   Drawer,
   DrawerContent,
@@ -10,7 +10,15 @@ import { MuscleMap, type MuscleMapIntensity } from "@/components/shared/muscle-m
 import { PremiumGate } from "@/components/shared/premium-gate";
 import { useLanguage } from "@/lib/language-context";
 import { GLASS_SHEET_STYLE, GLASS_SHEET_PROPS } from "@/lib/glass-styles";
-import { getMuscleCoverageDb, type MuscleCoverage } from "@/lib/ritmofit-db";
+import {
+  getMuscleCoverageDb,
+  getWorkoutsByMuscleDb,
+  type Muscle,
+  type MuscleCoverage,
+  type Workout,
+} from "@/lib/ritmofit-db";
+import { ExerciseImage } from "@/components/shared/exercise-image";
+import { ItemDetailDrawer, type ItemDetailData } from "@/components/goals/item-detail-drawer";
 
 /**
  * Cobertura muscular da semana — Fase 4 do plano de treino profissional.
@@ -50,6 +58,22 @@ export function MuscleCoverageCard({ refreshToken }: MuscleCoverageCardProps) {
   const [rows, setRows] = React.useState<MuscleCoverage[] | null>(null);
   const [open, setOpen] = React.useState(false);
   const [view, setView] = React.useState<"front" | "back">("front");
+  // Músculo sem estímulo tocado → o drawer troca para a lista de exercícios que
+  // o trabalham (navegação dentro do mesmo drawer, sem empilhar outro).
+  const [muscleDetail, setMuscleDetail] = React.useState<Muscle | null>(null);
+  const [muscleExercises, setMuscleExercises] = React.useState<Workout[] | null>(null);
+  const [exerciseDetail, setExerciseDetail] = React.useState<ItemDetailData | null>(null);
+
+  React.useEffect(() => {
+    if (!muscleDetail) return;
+    let alive = true;
+    setMuscleExercises(null);
+    // 50 = o músculo é parte relevante do exercício (não só um coadjuvante).
+    getWorkoutsByMuscleDb(muscleDetail.id, 50)
+      .then((list) => { if (alive) setMuscleExercises(list); })
+      .catch(() => { if (alive) setMuscleExercises([]); });
+    return () => { alive = false; };
+  }, [muscleDetail]);
 
   React.useEffect(() => {
     let alive = true;
@@ -195,14 +219,86 @@ export function MuscleCoverageCard({ refreshToken }: MuscleCoverageCardProps) {
         </button>
       </PremiumGate>
 
-      <Drawer open={open} onOpenChange={setOpen} {...GLASS_SHEET_PROPS}>
+      <Drawer
+        open={open}
+        onOpenChange={(o) => {
+          setOpen(o);
+          if (!o) setMuscleDetail(null);
+        }}
+        {...GLASS_SHEET_PROPS}
+      >
         <DrawerContent style={GLASS_SHEET_STYLE}>
           <DrawerHeader>
-            <DrawerTitle className="text-left" style={{ color: "#fff" }}>
-              {t("goals_coverage_title")}
-            </DrawerTitle>
+            {muscleDetail ? (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setMuscleDetail(null)}
+                  aria-label={t("goals_coverage_back")}
+                  className="h-8 w-8 -ml-1 rounded-full flex items-center justify-center active:bg-white/10"
+                  style={{ color: "#fff" }}
+                >
+                  <ArrowLeft className="h-5 w-5" />
+                </button>
+                <DrawerTitle className="text-left" style={{ color: "#fff" }}>
+                  {t("goals_coverage_exercises_for").replace("{muscle}", muscleDetail.name)}
+                </DrawerTitle>
+              </div>
+            ) : (
+              <DrawerTitle className="text-left" style={{ color: "#fff" }}>
+                {t("goals_coverage_title")}
+              </DrawerTitle>
+            )}
           </DrawerHeader>
 
+          {muscleDetail ? (
+          <div
+            className="flex-1 overflow-y-auto px-4 space-y-2"
+            style={{ paddingBottom: "max(2rem, env(safe-area-inset-bottom))" }}
+          >
+            <p className="text-xs pb-1" style={{ color: "rgba(255,255,255,.45)" }}>
+              {t("goals_coverage_exercises_hint")}
+            </p>
+            {muscleExercises === null ? (
+              <div className="flex justify-center py-8">
+                <Loader2 className="h-5 w-5 animate-spin" style={{ color: "rgba(255,255,255,.5)" }} />
+              </div>
+            ) : muscleExercises.length === 0 ? (
+              <p className="text-sm text-center py-8" style={{ color: "rgba(255,255,255,.5)" }}>
+                {t("goals_coverage_exercises_empty")}
+              </p>
+            ) : (
+              muscleExercises.map((w) => (
+                <button
+                  key={w.id}
+                  type="button"
+                  onClick={() =>
+                    setExerciseDetail({
+                      type: 1,
+                      id: w.id,
+                      name: w.name,
+                      photo: w.photo ?? null,
+                      description: w.description ?? null,
+                      meta: w.muscle_group ?? null,
+                      canEdit: !!w.isCustom,
+                    })
+                  }
+                  className="w-full flex items-center gap-3 rounded-2xl p-2.5 text-left active:scale-[0.99] transition-transform"
+                  style={{ background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.1)" }}
+                >
+                  <ExerciseImage photo={w.photo} name={w.name} muscleGroup={w.muscle_group} className="h-12 w-12 rounded-xl shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[13.5px] font-semibold truncate" style={{ color: "#fff" }}>{w.name}</p>
+                    {w.muscle_group && (
+                      <p className="text-[11px] truncate" style={{ color: "rgba(255,255,255,.5)" }}>{w.muscle_group}</p>
+                    )}
+                  </div>
+                  <ChevronRight className="h-4 w-4 shrink-0" style={{ color: "rgba(255,255,255,.35)" }} />
+                </button>
+              ))
+            )}
+          </div>
+          ) : (
           <div
             className="flex-1 overflow-y-auto px-4 space-y-4"
             style={{ paddingBottom: "max(2rem, env(safe-area-inset-bottom))" }}
@@ -243,13 +339,18 @@ export function MuscleCoverageCard({ refreshToken }: MuscleCoverageCardProps) {
                 <h3 className="text-sm font-semibold" style={{ color: "#fff" }}>
                   {t("goals_coverage_gaps")}
                 </h3>
+                <p className="text-[11px]" style={{ color: "rgba(255,255,255,.4)" }}>
+                  {t("goals_coverage_gaps_tap_hint")}
+                </p>
                 {gaps.map(({ row, days }) => (
-                  <div
+                  <button
                     key={row.muscle.id}
-                    className="flex items-center justify-between gap-2 rounded-xl px-3 py-2"
+                    type="button"
+                    onClick={() => setMuscleDetail(row.muscle)}
+                    className="w-full flex items-center justify-between gap-2 rounded-xl px-3 py-2 text-left active:scale-[0.99] transition-transform"
                     style={{ background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.08)" }}
                   >
-                    <span className="text-[13px] truncate" style={{ color: "rgba(255,255,255,.8)" }}>
+                    <span className="text-[13px] truncate flex-1" style={{ color: "rgba(255,255,255,.8)" }}>
                       {row.muscle.name}
                     </span>
                     <span className="text-[11px] font-semibold shrink-0" style={{ color: "#fca5a5" }}>
@@ -257,13 +358,18 @@ export function MuscleCoverageCard({ refreshToken }: MuscleCoverageCardProps) {
                         ? t("goals_coverage_never")
                         : t("goals_coverage_days_ago").replace("{n}", String(days))}
                     </span>
-                  </div>
+                    <ChevronRight className="h-4 w-4 shrink-0" style={{ color: "rgba(255,255,255,.35)" }} />
+                  </button>
                 ))}
               </div>
             )}
           </div>
+          )}
         </DrawerContent>
       </Drawer>
+
+      {/* Ficha do exercício (foto + como executar) — por cima do drawer */}
+      <ItemDetailDrawer item={exerciseDetail} onClose={() => setExerciseDetail(null)} />
     </>
   );
 }

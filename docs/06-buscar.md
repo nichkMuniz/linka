@@ -56,6 +56,7 @@ As abas usam o **segmented control de vidro**, padronizado com a tela de Comunid
 - Aba ativa: `bg-brand text-white`; inativa: `text-white/50 hover:text-white/80`
 - Ícones: `Users` (Pessoas), `Dumbbell` (Exercícios), `Salad` (Dietas), `Hash` (Tags)
 - Não usa mais o `TabsList`/`TabsTrigger` do Shadcn — apenas o wrapper `Tabs` + `TabsContent` para alternar o conteúdo
+- **Aba e busca persistem na URL (2026-09-27):** `activeTab` e `searchQuery` são espelhados em `?tab=&q=` (`setSearchParams(..., { replace: true })` — não empilha histórico a cada tecla). Abrir um post/shot/perfil e voltar remonta a tela; antes ela caía sempre em **Pessoas** com a busca vazia (ex.: quem explorava uma tag perdia a aba Tags). No mount, a aba vem da URL (só se estiver em `SEARCH_TABS`, que respeita as feature flags) e, havendo `q`, a busca é refeita uma vez. As cargas iniciais (`getAllUsersDb`, `searchRoutinesDb("")`) não sobrescrevem os resultados quando há busca restaurada (`searchQueryRef`)
 
 ---
 

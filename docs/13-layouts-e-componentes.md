@@ -65,13 +65,15 @@ client/components/
 - **Alvos de toque:** os ícones do header são `40×40` (eram `36×36`), aproximando-se do mínimo de 44pt da Apple HIG
 - **Toque no logo:** `navigate("/")` quando fora do feed; no feed, dispara `ritmofit-refresh-feed`. **Nunca** `window.location.href` — isso recarregava a WebView inteira (perde cache de feed, remonta a app, refaz auth), que era a maior quebra de fluidez do app
 - **Limite diário atingido:** o botão "Ignorar hoje" é `variant="ghost"` (ação terciária). Como ele derrota o propósito do limite, não pode ser o CTA em destaque — os botões de adiar (5/10/30 min) são os `outline`
-- **Vibração ao receber notificação:** A subscription realtime (`app-layout-notif-push`, canal `notifications`) dispara `hapticSuccess()` (`client/lib/haptics.ts`) para qualquer INSERT na tabela `notifications` do usuário logado — independentemente do tipo (follow, incentivo, comentário, duelo, reação) e da tela em que o usuário está, inclusive na própria tela de Notificações. Roda antes da checagem que pula a notificação local visual (`LocalNotifications.schedule`) quando o usuário já está em `/notificacoes`, então a vibração sempre ocorre mesmo quando o banner é suprimido. Sem efeito fora do runtime nativo (Capacitor) — `hapticSuccess()` é no-op no browser. **Exceção: mensagem privada (`type 10`)** sai do handler antes da vibração — quem avisa DM em primeiro plano é o canal de `messages` (item seguinte), e vibrar nos dois seria aviso duplo da mesma mensagem
+- **Vibração ao receber notificação:** A subscription realtime (`app-layout-notif-push`, canal `notifications`) dispara `hapticSuccess()` (`client/lib/haptics.ts`) para qualquer INSERT na tabela `notifications` do usuário logado — independentemente do tipo (follow, incentivo, comentário, duelo, reação) e da tela em que o usuário está, inclusive na própria tela de Notificações. Roda antes da checagem que pula o pop up visual (`showIncomingNotificationToast`, que desde 2026-09-27 substitui o `LocalNotifications.schedule` — o iOS não exibe notificação local em primeiro plano) quando o usuário já está em `/notificacoes`, então a vibração sempre ocorre mesmo quando o banner é suprimido. Sem efeito fora do runtime nativo (Capacitor) — `hapticSuccess()` é no-op no browser. **Exceção: mensagem privada (`type 10`)** sai do handler antes da vibração — quem avisa DM em primeiro plano é o canal de `messages` (item seguinte), e vibrar nos dois seria aviso duplo da mesma mensagem
 - **Pop up de mensagem recebida (2026-08-06):** a subscription `app-layout-messages` (INSERT em `messages` com `following_id = usuário logado`) dispara `hapticLight()` — vibração leve, em qualquer tela — e publica no pub/sub `client/lib/incoming-message-toast.ts`, exibido pelo `IncomingMessageToast` montado ao lado dos outros overlays globais. O banner mostra avatar, apelido e preview da mensagem; toque abre `/comunidade?user=<remetente>`. **Suprimido** (só vibra) quando a conversa daquele remetente já está aberta na tela — `getActiveConversationUserId()`. Disparado **fora** do debounce de 1s que existe nesse handler: o debounce protege só a query do badge, o aviso precisa ser instantâneo. Detalhes em `docs/10-notificacoes.md`
 - **Convite para treinar junto (2026-08-26):** a mesma subscription `app-layout-notif-push` trata o **tipo 19** de forma própria: vibra, busca a party (`getWorkoutPartyInviteByIdDb`, id em `post_id`) e abre o `WorkoutPartyInviteDialog` — **sem** o banner local, que seria um aviso genérico para algo que precisa dos exercícios e dos botões de aceitar/recusar à vista. O diálogo mora no layout (e não na tela de Metas) porque o convite é para **agora**: quem está no feed tem de vê-lo na hora. Ao montar, o layout ainda procura um convite pendente (`getPendingWorkoutPartyInviteDb`), cobrindo o toque no push e o app aberto do zero. Aceitar só repassa o convite (`pendingPartyJoin` no `workout-context`) e navega para `/metas`, que é quem sabe iniciar um treino — mesmo padrão do `pendingReopen`. Ver `docs/05-metas.md`
 - **Refetch de badges no refresh do feed:** contadores são carregados no mount e mantidos via subscription realtime do Supabase (que pode cair silenciosamente em background no iOS). Para evitar badge desatualizado, o `AppLayout` também escuta os eventos `ritmofit-refresh-feed` (toque no logo/home) e `ritmofit-refresh-badges` (disparado pelo pull-to-refresh em `Index.tsx`) e refaz o fetch de `getUnreadMessageCountDb`/`getUnreadNotificationsCountDb` a cada um deles
 - **Invalidação no realtime dos badges (performance):** os handlers realtime chamam `invalidateQueryCache("unreadMsgCount"/"conversations")` **antes** de reler o contador. `getUnreadMessageCountDb`/`getUnreadNotificationsCountDb` são cacheadas (30s); sem invalidar, o evento realtime relia a própria entrada em cache e o badge só acertava quando o TTL vencia — o realtime virava no-op
 - **Tempo de tela bufferizado (performance):** a troca de rota **não vai mais ao banco**. `bufferScreenTime(tela, segundos)` acumula em `localStorage` (somado por dia+tela) e `flushScreenTimeDb(userId)` envia tudo num **único insert em lote** quando o app vai para background (`appStateChange`/`visibilitychange`), no logout (`settings-drawer`, antes do `signOut` por causa do RLS) e na abertura seguinte (resíduo de sessão encerrada abruptamente). Antes: 1 INSERT por navegação
 - **Limite diário sem polling (performance):** a mudança do limite é sinalizada pelo evento `lk:daily-limit-changed` (disparado pelo `settings-drawer` ao salvar) + revalidação no `visibilitychange` (cobre a virada do dia). Substituiu um `setInterval` de 5s que rodava em toda tela, para sempre, só para vigiar uma chave de `localStorage` — o evento nativo `storage` não serve, pois só dispara em outra aba
+- **Treino não conta como tempo de uso (2026-09-27):** enquanto a tela de registrar treino está aberta (`workoutModalOpen` do `workout-context`; **minimizado conta**, pois o usuário está navegando), os três relógios do `AppLayout` ficam parados: o **limite diário** (o bloqueio nunca interrompe um treino), a **sessão de acesso** (`access_sessions`) e o **tempo por tela** (`screen_time_logs`). Cada relógio tem um "desde" próprio (`sessionWorkoutSinceRef`/`screenWorkoutSinceRef`): durante o treino o tempo corrido é descontado ao vivo (`sessionActiveMs`/`screenActiveMs`); ao fechar, o início do relógio é empurrado pelo tempo de treino — também no `sessionStorage` (`ritmofit_session_start`/`ritmofit_screen_start`), que é o que o logout do `settings-drawer` lê. Todo reset de relógio passa por `resetSessionClock`/`resetScreenClock`
+- **Limite diário acumula o dia inteiro (corrigido 2026-09-27):** o uso do dia fica em `localStorage` (`lk:dailyUsage` = `{ date, seconds, snooze }`, zera sozinho na virada do dia local). Antes o acumulado era lido de uma chave de `sessionStorage` (`ritmofit_usage_seconds_today`) que **nunca era gravada** — o limite contava só desde a última abertura, e fechar/reabrir o app zerava o contador; além disso a restauração comparava com a data em que o limite foi **configurado**, não com hoje. Agora um tick de 1s soma o tempo real desde o tick anterior, só com o app visível e fora da tela de registrar treino; um intervalo > 5s entre ticks (WebView suspenso) é descartado. O **adiar** (5/10/30 min) também é persistido no mesmo objeto — reabrir o app não traz o bloqueio de volta. O contador só roda com limite configurado: ativar o limite no meio do dia começa a contar daquele momento
 - **Toast de sincronização offline (2026-07-11):** escuta o evento global `linka-offline-synced` (`OUTBOX_SYNCED_EVENT` de `client/lib/offline-outbox.ts`) e mostra o toast `goals_sync_done_title/desc` em qualquer tela quando a fila de escritas feitas sem internet (treinos/check-ins da tela de Metas) termina de sincronizar — ver "Modo offline" em `docs/05-metas.md`
 - **Foto de perfil:** Carregada dinamicamente no ícone de Perfil
 - **Bottom Navigation (mobile):** 5 itens fixos na parte inferior
@@ -146,6 +148,22 @@ Dialog para criar um novo story:
 
 ---
 
+### FlowRepostFrame (2026-09-27)
+
+`client/components/shared/flow-repost-frame.tsx` — moldura de **repost de flow** estilo Instagram, usada pelos dois viewers (`FlowViewer.tsx` e `FlowViewerModal`). Recebe o `story` e, como `children`, as mesmas camadas que o viewer desenha para um flow comum (mídia, spinner, frases). Se `story.reposted_from` estiver vazio, devolve os filhos sem moldura.
+
+- O "palco" original inteiro é reduzido como um bloco (`transform: scale(0.8)`, `FRAME_SCALE`) dentro de um card arredondado (28px, borda branca translúcida, sombra) sobre um gradiente escuro azul→roxo. Escalar o bloco (em vez de redimensionar a mídia) mantém as frases/stickers **exatamente** onde o autor os colocou.
+- Chip do **autor original** no topo esquerdo do card (avatar + apelido de `repostedFromNickname`/`repostedFromPhoto`); sem autor (conta apagada → `reposted_from_user = null`) mostra ícone `Repeat2` + `t("flow_repost_badge")`. O chip é `pointer-events-none` — as zonas de toque de navegação ficam por cima.
+- Nada muda na barra de progresso, no vídeo ou no `mediaReady`: os filhos são os mesmos elementos.
+
+### FlowPostCard (2026-09-27)
+
+`client/components/shared/flow-workout-sticker.tsx` — moldura de um **post do feed** compartilhado no flow (`StoryTextElement.kind === "post"`), renderizada por `FlowElementView`. Mesma linguagem da moldura de repost: card `min(80vw, 380px)`, cantos 26px, borda clara, sombra, chip do autor (avatar + apelido) no topo e a foto do post (referenciada, `maxHeight: 56dvh`). Com `interactive` (viewers) mostra "Toque para ver o post ›". Foto que não carrega (post apagado) → "Post indisponível". Alvo de toque: `data-flow-post-sticker` — as zonas de navegação do `FlowViewer` testam o retângulo e navegam para `/post/:postId` (no modo embutido fecham o viewer antes).
+
+### FlowWorkoutDetailDrawer (2026-09-27)
+
+`client/components/shared/flow-workout-detail-drawer.tsx` — drawer glass aberto ao tocar no sticker de treino de um flow (`FlowViewer` e `FlowViewerModal`). Props: `workout` (o `StoryWorkoutSticker`, null = fechado), `authorId`/`authorNickname` (dono da rotina — num repost, o autor original) e `onClose`. Mostra chips da sessão (séries, volume, duração, kcal, PRs), a lista numerada **só dos exercícios feitos na sessão** (séries×kg — sessão completa via `getFlowWorkoutSessionDb` quando `last_summary` ainda é a mesma sessão; senão, os até 8 do sticker + "+N") e o botão **"Copiar rotina"** para quem não é o autor. O `FlowWorkoutSticker` expõe `data-flow-workout-sticker` (alvo de toque) e a prop `interactive` (dica "Toque para ver o treino ›"), repassada por `FlowElementView`.
+
 ### WorkoutStickerPickerDrawer (2026-08-21)
 **Arquivo:** `client/components/modals/workout-sticker-picker-drawer.tsx`
 **Usado em:** `FlowCreationDialog`
@@ -155,17 +173,19 @@ Dialog para criar um novo story:
 
 ---
 
-### FlowViewerModal
-**Arquivo:** `client/components/modals/flow-viewer-modal.tsx`
-**Usado em:** Feed (Index), Perfil
+### FlowViewer (viewer único de flows) — ~~FlowViewerModal~~ removido em 2026-09-27
+**Arquivo:** `client/pages/FlowViewer.tsx`
+**Usado em:** rota `/flows/:storyId` (ring do feed, notificações, deep links) e **Perfil** (modo embutido)
 
-Modal de visualização de stories:
-- Tela cheia com a imagem do story
-- Barra de progresso automática
-- Navegação entre múltiplos stories
-- Exibe contagem de visualizações (para o dono)
-- Swipe ou click para avançar
-- Campo de comentário com **EmojiPicker** integrado
+Existe **um** viewer de flows. O `FlowViewerModal` (`client/components/modals/flow-viewer-modal.tsx`) era uma cópia paralela aberta pelo perfil que divergia do feed em layout e funções (doca, marcados, repost, segurar para esconder, etc.) — foi apagado. Agora o perfil renderiza o próprio `FlowViewer` com a prop `embedded`:
+
+- `embedded = { stories, storyId, onNavigate(id), onClose(), onDeleted?(id) }` — em vez de ler a URL e carregar o ring (`getActiveStoriesDb`), usa a lista recebida e devolve a navegação por callback. Sem a prop, é a rota de sempre.
+- Toda navegação interna passa por `goToStory(id)` / `closeViewer()`; saídas para outra tela (perfil de quem visualizou, menção num comentário) chamam `leaveViewer()` antes — o Perfil é o mesmo componente para qualquer `/usuario/:id` e manteria o viewer aberto.
+- Embutido: `z-[200]` (acima do header/bottom nav `z-50` e do timer de descanso `z-150`, abaixo dos drawers `z-300/310`) e trava o scroll do `body` enquanto aberto.
+- Embutido é renderizado por **portal no `<body>`** (`createPortal`, helper `mount`). Sem isso, o `PageTransition` (framer, com `transform`) vira o *containing block* do `position: fixed`: o viewer abria medido a partir do conteúdo do perfil e um pedaço do header do app ficava visível no topo. Qualquer overlay `fixed` aberto de dentro de uma página tem o mesmo problema.
+- No Perfil é carregado com `React.lazy` (mesmo chunk da rota).
+
+**Regra:** qualquer mudança visual ou de comportamento no viewer vale para os dois lugares automaticamente — não recriar um viewer separado.
 
 ---
 
@@ -380,9 +400,22 @@ Ver `docs/01-feed.md` (Comparar treino) e `docs/14-database-schema.md` (`posts.w
 
 ---
 
+### MentionSuggestions (2026-09-27)
+
+`client/components/shared/mention-suggestions.tsx` — autocomplete de **menção "@"** para qualquer `<input>`/`<textarea>`. Ao digitar `@` (no início ou depois de espaço), lista até 5 pessoas — quem o usuário segue primeiro (`getFollowingDb`, filtrado por handle/apelido), depois a busca global (`searchMentionUsersDb`, debounce 250ms, respeita bloqueios) — e troca o `@termo` por `@handle ` mantendo o cursor.
+
+- Props: `inputRef` (o campo), `value`/`onChange` (texto controlado), `onPick?(user)`, `placement` (`"above"` para docas no rodapé, `"below"` para campos no topo). O **pai precisa ser `relative`**.
+- **Não tira o foco do campo** ao tocar numa sugestão (`onTouchEnd`/`onMouseDown` com `preventDefault`) — no iOS perder o foco fecharia o teclado.
+- `addMentionToTagged(prev, user, max)`: helper para legendas que aceitam marcação — a pessoa escolhida entra nos marcados (e a marcação notifica, types 9/16).
+- Onde está: legenda do Novo Post, `EditPostDrawer`, descrição do resumo de treino, descrição do flow e texto do flow (**"T + Aa"**, nos dois editores — só texto e sobre mídia) (com `onPick` → marcação); comentários de post (`PostCommentsDialog`, no campo novo **e na edição**), shot e flow (os dois viewers) — lá a notificação é o type 20, gerado pelo banco (só no INSERT: editar não renotifica).
+- A lista para a propagação de toques (`pointerdown`/`touchstart`/`touchend`/`click`): no editor "T + Aa" um toque fora confirma o texto, e nos viewers um toque avança o flow. No "T + Aa" a lista fica abaixo do texto com `max-h-[168px]` e rolagem, para caber acima do teclado.
+- Render: `renderWithMentions(text, onClick)` (comentários) e o 3º parâmetro de `renderWithHashtags` (legendas), em `client/lib/post-visuals.tsx`, destacam `@handle` em azul; o toque usa `useOpenProfileByHandle` (`client/hooks/use-open-profile-by-handle.ts`, resolve handle → id via `getUserIdByHandleDb`).
+
 ### TagPeopleDrawer
 **Arquivo:** `client/components/shared/tag-people-drawer.tsx`
 **Usado em:** NewPost (Etapa 2 — "Marcar pessoas"), EditPostDrawer (seção "Pessoas marcadas" — abre por cima do drawer de edição) e WorkoutSummaryOverlay (marcar quem treinou junto antes de publicar o resumo no feed)
+
+- **"Encontrar pessoas" para quem não segue ninguém (2026-09-27):** com a lista de seguidos vazia e sem busca digitada, o drawer mostra "Você ainda não segue ninguém. Encontre e siga pessoas para poder marcá-las." (`tag_people_no_following`) + botão **"Encontrar pessoas"** (`feed_find_people`), que fecha o drawer e leva à tela **Buscar** (`/buscar`) para procurar e seguir gente. O rascunho do Novo Post sobrevive à navegação (`sessionStorage` + `imageDraft`), e seguir alguém invalida o cache `following` — ao voltar e reabrir o drawer, os recém-seguidos já aparecem. Vale em todos os usos do drawer
 
 Drawer glass de **marcação de pessoas em um post** (estilo Instagram). Seleção controlada pelo pai via `selected: SearchUser[]` / `onChange`:
 - Ao abrir, lista quem o usuário segue (`getFollowingDb`); a busca filtra os seguidos **e** procura qualquer pessoa do app (`searchUsersDb`, debounce 300ms), mesclando sem duplicatas e excluindo o próprio usuário
@@ -405,6 +438,8 @@ O card de prévia mostra só o `text` — a URL (com o id do post) **não é exi
 As URLs vêm de `client/lib/share-url.ts`, que reexporta a fonte única `shared/share-config.ts`. **O que acontece do outro lado do link** — Universal Links, custom scheme, prévia Open Graph e landing de instalação — está em `docs/19-compartilhamento-e-deep-links.md`.
 
 ---
+
+- **"Seu flow" (2026-09-27):** prop opcional `onShareToFlow?: () => Promise<void>` → botão com borda em gradiente e ícone `CirclePlus` logo após "Amigos" (spinner enquanto roda; fecha o drawer quando a promise resolve, fica aberto se ela rejeitar). O pai decide quando oferecer — hoje só no **próprio post com foto** (Feed e Detalhe do post). A publicação é `sharePostToFlow(post)` (`client/lib/post-to-flow.ts`): cria um flow **sem mídia própria** — fundo `POST_FLOW_BACKGROUND` (gradiente da moldura de repost) e um único elemento `kind: "post"` em `text_elements` (`StoryPostSticker`: `postId`, 1ª foto, autor). O viewer desenha a **moldura do post** ao vivo (`FlowPostCard`) e o toque nela abre `/post/:id`. Referência e não cópia de propósito: sem `media_url`, apagar o flow não toca no Storage (reaproveitar a foto do post como mídia faria apagar o flow apagar a foto do post).
 
 ### SendToFriendDrawer (2026-07-12)
 **Arquivo:** `client/components/shared/send-to-friend-drawer.tsx`
@@ -457,6 +492,8 @@ Exibe badges/conquistas do usuário:
 ### IncomingMessageToast (2026-08-06)
 **Arquivo:** `client/components/shared/incoming-message-toast.tsx`
 **Usado em:** `AppLayout` (montado uma única vez, aparece sobre qualquer tela)
+
+> **Desde 2026-09-27 também exibe notificações sociais** (incentivo, comentário, seguidor, marcação, menção…) via `showIncomingNotificationToast` — `Banner.kind = "notification"`: 1ª linha = título, 2ª = texto pronto do `notification-copy.ts`, selo de sino laranja (DM segue com o balão azul) e o toque vai para o deep link da notificação. Um banner novo substitui o anterior.
 
 Pop up glass no topo avisando que chegou uma mensagem privada com o app aberto:
 - **Conteúdo:** avatar + apelido do remetente + preview da mensagem (via `conversationPreviewText`, o mesmo helper da lista de conversas — resolve `[audio]:`, `[image]:`, `[post]:`, `[shot]:` e respostas `↩`)

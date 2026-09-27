@@ -1,6 +1,6 @@
 import * as React from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { MessageCircle } from "lucide-react";
+import { Bell, MessageCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import { UserAvatar } from "@/components/shared/user-avatar";
@@ -8,18 +8,28 @@ import { conversationPreviewText } from "@/components/community/community-helper
 import { useLanguage } from "@/lib/language-context";
 import {
   subscribeIncomingMessageToast,
+  subscribeIncomingNotificationToast,
   type IncomingMessagePayload,
+  type IncomingNotificationPayload,
 } from "@/lib/incoming-message-toast";
 import { getUserProfileDb } from "@/lib/ritmofit-db";
 
 /** Tempo em tela antes de sumir sozinho. */
 const AUTO_DISMISS_MS = 5000;
 
+/**
+ * `message` = DM (nome + preview, abre a conversa); `notification` = aviso
+ * social (título + texto pronto, abre o deep link do push). Mesmo visual.
+ */
 type Banner = {
-  senderId: string;
+  kind: "message" | "notification";
   name: string;
   photo: string | null;
+  /** 1ª linha: nome do remetente (DM) ou título da notificação */
+  headline: string;
+  /** 2ª linha: preview da mensagem ou corpo da notificação */
   preview: string;
+  url: string;
 };
 
 /**
@@ -43,10 +53,17 @@ export function IncomingMessageToast() {
   // Reinicia a animação quando um banner substitui outro (mesma posição na tela).
   const [tick, setTick] = React.useState(0);
   const timerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Ignora a resposta de um perfil que chegou depois de uma mensagem mais nova.
-  const latestRef = React.useRef<IncomingMessagePayload | null>(null);
+  // Ignora a resposta de um perfil que chegou depois de um aviso mais novo.
+  const latestRef = React.useRef<IncomingMessagePayload | IncomingNotificationPayload | null>(null);
   // Arrastar não pode contar como toque (senão o swipe para dispensar navega).
   const draggedRef = React.useRef(false);
+
+  const present = (next: Banner) => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    setBanner(next);
+    setTick((n) => n + 1);
+    timerRef.current = setTimeout(() => setBanner(null), AUTO_DISMISS_MS);
+  };
 
   // O efeito de assinatura roda uma vez só — `t` numa ref é o que faz o preview
   // ("🎤 Áudio") acompanhar a troca de idioma em vez de congelar no da montagem.
@@ -64,20 +81,43 @@ export function IncomingMessageToast() {
         .catch(() => null)
         .then((profile) => {
           if (latestRef.current !== payload) return;
-          if (timerRef.current) clearTimeout(timerRef.current);
-          setBanner({
-            senderId: payload.senderId,
-            name: profile?.nickname?.trim() || translate("notif_sender_fallback"),
+          const name = profile?.nickname?.trim() || translate("notif_sender_fallback");
+          present({
+            kind: "message",
+            name,
             photo: profile?.photo ?? null,
+            headline: name,
             preview:
               conversationPreviewText(payload.text, translate) ??
               translate("community_message_label"),
+            url: `/comunidade?user=${payload.senderId}`,
           });
-          setTick((n) => n + 1);
-          timerRef.current = setTimeout(() => setBanner(null), AUTO_DISMISS_MS);
         });
     });
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Notificações sociais (incentivo, comentário, seguidor…) — texto já pronto;
+  // o perfil só entra para a foto de quem originou.
+  React.useEffect(() => {
+    return subscribeIncomingNotificationToast((payload) => {
+      latestRef.current = payload;
+      const translate = tRef.current;
+      const profileReq = payload.actorId
+        ? getUserProfileDb(payload.actorId).catch(() => null)
+        : Promise.resolve(null);
+      profileReq.then((profile) => {
+        if (latestRef.current !== payload) return;
+        present({
+          kind: "notification",
+          name: profile?.nickname?.trim() || translate("notif_sender_fallback"),
+          photo: profile?.photo ?? null,
+          headline: payload.title,
+          preview: payload.body,
+          url: payload.url,
+        });
+      });
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   React.useEffect(() => () => {
     if (timerRef.current) clearTimeout(timerRef.current);
@@ -89,9 +129,9 @@ export function IncomingMessageToast() {
     setBanner(null);
   }, []);
 
-  const openConversation = React.useCallback((senderId: string) => {
+  const openBanner = React.useCallback((url: string) => {
     dismiss();
-    navigate(`/comunidade?user=${senderId}`);
+    navigate(url);
   }, [dismiss, navigate]);
 
   return (
@@ -104,7 +144,11 @@ export function IncomingMessageToast() {
           <motion.button
             key={`incoming-message-${tick}`}
             type="button"
-            aria-label={t("community_msg_toast_open").replace("{name}", banner.name)}
+            aria-label={
+              banner.kind === "message"
+                ? t("community_msg_toast_open").replace("{name}", banner.name)
+                : banner.preview
+            }
             drag="y"
             dragConstraints={{ top: 0, bottom: 0 }}
             dragElastic={{ top: 0.5, bottom: 0 }}
@@ -117,7 +161,7 @@ export function IncomingMessageToast() {
             }}
             onClick={() => {
               if (draggedRef.current) return;
-              openConversation(banner.senderId);
+              openBanner(banner.url);
             }}
             initial={{ opacity: 0, y: -28, scale: 0.94 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -136,13 +180,17 @@ export function IncomingMessageToast() {
               <UserAvatar photo={banner.photo} nickname={banner.name} size="md" className="border border-white/25" />
               <span
                 className="absolute -bottom-0.5 -right-0.5 flex h-[18px] w-[18px] items-center justify-center rounded-full"
-                style={{ background: "#5b8cff", border: "1.5px solid #0a0b12" }}
+                style={{ background: banner.kind === "message" ? "#5b8cff" : "#f97316", border: "1.5px solid #0a0b12" }}
               >
-                <MessageCircle className="h-[10px] w-[10px] text-white" />
+                {banner.kind === "message" ? (
+                  <MessageCircle className="h-[10px] w-[10px] text-white" />
+                ) : (
+                  <Bell className="h-[10px] w-[10px] text-white" />
+                )}
               </span>
             </div>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold leading-tight text-white">{banner.name}</p>
+              <p className="truncate text-sm font-semibold leading-tight text-white">{banner.headline}</p>
               <p className="truncate text-xs leading-tight text-white/70">{banner.preview}</p>
             </div>
           </motion.button>

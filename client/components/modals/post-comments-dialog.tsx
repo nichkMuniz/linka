@@ -39,6 +39,9 @@ import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
 import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
 import { MessageCircle } from "lucide-react";
 import { motion } from "framer-motion";
+import { MentionSuggestions } from "@/components/shared/mention-suggestions";
+import { renderWithMentions } from "@/lib/post-visuals";
+import { useOpenProfileByHandle } from "@/hooks/use-open-profile-by-handle";
 
 // Module-level flag: survives StrictMode remount cycles, resets when postId changes
 let _commentsAutoOpenConsumed = false;
@@ -79,6 +82,17 @@ export function PostCommentsDialog({
   const viewportHeight = useKeyboardAwareHeight();
   const savedScrollY = React.useRef(0);
   const inputRef = React.useRef<HTMLInputElement>(null);
+  // Campo de edição de um comentário (só um editado por vez) — "@" também sugere aqui.
+  const editTextareaRef = React.useRef<HTMLTextAreaElement>(null);
+  const openProfileByHandle = useOpenProfileByHandle();
+  // Menção no comentário abre o perfil — fecha o drawer antes de sair da tela.
+  const handleMentionClick = React.useCallback(
+    (handle: string) => {
+      setOpen(false);
+      openProfileByHandle(handle);
+    },
+    [openProfileByHandle],
+  );
 
   const handleOpenChange = React.useCallback((nextOpen: boolean) => {
     if (nextOpen) {
@@ -432,7 +446,9 @@ export function PostCommentsDialog({
                 {/* Text or edit form */}
                 {editingId === comment.id ? (
                   <div className="mt-1 flex flex-col gap-1.5">
+                    <div className="relative">
                     <textarea
+                      ref={editTextareaRef}
                       value={editDraft}
                       onChange={(e) => setEditDraft(e.target.value)}
                       className="w-full rounded-2xl px-3 py-2 text-sm resize-none"
@@ -453,6 +469,15 @@ export function PostCommentsDialog({
                         if (e.key === "Escape") handleCancelEdit();
                       }}
                     />
+                    {/* "@" na edição → sugestões logo abaixo do campo. Editar não
+                        renotifica (o trigger do type 20 é só no INSERT). */}
+                    <MentionSuggestions
+                      inputRef={editTextareaRef}
+                      value={editDraft}
+                      onChange={setEditDraft}
+                      placement="below"
+                    />
+                    </div>
                     <div className="flex gap-1.5">
                       <button
                         type="button"
@@ -481,7 +506,7 @@ export function PostCommentsDialog({
                     className="break-words"
                     style={{ margin: "3px 0 7px", fontSize: "13.5px", lineHeight: "1.45", color: "rgba(255,255,255,.82)" }}
                   >
-                    {comment.text}
+                    {renderWithMentions(comment.text, handleMentionClick)}
                   </p>
                 )}
 
@@ -546,7 +571,7 @@ export function PostCommentsDialog({
 
       {/* Input bar */}
       <div
-        className="flex-shrink-0 flex items-center gap-[10px] px-[16px]"
+        className="relative flex-shrink-0 flex items-center gap-[10px] px-[16px]"
         style={{
           paddingTop: "12px",
           paddingBottom: "max(28px, env(safe-area-inset-bottom))",
@@ -599,6 +624,17 @@ export function PostCommentsDialog({
           >
             {t("comments_login_view")}
           </div>
+        )}
+
+        {/* "@" no comentário → sugestões acima da barra (a notificação de
+            menção sai do trigger do banco, type 20) */}
+        {user && (
+          <MentionSuggestions
+            inputRef={inputRef}
+            value={draft}
+            onChange={setDraft}
+            className="mx-4"
+          />
         )}
 
         {/* Send button */}

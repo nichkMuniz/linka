@@ -1,8 +1,11 @@
 import * as React from "react";
+import { useOpenProfileByHandle } from "@/hooks/use-open-profile-by-handle";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { getPostByIdDb, getPostLikeUsersDb, getPostLikesDb, getUserPostLikesDb, togglePostIncentiveDb, getUserGoalByIdDb, deletePostDb, flushPendingIncentivesDb, type PostWithUser, type PostLikeStats, type PostIncentiveType, type UserGoal } from "@/lib/ritmofit-db";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/use-toast";
+import { sharePostToFlow } from "@/lib/post-to-flow";
+import { reportHandledError } from "@/lib/monitoring";
 import { useAuth } from "@/hooks/useAuth";
 import { useLanguage } from "@/lib/language-context";
 import { ArrowLeft, Edit2, Trash2, MoreVertical, UsersRound, Share2, Ban } from "lucide-react";
@@ -44,6 +47,7 @@ import {
 export default function PostDetail() {
   const { postId } = useParams<{ postId?: string }>();
   const navigate = useNavigate();
+  const openProfileByHandle = useOpenProfileByHandle();
   const location = useLocation();
   const { user } = useAuth();
   const { t } = useLanguage();
@@ -236,6 +240,9 @@ export default function PostDetail() {
               alt="Post"
               objectFit="cover"
               hideDots
+              // O contador "1/N" ficava atrás do menu "⋮" — a posição já é
+              // mostrada pelos dots próprios da tela, no rodapé do card.
+              hideCounter
               fill
               onIndexChange={setCarouselIndex}
             />
@@ -383,7 +390,7 @@ export default function PostDetail() {
               >
                 {!isDescTruncatable || descExpanded ? (
                   <>
-                    {renderWithHashtags(description, (tag) => navigate(`/tag/${encodeURIComponent(tag)}`))}
+                    {renderWithHashtags(description, (tag) => navigate(`/tag/${encodeURIComponent(tag)}`), openProfileByHandle)}
                     {isDescTruncatable && descExpanded && (
                       <> <button
                         type="button"
@@ -396,7 +403,7 @@ export default function PostDetail() {
                   </>
                 ) : (
                   <>
-                    {renderWithHashtags(truncatedDescription, (tag) => navigate(`/tag/${encodeURIComponent(tag)}`))}
+                    {renderWithHashtags(truncatedDescription, (tag) => navigate(`/tag/${encodeURIComponent(tag)}`), openProfileByHandle)}
                     {"... "}
                     <button
                       type="button"
@@ -512,6 +519,27 @@ export default function PostDetail() {
         url={postShareUrl(post.id)}
         title={t("feed_share_post_title")}
         onSendToFriend={() => setSendToFriendOpen(true)}
+        // "Seu flow" só no PRÓPRIO post com foto (1ª foto do carrossel).
+        onShareToFlow={
+          post.user_id === user?.id && photos?.[0]
+            ? async () => {
+                try {
+                  await sharePostToFlow({
+                    postId: post.id,
+                    photo: String(photos[0]),
+                    authorId: post.user_id,
+                    authorNickname: post.userNickname ?? "",
+                    authorPhoto: post.userPhoto ?? null,
+                  });
+                  toast({ title: t("share_flow_success"), description: t("share_flow_success_desc") });
+                } catch (err) {
+                  reportHandledError(err, "post-detail:share-post-to-flow");
+                  toast({ title: t("share_flow_error"), description: t("retry"), variant: "destructive" });
+                  throw err;
+                }
+              }
+            : undefined
+        }
       />
 
       <SendToFriendDrawer

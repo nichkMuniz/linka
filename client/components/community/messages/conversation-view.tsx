@@ -24,6 +24,8 @@ import { SharedContentMessage } from "@/components/community/shared-content-mess
 import { FlowReplyMessage } from "@/components/community/flow-reply-message";
 import { ChatImageMessage, ChatAudioMessage } from "@/components/community/chat-media";
 import { parseFlowReply } from "@/lib/flow-reply";
+import { parseGoalReply } from "@/lib/goal-reply";
+import { GoalReplyMessage } from "@/components/community/goal-reply-message";
 import { specialMessageLabel } from "@/components/community/community-helpers";
 import { UserSafetyDrawer } from "@/components/shared/user-safety-drawer";
 
@@ -172,6 +174,7 @@ export function ConversationView({ ctl }: { ctl: MessagesController }) {
             const replyQuote = replyMatch ? replyMatch[1] : null;
             const mainText = replyMatch ? replyMatch[2] : message.text;
             const flowReply = parseFlowReply(mainText);
+            const goalReply = flowReply ? null : parseGoalReply(mainText);
             return (
               <div
                 key={message.id}
@@ -210,6 +213,12 @@ export function ConversationView({ ctl }: { ctl: MessagesController }) {
                       <FlowReplyMessage
                         flowId={flowReply.flowId}
                         text={flowReply.text}
+                        isOwn={isOwn}
+                      />
+                    ) : goalReply ? (
+                      <GoalReplyMessage
+                        goalId={goalReply.goalId}
+                        text={goalReply.text}
                         isOwn={isOwn}
                       />
                     ) : mainText.startsWith("[post]:") ? (

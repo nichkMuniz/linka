@@ -1,5 +1,5 @@
 import * as React from "react";
-import { ChevronLeft, ChevronRight, UserRoundPlus, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, RotateCcw, UserRoundPlus, X } from "lucide-react";
 import { useLanguage } from "@/lib/language-context";
 import { toast } from "@/components/ui/use-toast";
 import {
@@ -10,7 +10,8 @@ import {
   type SearchUser,
   type WorkoutPartySnapshot,
 } from "@/lib/ritmofit-db";
-import { TagPeopleDrawer } from "@/components/shared/tag-people-drawer";
+import { TagPeopleDrawer, MAX_TAGGED_PEOPLE } from "@/components/shared/tag-people-drawer";
+import { MentionSuggestions, addMentionToTagged } from "@/components/shared/mention-suggestions";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import {
   InlineCropPreview,
@@ -1264,6 +1265,7 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed, onPartyRo
   // aparecer na foto). Vale para o post do FEED; o check-in de duelo não tem
   // marcação (é check-in, não post).
   const [taggedUsers, setTaggedUsers] = React.useState<SearchUser[]>([]);
+  const descriptionRef = React.useRef<HTMLTextAreaElement | null>(null);
   const [tagPeopleOpen, setTagPeopleOpen] = React.useState(false);
   // Modalidades de cardio feitas na sessão (corrida na esteira e ao ar livre
   // caem no mesmo grupo), ordenadas da mais longa para a mais curta. Cada uma
@@ -2331,10 +2333,51 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed, onPartyRo
           {t("goals_summary_share_section")}
         </div>
 
-        {/* Auto-generated description (editable) */}
+        {/* Limpar a descrição automática de uma vez (para escrever a própria);
+            com o campo vazio, o mesmo lugar oferece voltar à automática. */}
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+          {description.trim() ? (
+            <button
+              type="button"
+              onClick={() => {
+                setDescription("");
+                // Já deixa o cursor no campo (teclado aberto) para digitar.
+                requestAnimationFrame(() => descriptionRef.current?.focus());
+              }}
+              className="active:opacity-60"
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 4,
+                fontSize: 12, fontWeight: 600, color: MUTED,
+                background: "transparent", border: "none", padding: "2px 4px",
+              }}
+            >
+              <X style={{ width: 13, height: 13 }} />
+              {t("goals_summary_clear_description")}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setDescription(generateDefaultDescription(data))}
+              className="active:opacity-60"
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 4,
+                fontSize: 12, fontWeight: 600, color: "#9db8ff",
+                background: "transparent", border: "none", padding: "2px 4px",
+              }}
+            >
+              <RotateCcw style={{ width: 13, height: 13 }} />
+              {t("goals_summary_restore_description")}
+            </button>
+          )}
+        </div>
+
+        {/* Auto-generated description (editable) — "@" sugere pessoas e marca */}
+        <div style={{ position: "relative" }}>
         <textarea
+          ref={descriptionRef}
           value={description}
           onChange={(e) => setDescription(e.target.value)}
+          placeholder={t("goals_summary_description_placeholder")}
           rows={4}
           style={{
             width: "100%", background: CARD,
@@ -2346,6 +2389,18 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed, onPartyRo
             outline: "none", boxSizing: "border-box",
           }}
         />
+        <MentionSuggestions
+          inputRef={descriptionRef}
+          value={description}
+          onChange={setDescription}
+          onPick={
+            FEATURES.postTags
+              ? (u) => setTaggedUsers((prev) => addMentionToTagged(prev, u, MAX_TAGGED_PEOPLE))
+              : undefined
+          }
+          placement="below"
+        />
+        </div>
 
         {/* Marcar pessoas — quem treinou junto (só entra no post do feed).
             Era a superfície de FEATURES.postTags mais alcançável que sobrava:

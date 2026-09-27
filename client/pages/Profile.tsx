@@ -69,7 +69,9 @@ import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
 import { PostCarousel } from "@/components/post/post-carousel";
 import { WorkoutDetailButton } from "@/components/shared/workout-detail-dialog";
 import { isWorkoutCanvasPost } from "@/lib/workout-summary-types";
-import { FlowViewerModal } from "@/components/modals/flow-viewer-modal";
+// O MESMO viewer da rota /flows/:id (modo embutido) — um componente só para
+// feed e perfil. Lazy: é o mesmo chunk que a rota já carrega.
+const FlowViewer = React.lazy(() => import("@/pages/FlowViewer"));
 import { PostIncentiveButton } from "@/components/shared/post-incentive-button";
 import { FollowButton } from "@/components/shared/follow-button";
 import { FollowListDrawer } from "@/components/profile/follow-list-drawer";
@@ -531,7 +533,8 @@ export default function Profile() {
     setSelectedPost(post);
     setPostDescExpanded(false);
     setEditPostDescription(post.description);
-    setEditPostGoalId(post.user_goal_id || "");
+    // `user_goals.id` é bigint → chega como número; a lista de metas usa string.
+    setEditPostGoalId(post.user_goal_id != null ? String(post.user_goal_id) : "");
     setIsPostViewerOpen(true);
     setIsEditingPost(false);
     setIsLoadingPostData(true);
@@ -1497,6 +1500,12 @@ export default function Profile() {
         onDeleteGoal={handleProfileDeleteGoal}
         onToggleRoutineLink={handleProfileToggleRoutineLink}
         readOnly={isViewingOtherProfile}
+        // Perfil alheio: "Responder" manda DM ao dono com a meta anexada.
+        replyTo={isViewingOtherProfile && userId ? { userId, nickname: profile?.nickname ?? "" } : null}
+        onCreateRoutine={() => {
+          setSelectedGoalForDrawer(null);
+          navigate("/metas?tab=rotinas&action=create-routine");
+        }}
       />
 
       {/* Posts, Shots and Store Tabs */}
@@ -2063,8 +2072,14 @@ export default function Profile() {
                         <label className="text-sm font-medium" style={{ color: "#fff" }}>{t("profile_linked_goal_label")}</label>
                         {userGoals.length > 0 ? (
                           <div className="rounded-xl overflow-hidden" style={{ border: "1px solid rgba(255,255,255,.12)" }}>
-                            {userGoals.map((goal, idx) => {
+                            {/* Meta hoje vinculada vem primeiro, com o selo "Vinculada" */}
+                            {[...userGoals]
+                              .sort((a, b) =>
+                                Number(b.id === String(selectedPost.user_goal_id ?? "")) -
+                                Number(a.id === String(selectedPost.user_goal_id ?? "")))
+                              .map((goal, idx) => {
                               const selected = editPostGoalId === goal.id;
+                              const isLinked = goal.id === String(selectedPost.user_goal_id ?? "");
                               return (
                                 <button
                                   key={goal.id}
@@ -2077,7 +2092,15 @@ export default function Profile() {
                                     borderTop: idx > 0 ? "1px solid rgba(255,255,255,.07)" : undefined,
                                   }}
                                 >
-                                  <span className="truncate">{goal.description}</span>
+                                  <span className="truncate flex-1">{goal.description}</span>
+                                  {isLinked && (
+                                    <span
+                                      className="shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-semibold"
+                                      style={{ background: "rgba(34,197,94,.16)", color: "#4ade80", border: "1px solid rgba(34,197,94,.35)" }}
+                                    >
+                                      {t("editpost_goal_linked_badge")}
+                                    </span>
+                                  )}
                                   {selected && <Check className="h-4 w-4 shrink-0 text-brand" />}
                                 </button>
                               );
@@ -2102,7 +2125,7 @@ export default function Profile() {
                       const goalDescription =
                         selectedPost.userGoal?.description
                         ?? (selectedPost.user_goal_id && selectedPost.user_id === profileUserId
-                          ? userGoals.find((g) => g.id === selectedPost.user_goal_id)?.description
+                          ? userGoals.find((g) => g.id === String(selectedPost.user_goal_id))?.description
                           : undefined);
                       if (!goalDescription) return null;
                       return (
@@ -2275,38 +2298,34 @@ export default function Profile() {
         title={t("profile_share_title")}
       />
 
-      {/* Flow Viewer Modal */}
-      <FlowViewerModal
-        story={selectedProfileStory}
-        stories={profileStories}
-        open={isStoryViewerOpen}
-        onOpenChange={(open) => {
-          setIsStoryViewerOpen(open);
-          if (!open) {
-            setSelectedProfileStory(null);
-            // Ao fechar, ressincroniza o que foi visto: o modal grava cada visualização
-            // enquanto o usuário assiste, e o ring precisa reabrir no lugar certo.
-            getMyViewedFlowUserIdsDb(profileStories.map((s) => s.id))
-              .then(setViewedFlowIds)
-              .catch(() => {});
-          }
-        }}
-        onNextStory={() => {
-          if (!selectedProfileStory) return;
-          const idx = profileStories.findIndex((s) => s.id === selectedProfileStory.id);
-          if (idx < profileStories.length - 1) {
-            setSelectedProfileStory(profileStories[idx + 1]);
-          } else {
-            setIsStoryViewerOpen(false);
-          }
-        }}
-        onPrevStory={() => {
-          if (!selectedProfileStory) return;
-          const idx = profileStories.findIndex((s) => s.id === selectedProfileStory.id);
-          if (idx > 0) setSelectedProfileStory(profileStories[idx - 1]);
-        }}
-        onSelectStory={setSelectedProfileStory}
-      />
+      {/* Flow Viewer — mesmo componente do feed, embutido sobre o perfil */}
+      {/* Suspense sem fallback: um fallback `fixed` aqui ficaria preso ao
+          PageTransition (transform); o spinner do próprio viewer já vai por portal. */}
+      {isStoryViewerOpen && selectedProfileStory && (
+        <React.Suspense fallback={null}>
+          <FlowViewer
+            embedded={{
+              stories: profileStories,
+              storyId: selectedProfileStory.id,
+              onNavigate: (id) => {
+                const next = profileStories.find((s) => s.id === id);
+                if (next) setSelectedProfileStory(next);
+              },
+              onClose: () => {
+                setIsStoryViewerOpen(false);
+                setSelectedProfileStory(null);
+                // Ao fechar, ressincroniza o que foi visto: o viewer grava cada
+                // visualização enquanto o usuário assiste, e o ring precisa reabrir
+                // no lugar certo.
+                getMyViewedFlowUserIdsDb(profileStories.map((s) => s.id))
+                  .then(setViewedFlowIds)
+                  .catch(() => {});
+              },
+              onDeleted: (id) => setProfileStories((prev) => prev.filter((s) => s.id !== id)),
+            }}
+          />
+        </React.Suspense>
+      )}
 
       {/* Delete Account Confirmation Dialog */}
       <AlertDialog open={isDeleteAccountOpen} onOpenChange={(open) => { setIsDeleteAccountOpen(open); if (!open) setDeleteConfirmText(""); }}>

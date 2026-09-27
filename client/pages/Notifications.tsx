@@ -246,6 +246,9 @@ export default function Notifications() {
       // sobre a discussão do flow continuar, não sobre um comentário no seu.
       case 18:
         return <MessagesSquare className="h-5 w-5 text-indigo-400" />;
+      // 20 = mencionado (@) num comentário — mesmo "@" da marcação (9/16).
+      case 20:
+        return <AtSign className="h-5 w-5 text-cyan-400" />;
       default:
         return <Zap className="h-5 w-5 text-gray-500" />;
     }
@@ -406,6 +409,19 @@ export default function Notifications() {
       navigate("/", { state: { openFlow: notification.flowId } });
       return;
     }
+    // Type 20 (mencionado num comentário) — abre os comentários onde a menção está.
+    if (notification.type === 20) {
+      if (notification.shotId) {
+        navigate("/shots", { state: { openComments: true, shotId: notification.shotId } });
+      } else if (notification.flowId) {
+        navigate("/", { state: { openFlow: notification.flowId, openComments: true } });
+      } else if (notification.postId) {
+        navigate(`/post/${notification.postId}`, { state: { openComments: true } });
+      } else {
+        navigate(`/usuario/${notification.userId}`);
+      }
+      return;
+    }
     // Type 18 (comentaram no flow que você comentou) — abre o flow da conversa.
     // Se ele já expirou (>24h), o Index.tsx avisa com um toast, como no tipo 3.
     if (notification.type === 18 && notification.flowId) {
@@ -555,6 +571,7 @@ export default function Notifications() {
       case 15: return { iconBg: "rgba(248,113,113,.16)", iconColor: "#f87171" };
       case 16: return { iconBg: "rgba(34,211,238,.16)", iconColor: "#22d3ee" };
       case 18: return { iconBg: "rgba(129,140,248,.16)", iconColor: "#818cf8" };
+      case 20: return { iconBg: "rgba(34,211,238,.16)", iconColor: "#22d3ee" };
       default: return { iconBg: "rgba(255,255,255,.1)", iconColor: "rgba(255,255,255,.7)" };
     }
   };
@@ -643,11 +660,12 @@ export default function Notifications() {
       case 15: return { background: "#f87171" };
       case 16: return { background: "#22d3ee" };
       case 18: return { background: "#818cf8" };
+      case 20: return { background: "#22d3ee" };
       default: return { background: "rgba(255,255,255,.5)" };
     }
   };
 
-  const isUserBased = (type: number) => [1, 2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18].includes(type);
+  const isUserBased = (type: number) => [1, 2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 20].includes(type);
 
   return (
     <>
@@ -772,7 +790,7 @@ export default function Notifications() {
                           const groupedUsers = notification.groupedUsers ?? [];
                           const isGrouped = (notification.groupedCount ?? 1) > 1;
                           const isFollow = notification.type === 1;
-                          const hasThumbnail = (notification.type === 2 || notification.type === 3 || notification.type === 9 || notification.type === 16 || notification.type === 18) && notification.postPhoto;
+                          const hasThumbnail = (notification.type === 2 || notification.type === 3 || notification.type === 9 || notification.type === 16 || notification.type === 18 || notification.type === 20) && notification.postPhoto;
 
                           return (
                             /* div (não button): a notificação de novo seguidor precisa

@@ -51,6 +51,7 @@ const TITLE_KEY_BY_TYPE: Record<number, TranslationKey> = {
   17: "notif_title_17",
   18: "notif_title_18",
   19: "notif_title_19",
+  20: "notif_title_20",
 };
 
 const INCENTIVE_KEY_BY_TYPE: Record<number, TranslationKey> = {
@@ -195,6 +196,9 @@ export function notificationBody(
     // e os botões de aceitar/recusar.
     case 19:
       return t("notif_desc_workout_party").replace("{name}", name);
+    // 20 = mencionado com "@" num comentário (trigger notify_comment_mentions).
+    case 20:
+      return t("notif_desc_comment_mention").replace("{name}", name);
     default:
       return t("notif_body_default");
   }

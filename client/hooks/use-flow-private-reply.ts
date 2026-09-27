@@ -24,9 +24,8 @@ const MAX_PRIVATE_REPLY_CHARS = 900;
  * mecânica do tipo 10 das mensagens comuns — só muda a frase do banner. Como 17
  * também é push-only, nada disso vira card na tela de Notificações.
  *
- * Vive num hook porque os DOIS viewers de flow têm a mesma doca — a tela
- * `/flows/:storyId` (`FlowViewer.tsx`) e o modal aberto pelo perfil
- * (`flow-viewer-modal.tsx`).
+ * Usado pelo `FlowViewer` (rota `/flows/:storyId` e modo embutido do perfil —
+ * desde 2026-09-27 é um viewer só; o antigo `flow-viewer-modal.tsx` foi removido).
  */
 export function useFlowPrivateReply(story: StoryWithUser | null, isOwner: boolean) {
   const { t } = useLanguage();

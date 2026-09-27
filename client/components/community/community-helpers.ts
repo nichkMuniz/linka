@@ -1,6 +1,7 @@
 import type { TranslationKey } from "@/lib/i18n";
 import type { DuelScoringType, MessageWithUser } from "@/lib/ritmofit-db";
 import { parseFlowReply } from "@/lib/flow-reply";
+import { parseGoalReply } from "@/lib/goal-reply";
 
 // Helpers e constantes puros da tela de Comunidade, extraídos de `Community.tsx`
 // para reduzir o tamanho do arquivo monolítico. Nenhum estado/efeito aqui — só
@@ -26,7 +27,7 @@ export function sameMessageList(a: MessageWithUser[], b: MessageWithUser[]): boo
 }
 
 // Mensagens especiais são codificadas com prefixo no texto ([audio]:, [image]:,
-// [post]:, [shot]:, [flowreply]:). Em previews (lista de conversas, quote de reply,
+// [post]:, [shot]:, [flowreply]:, [goalreply]:). Em previews (lista de conversas, quote de reply,
 // banner de resposta) exibimos um rótulo curto em vez do texto bruto.
 export function specialMessageLabel(
   text: string | null | undefined,
@@ -40,6 +41,12 @@ export function specialMessageLabel(
   if (flowReply) {
     const body = flowReply.text.trim();
     return `🎞️ ${body || t("community_msg_flow_reply_label")}`;
+  }
+  // Resposta a meta: mesma lógica — o texto digitado, com 🎯 indicando a origem.
+  const goalReply = parseGoalReply(text);
+  if (goalReply) {
+    const body = goalReply.text.trim();
+    return `🎯 ${body || t("community_msg_goal_reply_label")}`;
   }
   if (text.startsWith("[audio]:")) return `🎤 ${t("community_msg_audio_label")}`;
   if (text.startsWith("[image]:")) return `🖼️ ${t("community_msg_image_label")}`;

@@ -1,4 +1,5 @@
 import * as React from "react";
+import { createPortal } from "react-dom";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   AlertDialog,
@@ -39,9 +40,11 @@ import {
   recordFlowViewDb,
   getFlowViewersDb,
   getFlowTagsDb,
+  hasRepostedFlowDb,
   getFlowByIdDb,
   repostStoryDb,
   type StoryWithUser,
+  type StoryWorkoutSticker,
   type PostIncentiveType,
   type StoryComment,
   type FlowViewer,
@@ -72,6 +75,11 @@ import {
   INCENTIVE_TYPES,
 } from "@/lib/incentive-config";
 import { CommentReactions } from "@/components/shared/comment-reactions";
+import { FlowRepostFrame } from "@/components/shared/flow-repost-frame";
+import { FlowWorkoutDetailDrawer } from "@/components/shared/flow-workout-detail-drawer";
+import { MentionSuggestions } from "@/components/shared/mention-suggestions";
+import { renderWithMentions } from "@/lib/post-visuals";
+import { useOpenProfileByHandle } from "@/hooks/use-open-profile-by-handle";
 import { useAuth } from "@/hooks/useAuth";
 import { hapticLight } from "@/lib/haptics";
 import { showIncentiveToast } from "@/lib/incentive-toast";
@@ -128,9 +136,47 @@ const formatTimeAgo = (dateStr: string) => {
   return date.toLocaleDateString("pt-BR", { day: "numeric", month: "short" });
 };
 
-export default function FlowViewer() {
-  const { storyId } = useParams<{ storyId: string }>();
+/**
+ * Modo embutido: o MESMO viewer da rota `/flows/:storyId`, aberto por cima de
+ * outra tela (perfil). Em vez de ler a URL e carregar o ring do feed, recebe a
+ * lista e o flow atual, e devolve a navegação por callback. Sem `embedded` é a
+ * rota de sempre. Há um viewer só — o antigo `FlowViewerModal` (cópia paralela
+ * que divergia em layout e funções) foi removido.
+ */
+export interface FlowViewerEmbedded {
+  stories: StoryWithUser[];
+  storyId: string | null;
+  onNavigate: (storyId: string) => void;
+  onClose: () => void;
+  onDeleted?: (storyId: string) => void;
+}
+
+export default function FlowViewer({ embedded }: { embedded?: FlowViewerEmbedded } = {}) {
+  const params = useParams<{ storyId: string }>();
+  const storyId = embedded ? embedded.storyId : params.storyId;
   const navigate = useNavigate();
+  // Callbacks do modo embutido numa ref: mudam a cada render do pai e não
+  // podem recriar todos os handlers de navegação por isso.
+  const embeddedRef = React.useRef(embedded);
+  embeddedRef.current = embedded;
+  const goToStory = React.useCallback(
+    (id: string) => {
+      const e = embeddedRef.current;
+      if (e) e.onNavigate(id);
+      else navigate(`/flows/${id}`, { replace: true });
+    },
+    [navigate],
+  );
+  // `replace`: flow inexistente — sai sem deixar a URL quebrada no histórico.
+  const closeViewer = React.useCallback((replace = false) => {
+    const e = embeddedRef.current;
+    if (e) e.onClose();
+    else navigate("/", replace ? { replace: true } : undefined);
+  }, [navigate]);
+  /** Sair para outra tela (perfil de alguém): no modo embutido, fecha o viewer antes. */
+  const leaveViewer = React.useCallback(() => {
+    embeddedRef.current?.onClose();
+  }, []);
   const { user } = useAuth();
   const { t } = useLanguage();
 
@@ -177,6 +223,9 @@ export default function FlowViewer() {
   const holdTimerRef = React.useRef<NodeJS.Timeout | null>(null);
   const isPausedByHoldRef = React.useRef(false);
   const holdFiredRef = React.useRef(false);
+  // Segurar o flow esconde header e doca (estilo Instagram) para ver a mídia
+  // inteira; soltar traz tudo de volta. Estado (não ref) porque muda o render.
+  const [holdHidden, setHoldHidden] = React.useState(false);
   const holdPointerStartRef = React.useRef<{ x: number; y: number } | null>(null);
 
   const isTypingRef = React.useRef(false);
@@ -187,6 +236,8 @@ export default function FlowViewer() {
   const [mediaReady, setMediaReady] = React.useState(false);
   const mediaReadyRef = React.useRef(false);
   const mediaReadySafetyRef = React.useRef<NodeJS.Timeout | null>(null);
+  // De qual flow é o `mediaReady` atual — distingue TROCA de flow de RESTART.
+  const mediaReadyStoryIdRef = React.useRef<string | null>(null);
   // Qual flow está na tela AGORA. Durante a transição do AnimatePresence o <video> do
   // flow ANTERIOR continua montado (e tocando), então os eventos dele precisam ser
   // ignorados — senão ele dirige a barra do flow atual. Atualizado no RENDER, não em
@@ -200,6 +251,44 @@ export default function FlowViewer() {
   // Guideline 1.2: denunciar sozinho não basta — precisa existir também o
   // bloqueio, na mesma superfície onde o conteúdo abusivo aparece.
   const [blockDialogOpen, setBlockDialogOpen] = React.useState(false);
+  const [optionsMenuOpen, setOptionsMenuOpen] = React.useState(false);
+
+  // ── Resumo do treino (sticker) → drawer de detalhe + copiar rotina ────────
+  // O sticker fica ABAIXO das zonas de toque (z-55), então elas testam se o
+  // toque caiu no retângulo do sticker do flow ATUAL (data-flow-story isola do
+  // flow que ainda está saindo na animação).
+  const [workoutDetail, setWorkoutDetail] = React.useState<StoryWorkoutSticker | null>(null);
+  const findTappedWorkout = (x: number, y: number): StoryWorkoutSticker | null => {
+    if (!story) return null;
+    const el = (story.text_elements ?? []).find((e) => e.kind === "workout" && e.workout);
+    if (!el?.workout) return null;
+    const nodes = document.querySelectorAll<HTMLElement>(
+      `[data-flow-story="${story.id}"] [data-flow-workout-sticker]`,
+    );
+    for (const n of Array.from(nodes)) {
+      const r = n.getBoundingClientRect();
+      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return el.workout;
+    }
+    return null;
+  };
+  // Moldura de post do feed ("Seu flow" no compartilhar): mesmo teste de
+  // retângulo; o toque abre o post.
+  const findTappedPost = (x: number, y: number): string | null => {
+    if (!story) return null;
+    const el = (story.text_elements ?? []).find((e) => e.kind === "post" && e.post);
+    if (!el?.post) return null;
+    const nodes = document.querySelectorAll<HTMLElement>(
+      `[data-flow-story="${story.id}"] [data-flow-post-sticker]`,
+    );
+    for (const n of Array.from(nodes)) {
+      const r = n.getBoundingClientRect();
+      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return el.post.postId;
+    }
+    return null;
+  };
+  // Campo de resposta do flow — o autocomplete de "@" lê o cursor dele.
+  const replyInputRef = React.useRef<HTMLInputElement | null>(null);
+  const openProfileByHandle = useOpenProfileByHandle();
 
   const markMediaReady = React.useCallback(() => {
     if (mediaReadySafetyRef.current) {
@@ -210,12 +299,29 @@ export default function FlowViewer() {
     setMediaReady(true);
   }, []);
 
+  // Rota: ring do feed. Embutido: a lista que o pai passou (ex.: flows do perfil).
+  const embeddedStories = embedded?.stories;
   React.useEffect(() => {
+    if (embeddedStories) {
+      setAllStories(embeddedStories);
+      setLoadingStories(false);
+      return;
+    }
     getActiveStoriesDb()
       .then(setAllStories)
-      .catch(() => toast({ title: "Erro ao carregar flows", variant: "destructive" }))
+      .catch(() => toast({ title: t("flow_load_error"), variant: "destructive" }))
       .finally(() => setLoadingStories(false));
-  }, []);
+  }, [embeddedStories]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Embutido por cima de uma tela rolável: trava o scroll dela enquanto aberto
+  // (o antigo modal tinha isso de graça pelo Dialog).
+  const isEmbedded = !!embedded;
+  React.useEffect(() => {
+    if (!isEmbedded) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, [isEmbedded]);
 
   const sortedStories = React.useMemo(
     () => sortStoriesInstagram(allStories, user?.id),
@@ -251,15 +357,15 @@ export default function FlowViewer() {
         if (flow) {
           setAllStories((prev) => (prev.some((s) => s.id === flow.id) ? prev : [...prev, flow]));
         } else {
-          navigate("/", { replace: true });
+          closeViewer(true);
         }
       })
-      .catch(() => navigate("/", { replace: true }));
-  }, [loadingStories, story, fallbackAttempted, storyId, navigate]);
+      .catch(() => closeViewer(true));
+  }, [loadingStories, story, fallbackAttempted, storyId, closeViewer]);
 
   const currentIndex = story ? sortedStories.findIndex((s) => s.id === story.id) : -1;
   const isOwner = story ? user?.id === story.user_id : false;
-  // Responder o flow como mensagem privada para o autor (mesma doca do modal do perfil)
+  // Responder o flow como mensagem privada para o autor
   const { isSendingPrivateReply, sendPrivateReply } = useFlowPrivateReply(story, isOwner);
   const viewingOwnStories = story ? story.user_id === user?.id : false;
   const userStories = story ? sortedStories.filter((s) => s.user_id === story.user_id) : [];
@@ -288,7 +394,7 @@ export default function FlowViewer() {
 
   const handleNext = React.useCallback(() => {
     setDirection(1);
-    if (currentIndex < 0) { navigate("/"); return; }
+    if (currentIndex < 0) { closeViewer(); return; }
     const viewingOwnStories = story?.user_id === user?.id;
     let nextIdx = currentIndex + 1;
     if (!viewingOwnStories) {
@@ -297,11 +403,11 @@ export default function FlowViewer() {
       }
     }
     if (nextIdx < sortedStories.length) {
-      navigate(`/flows/${sortedStories[nextIdx].id}`, { replace: true });
+      goToStory(sortedStories[nextIdx].id);
     } else {
-      navigate("/");
+      closeViewer();
     }
-  }, [currentIndex, sortedStories, navigate, story, user]);
+  }, [currentIndex, sortedStories, goToStory, closeViewer, story, user]);
 
   const handlePrev = React.useCallback(() => {
     setDirection(-1);
@@ -314,16 +420,16 @@ export default function FlowViewer() {
       }
     }
     if (prevIdx >= 0) {
-      navigate(`/flows/${sortedStories[prevIdx].id}`, { replace: true });
+      goToStory(sortedStories[prevIdx].id);
     }
-  }, [currentIndex, sortedStories, navigate, story, user]);
+  }, [currentIndex, sortedStories, goToStory, closeViewer, story, user]);
 
   // Swipe (direita → esquerda): pula direto para o PRÓXIMO usuário, descartando
   // os flows restantes do usuário atual — estilo Instagram. Diferente do toque na
   // zona direita (`handleNext`), que avança flow a flow dentro do mesmo usuário.
   const handleNextUser = React.useCallback(() => {
     setDirection(1);
-    if (currentIndex < 0) { navigate("/"); return; }
+    if (currentIndex < 0) { closeViewer(); return; }
     const curUserId = story?.user_id;
     let idx = currentIndex + 1;
     // pula todos os flows restantes do usuário atual
@@ -334,11 +440,11 @@ export default function FlowViewer() {
       while (idx < sortedStories.length && sortedStories[idx].user_id === user?.id) idx++;
     }
     if (idx < sortedStories.length) {
-      navigate(`/flows/${sortedStories[idx].id}`, { replace: true });
+      goToStory(sortedStories[idx].id);
     } else {
-      navigate("/");
+      closeViewer();
     }
-  }, [currentIndex, sortedStories, navigate, story, user]);
+  }, [currentIndex, sortedStories, goToStory, closeViewer, story, user]);
 
   // Swipe (esquerda → direita): volta para o PRIMEIRO flow do usuário anterior.
   const handlePrevUser = React.useCallback(() => {
@@ -357,19 +463,19 @@ export default function FlowViewer() {
       let firstIdx = currentIndex;
       while (firstIdx - 1 >= 0 && sortedStories[firstIdx - 1].user_id === curUserId) firstIdx--;
       if (firstIdx !== currentIndex) {
-        navigate(`/flows/${sortedStories[firstIdx].id}`, { replace: true });
+        goToStory(sortedStories[firstIdx].id);
       }
       return;
     }
     // idx aponta para o último flow do usuário anterior; recua até o primeiro flow dele
     const prevUserId = sortedStories[idx].user_id;
     while (idx - 1 >= 0 && sortedStories[idx - 1].user_id === prevUserId) idx--;
-    navigate(`/flows/${sortedStories[idx].id}`, { replace: true });
-  }, [currentIndex, sortedStories, navigate, story, user]);
+    goToStory(sortedStories[idx].id);
+  }, [currentIndex, sortedStories, goToStory, closeViewer, story, user]);
 
   const handleClose = React.useCallback(() => {
-    navigate("/");
-  }, [navigate]);
+    closeViewer();
+  }, [closeViewer]);
 
   const handleNextRef = React.useRef(handleNext);
   React.useEffect(() => { handleNextRef.current = handleNext; }, [handleNext]);
@@ -422,6 +528,25 @@ export default function FlowViewer() {
       }
     }
   }, [isTyping, isVideo, playWithSound]);
+
+  // Menu "⋮" aberto — e o que se abre a partir dele (denúncia, bloqueio) — pausa o
+  // flow; sem isso ele avançava por baixo e a denúncia apontava para o flow errado.
+  // Ao fechar tudo, só retoma se foi ESTA pausa (se já estava pausado, continua).
+  const optionsHold = optionsMenuOpen || reportDrawerOpen || blockDialogOpen || workoutDetail !== null;
+  const pausedByOptionsRef = React.useRef(false);
+  React.useEffect(() => {
+    if (optionsHold) {
+      if (!isPausedRef.current) {
+        pausedByOptionsRef.current = true;
+        setIsPaused(true);
+        isPausedRef.current = true;
+      }
+    } else if (pausedByOptionsRef.current) {
+      pausedByOptionsRef.current = false;
+      setIsPaused(false);
+      isPausedRef.current = false;
+    }
+  }, [optionsHold]);
 
   React.useEffect(() => {
     isPausedRef.current = isPaused;
@@ -491,8 +616,18 @@ export default function FlowViewer() {
 
     // Toda troca de story recomeça "não pronto" até a mídia carregar. Flows de texto
     // puro (background_color, sem media_url) não têm o que carregar → já ficam prontos.
+    //
+    // RESTART (toque à esquerda no 1º flow, restartKey) do MESMO flow com a mídia já
+    // pronta NÃO volta para "não pronto": a <img>/<video> não remonta, então
+    // onLoad/onLoadedData não disparam de novo e o spinner cobria a tela até a rede
+    // de segurança de 12s — era o "load demorado" ao voltar um flow.
     if (mediaReadySafetyRef.current) clearTimeout(mediaReadySafetyRef.current);
-    if (story.media_url) {
+    const isRestartOfReadyMedia =
+      mediaReadyStoryIdRef.current === story.id && mediaReadyRef.current;
+    mediaReadyStoryIdRef.current = story.id;
+    if (isRestartOfReadyMedia) {
+      // mantém pronto — a barra recomeça do zero e já anda
+    } else if (story.media_url) {
       mediaReadyRef.current = false;
       setMediaReady(false);
       // Rede de segurança: se a mídia não sinalizar carregamento (erro silencioso/rede
@@ -650,14 +785,28 @@ export default function FlowViewer() {
 
   // Repost (estilo Instagram): quem foi marcado adiciona o flow ao próprio perfil.
   const isTaggedViewer = !!user && !isOwner && taggedUsers.some((u) => u.id === user.id);
+
+  // Já repostou este flow? Trava o botão ("Já está no seu flow") em vez de
+  // deixar criar um repost duplicado. Só consulta para quem foi marcado — é
+  // o único que vê o botão. `cancelled` descarta a resposta de um flow anterior.
+  const [hasReposted, setHasReposted] = React.useState(false);
+  React.useEffect(() => {
+    setHasReposted(false);
+    if (!story || !isTaggedViewer) return;
+    let cancelled = false;
+    hasRepostedFlowDb(story.id).then((v) => { if (!cancelled) setHasReposted(v); });
+    return () => { cancelled = true; };
+  }, [story?.id, isTaggedViewer]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleRepost = React.useCallback(async () => {
-    if (!story || isReposting) return;
+    if (!story || isReposting || hasReposted) return;
     setIsPaused(true);
     isPausedRef.current = true;
     setIsReposting(true);
     try {
       const reposted = await repostStoryDb(story.id);
       if (reposted) {
+        setHasReposted(true);
         toast({ title: t("flow_repost_success"), description: t("flow_repost_success_desc") });
       } else {
         toast({ title: t("flow_repost_error"), variant: "destructive" });
@@ -667,7 +816,7 @@ export default function FlowViewer() {
     } finally {
       setIsReposting(false);
     }
-  }, [story, isReposting]);
+  }, [story, isReposting, hasReposted]);
 
   const handleOpenViewers = React.useCallback(async () => {
     if (!story) return;
@@ -732,6 +881,7 @@ export default function FlowViewer() {
       holdFiredRef.current = true;
       setIsPaused(true);
       isPausedRef.current = true;
+      setHoldHidden(true);
     }, 150);
   }, []);
 
@@ -751,6 +901,7 @@ export default function FlowViewer() {
       holdTimerRef.current = null;
     }
     holdPointerStartRef.current = null;
+    setHoldHidden(false);
     if (isPausedByHoldRef.current) {
       isPausedByHoldRef.current = false;
       setIsPaused(false);
@@ -764,6 +915,7 @@ export default function FlowViewer() {
       holdTimerRef.current = null;
     }
     holdPointerStartRef.current = null;
+    setHoldHidden(false);
     if (isPausedByHoldRef.current) {
       isPausedByHoldRef.current = false;
       holdFiredRef.current = false;
@@ -867,13 +1019,14 @@ export default function FlowViewer() {
         // Remove o flow deletado do estado local para que ele suma imediatamente
         // das barras de progresso e da navegação, sem precisar sair e voltar.
         setAllStories((prev) => prev.filter((s) => s.id !== story.id));
+        embeddedRef.current?.onDeleted?.(story.id);
         toast({ title: "Flow deletado", description: "Seu flow foi removido." });
         if (nextStory) {
-          navigate(`/flows/${nextStory.id}`, { replace: true });
+          goToStory(nextStory.id);
         } else if (prevStory) {
-          navigate(`/flows/${prevStory.id}`, { replace: true });
+          goToStory(prevStory.id);
         } else {
-          navigate("/");
+          closeViewer();
         }
       }
     } catch (err: any) {
@@ -881,11 +1034,18 @@ export default function FlowViewer() {
     } finally {
       setIsDeletingStory(false);
     }
-  }, [story, navigate, nextStory, prevStory]);
+  }, [story, goToStory, closeViewer, nextStory, prevStory]);
+
+  // Embutido: renderiza direto no <body>. Dentro da página, o `PageTransition`
+  // (framer, com `transform`) vira o containing block do `position: fixed` — o
+  // viewer media a "tela" a partir do conteúdo do perfil, abria abaixo do topo
+  // e deixava um pedaço do header do app à mostra. O portal escapa disso.
+  const mount = (node: React.ReactElement) =>
+    embedded && typeof document !== "undefined" ? createPortal(node, document.body) : node;
 
   if (loadingStories) {
-    return (
-      <div className="fixed inset-0 bg-black flex items-center justify-center">
+    return mount(
+      <div className={`fixed inset-0 bg-black flex items-center justify-center ${embedded ? "z-[200]" : ""}`}>
         <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-white/60" />
       </div>
     );
@@ -901,9 +1061,10 @@ export default function FlowViewer() {
     boxShadow: "inset 0 1px 0 rgba(255,255,255,.25), 0 8px 18px -8px rgba(0,0,0,.55)",
   };
 
-  return (
+  return mount(
     <>
-      <div className="fixed inset-0 bg-black z-0 flex items-center justify-center overflow-hidden">
+      {/* Embutido: acima do header/nav do app (z-50) e abaixo dos drawers (z-300). */}
+      <div className={`fixed inset-0 bg-black ${embedded ? "z-[200]" : "z-0"} flex items-center justify-center overflow-hidden`}>
         {/* Desktop: prev card */}
         {prevStory && (
           <div
@@ -954,10 +1115,15 @@ export default function FlowViewer() {
             onTouchEnd={handleSwipeTouchEnd}
             onContextMenu={(e) => e.preventDefault()}
           >
-            {/* Header overlay */}
+            {/* Header overlay — some enquanto o flow é segurado */}
             <div
               className="absolute top-0 left-0 right-0 z-[60] pb-12 px-3 bg-gradient-to-b from-black/80 via-black/40 to-transparent"
-              style={{ paddingTop: "calc(env(safe-area-inset-top) + 0.75rem)" }}
+              style={{
+                paddingTop: "calc(env(safe-area-inset-top) + 0.75rem)",
+                opacity: holdHidden ? 0 : 1,
+                pointerEvents: holdHidden ? "none" : undefined,
+                transition: "opacity 0.2s ease",
+              }}
             >
               {/* Progress bars */}
               <div className="flex gap-1.5 mb-5 px-1">
@@ -1040,7 +1206,7 @@ export default function FlowViewer() {
                   )}
                   {/* Denunciar — só faz sentido no flow de outra pessoa */}
                   {!isOwner && (
-                    <DropdownMenu>
+                    <DropdownMenu open={optionsMenuOpen} onOpenChange={setOptionsMenuOpen}>
                       <DropdownMenuTrigger asChild>
                         <motion.button
                           aria-label={t("flow_options_label")}
@@ -1097,6 +1263,7 @@ export default function FlowViewer() {
               <AnimatePresence custom={direction} initial={false} mode="popLayout">
                 <motion.div
                   key={story.id}
+                  data-flow-story={story.id}
                   custom={direction}
                   variants={{
                     enter: (d: number) => ({ x: d > 0 ? "100%" : "-100%", opacity: 0, scale: 0.95, filter: "blur(4px)" }),
@@ -1113,124 +1280,143 @@ export default function FlowViewer() {
                   }}
                   className="absolute inset-0 flex items-center justify-center"
                 >
-                  {story.background_color && !story.media_url ? (
-                    <div className="relative w-full h-full" style={{ background: story.background_color }}>
-                      {Array.isArray(story.text_elements) && story.text_elements.length > 0 ? (
-                        story.text_elements.map((el, idx) => (
-                          <FlowElementView key={idx} el={el} />
-                        ))
-                      ) : (
-                        <div
-                          className="absolute px-6 max-w-[90%]"
-                          style={
-                            story.text_position
-                              ? { left: `${story.text_position.x}%`, top: `${story.text_position.y}%`, transform: "translate(-50%, -50%)" }
-                              : { left: "50%", top: "50%", transform: "translate(-50%, -50%)" }
-                          }
-                        >
-                          <p
-                            className="text-white text-center font-bold text-3xl leading-tight break-words"
-                            style={{ textShadow: "0 1px 6px rgba(0,0,0,0.5)" }}
+                  <FlowRepostFrame story={story}>
+                    {story.background_color && !story.media_url ? (
+                      <div className="relative w-full h-full" style={{ background: story.background_color }}>
+                        {Array.isArray(story.text_elements) && story.text_elements.length > 0 ? (
+                          story.text_elements.map((el, idx) => (
+                            <FlowElementView key={idx} el={el} interactive />
+                          ))
+                        ) : (
+                          <div
+                            className="absolute px-6 max-w-[90%]"
+                            style={
+                              story.text_position
+                                ? { left: `${story.text_position.x}%`, top: `${story.text_position.y}%`, transform: "translate(-50%, -50%)" }
+                                : { left: "50%", top: "50%", transform: "translate(-50%, -50%)" }
+                            }
                           >
-                            {story.description}
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  ) : isVideo ? (
-                    <video
-                      // Só o vídeo do flow ATUAL assume o ref: durante a transição do
-                      // AnimatePresence o vídeo que SAI continua montado e compartilha este
-                      // ref (antes ele zerava/reatribuía o ponteiro do vídeo ATUAL — por
-                      // isso a barra só funcionava no 1º flow).
-                      ref={(el) => {
-                        if (el && el.dataset.storyId === currentStoryIdRef.current) {
-                          videoRef.current = el;
+                            <p
+                              className="text-white text-center font-bold text-3xl leading-tight break-words"
+                              style={{ textShadow: "0 1px 6px rgba(0,0,0,0.5)" }}
+                            >
+                              {story.description}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    ) : isVideo ? (
+                      <video
+                        // Só o vídeo do flow ATUAL assume o ref: durante a transição do
+                        // AnimatePresence o vídeo que SAI continua montado e compartilha este
+                        // ref (antes ele zerava/reatribuía o ponteiro do vídeo ATUAL — por
+                        // isso a barra só funcionava no 1º flow).
+                        ref={(el) => {
+                          if (el && el.dataset.storyId === currentStoryIdRef.current) {
+                            videoRef.current = el;
+                          }
+                        }}
+                        data-flow-video="1"
+                        data-story-id={story.id}
+                        src={story.media_url}
+                        // Capa: o 1º frame aparece na hora, enquanto o clipe baixa.
+                        poster={story.poster_url || undefined}
+                        className="w-full h-full object-cover"
+                        style={
+                          story.media_transform
+                            ? {
+                                transform: `translate(${story.media_transform.x}%, ${story.media_transform.y}%) scale(${story.media_transform.scale})`,
+                                transformOrigin: "center",
+                              }
+                            : undefined
                         }
-                      }}
-                      data-flow-video="1"
-                      data-story-id={story.id}
-                      src={story.media_url}
-                      // Capa: o 1º frame aparece na hora, enquanto o clipe baixa.
-                      poster={story.poster_url || undefined}
-                      className="w-full h-full object-cover"
-                      style={
-                        story.media_transform
-                          ? {
-                              transform: `translate(${story.media_transform.x}%, ${story.media_transform.y}%) scale(${story.media_transform.scale})`,
-                              transformOrigin: "center",
-                            }
-                          : undefined
-                      }
-                      autoPlay
-                      playsInline
-                      preload="auto"
-                      onLoadedMetadata={handleVideoLoadedMetadata}
-                      onDurationChange={handleVideoDurationChange}
-                      onLoadedData={(e) => {
-                        if (e.currentTarget.dataset.storyId !== currentStoryIdRef.current) return;
-                        markMediaReady();
-                        if (!isPausedRef.current && !isTypingRef.current) playWithSound();
-                      }}
-                      onError={handleVideoEnded}
-                      onEnded={handleVideoEnded}
-                    />
-                  ) : (
-                    <img
-                      // key por story garante remontar a <img> ao trocar de flow, para o
-                      // onLoad disparar de novo (React dispara onLoad mesmo para imagem em
-                      // cache neste fluxo declarativo).
-                      key={story.id}
-                      src={cdnImg(story.media_url, { width: 1920, quality: 90 }) ?? story.media_url}
-                      alt="Flow"
-                      draggable={false}
-                      className="w-full h-full object-cover select-none pointer-events-none"
-                      style={
-                        story.media_transform
-                          ? {
-                              transform: `translate(${story.media_transform.x}%, ${story.media_transform.y}%) scale(${story.media_transform.scale})`,
-                              transformOrigin: "center",
-                            }
-                          : undefined
-                      }
-                      onLoad={markMediaReady}
-                      onError={markMediaReady}
-                    />
-                  )}
-
-                  {/* Spinner enquanto a mídia (imagem/vídeo) ainda carrega — a barra de
-                      progresso fica parada até aqui sumir. Com capa não escurece a tela:
-                      o frame já está visível, o spinner só sinaliza que o vídeo vai começar. */}
-                  {story.media_url && !mediaReady && (
-                    <div
-                      className={`absolute inset-0 z-[4] flex items-center justify-center pointer-events-none ${
-                        story.poster_url ? "" : "bg-black/30"
-                      }`}
-                    >
-                      <Loader2
-                        className={`animate-spin ${
-                          story.poster_url ? "h-6 w-6 text-white/70" : "h-8 w-8 text-white/90"
-                        }`}
+                        autoPlay
+                        playsInline
+                        preload="auto"
+                        onLoadedMetadata={handleVideoLoadedMetadata}
+                        onDurationChange={handleVideoDurationChange}
+                        onLoadedData={(e) => {
+                          if (e.currentTarget.dataset.storyId !== currentStoryIdRef.current) return;
+                          markMediaReady();
+                          if (!isPausedRef.current && !isTypingRef.current) playWithSound();
+                        }}
+                        onError={handleVideoEnded}
+                        onEnded={handleVideoEnded}
                       />
-                    </div>
-                  )}
+                    ) : (
+                      <img
+                        // key por story garante remontar a <img> ao trocar de flow, para o
+                        // onLoad disparar de novo (React dispara onLoad mesmo para imagem em
+                        // cache neste fluxo declarativo).
+                        key={story.id}
+                        src={cdnImg(story.media_url, { width: 1920, quality: 90 }) ?? story.media_url}
+                        alt="Flow"
+                        draggable={false}
+                        className="w-full h-full object-cover select-none pointer-events-none"
+                        style={
+                          story.media_transform
+                            ? {
+                                transform: `translate(${story.media_transform.x}%, ${story.media_transform.y}%) scale(${story.media_transform.scale})`,
+                                transformOrigin: "center",
+                              }
+                            : undefined
+                        }
+                        onLoad={markMediaReady}
+                        onError={markMediaReady}
+                      />
+                    )}
 
-                  {/* Frases posicionadas sobre a mídia (renderizadas ao vivo) */}
-                  {story.media_url &&
-                    Array.isArray(story.text_elements) &&
-                    story.text_elements.length > 0 && (
-                      <div className="absolute inset-0 pointer-events-none z-[5]">
-                        {story.text_elements.map((el, idx) => (
-                          <FlowElementView key={idx} el={el} />
-                        ))}
+                    {/* Spinner enquanto a mídia (imagem/vídeo) ainda carrega — a barra de
+                        progresso fica parada até aqui sumir. Com capa não escurece a tela:
+                        o frame já está visível, o spinner só sinaliza que o vídeo vai começar. */}
+                    {story.media_url && !mediaReady && (
+                      <div
+                        className={`absolute inset-0 z-[4] flex items-center justify-center pointer-events-none ${
+                          story.poster_url ? "" : "bg-black/30"
+                        }`}
+                      >
+                        <Loader2
+                          className={`animate-spin ${
+                            story.poster_url ? "h-6 w-6 text-white/70" : "h-8 w-8 text-white/90"
+                          }`}
+                        />
                       </div>
                     )}
+
+                    {/* Frases posicionadas sobre a mídia (renderizadas ao vivo) */}
+                    {story.media_url &&
+                      Array.isArray(story.text_elements) &&
+                      story.text_elements.length > 0 && (
+                        <div className="absolute inset-0 pointer-events-none z-[5]">
+                          {story.text_elements.map((el, idx) => (
+                            <FlowElementView key={idx} el={el} interactive />
+                          ))}
+                        </div>
+                      )}
+                  </FlowRepostFrame>
                 </motion.div>
               </AnimatePresence>
 
               {/* Navigation tap zones */}
               <div
                 className="absolute inset-0 flex z-[55]"
+                onClickCapture={(e) => {
+                  // Swipe/segurar já consumiram o toque — as zonas filhas limpam as flags.
+                  if (swipeHandledRef.current || holdFiredRef.current) return;
+                  const postId = findTappedPost(e.clientX, e.clientY);
+                  if (postId) {
+                    e.stopPropagation();
+                    // Embutido (perfil): fecha antes; na rota, voltar do post volta ao flow.
+                    leaveViewer();
+                    navigate(`/post/${postId}`);
+                    return;
+                  }
+                  const w = findTappedWorkout(e.clientX, e.clientY);
+                  if (w) {
+                    e.stopPropagation();
+                    setWorkoutDetail(w);
+                  }
+                }}
                 onPointerDown={handleTapZonePointerDown}
                 onPointerMove={handleTapZonePointerMove}
                 onPointerUp={handleTapZonePointerUp}
@@ -1241,7 +1427,8 @@ export default function FlowViewer() {
                 <div className="flex-1 cursor-pointer" onClick={(e) => { if (swipeHandledRef.current) { swipeHandledRef.current = false; return; } if (holdFiredRef.current) { holdFiredRef.current = false; return; } e.stopPropagation(); handleNext(); }} />
               </div>
 
-              {isPaused && (
+              {/* Pausa por toque mostra o ▶; pausa por SEGURAR não — a ideia é ver o flow limpo */}
+              {isPaused && !holdHidden && (
                 <div className="absolute inset-0 flex items-center justify-center z-[56] pointer-events-none">
                   <motion.div
                     initial={{ scale: 0.5, opacity: 0 }}
@@ -1264,7 +1451,11 @@ export default function FlowViewer() {
               style={{
                 paddingBottom: "calc(env(safe-area-inset-bottom) + 0.85rem)",
                 transform: "translateY(calc(-1 * var(--keyboard-height, 0px)))",
-                transition: "transform 0.25s ease-out",
+                // Some enquanto o flow é segurado (a doca inteira: bolhas, legenda,
+                // marcados, incentivos e campo de resposta).
+                opacity: holdHidden ? 0 : 1,
+                visibility: holdHidden ? "hidden" : undefined,
+                transition: "transform 0.25s ease-out, opacity 0.2s ease, visibility 0.2s",
               }}
             >
               {/* Floating comment bubbles (acima da doca) */}
@@ -1295,7 +1486,7 @@ export default function FlowViewer() {
                           )}
                         </span>
                         <span className="text-[11px] text-white/90 leading-snug drop-shadow line-clamp-2">
-                          {comment.text}
+                          {renderWithMentions(comment.text)}
                         </span>
                       </div>
                     </motion.button>
@@ -1339,12 +1530,14 @@ export default function FlowViewer() {
               {isTaggedViewer && (
                 <button
                   onClick={handleRepost}
-                  disabled={isReposting}
-                  className="pointer-events-auto flex items-center justify-center gap-2 w-full mb-2.5 py-2.5 rounded-full font-semibold text-sm text-white active:opacity-80 disabled:opacity-60"
-                  style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)" }}
+                  disabled={isReposting || hasReposted}
+                  className={`pointer-events-auto flex items-center justify-center gap-2 w-full mb-2.5 py-2.5 rounded-full font-semibold text-sm text-white active:opacity-80 ${
+                    hasReposted ? "border border-white/20 disabled:opacity-100" : "disabled:opacity-60"
+                  }`}
+                  style={hasReposted ? { background: "rgba(0,0,0,.25)" } : { background: "linear-gradient(135deg,#5b8cff,#9d6bff)" }}
                 >
-                  <Repeat2 className="h-4 w-4" />
-                  {isReposting ? t("flow_reposting") : t("flow_repost_button")}
+                  {hasReposted ? <Check className="h-4 w-4 text-emerald-400" /> : <Repeat2 className="h-4 w-4" />}
+                  {hasReposted ? t("flow_reposted_label") : isReposting ? t("flow_reposting") : t("flow_repost_button")}
                 </button>
               )}
 
@@ -1356,13 +1549,13 @@ export default function FlowViewer() {
                   transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
                 >
                   <ChevronUp className="h-3.5 w-3.5 text-white/45" />
-                  <span className="text-[10px] text-white/45 font-medium tracking-wide">visualizações</span>
+                  <span className="text-[10px] text-white/45 font-medium tracking-wide">{t("flow_views_label")}</span>
                 </motion.button>
               )}
 
-              {/* Glass dock */}
+              {/* Glass dock — `relative` ancora as sugestões de "@" */}
               <div
-                className="pointer-events-auto rounded-[28px] p-3.5"
+                className="relative pointer-events-auto rounded-[28px] p-3.5"
                 style={{
                   background: "linear-gradient(rgba(255,255,255,.08),rgba(255,255,255,.03))",
                   backdropFilter: "blur(22px) saturate(170%)",
@@ -1372,7 +1565,9 @@ export default function FlowViewer() {
                     "inset 0 1px 0 rgba(255,255,255,.22), 0 16px 36px -14px rgba(0,0,0,.5)",
                 }}
               >
-                {user && (
+                {/* Incentivos são para quem assiste — no próprio flow a doca fica só
+                    com o campo de comentário (o dono pode comentar no que postou). */}
+                {user && !isOwner && (
                   <div className="flex items-center justify-between mb-3 px-1">
                     {INCENTIVE_TYPES.map((type) => {
                       const isLiked = userLikes.includes(type);
@@ -1405,6 +1600,12 @@ export default function FlowViewer() {
                   </div>
                 )}
 
+                {/* "@" → sugestões acima da doca (menção notifica via type 20) */}
+                <MentionSuggestions
+                  inputRef={replyInputRef}
+                  value={newComment}
+                  onChange={setNewComment}
+                />
                 <div
                   className="h-[46px] rounded-[23px] flex items-center gap-2.5 pl-[18px] pr-1.5 focus-within:border-white/30 transition-colors"
                   style={{
@@ -1413,6 +1614,7 @@ export default function FlowViewer() {
                   }}
                 >
                   <Input
+                    ref={replyInputRef}
                     placeholder={
                       isOwner
                         ? t("flow_reply_placeholder_own")
@@ -1604,7 +1806,7 @@ export default function FlowViewer() {
                             </div>
                           </div>
                         ) : (
-                          <span className="text-sm leading-normal break-words" style={{ color: "rgba(255,255,255,.82)" }}>{comment.text}</span>
+                          <span className="text-sm leading-normal break-words" style={{ color: "rgba(255,255,255,.82)" }}>{renderWithMentions(comment.text, (h) => { setCommentsDrawerOpen(false); leaveViewer(); openProfileByHandle(h); })}</span>
                         )}
                       </div>
                     </div>
@@ -1664,6 +1866,7 @@ export default function FlowViewer() {
                   className="flex items-center gap-3 p-3 rounded-xl bg-muted/30 w-full text-left active:opacity-70 transition-opacity hover:bg-muted/50"
                   onClick={() => {
                     setViewersDrawerOpen(false);
+                    leaveViewer();
                     navigate(`/usuario/${viewer.followerId}`);
                   }}
                 >
@@ -1704,6 +1907,17 @@ export default function FlowViewer() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Detalhe do resumo do treino citado no flow. Num repost a rotina é do
+          autor ORIGINAL — é dele que a cópia sai. */}
+      {story && (
+        <FlowWorkoutDetailDrawer
+          workout={workoutDetail}
+          authorId={story.reposted_from_user ?? story.user_id}
+          authorNickname={(story.reposted_from_user ? story.repostedFromNickname : null) ?? story.userNickname}
+          onClose={() => setWorkoutDetail(null)}
+        />
+      )}
 
       {/* Report Drawer (denunciar usuário / denunciar flow) */}
       <ReportDrawer

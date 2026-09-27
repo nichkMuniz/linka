@@ -13,7 +13,6 @@ import {
   PanelLeftClose,
 } from "lucide-react";
 import * as React from "react";
-import { LocalNotifications } from "@capacitor/local-notifications";
 import { PushNotifications } from "@capacitor/push-notifications";
 import { Capacitor } from "@capacitor/core";
 import { App as CapApp } from "@capacitor/app";
@@ -37,7 +36,7 @@ import {
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { IncentiveConfirmToast } from "@/components/shared/incentive-confirm-toast";
 import { IncomingMessageToast } from "@/components/shared/incoming-message-toast";
-import { showIncomingMessageToast } from "@/lib/incoming-message-toast";
+import { showIncomingMessageToast, showIncomingNotificationToast } from "@/lib/incoming-message-toast";
 import { RoutineCompletedToast } from "@/components/shared/routine-completed-toast";
 import { FEATURES } from "@/lib/feature-flags";
 import { getUnreadMessageCountDb, getUnreadNotificationsCountDb, getUserProfileDb, subscribeToUnreadNotificationsDb, recordAccessSessionDb, bufferScreenTime, flushScreenTimeDb, invalidateQueryCache, getPendingWorkoutPartyInviteDb, getWorkoutPartyInviteByIdDb, respondWorkoutPartyInviteDb, type WorkoutPartyInvite } from "@/lib/ritmofit-db";
@@ -72,6 +71,37 @@ type NavItem = {
 function isActivePath(currentPath: string, to: string) {
   if (to === "/") return currentPath === "/";
   return currentPath === to || currentPath.startsWith(`${to}/`);
+}
+
+// ── Uso diário (limite de tempo) ─────────────────────────────────────────────
+// Acumulado do DIA em localStorage — sobrevive a fechar/matar o app. Antes o
+// valor ia para uma chave de sessionStorage que ninguém gravava: o limite só
+// contava o tempo desde a última abertura, e reabrir o app zerava tudo. O adiar
+// (snooze) mora junto: sem ele, reabrir o app depois de adiar bloqueava de novo.
+const DAILY_USAGE_KEY = "lk:dailyUsage";
+
+type DailyUsage = { date: string; seconds: number; snooze: number };
+
+function readDailyUsage(): DailyUsage {
+  const today = new Date().toDateString();
+  try {
+    const raw = localStorage.getItem(DAILY_USAGE_KEY);
+    const parsed = raw ? (JSON.parse(raw) as DailyUsage) : null;
+    if (parsed && parsed.date === today) {
+      return { date: today, seconds: Number(parsed.seconds) || 0, snooze: Number(parsed.snooze) || 0 };
+    }
+  } catch {
+    // corrompido/indisponível — recomeça o dia
+  }
+  return { date: today, seconds: 0, snooze: 0 };
+}
+
+function writeDailyUsage(usage: DailyUsage): void {
+  try {
+    localStorage.setItem(DAILY_USAGE_KEY, JSON.stringify(usage));
+  } catch {
+    // best-effort
+  }
 }
 
 export function AppLayout() {
@@ -246,17 +276,71 @@ export function AppLayout() {
   const [profilePhoto, setProfilePhoto] = React.useState<string | null>(null);
 
   // Daily usage timer
-  const [usageSecondsElapsed, setUsageSecondsElapsed] = React.useState(0);
+  const [usageSecondsElapsed, setUsageSecondsElapsed] = React.useState(() => Math.floor(readDailyUsage().seconds));
   const sessionStartRef = React.useRef<number>(Date.now());
 
   // Screen time tracking
   const screenEnteredAtRef = React.useRef<number>(Date.now());
   const currentScreenRef = React.useRef<string>(location.pathname);
 
+  // ── Tempo na tela de registrar treino NÃO conta como tempo de uso ─────────
+  // Vale para os três relógios: limite diário (bloqueio), sessão de acesso e
+  // tempo por tela. Enquanto o treino está aberto (não minimizado), cada relógio
+  // desconta o tempo corrido ao vivo; ao fechar, o início dele é empurrado para
+  // frente pelo tempo de treino — inclusive no sessionStorage, que é o que o
+  // logout (settings-drawer) lê. Um "desde" por relógio: zerar um (troca de
+  // tela, background) não pode apagar o desconto do outro.
+  const onWorkoutScreenRef = React.useRef(false);
+  const sessionWorkoutSinceRef = React.useRef<number | null>(null);
+  const screenWorkoutSinceRef = React.useRef<number | null>(null);
+
+  const sessionActiveMs = () => {
+    const now = Date.now();
+    const since = sessionWorkoutSinceRef.current;
+    return Math.max(0, now - sessionStartRef.current - (since != null ? now - since : 0));
+  };
+  const screenActiveMs = () => {
+    const now = Date.now();
+    const since = screenWorkoutSinceRef.current;
+    return Math.max(0, now - screenEnteredAtRef.current - (since != null ? now - since : 0));
+  };
+  const resetSessionClock = () => {
+    const now = Date.now();
+    sessionStartRef.current = now;
+    sessionWorkoutSinceRef.current = onWorkoutScreenRef.current ? now : null;
+    sessionStorage.setItem("ritmofit_session_start", String(now));
+  };
+  const resetScreenClock = () => {
+    const now = Date.now();
+    screenEnteredAtRef.current = now;
+    screenWorkoutSinceRef.current = onWorkoutScreenRef.current ? now : null;
+    sessionStorage.setItem("ritmofit_screen_start", String(now));
+  };
+
+  React.useEffect(() => {
+    const now = Date.now();
+    if (workoutModalOpen) {
+      onWorkoutScreenRef.current = true;
+      if (sessionWorkoutSinceRef.current == null) sessionWorkoutSinceRef.current = now;
+      if (screenWorkoutSinceRef.current == null) screenWorkoutSinceRef.current = now;
+      return;
+    }
+    onWorkoutScreenRef.current = false;
+    if (sessionWorkoutSinceRef.current != null) {
+      sessionStartRef.current += now - sessionWorkoutSinceRef.current;
+      sessionWorkoutSinceRef.current = null;
+      sessionStorage.setItem("ritmofit_session_start", String(sessionStartRef.current));
+    }
+    if (screenWorkoutSinceRef.current != null) {
+      screenEnteredAtRef.current += now - screenWorkoutSinceRef.current;
+      screenWorkoutSinceRef.current = null;
+      sessionStorage.setItem("ritmofit_screen_start", String(screenEnteredAtRef.current));
+    }
+  }, [workoutModalOpen]);
+
   React.useEffect(() => {
     const prev = currentScreenRef.current;
-    const enteredAt = screenEnteredAtRef.current;
-    const durationSeconds = Math.floor((Date.now() - enteredAt) / 1000);
+    const durationSeconds = Math.floor(screenActiveMs() / 1000);
 
     // Só acumula localmente — o envio ao banco acontece em lote no flush
     // (app indo para background), não a cada navegação.
@@ -265,12 +349,11 @@ export function AppLayout() {
     }
 
     currentScreenRef.current = location.pathname;
-    screenEnteredAtRef.current = Date.now();
-    sessionStorage.setItem("ritmofit_screen_start", String(screenEnteredAtRef.current));
+    resetScreenClock();
     sessionStorage.setItem("ritmofit_current_screen", location.pathname);
   }, [location.pathname]);
   const [timerBlockVisible, setTimerBlockVisible] = React.useState(false);
-  const [timerSnoozeSeconds, setTimerSnoozeSeconds] = React.useState(0); // extra snooze time added
+  const [timerSnoozeSeconds, setTimerSnoozeSeconds] = React.useState(() => readDailyUsage().snooze); // adiar acumulado hoje
   const [limitIgnoredToday, setLimitIgnoredToday] = React.useState(() => {
     const ignored = localStorage.getItem("ritmofit_limit_ignored_date");
     return ignored === new Date().toDateString();
@@ -279,11 +362,7 @@ export function AppLayout() {
     const stored = localStorage.getItem("ritmofit_daily_limit_minutes");
     const date = localStorage.getItem("ritmofit_daily_limit_date");
     if (!stored || !date) return 0;
-    if (date !== new Date().toDateString()) {
-      // New day — reset elapsed but keep limit
-      sessionStorage.removeItem("ritmofit_usage_seconds_today");
-      return parseInt(stored, 10);
-    }
+    // O acumulado do dia (lk:dailyUsage) vira sozinho à meia-noite local.
     return parseInt(stored, 10);
   });
 
@@ -317,40 +396,35 @@ export function AppLayout() {
   // Always record access session on app background/close — independent of daily limit
   React.useEffect(() => {
     if (!user) return;
-    sessionStartRef.current = Date.now();
-    sessionStorage.setItem("ritmofit_session_start", String(sessionStartRef.current));
+    resetSessionClock();
 
     // Sobrou buffer de uma sessão anterior (app morto sem passar por background)?
     // Envia agora, na abertura.
     flushScreenTimeDb(user.id).catch(() => {});
 
     const flush = () => {
-      const sessionSeconds = Math.floor((Date.now() - sessionStartRef.current) / 1000);
+      const sessionSeconds = Math.floor(sessionActiveMs() / 1000);
       if (sessionSeconds >= 10) {
         recordAccessSessionDb(user.id, sessionSeconds).catch(() => {});
       }
       // Contabiliza a tela em que o usuário estava ao sair e despeja o buffer
       // inteiro num único insert em lote.
-      const screenSeconds = Math.floor((Date.now() - screenEnteredAtRef.current) / 1000);
+      const screenSeconds = Math.floor(screenActiveMs() / 1000);
       bufferScreenTime(currentScreenRef.current, screenSeconds);
-      screenEnteredAtRef.current = Date.now();
+      resetScreenClock();
       flushScreenTimeDb(user.id).catch(() => {});
 
-      sessionStartRef.current = Date.now();
-      sessionStorage.setItem("ritmofit_session_start", String(sessionStartRef.current));
+      resetSessionClock();
     };
 
     let capListener: { remove: () => void } | null = null;
     if (Capacitor.isNativePlatform()) {
       CapApp.addListener("appStateChange", ({ isActive }) => {
         if (!isActive) flush();
-        else {
-          sessionStartRef.current = Date.now();
-          sessionStorage.setItem("ritmofit_session_start", String(sessionStartRef.current));
-        }
+        else resetSessionClock();
       }).then((l) => { capListener = l; });
     } else {
-      const onVisibility = () => { if (document.hidden) flush(); else { sessionStartRef.current = Date.now(); sessionStorage.setItem("ritmofit_session_start", String(sessionStartRef.current)); } };
+      const onVisibility = () => { if (document.hidden) flush(); else resetSessionClock(); };
       const onUnload = () => flush();
       window.addEventListener("visibilitychange", onVisibility);
       window.addEventListener("beforeunload", onUnload);
@@ -362,19 +436,26 @@ export function AppLayout() {
 
   React.useEffect(() => {
     if (!dailyLimitMinutes) return;
-    // Restore seconds from today's session
-    const stored = sessionStorage.getItem("ritmofit_usage_seconds_today");
-    const storedDate = localStorage.getItem("ritmofit_daily_limit_date");
-    if (stored && storedDate === new Date().toDateString()) {
-      setUsageSecondsElapsed(parseInt(stored, 10));
-    }
-    sessionStartRef.current = Date.now();
-    sessionStorage.setItem("ritmofit_session_start", String(sessionStartRef.current));
+    const initial = readDailyUsage();
+    setUsageSecondsElapsed(Math.floor(initial.seconds));
+    setTimerSnoozeSeconds(initial.snooze);
+
+    // Soma, a cada segundo, o tempo real desde o tick anterior — só com o app
+    // em primeiro plano e fora da tela de registrar treino (o bloqueio nunca
+    // interrompe um treino). Um intervalo > 5s entre ticks = o WebView ficou
+    // suspenso (background/tela bloqueada): esse buraco não é uso.
+    let last = Date.now();
     const interval = setInterval(() => {
-      const sessionSeconds = Math.floor((Date.now() - sessionStartRef.current) / 1000);
-      const base = parseInt(sessionStorage.getItem("ritmofit_usage_seconds_today") || "0", 10);
-      const total = base + sessionSeconds;
-      setUsageSecondsElapsed(total);
+      const now = Date.now();
+      const delta = now - last;
+      last = now;
+      const usage = readDailyUsage(); // já zera se o dia virou
+      if (!document.hidden && !onWorkoutScreenRef.current && delta <= 5000) {
+        usage.seconds += delta / 1000;
+        writeDailyUsage(usage);
+      }
+      setUsageSecondsElapsed(Math.floor(usage.seconds));
+      setTimerSnoozeSeconds(usage.snooze);
     }, 1000);
     return () => { clearInterval(interval); };
   }, [dailyLimitMinutes]);
@@ -467,16 +548,18 @@ export function AppLayout() {
           // notificação": o banner tinha mapa só dos tipos 1–7 e corpo sem o nome
           // de quem originou, então o usuário precisava abrir o app para descobrir
           // o que tinha acontecido. Ver client/lib/notification-copy.ts.
+          //
+          // Pop up IN-APP (o mesmo da mensagem privada), não notificação local:
+          // o iOS não exibe a notificação local com o app em primeiro plano, e o
+          // aviso de incentivo/comentário/seguidor simplesmente não aparecia.
           const translate = tRef.current;
           const data = await fetchNotificationCopyData(row, translate("notif_sender_fallback"));
-          LocalNotifications.schedule({
-            notifications: [{
-              id: Date.now() % 2_000_000,
-              title: notificationTitle(translate, type),
-              body: notificationBody(translate, row, data),
-              extra: { url: notificationDeepLink(row) },
-            }],
-          }).catch(() => {/* permission not granted — silent */ });
+          showIncomingNotificationToast({
+            actorId: row.follower_id ? String(row.follower_id) : null,
+            title: notificationTitle(translate, type),
+            body: notificationBody(translate, row, data),
+            url: notificationDeepLink(row),
+          });
         },
       )
       .subscribe() : null;
@@ -1143,7 +1226,11 @@ export function AppLayout() {
                 variant="outline"
                 className="w-full rounded-full"
                 onClick={() => {
-                  setTimerSnoozeSeconds((s) => s + seconds);
+                  // Persistido com o uso do dia — reabrir o app não desfaz o adiar.
+                  const usage = readDailyUsage();
+                  usage.snooze += seconds;
+                  writeDailyUsage(usage);
+                  setTimerSnoozeSeconds(usage.snooze);
                   setTimerBlockVisible(false);
                 }}
               >

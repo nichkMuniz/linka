@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Check, CheckCircle2, Pencil, Plus, Share2, Trash2, X } from "lucide-react";
+import { Check, CheckCircle2, Loader2, Pencil, Plus, Send, Share2, Trash2, X } from "lucide-react";
 import {
   Drawer,
   DrawerContent,
@@ -23,7 +23,16 @@ import {
 import { useLanguage } from "@/lib/language-context";
 import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
 import { GoalShareDrawer } from "@/components/goals/goal-share-drawer";
-import type { Routine, UserGoal } from "@/lib/ritmofit-db";
+import { sendMessageDb, type Routine, type UserGoal } from "@/lib/ritmofit-db";
+import { buildGoalReplyPayload } from "@/lib/goal-reply";
+import { sendErrorDescription } from "@/components/community/community-helpers";
+import { reportHandledError } from "@/lib/monitoring";
+import { toast } from "@/components/ui/use-toast";
+import { hapticLight } from "@/lib/haptics";
+import { useAuth } from "@/hooks/useAuth";
+
+/** Mesmo teto da resposta a flow — `sendMessageDb` aceita até 1000 com o prefixo. */
+const MAX_GOAL_REPLY_CHARS = 900;
 
 interface GoalDetailDrawerProps {
   goal: UserGoal | null;
@@ -35,6 +44,18 @@ interface GoalDetailDrawerProps {
   onToggleRoutineLink: (routineId: string, goalId: string | null) => Promise<void>;
   /** Quando true, oculta ações de editar/excluir e vinculação de rotinas (ex: perfil de outro usuário) */
   readOnly?: boolean;
+  /**
+   * Sem nenhuma rotina criada, a seção de vínculo era um beco sem saída. Com
+   * este callback aparece "Criar nova rotina" — o pai fecha este drawer e abre
+   * a criação (Metas: wizard direto; Perfil: navega para Metas).
+   */
+  onCreateRoutine?: () => void;
+  /**
+   * Dono da meta, quando é de OUTRA pessoa (perfil alheio). Com ele aparece o
+   * campo "Responder": o texto vai como mensagem privada, com a meta anexada
+   * (`[goalreply]:`) para a conversa mostrar qual meta foi respondida.
+   */
+  replyTo?: { userId: string; nickname: string } | null;
 }
 
 export function GoalDetailDrawer({
@@ -45,8 +66,13 @@ export function GoalDetailDrawer({
   onDeleteGoal,
   onToggleRoutineLink,
   readOnly = false,
+  onCreateRoutine,
+  replyTo = null,
 }: GoalDetailDrawerProps) {
   const { t } = useLanguage();
+  const { user } = useAuth();
+  const [replyText, setReplyText] = React.useState("");
+  const [sendingReply, setSendingReply] = React.useState(false);
   const [editing, setEditing] = React.useState(false);
   const [durationValue, setDurationValue] = React.useState("");
   const [frequencyValue, setFrequencyValue] = React.useState("");
@@ -82,8 +108,45 @@ export function GoalDetailDrawer({
       setFrequencyValue(String(goal.quantity));
       setDeleteConfirmOpen(false);
       setGoalToShare(null);
+      setReplyText("");
     }
   }, [goal?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const canReply = !!replyTo && !!user && replyTo.userId !== user.id;
+
+  const handleSendReply = async () => {
+    const text = replyText.trim();
+    if (!goal || !replyTo || !canReply || !text || sendingReply) return;
+    if (text.length > MAX_GOAL_REPLY_CHARS) {
+      toast({
+        title: t("flow_reply_too_long"),
+        description: t("flow_reply_too_long_desc").replace("{n}", String(MAX_GOAL_REPLY_CHARS)),
+        variant: "destructive",
+      });
+      return;
+    }
+    hapticLight();
+    setSendingReply(true);
+    try {
+      // Push = tipo 10 ("te enviou uma mensagem") — sem tipo novo, sem redeploy.
+      const sent = await sendMessageDb(replyTo.userId, buildGoalReplyPayload(goal.id, text));
+      if (!sent) throw new Error("send failed");
+      setReplyText("");
+      toast({
+        title: t("goals_gd_reply_sent"),
+        description: t("goals_gd_reply_sent_desc").replace("{name}", replyTo.nickname),
+      });
+    } catch (err: any) {
+      reportHandledError(err, "goal-detail:private-reply", { goalId: goal.id });
+      toast({
+        title: t("goals_gd_reply_error"),
+        description: sendErrorDescription(err, t),
+        variant: "destructive",
+      });
+    } finally {
+      setSendingReply(false);
+    }
+  };
 
   if (!goal) return null;
 
@@ -264,7 +327,19 @@ export function GoalDetailDrawer({
                   <div className="space-y-2.5">
                     <p className="text-sm font-semibold" style={{ color: "#fff" }}>{t("goals_gd_linked_routines")}</p>
                     {routines.length === 0 ? (
-                      <p className="text-sm" style={{ color: "rgba(255,255,255,.5)" }}>{t("goals_gd_no_routines_available")}</p>
+                      <div className="space-y-2.5">
+                        <p className="text-sm" style={{ color: "rgba(255,255,255,.5)" }}>{t("goals_gd_no_routines_available")}</p>
+                        {onCreateRoutine && (
+                          <Button
+                            onClick={onCreateRoutine}
+                            className="w-full rounded-full border-0 gap-2"
+                            style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}
+                          >
+                            <Plus className="h-4 w-4" />
+                            {t("goals_gd_create_routine")}
+                          </Button>
+                        )}
+                      </div>
                     ) : (
                       <>
                         <p className="text-xs" style={{ color: "rgba(255,255,255,.45)" }}>
@@ -295,6 +370,48 @@ export function GoalDetailDrawer({
                         </div>
                       </>
                     )}
+                  </div>
+                )}
+
+                {/* Responder a meta de outra pessoa → mensagem privada */}
+                {canReply && replyTo && (
+                  <div className="space-y-2 pt-1">
+                    <p className="text-sm font-semibold" style={{ color: "#fff" }}>
+                      {t("goals_gd_reply_title").replace("{name}", replyTo.nickname)}
+                    </p>
+                    <div
+                      className="h-[46px] rounded-[23px] flex items-center gap-2.5 pl-[18px] pr-1.5"
+                      style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)" }}
+                    >
+                      <input
+                        value={replyText}
+                        onChange={(e) => setReplyText(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && replyText.trim()) {
+                            e.preventDefault();
+                            handleSendReply();
+                          }
+                        }}
+                        placeholder={t("goals_gd_reply_placeholder")}
+                        disabled={sendingReply}
+                        className="flex-1 min-w-0 bg-transparent outline-none text-white placeholder:text-white/45"
+                        // 16px evita o zoom automático do iOS ao focar
+                        style={{ fontSize: 16 }}
+                      />
+                      <button
+                        type="button"
+                        onClick={handleSendReply}
+                        disabled={!replyText.trim() || sendingReply}
+                        aria-label={t("goals_gd_reply_send")}
+                        className="shrink-0 h-[34px] w-[34px] rounded-full flex items-center justify-center text-white disabled:opacity-40 active:scale-90 transition-transform"
+                        style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)" }}
+                      >
+                        {sendingReply ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                      </button>
+                    </div>
+                    <p className="text-[11px]" style={{ color: "rgba(255,255,255,.4)" }}>
+                      {t("goals_gd_reply_hint").replace("{name}", replyTo.nickname)}
+                    </p>
                   </div>
                 )}
 

@@ -5,7 +5,8 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import { toast } from "@/components/ui/use-toast";
-import { Copy, Link, SendHorizontal } from "lucide-react";
+import * as React from "react";
+import { CirclePlus, Copy, Link, Loader2, SendHorizontal } from "lucide-react";
 import { Share } from "@capacitor/share";
 import { Browser } from "@capacitor/browser";
 import { useLanguage } from "@/lib/language-context";
@@ -24,6 +25,12 @@ interface ShareDrawerProps {
    * exibe o botão "Amigos" como primeira opção — o pai abre o SendToFriendDrawer.
    */
   onSendToFriend?: () => void;
+  /**
+   * "Seu flow": publica o conteúdo como flow do próprio usuário. Só o pai sabe
+   * se faz sentido (post próprio com foto) — sem a prop, o botão não aparece.
+   * O drawer fecha sozinho quando a promise resolve; em erro, fica aberto.
+   */
+  onShareToFlow?: () => Promise<void>;
 }
 
 export function ShareDrawer({
@@ -33,8 +40,10 @@ export function ShareDrawer({
   url,
   title,
   onSendToFriend,
+  onShareToFlow,
 }: ShareDrawerProps) {
   const { t } = useLanguage();
+  const [sharingToFlow, setSharingToFlow] = React.useState(false);
   // Dentro do WebView do Capacitor, window.location.href é "capacitor://localhost",
   // que não pode ser compartilhado. Usar sempre o domínio público como fallback.
   const shareUrl = url || SHARE_BASE_URL;
@@ -172,6 +181,43 @@ export function ShareDrawer({
                 <SendHorizontal className="w-7 h-7 text-white" />
               </div>
               <span className="text-xs text-center" style={{ color: "rgba(255,255,255,.7)" }}>{t("share_btn_send_friend")}</span>
+            </button>
+          )}
+
+          {/* Adicionar ao próprio flow (post próprio com foto) */}
+          {onShareToFlow && (
+            <button
+              disabled={sharingToFlow}
+              onClick={async () => {
+                setSharingToFlow(true);
+                try {
+                  await onShareToFlow();
+                  onOpenChange(false);
+                } catch {
+                  // o pai já mostrou o toast de erro; o drawer fica aberto
+                } finally {
+                  setSharingToFlow(false);
+                }
+              }}
+              className="flex flex-col items-center gap-1.5 min-w-[60px] disabled:opacity-60"
+            >
+              <div
+                className="w-14 h-14 rounded-2xl flex items-center justify-center shadow-md"
+                style={{
+                  background: "rgba(255,255,255,.08)",
+                  border: "2px solid transparent",
+                  backgroundImage: "linear-gradient(#1c1a26,#1c1a26), linear-gradient(135deg,#5b8cff,#9d6bff)",
+                  backgroundOrigin: "border-box",
+                  backgroundClip: "padding-box, border-box",
+                }}
+              >
+                {sharingToFlow ? (
+                  <Loader2 className="w-6 h-6 text-white animate-spin" />
+                ) : (
+                  <CirclePlus className="w-7 h-7 text-white" />
+                )}
+              </div>
+              <span className="text-xs text-center" style={{ color: "rgba(255,255,255,.7)" }}>{t("share_btn_your_flow")}</span>
             </button>
           )}
 

@@ -759,6 +759,7 @@ Notificações geradas para os usuários (follows, likes, comentários, duelos).
 | 17 | **Resposta privada a um flow** (mensagem, não card) | `follower_id` (quem respondeu), `flow_id` |
 | 18 | **Comentaram num flow em que o destinatário também comentou** | `follower_id` (quem comentou agora), `flow_id` |
 | 19 | **Convite para treinar junto** (26/08/2026) | `follower_id` (quem convidou), `post_id` (= `workout_parties.id`) |
+| 20 | **Mencionado com "@" num comentário** (27/09/2026) | `follower_id` (quem comentou), `post_id` ou `shots_id` ou `flow_id` |
 | 14 | Check-in **classificado** (aprovado) por um participante | `follower_id` (quem votou), `duel_check_in_id` |
 | 15 | Check-in **desclassificado** (reprovado) por um participante | `follower_id` (quem votou), `duel_check_in_id` |
 
@@ -776,6 +777,11 @@ Notificações geradas para os usuários (follows, likes, comentários, duelos).
 | `shots_comments` | `notify_shots_comment` | `notify_shots_comment()` | type 3 (shot) |
 | `flow_comments` | `trg_notify_flow_comment` | `notify_flow_comment()` | type 3 (flow) — só para o **dono** do flow |
 | `flow_comments` | `trg_notify_flow_comment_followup` | `notify_flow_comment_followup()` | type 18 — para os **demais comentaristas** do mesmo flow |
+| `comments` | `trg_notify_post_comment_mentions` | `notify_post_comment_mentions()` | type 20 — cada `@handle` do texto (migração `20260927-comment-mentions.sql`) |
+| `shots_comments` | `trg_notify_shot_comment_mentions` | `notify_shot_comment_mentions()` | type 20 |
+| `flow_comments` | `trg_notify_flow_comment_mentions` | `notify_flow_comment_mentions()` | type 20 |
+
+> **Menções (type 20):** os três triggers usam `comment_mention_recipients(text, autor, dono)` (`SECURITY DEFINER`, `stable`): extrai até 10 `@handle` do texto (regex `(?:^|\s)@([a-z0-9._-]+)`, ponto/hífen final removidos), casa com `lower(profiles.handle)` e exclui o autor, o **dono do conteúdo** (já recebe o type 3) e qualquer par com bloqueio (`user_blocks`, as duas direções). Só no INSERT — editar comentário não renotifica. Cada trigger engole o próprio erro (`raise warning`): uma menção nunca impede o comentário de ser salvo. Legenda de post/flow não passa por aqui — lá a menção escolhida no autocomplete vira `post_tags`/`flow_tags` (types 9/16).
 | `post_tags` | `trg_notify_post_tag` | `notify_post_tag()` | type 9 (marcado em post) |
 | `flow_tags` | `trg_notify_flow_tag` | `notify_flow_tag()` | type 16 (marcado em flow) |
 | `duel_check_in_votes` | `trg_notify_check_in_vote` | `notify_check_in_vote()` | type 14 / 15 (check-in classificado / desclassificado) |
@@ -848,7 +854,7 @@ Pessoas marcadas em **Flows** (mesma ideia de `post_tags`, mas para a tabela `fl
 **Constraint:** `unique(flow_id, user_id)`. **Índices:** `flow_tags_flow_id_idx`, `flow_tags_user_id_idx`.
 **RLS:** SELECT pública; INSERT só o dono do flow; DELETE o dono ou a própria pessoa marcada.
 **Trigger:** `trg_notify_flow_tag` (AFTER INSERT) → `notify_flow_tag()` (SECURITY DEFINER) insere notificação **type 16** para a pessoa marcada (ignora auto-marcação); push automático.
-**Funções (`ritmofit-db.ts`):** `createStoryDb` (7º parâmetro `taggedUserIds`, 8º `repost`), `getFlowTagsDb(flowId)` e `repostStoryDb(flowId)` (cria um flow do próprio usuário reaproveitando a mídia do original + atribuição em `flow.reposted_from*`).
+**Funções (`ritmofit-db.ts`):** `createStoryDb` (7º parâmetro `taggedUserIds`, 8º `repost`), `getFlowTagsDb(flowId)`, `repostStoryDb(flowId)` (cria um flow do próprio usuário reaproveitando a mídia do original + atribuição em `flow.reposted_from*`) e `hasRepostedFlowDb(flowId)` (o usuário logado já tem um flow com `reposted_from = flowId`? — trava o botão de repost). As leituras de flow (`getActiveStoriesDb`, `getUserActiveStoriesDb`, `getExpiredUserFlowsDb`, `getFlowByIdDb`) selecionam `reposted_from`/`reposted_from_user` (tier `FLOW_COLS_REPOST`) e preenchem `repostedFromNickname`/`repostedFromPhoto` via `attachRepostAuthors` — base da moldura de repost no viewer. Repost de repost grava o flow/autor de **origem**.
 
 > A migração também adiciona em `flow` as colunas `reposted_from` (bigint → `flow.id`) e `reposted_from_user` (uuid → `auth.users`) para atribuir o repost. `createStoryDb` degrada graciosamente se as colunas ainda não existirem (detecta `42703` e reenvia sem elas).
 

@@ -23,6 +23,8 @@ import {
   createUserGoalDb,
   createCustomGoalAndSelectDb,
   updateUserGoalDb,
+  getUserGoalByIdDb,
+  type UserGoal,
   deletePostDb,
   getPostLikeUsersDb,
   flushPendingIncentivesDb,
@@ -32,6 +34,7 @@ import {
   type PostIncentiveType,
   type StoryTextElement,
   type StoryWithUser,
+  type StoryPostSticker,
   invalidateProfileCache,
   invalidateQueryCache,
   getFollowingIdsDb,
@@ -42,7 +45,10 @@ import { PostLikesModal } from "@/components/modals/post-likes-modal";
 import { ReportDrawer } from "@/components/shared/report-drawer";
 import { BlockUserDialog } from "@/components/shared/block-user-dialog";
 import { GoalCompletedDialog } from "@/components/shared/goal-completed-dialog";
+import { GoalShareDrawer } from "@/components/goals/goal-share-drawer";
 import { ShareDrawer } from "@/components/shared/share-drawer";
+import { sharePostToFlow } from "@/lib/post-to-flow";
+import { reportHandledError } from "@/lib/monitoring";
 import { SendToFriendDrawer, type SendableContent } from "@/components/shared/send-to-friend-drawer";
 import { postShareUrl } from "@/lib/share-url";
 import { EditPostDrawer } from "@/components/post/edit-post-drawer";
@@ -91,6 +97,7 @@ interface FeedCache {
   currentUserPhoto: string | null;
   currentUserNickname: string | null;
   feedTab: "following" | "discover";
+  followsNobody: boolean;
   discoverLoaded: boolean;
   hasMoreFeed: boolean;
   hasMoreDiscover: boolean;
@@ -107,6 +114,7 @@ const feedCache: FeedCache = {
   currentUserPhoto: null,
   currentUserNickname: null,
   feedTab: "following",
+  followsNobody: false,
   discoverLoaded: false,
   hasMoreFeed: true,
   hasMoreDiscover: true,
@@ -164,6 +172,9 @@ export default function Index() {
   // um pull-to-refresh de quem não segue ninguém arrastaria a pessoa de volta
   // para "Descobrir" mesmo que ela tivesse acabado de tocar em "Seguindo".
   const autoTabDecided = React.useRef(cacheValid);
+  // Quem não segue ninguém ainda vê as sugestões em "Seguindo" mesmo depois de
+  // publicar — o próprio post deixaria a aba "não vazia" e esconderia o card.
+  const [followsNobody, setFollowsNobody] = React.useState(() => cacheValid && feedCache.followsNobody);
 
   // Dica de "puxe para atualizar" — aparece quando o app volta ao foreground
   // depois de ≥5min em background (pode haver novas publicações).
@@ -187,6 +198,8 @@ export default function Index() {
   const [viewedStoryIds, setViewedStoryIds] = React.useState<Set<string>>(() => (cacheValid ? feedCache.viewedStoryIds : new Set()));
 
   const [shareDrawerOpen, setShareDrawerOpen] = React.useState(false);
+  // Post a virar flow ("Seu flow" no ShareDrawer) — null = opção oculta.
+  const [shareToFlowPost, setShareToFlowPost] = React.useState<StoryPostSticker | null>(null);
   const [shareDrawerText, setShareDrawerText] = React.useState("");
   const [shareDrawerUrl, setShareDrawerUrl] = React.useState<string | undefined>(undefined);
   const [sendToFriendOpen, setSendToFriendOpen] = React.useState(false);
@@ -200,7 +213,10 @@ export default function Index() {
   const [hasAlreadyCopiedGoal, setHasAlreadyCopiedGoal] = React.useState(false);
   const goalModalReqRef = React.useRef(0);
   const [isMarkingGoalComplete, setIsMarkingGoalComplete] = React.useState(false);
-  const [completedGoalDescription, setCompletedGoalDescription] = React.useState<string | null>(null);
+  // Meta recém-concluída pelo drawer de progresso — alimenta o diálogo de
+  // celebração e, se o usuário tocar em "Compartilhar conquista", o GoalShareDrawer.
+  const [completedGoal, setCompletedGoal] = React.useState<UserGoal | null>(null);
+  const [goalToShare, setGoalToShare] = React.useState<UserGoal | null>(null);
   const [copyingRoutineKeys, setCopyingRoutineKeys] = React.useState<Set<string>>(new Set());
   const [copiedRoutineKeys, setCopiedRoutineKeys] = React.useState<Set<string>>(new Set());
 
@@ -208,11 +224,11 @@ export default function Index() {
   // realmente cai nele (não segue ninguém ainda).
   const [suggestedUsers, setSuggestedUsers] = React.useState<SearchUser[]>([]);
   React.useEffect(() => {
-    if (loading || posts.length > 0 || !user?.id || suggestedUsers.length > 0) return;
+    if (loading || (posts.length > 0 && !followsNobody) || !user?.id || suggestedUsers.length > 0) return;
     getAllUsersDb(user.id)
       .then((users) => setSuggestedUsers(users.slice(0, 5)))
       .catch((err) => console.error("Erro ao carregar perfis sugeridos:", err));
-  }, [loading, posts.length, user?.id, suggestedUsers.length]);
+  }, [loading, posts.length, followsNobody, user?.id, suggestedUsers.length]);
 
   const [likesModalOpen, setLikesModalOpen] = React.useState(false);
   const [likesLoading, setLikesLoading] = React.useState(false);
@@ -265,6 +281,7 @@ export default function Index() {
       //
       // A troca acontece aqui, ANTES do primeiro paint do conteúdo (a tela
       // ainda está no skeleton), então não há flicker de aba.
+      setFollowsNobody(followingIds.length === 0);
       if (!autoTabDecided.current) {
         autoTabDecided.current = true;
         if (followingIds.length === 0) {
@@ -334,10 +351,11 @@ export default function Index() {
     feedCache.currentUserPhoto = currentUserPhoto;
     feedCache.currentUserNickname = currentUserNickname;
     feedCache.feedTab = feedTab;
+    feedCache.followsNobody = followsNobody;
     feedCache.discoverLoaded = discoverLoaded;
     feedCache.hasMoreFeed = hasMoreFeed;
     feedCache.hasMoreDiscover = hasMoreDiscover;
-  }, [posts, discoverPosts, stories, viewedStoryIds, currentUserPhoto, currentUserNickname, feedTab, discoverLoaded, hasMoreFeed, hasMoreDiscover]);
+  }, [posts, discoverPosts, stories, viewedStoryIds, currentUserPhoto, currentUserNickname, feedTab, followsNobody, discoverLoaded, hasMoreFeed, hasMoreDiscover]);
 
   // Restaura (no mount) e salva (no unmount) a posição de scroll entre navegações.
   React.useEffect(() => {
@@ -446,9 +464,16 @@ export default function Index() {
 
   // Recarrega o feed ao chegar com refreshFeed (ex.: após compartilhar um treino),
   // ignorando o cache para que a publicação recém-criada apareça no topo na hora.
+  // Com showFollowing (vindo do Novo Post), força a aba "Seguindo" — é a única
+  // onde o próprio post aparece — e trava a escolha automática, que mandaria
+  // quem ainda não segue ninguém para "Descobrir".
   React.useEffect(() => {
-    const state = location.state as { refreshFeed?: boolean } | null;
+    const state = location.state as { refreshFeed?: boolean; showFollowing?: boolean } | null;
     if (!state?.refreshFeed) return;
+    if (state.showFollowing) {
+      autoTabDecided.current = true;
+      setFeedTab("following");
+    }
     navigate(location.pathname, { replace: true, state: {} });
     window.scrollTo({ top: 0, behavior: "auto" });
     feedCache.scrollY = 0;
@@ -878,8 +903,25 @@ export default function Index() {
             perc: 100,
             visibility: ug.visibility ?? 1,
           });
+          // O card de compartilhamento precisa do UserGoal completo (created_at
+          // alimenta o "tempo total"); o PostUserGoal do feed não o traz.
+          const fresh = await getUserGoalByIdDb(ug.id).catch(() => null);
           setGoalModalOpen(false);
-          setCompletedGoalDescription(ug.description ?? "");
+          setCompletedGoal(
+            fresh ?? {
+              id: ug.id,
+              goal_id: ug.goal_id,
+              is_custom: ug.is_custom,
+              description: ug.description ?? "",
+              duration: ug.duration,
+              quantity: ug.quantity,
+              type_goal: ug.type_goal,
+              perc: 100,
+              days_completed: ug.duration,
+              visibility: ug.visibility ?? 1,
+              created_at: null,
+            },
+          );
         } catch (err: any) {
           toast({ title: t("error"), description: err?.message || t("retry"), variant: "destructive" });
         } finally {
@@ -972,6 +1014,19 @@ export default function Index() {
   );
 
   const handleSharePost = React.useCallback((post: PostWithStats) => {
+    // "Seu flow" só para o PRÓPRIO post com foto (1ª foto do carrossel).
+    const firstPhoto = post.photos?.length ? String(post.photos[0]) : post.photo || null;
+    setShareToFlowPost(
+      post.user_id === user?.id && firstPhoto
+        ? {
+            postId: post.id,
+            photo: firstPhoto,
+            authorId: post.user_id,
+            authorNickname: post.userNickname ?? "",
+            authorPhoto: post.userPhoto ?? null,
+          }
+        : null,
+    );
     const base = t("share_post_text").replace("{handle}", post.userNickname ?? "");
     const text = post.description ? `${base}\n"${post.description}"` : base;
     setShareDrawerText(text);
@@ -983,7 +1038,21 @@ export default function Index() {
       authorNickname: post.userNickname,
     });
     setShareDrawerOpen(true);
-  }, [t]);
+  }, [t, user?.id]);
+
+  const handleShareToFlow = React.useCallback(async () => {
+    if (!shareToFlowPost) return;
+    try {
+      await sharePostToFlow(shareToFlowPost);
+      toast({ title: t("share_flow_success"), description: t("share_flow_success_desc") });
+      // O ring de flows no topo do feed mostra o novo flow na hora.
+      getActiveStoriesDb().then(setStories).catch(() => {});
+    } catch (err) {
+      reportHandledError(err, "feed:share-post-to-flow");
+      toast({ title: t("share_flow_error"), description: t("retry"), variant: "destructive" });
+      throw err;
+    }
+  }, [shareToFlowPost, t]);
 
   const handleReportUser = React.useCallback((post: PostWithStats) => {
     setReportedPost(post);
@@ -1339,7 +1408,7 @@ export default function Index() {
 
             {/* Feed vazio = primeira tela de todo usuário novo. Em vez de um link
                 para outra tela, as pessoas sugeridas são seguíveis aqui mesmo. */}
-            {posts.length === 0 && (
+            {(posts.length === 0 || followsNobody) && (
               <div className="mx-3 mb-4 p-4 rounded-2xl" style={GLASS_PANEL_STYLE}>
                 <p className="text-base font-semibold text-white">{t("feed_empty_title")}</p>
                 <p className="text-sm text-white/60 mt-1 mb-4">{t("feed_follow_cta")}</p>
@@ -1487,7 +1556,7 @@ export default function Index() {
                       <p className="text-sm font-bold text-white">{selectedGoalPost.userGoal.duration}d</p>
                     </div>
                     <div className="p-2 rounded-xl text-center" style={{ background: "rgba(255,255,255,.05)" }}>
-                      <p className="text-xs text-white/50">{t("feed_goal_quantity")}</p>
+                      <p className="text-xs text-white/50">{t("feed_goal_frequency")}</p>
                       <p className="text-sm font-bold text-white">{selectedGoalPost.userGoal.quantity}</p>
                     </div>
                     <div className="p-2 rounded-xl text-center" style={{ background: "rgba(255,255,255,.05)" }}>
@@ -1536,7 +1605,7 @@ export default function Index() {
                               variant="outline"
                               size="sm"
                               className="w-full rounded-full bg-transparent border-white/20 text-white hover:bg-white/10 hover:text-white"
-                              onClick={() => navigate("/metas?tab=rotinas")}
+                              onClick={() => navigate("/metas?tab=rotinas&action=create-routine")}
                             >
                               {t("feed_routines_link_btn")}
                             </Button>
@@ -1601,12 +1670,30 @@ export default function Index() {
       </Drawer>
 
       {/* Goal Completed Dialog */}
-      {completedGoalDescription !== null && (
+      {completedGoal && (
         <GoalCompletedDialog
-          goalDescription={completedGoalDescription}
-          onClose={() => setCompletedGoalDescription(null)}
+          goalDescription={completedGoal.description}
+          onShare={() => {
+            // Fecha a celebração ANTES de abrir o drawer: o diálogo Radix e o
+            // drawer dividem z-300/310, e o body fica com pointer-events:none
+            // enquanto o diálogo estiver montado.
+            setGoalToShare(completedGoal);
+            setCompletedGoal(null);
+          }}
+          onClose={() => setCompletedGoal(null)}
         />
       )}
+
+      <GoalShareDrawer
+        goal={goalToShare}
+        onClose={() => setGoalToShare(null)}
+        onShared={() => {
+          // Mesmo recarregamento do refreshFeed: o post novo aparece no topo na hora.
+          window.scrollTo({ top: 0, behavior: "auto" });
+          feedCache.scrollY = 0;
+          loadFeed(false, true);
+        }}
+      />
 
       {/* Report Dialog */}
       <ReportDrawer
@@ -1643,6 +1730,7 @@ export default function Index() {
         url={shareDrawerUrl}
         title={t("feed_share_post_title")}
         onSendToFriend={() => setSendToFriendOpen(true)}
+        onShareToFlow={shareToFlowPost ? handleShareToFlow : undefined}
       />
 
       <SendToFriendDrawer

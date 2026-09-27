@@ -291,7 +291,7 @@ const GOALS = [
  * Tabela → linhas. O que não estiver aqui devolve `[]`, e o app cai no estado
  * vazio daquela seção — que também é um estado real dele.
  */
-export const TABLES = {
+const TABLES_PT = {
   profiles: PROFILES,
   posts: POSTS,
   flow: FLOWS,
@@ -320,3 +320,53 @@ export const TABLES = {
   user_blocks: [],
   post_tags: [],
 };
+
+/**
+ * Versão em inglês (`LK_LANG=en`) — para a ficha da loja fora do Brasil.
+ * Troca só o CONTEÚDO fictício (legendas, nomes de rotina, bios); a interface
+ * sai em inglês sozinha, porque o app roda com o idioma em "en".
+ */
+const EN_TEXT = {
+  "Treino 5x por semana. Foco em força.": "Training 5x a week. Strength first.",
+  "Leg day é todo dia.": "Every day is leg day.",
+  "Costas e bíceps, sempre.": "Back and biceps, always.",
+  "Corredor e amante de leg day.": "Runner and leg day lover.",
+  "Começando agora, sem pressa.": "Just getting started, no rush.",
+  "Treino de pernas fechado! Recorde novo no leg press #treino #pernas": "Leg day done! New leg press PR #workout #legday",
+  "Costas e bíceps concluído. Consistência é tudo #evolucao": "Back and biceps done. Consistency is everything #progress",
+  "Fechei a semana com 5 treinos. Bora pra próxima! #consistencia": "Closed the week with 5 workouts. On to the next! #consistency",
+  "Primeira semana inteira sem falhar nenhum treino.": "First full week without missing a single workout.",
+  "Pernas completo": "Full Legs",
+  "Costas e Bíceps": "Back & Biceps",
+  "Ombros e Core": "Shoulders & Core",
+  "Peito e Tríceps": "Chest & Triceps",
+  "Monstro!": "Beast!",
+  "Inspiração": "So inspiring",
+  "Que carga!": "What a lift!",
+  "Vamo!": "Let's go!",
+  "Isso aí, Rafael!": "That's it, Rafael!",
+  "Treinar 5× por semana": "Train 5x a week",
+  "Correr 40 km no mês": "Run 40 km a month",
+  "Pernas": "Legs", "Costas": "Back", "Bíceps": "Biceps", "Ombros": "Shoulders",
+  "Peitoral": "Chest", "Tríceps": "Triceps",
+};
+const NOMES_EN = Object.fromEntries(WORKOUTS_CAT.map((w) => [w.name, w.name_eng]));
+Object.assign(NOMES_EN, {
+  "Desenvolvimento Halteres": "Dumbbell Shoulder Press",
+  "Elevação Lateral": "Lateral Raise",
+});
+
+function traduz(v, chave) {
+  if (typeof v === "string") {
+    if (chave === "name" && NOMES_EN[v]) return NOMES_EN[v];
+    return EN_TEXT[v] ?? v;
+  }
+  if (Array.isArray(v)) return v.map((x) => traduz(x, chave));
+  if (v && typeof v === "object") {
+    return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, traduz(x, k)]));
+  }
+  return v;
+}
+
+export const LANG = process.env.LK_LANG === "en" ? "en" : "pt";
+export const TABLES = LANG === "en" ? traduz(TABLES_PT) : TABLES_PT;

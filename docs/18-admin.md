@@ -47,6 +47,7 @@ Ações rastreadas (contagem + horário da última, derivadas das tabelas de con
 - **Ação não tem duração**, só contagem e horário — o app não tem tabela de eventos com início/fim; cronometrar um like não faria sentido. Duração existe só para **tela**.
 - A telemetria (`access_sessions`, `screen_time_logs`) é gravada quando **o app vai para segundo plano** (`flush` no `AppLayout`). Quem está com o app aberto agora só aparece com o que já enviou — a tela avisa isso no rodapé da seção.
 - Quem navegou mas ainda não fechou o app pode ter linha em `screen_time_logs` sem linha em `access_sessions`. A RPC usa a **união** das duas para não sumir com ninguém; quando falta a sessão, o card mostra o tempo somado por tela.
+- **Desde 2026-09-27 o tempo na tela de registrar treino não entra** em `access_sessions` nem em `screen_time_logs` (ver `docs/13-layouts-e-componentes.md`). Dados anteriores incluem o tempo de treino — comparações de "tempo de uso" antes/depois dessa data não são equivalentes.
 - Datas comparadas em **UTC** (`current_date`), igual ao resto do painel — os números batem entre as seções.
 
 ## Anatomia dos exercícios (17/08/2026)

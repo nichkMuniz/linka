@@ -13,6 +13,18 @@ node scripts/appstore/verify.mjs              # confere dimensão e ausência de
 node scripts/appstore/preview.mjs iphone-6.5 420
 ```
 
+## Versão em inglês
+
+```
+LK_LANG=en node scripts/appstore/.tooling/capture.mjs   # sai em docs/appstore/en/
+```
+
+Com `LK_LANG=en` o app roda com `ritmofit-language = "en"` (a interface se
+traduz sozinha pelo i18n) e o conteúdo fictício — legendas, bios, nomes de
+rotina, cards de treino — é traduzido por `EN_TEXT`/`CARDS_EN`. Qualquer texto
+em português que aparecer nas capturas em inglês é string fixa no app: corrigir
+no i18n, não no script.
+
 ## Como funciona sem login e sem tocar na base
 
 Duas coisas, ambas em `.tooling/capture.mjs`:

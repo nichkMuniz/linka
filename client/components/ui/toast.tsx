@@ -14,7 +14,10 @@ const ToastViewport = React.forwardRef<
   <ToastPrimitives.Viewport
     ref={ref}
     className={cn(
-      "fixed top-0 z-[9999] flex max-h-screen w-full flex-col-reverse p-4 sm:bottom-0 sm:right-0 sm:top-auto sm:flex-col md:max-w-[420px] [padding-top:max(1rem,env(safe-area-inset-top))]",
+      // pointer-events-none: a faixa vazia do viewport cobria o topo da tela (bloqueava
+      // o header) e um toque nela pausava o fechamento automático. O toast em si
+      // é pointer-events-auto (toastVariants) — continua tocável e arrastável.
+      "pointer-events-none fixed top-0 z-[9999] flex max-h-screen w-full flex-col-reverse p-4 sm:bottom-0 sm:right-0 sm:top-auto sm:flex-col md:max-w-[420px] [padding-top:max(1rem,env(safe-area-inset-top))]",
       className,
     )}
     {...props}

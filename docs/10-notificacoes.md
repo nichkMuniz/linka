@@ -76,6 +76,7 @@ Cada item exibe:
 | 17 `flow_reply` | — | — | Alguém **respondeu ao seu flow** em privado (botão de mensagem na doca do viewer). É uma **mensagem privada** com texto de push próprio — **só push, nunca aparece nesta lista**, igual ao tipo 10 |
 | 18 `flow_comment_followup` | `MessagesSquare` | Índigo | **Comentaram num flow em que você também comentou** (tabela `flow_comments`, trigger `trg_notify_flow_comment_followup`). Vale tanto para o dono do flow respondendo quanto para um terceiro comentando. O dono do flow **não** recebe este tipo — para ele a mesma inserção já gera o tipo 3 |
 | 19 `workout_party` | — | — | **Convite para treinar junto** (26/08/2026) — alguém chamou você para fazer o mesmo treino agora. `post_id` = `workout_parties.id`. Com o app aberto o banner local é **suprimido de propósito**: o aviso é o diálogo do convite (`workout-party-invite-dialog.tsx`, montado no `app-layout.tsx`), que já traz os exercícios e os botões de aceitar/recusar. Ver `docs/05-metas.md` |
+| 20 `comment_mention` | `AtSign` (ciano) | — | **Mencionado com "@" num comentário** (27/09/2026) — em post, shot ou flow. Gerado pelos triggers `notify_*_comment_mentions` a partir do texto (ver `docs/14-database-schema.md`); o dono do conteúdo não recebe (já tem o type 3). Toque abre os comentários onde a menção está (post → `/post/:id` com `openComments`, shot → `/shots` com `openComments`, flow → feed com `openFlow` + `openComments`). Título/corpo em `notification-copy.ts` (`notif_title_20` / `notif_desc_comment_mention`) e na edge function. **Pendências:** rodar `docs/migrations/20260927-comment-mentions.sql` + redeploy da `send-push-notification` |
 
 ### Tipos de Incentivo (subtipo)
 Quando o tipo é incentivo, o ícone exibido é o do incentivo específico (não um ícone genérico):
@@ -226,6 +227,7 @@ O corpo do push é montado em runtime por `buildBody()`, com os dados reais da n
 | 16 | "{nome} marcou você em um flow." | `profiles` |
 | 17 | "{nome} respondeu ao seu flow." | `profiles` |
 | 19 | "{nome} te chamou pra treinar agora." | `profiles` |
+| 20 | "{nome} mencionou você num comentário." | `profiles` |
 
 - Cada nome livre (apelido, grupo, título) passa por `short()` para o push não virar um parágrafo; quando o lookup não encontra o registro, o texto cai numa variante sem o nome ("{nome} curtiu sua promoção.") em vez de ficar vazio.
 - Falha em qualquer lookup **não derruba o push**: `buildBody` é chamada com `.catch()` e volta ao texto genérico.
@@ -236,7 +238,9 @@ O corpo do push é montado em runtime por `buildBody()`, com os dados reais da n
 
 ## Banner em primeiro plano (`client/lib/notification-copy.ts`)
 
-Quando a notificação chega com o **app aberto**, quem mostra o banner não é a edge function — é o próprio app, via `LocalNotifications.schedule` no `AppLayout`, disparado pelo Realtime da tabela `notifications`.
+Quando a notificação chega com o **app aberto**, quem mostra o banner não é a edge function — é o próprio app, pelo `AppLayout`, disparado pelo Realtime da tabela `notifications`.
+
+> **Pop up in-app para todas as notificações sociais (2026-09-27):** o `AppLayout` agendava uma notificação **local** nativa (`LocalNotifications.schedule`), que o iOS **não exibe com o app em primeiro plano** — incentivos, comentários, novos seguidores etc. só apareciam no sino. Agora o handler chama `showIncomingNotificationToast({ actorId, title, body, url })` (`client/lib/incoming-message-toast.ts`) e o **mesmo** `IncomingMessageToast` da mensagem privada exibe o aviso: título (`notificationTitle`) + texto (`notificationBody`), foto de quem originou (`follower_id`) com selo de sino laranja, some em 5s ou arrastando para cima, e o toque navega para `notificationDeepLink(row)` — o mesmo destino do push. Os filtros de antes seguem valendo (flags de feature, tipos 10/17 pelo canal de `messages`, convite de treino pelo diálogo, sem banner com `/notificacoes` aberta). Sem migração nem redeploy.
 
 > **Fonte única do banner em foreground (2026-07-20):** `capacitor.config.ts` passou a ter `PushNotifications.presentationOptions: []`. Assim o push remoto (APNs) **não** apresenta banner com o app em primeiro plano — só em background/fechado (o `presentationOptions` só rege o foreground). Antes, com `["badge","sound","alert"]`, o push remoto **também** aparecia em foreground, duplicando o banner local do `AppLayout` e, pior, impedindo qualquer supressão por tela. Agora o `AppLayout` é a fonte única de banner em foreground — é ele que decide mostrar ou não. **Exige `npx cap sync ios` + rebuild no Appflow** para o `capacitor.config.json` nativo ser atualizado.
 >

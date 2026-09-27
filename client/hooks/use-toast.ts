@@ -3,8 +3,19 @@ import * as React from "react";
 import type { ToastActionElement, ToastProps } from "@/components/ui/toast";
 
 const TOAST_LIMIT = 1;
-// Remove soon after closing (Radix handles the auto-close duration - see toaster.tsx).
+// Remove soon after closing.
 const TOAST_REMOVE_DELAY = 500;
+/**
+ * Tempo na tela antes de fechar sozinho (também passado ao ToastProvider).
+ *
+ * O fechamento automático NÃO depende só do timer do Radix: ele pausa em
+ * `window.blur` e só retoma em `window.focus`, e o "pausado" fica no PROVIDER —
+ * vale para todos os toasts seguintes. No WKWebView do iOS um blur sem o focus
+ * correspondente (alerta nativo, Face ID, share sheet, app em segundo plano) é
+ * comum: a partir daí nenhum toast fechava mais sozinho ("em alguns aparelhos").
+ * Por isso `toast()` agenda o próprio fechamento abaixo.
+ */
+export const TOAST_DURATION = 3500;
 
 type ToasterToast = ToastProps & {
   id: string;
@@ -158,6 +169,13 @@ function toast({ ...props }: Toast) {
       },
     },
   });
+
+  // Fechamento garantido (ver TOAST_DURATION). `duration: Infinity` segue
+  // persistente de propósito; dispensar duas vezes é inofensivo.
+  const duration = props.duration ?? TOAST_DURATION;
+  if (Number.isFinite(duration) && duration > 0) {
+    setTimeout(dismiss, duration);
+  }
 
   return {
     id: id,
