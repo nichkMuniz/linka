@@ -140,6 +140,8 @@ export function useMessages({
               userId: userIdParam,
               userNickname: profile.nickname || "Usuário",
               userPhoto: profile.photo || null,
+              isVerified: profile.is_verified === true,
+              verifiedTier: profile.verified_tier ?? null,
               lastMessage: "",
               lastMessageTime: new Date().toISOString(),
               unreadCount: 0,

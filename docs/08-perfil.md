@@ -105,17 +105,33 @@ Página de perfil do usuário. Exibe informações pessoais, estatísticas, cont
 ### Informações do Usuário
 | Campo | Descrição |
 |---|---|
-| Nome / Nickname | Nome de exibição. Exibe `VerifiedBadge` (badge dourado) ao lado se `is_verified = true` |
+| Nome / Nickname | Nome de exibição. Exibe `VerifiedBadge` ao lado se `is_verified = true`: dourado (oficial) ou azul (verificado), conforme `verified_tier` |
 | Bio | Descrição pessoal |
 | Segmentos | Interesses fitness selecionados no onboarding |
 | Data de criação | "Membro desde..." |
 
+### Recompartilhar e reposts no viewer de post (2026-09-28)
+- **Botão "Recompartilhar"** (`Repeat2`) no viewer de post quando o usuário logado está **marcado** num post de **outra pessoa** (`canReshareSelectedPost`). Abre o `ShareDrawer` do perfil, agora configurável por `shareDrawerTitle`, com "Seu feed" e "Seu flow" (hook `usePostReshare`). O compartilhar do perfil chama `postReshare.prepare(null)`, então esses botões não aparecem lá.
+- O caminho natural é a aba **Marcações** do próprio perfil (flag `profileTaggedTab`, religada em 28/09/2026): lá estão justamente os posts em que o usuário foi marcado. Também funciona abrindo o post no perfil do autor.
+- **Repost na aba Posts:** o repost é um post do próprio usuário (`getUserPostsDb` traz `repostOf`). O viewer mostra o `RepostAttribution` acima da linha de marcados, e a legenda é a do original (`displayedPostDescription`). Excluir um repost não apaga as fotos, que são do original.
+
 ### Badge de Conta Verificada
 - Componente: `client/components/shared/VerifiedBadge.tsx`
 - Aparece ao lado do nome no header do perfil quando `profile.is_verified === true`
-- Também aparece em: post-card (overlay do autor), comentários, shots (overlay do criador), notificações (sobre o avatar)
+- **Dois níveis (2026-09-28)**, via prop `tier`:
+  | Nível | `verified_tier` | Visual | Para quem |
+  |---|---|---|---|
+  | Oficial | `official` | Roseta de 8 pontas, gradiente dourado `#FFB800 → #FF8A2A` | Equipe LinKa (admin) |
+  | Verificado | `notable` | Círculo, gradiente azul `#3B9BFF → #1D6FE8` | Usuários importantes |
+  - A forma também muda (não só a cor), para os níveis se distinguirem sem depender de cor. `title`/`aria-label` traduzidos (`verified_official_label` / `verified_notable_label`).
+  - O nível é derivado por `verifiedTierOf()` em `client/lib/verified-tier.ts`; os objetos de post/shot/comentário carregam `verifiedTier` ao lado de `isVerified`.
+- Também aparece em: post-card (overlay do autor), detalhe do post, comentários, shots (overlay do criador), **flow** (nome no ring do feed + cabeçalho do `FlowViewer`, inclusive as prévias anterior/próximo), **Buscar** (resultados e lista inicial de usuários) e **mensagens privadas** (lista de conversas, lista de quem você segue, drawer "Nova mensagem", cabeçalho e cartão de perfil da conversa aberta)
+  - Fontes que carregam `verifiedTier`: `getActiveStoriesDb`/`getUserActiveStoriesDb`/`getExpiredUserFlowsDb`/`getFlowByIdDb` (flow), `searchUsersDb`/`getAllUsersDb`/`getFollowingDb` (`SearchUser`), `getConversationsDb` (`Conversation`). Todo select novo de autor que exiba o nome precisa pedir `is_verified, verified_tier`.
+  - Não entram (sem nome em destaque): notificações e listas de curtidas.
+- **Botão "Admin"** no próprio perfil: aparece só com `verified_tier === "official"`. Antes bastava `is_verified`, o que mostraria o botão a qualquer conta verificada. A autorização real continua no servidor (`app_admins`).
+- **Modal de parabéns (`client/components/shared/verified-congrats-dialog.tsx`):** montado no `AppLayout`, que chama `getOwnVerificationStatusDb()` ao abrir o app e sempre que ele volta ao primeiro plano (`visibilitychange`). A leitura é direta, sem `cached()`, porque o selo é dado pelo admin em outro aparelho. Abre só quando o nível **sobe** em relação a `verified_seen_tier` (nenhum → verificado/oficial, verificado → oficial), com textos diferentes para cada nível (`verified_congrats_*`). Remoção ou rebaixamento só sincroniza a marca, sem modal. A marca é gravada **ao fechar** (`markVerificationSeenDb`), então o modal reaparece se o app for morto com ele aberto. "Ver meu selo" leva a `/perfil`.
 - Gerenciado pelo admin via tela Admin → seção "Contas Verificadas"
-- Coluna no banco: `profiles.is_verified` (boolean, default false)
+- Colunas no banco: `profiles.is_verified` (boolean) + `profiles.verified_tier` (text) — ver `docs/14-database-schema.md`
 
 ### Frame de Perfil Comercial (se `commercialProfile` existe)
 - Nome do negócio (clicável via WhatsApp se tiver telefone)
@@ -190,6 +206,8 @@ Cada post na grade:
 
 ## Tab: Treinos
 
+> **Visível desde 28/09/2026** pela flag própria `FEATURES.profileWorkoutsTab` (antes escondida junto com Clipes/Marcações/Vitrine em `profileExtraTabs`, que continua desligada). Com a flag desligada, o split é desfeito e Publicações volta a mostrar tudo.
+
 Grade dos **cards de resumo de treino** publicados pelo usuário — os canvas gerados pelo `WorkoutSummaryOverlay` (ver `docs/05-metas.md`) ao terminar um treino.
 
 **Por que a aba existe (26/08/2026):** o resumo de treino é o post mais frequente de quem usa o app com constância, e ele afogava as fotos de verdade na aba Posts. Separando os dois, a aba **Posts** volta a ser o álbum de fotos da pessoa e a **Treinos** vira o histórico visual do que ela treinou.
@@ -262,6 +280,8 @@ Cada shot na grade:
 ---
 
 ## Tab: Marcações
+
+> **Visível desde 28/09/2026** pela flag própria `FEATURES.profileTaggedTab` (depende de `postTags`). Antes ficava escondida com Clipes/Vitrine em `profileExtraTabs`, que continua desligada. Posts abertos daqui mostram o botão **"Recompartilhar"** para quem está marcado (ver "Recompartilhar e reposts no viewer de post").
 
 Grade das publicações **de outras pessoas** em que o dono do perfil foi marcado (tabela `post_tags`, criada em `docs/migrations/20260710-post-tags.sql` — ver `docs/04-novo-post.md` para o fluxo de marcação).
 
@@ -632,6 +652,11 @@ Exibida entre o card de perfil e as tabs, **apenas quando o usuário tem metas**
 - **Ordenação (`sortedUserGoals`, `React.useMemo`):** metas **pendentes primeiro**, concluídas (`perc >= 100`) empurradas para o fim da strip. O `sort` do JS é estável, então dentro de cada grupo a ordem original de `getUserGoalsByUserIdDb` é preservada
 - **Estado concluído (`perc >= 100`):** o card ganha visual verde para sinalizar a conclusão — fundo `linear-gradient(rgba(34,197,94,.22),rgba(34,197,94,.08))`, borda `rgba(34,197,94,.35)`, barra de progresso `bg-emerald-500` e percentual `text-emerald-400`. O rótulo "Progresso" é substituído por um selo `CheckCircle2` + **"Concluída"** (chave i18n `profile_goal_completed`). Metas pendentes mantêm o card glass branco com barra/percentual `brand`
 - Ícone `Target` (Lucide) com label "Metas" como cabeçalho da seção
+- **Ocultar/excluir meta concluída (2026-09-28):** no **próprio** perfil, cada meta **concluída** ganha um botão **"⋯"** no canto do card, que abre um drawer com duas ações:
+  - **Ocultar do perfil / Mostrar no perfil** (`setGoalHiddenOnProfileDb`): grava `user_goals.hidden_on_profile`. A meta some da strip **para todos** (visitante nunca a recebe), mas **não é apagada**: continua na tela de Metas, no histórico e no chip dos posts ligados a ela (isso é `visibility`, que não muda).
+  - **Excluir meta:** pede confirmação (`AlertDialog`, que sugere ocultar como alternativa) e usa o `deleteUserGoalDb` de sempre.
+  - Com metas ocultas, o cabeçalho da seção mostra **"Ocultas (N)"**, que revela os cards ocultos esmaecidos (50%, com ícone `EyeOff` no lugar do ⋯) para poder mostrá-los de novo. "Esconder ocultas" recolhe.
+  - Os ids ocultos vêm de `getHiddenProfileGoalIdsDb`, uma consulta **separada e tolerante**. A coluna não entra em `USER_GOAL_BASE_COLUMNS`, que alimenta todas as leituras de metas; sem a migração `20260928-goal-hidden-on-profile.sql` o perfil só não oculta, e nada quebra.
 - Seção completamente oculta se `userGoals.length === 0`
 - Tocar num card abre o `GoalDetailDrawer` (`readOnly` no perfil de outro usuário). No **próprio** perfil, metas concluídas exibem lá o botão **"Compartilhar conquista"**, que gera um card em canvas e publica no feed vinculado à meta — ver `docs/05-metas.md` (Compartilhar meta concluída)
 

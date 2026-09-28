@@ -222,6 +222,10 @@ Os 6 botões ficam enfileirados na barra de ação de vidro do post (feed e `Pos
 ---
 
 ### PostCommentsDialog
+
+**Autor do comentário (2026-09-28):** tocar na **foto** ou no **nome** de quem comentou fecha o drawer e abre o perfil (`/usuario/:id`; o próprio usuário vai para `/perfil`). É o mesmo caminho da @menção. Vale também para o drawer de comentários do `FlowViewer`, que além disso sai do viewer (`leaveViewer`). Os comentários de Shots já faziam isso.
+
+**Ícone do gatilho:** **três estados**: sem comentários = contorno apagado; **com comentários = balão preenchido em branco + a contagem ao lado** (até "99+"); dono com comentário não lido = azul preenchido. A contagem é viva: comentar/apagar pelo drawer atualiza via `onCountChange` (2026-09-28).
 **Arquivo:** `client/components/modals/post-comments-dialog.tsx`
 **Usado em:** Feed, PostDetail, Perfil
 
@@ -271,15 +275,32 @@ Card visual de refeição do catálogo:
 
 ---
 
-### EmojiPicker
-**Arquivo:** `client/components/shared/emoji-picker.tsx`
-**Usado em:** PostCommentsDialog, Shots, FlowViewerModal, Community (check-in)
+### HighlightTextarea (#hashtag e @menção em azul enquanto digita)
+**Arquivo:** `client/components/shared/highlight-textarea.tsx`
+**Usado em:** legenda do Novo Post (post e shot), descrição do resumo de treino, `EditPostDrawer`, edição de post no viewer do Perfil, descrição do flow e `EditShotDescriptionDrawer` (2026-09-28)
 
-Seletor de emojis nativo (sem dependência externa):
-- 4 categorias: Fitness, Emoções, Gestos, Comida
-- Popover posicionável (`placement="top"` ou `"bottom"`)
-- Fecha automaticamente ao clicar fora ou selecionar emoji
-- Props: `onSelect(emoji)`, `placement`, `triggerClassName`
+- **Técnica da camada espelho:** um `<textarea>` não colore trechos do próprio texto. Uma `<div>` atrás, com a **mesma** `className`/`style`, desenha o texto colorido (`renderHighlightedInput` em `client/lib/post-visuals.tsx`), e o textarea real fica por cima com o texto transparente (`color` + `-webkit-text-fill-color`); só o cursor e a seleção aparecem. A rolagem do espelho segue a do campo.
+- **Para o cursor não desalinhar:** o espelho muda **só a cor** (`#9db8ff`), nunca o peso da fonte. O espelho ganha `display:block` (o `flex` do shadcn quebraria o texto em itens), e `.hl-textarea-mirror` herda a mesma fonte-base de 16px que o `global.css` dá ao textarea.
+- **Placeholder:** desenhado no espelho (prop `placeholderColor`). O do campo fica transparente via `.hl-textarea-input::placeholder`.
+- O `ref` aponta para o textarea real, então `MentionSuggestions` e os hooks de teclado funcionam sem mudança. Para substituir o `Textarea` do shadcn, passar `className={cn(SHADCN_TEXTAREA_CLASS, ...)}`.
+- **Não usar** nos textos grandes estilizados do flow ("T + Aa"): lá o texto é o próprio conteúdo visual.
+
+**Exibição (mesma cor):** `renderWithHashtags` (feed, detalhe do post, shots e, desde 28/09/2026, a legenda do viewer de post do Perfil) e `renderWithMentions`, que agora também pinta hashtags nos **comentários** (post, shot, flow). Em comentário a hashtag só é destacada, sem toque, porque navegar de dentro do drawer o deixaria aberto por cima.
+
+### EmojiPickerDrawer (seletor com todos os emojis)
+**Arquivo:** `client/components/shared/emoji-picker-drawer.tsx`
+**Usado em:** Novo Post (legenda) e `CommentReactions` (botão "+" da barra rápida de reações: comentários de post, shot, flow e check-in)
+
+> O antigo `shared/emoji-picker.tsx` (popover de 4 categorias) não existe mais. Este é o **único** seletor de emojis do app; não criar outro.
+
+Drawer no formato do teclado de emojis do iPhone (reescrito em 28/09/2026):
+- **Todos os emojis até o Unicode Emoji 15.0** (iOS 16.4+; os mais novos virariam quadrado em aparelho antigo), ~1.870, nas categorias do teclado: Carinhas e pessoas, Animais e natureza, Comidas e bebidas, Atividades, Viagens e lugares, Objetos, Símbolos, Bandeiras.
+- Desenhados pela fonte do sistema: no iPhone são os glyphs da Apple, idênticos ao teclado. **Por que não abrir o teclado de emojis do sistema:** o iOS não deixa um app abrir o teclado direto na aba de emojis.
+- **Busca** em PT e EN, sem acento ("coracao", "heart", "fogo"...), e **"Usados recentemente"** (`localStorage` `lk:emoji-recents`, até 24, por aparelho). A barra rápida de reações também alimenta os recentes.
+- **Abas de categoria no rodapé**, que acompanham a rolagem, com safe area. Seções fora da tela usam `content-visibility: auto`.
+- **Dados:** `client/lib/emoji-data.json`, gerado do `emojibase-data@16` (CLDR, PT + EN), com `[emoji, palavras-chave]` por categoria. É importado sob demanda (`import()`, ~170 KB, ~50 KB comprimido) só na primeira abertura, então não pesa no bundle inicial. Exigiu `resolveJsonModule` no `tsconfig.json`. **Sem dependência npm nova.**
+- Tons de pele ficam de fora (emoji base amarelo).
+- Props: `open`, `onOpenChange`, `onSelect(emoji)`, `closeOnSelect` (padrão `false`: o Novo Post insere vários seguidos; as reações passam `true`) e `selected` (emojis já escolhidos, destacados em azul, como as reações do próprio usuário).
 
 ---
 

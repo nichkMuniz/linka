@@ -115,7 +115,7 @@ Cada usuário exibe:
 | Elemento | Descrição |
 |---|---|
 | Avatar | Foto de perfil (fallback: div cinza) |
-| Nome / Nickname | Clicável — navega para `/usuario/:userId` |
+| Nome / Nickname | Clicável — navega para `/usuario/:userId`. Exibe `VerifiedBadge` (dourado = oficial, azul = verificado) quando `verifiedTier` vem preenchido de `searchUsersDb`/`getAllUsersDb` |
 | Botão Follow/Unfollow | Toggle de seguimento |
 
 **Botão Follow:**

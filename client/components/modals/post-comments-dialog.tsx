@@ -32,6 +32,8 @@ import {
   type PostComment,
 } from "@/lib/ritmofit-db";
 import { useAuth } from "@/hooks/useAuth";
+import { useNavigate } from "react-router-dom";
+import { hapticLight } from "@/lib/haptics";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
 import { useLanguage } from "@/lib/language-context";
@@ -92,6 +94,18 @@ export function PostCommentsDialog({
       openProfileByHandle(handle);
     },
     [openProfileByHandle],
+  );
+  // Toque na foto ou no nome de quem comentou → perfil dele (o próprio vai
+  // para /perfil). Mesmo padrão da menção: fecha o drawer antes de sair.
+  const navigate = useNavigate();
+  const handleAuthorClick = React.useCallback(
+    (authorId: string) => {
+      if (!authorId) return;
+      hapticLight();
+      setOpen(false);
+      navigate(authorId === user?.id ? "/perfil" : `/usuario/${authorId}`);
+    },
+    [navigate, user?.id],
   );
 
   const handleOpenChange = React.useCallback((nextOpen: boolean) => {
@@ -267,6 +281,7 @@ export function PostCommentsDialog({
         text: commentText,
         createdAt: new Date().toISOString(),
         isVerified: profile?.is_verified || false,
+        verifiedTier: profile?.verified_tier ?? null,
       };
       setComments((prev) => [optimisticComment, ...prev]);
       requestAnimationFrame(() => {
@@ -357,25 +372,48 @@ export function PostCommentsDialog({
     }
   }, [deletingCommentId, t]);
 
+  // Três estados do ícone, do mais forte para o mais fraco:
+  //  1. dono com comentário NÃO LIDO → azul, preenchido;
+  //  2. post com comentários → preenchido em branco + a contagem ao lado — sem
+  //     isto não havia como saber se o post tinha comentários sem abrir o drawer;
+  //  3. sem comentários → contorno apagado.
+  const hasComments = commentCount > 0;
+  const unread = isPostOwner && hasUnreadComments;
+  const triggerIcon = (
+    <>
+      <MessageCircle
+        className={cn(
+          "h-5 w-5 transition-colors",
+          unread ? "text-blue-500" : hasComments ? "text-white" : "text-muted-foreground",
+        )}
+        fill={unread || hasComments ? "currentColor" : "none"}
+        fillOpacity={unread ? 0.9 : hasComments ? 0.85 : 0}
+      />
+      {hasComments && (
+        <span
+          className={cn(
+            "text-[12px] font-semibold tabular-nums leading-none",
+            unread ? "text-blue-500" : "text-white/90",
+          )}
+        >
+          {commentCount > 99 ? "99+" : commentCount}
+        </span>
+      )}
+    </>
+  );
+  const triggerLabel = hasComments
+    ? `${t("comments_view_label")} (${commentCount})`
+    : t("comments_view_label");
+
   const triggerButton = (
     <motion.button
       type="button"
       whileHover={{ scale: 1.08 }}
       whileTap={{ scale: 0.92 }}
-      className={cn(
-        "inline-flex shrink-0 items-center justify-center transition-colors",
-        isPostOwner && hasUnreadComments && "text-blue-500",
-      )}
-      aria-label={t("comments_view_label")}
+      className="inline-flex shrink-0 items-center justify-center gap-1 transition-colors"
+      aria-label={triggerLabel}
     >
-      <MessageCircle
-        className={cn(
-          "h-5 w-5 transition-colors",
-          isPostOwner && hasUnreadComments
-            ? "text-blue-500"
-            : "text-muted-foreground",
-        )}
-      />
+      {triggerIcon}
     </motion.button>
   );
 
@@ -421,22 +459,35 @@ export function PostCommentsDialog({
         ) : comments.length ? (
           comments.map((comment) => (
             <div key={comment.id} className="flex gap-[11px]">
-              {/* Avatar */}
-              <UserAvatar
-                photo={comment.userPhoto}
-                nickname={comment.userName}
-                size="sm"
-                className="flex-shrink-0 mt-0.5"
-              />
+              {/* Avatar — abre o perfil de quem comentou */}
+              <button
+                type="button"
+                onClick={() => handleAuthorClick(comment.userId)}
+                className="flex-shrink-0 mt-0.5 self-start rounded-full active:opacity-70 transition-opacity"
+                aria-label={t("comments_open_profile").replace("{name}", comment.userName)}
+              >
+                <UserAvatar
+                  photo={comment.userPhoto}
+                  nickname={comment.userName}
+                  size="sm"
+                />
+              </button>
 
               {/* Content */}
               <div className="flex-1 min-w-0">
                 {/* Name + time */}
                 <div className="text-[13.5px]" style={{ color: "rgba(255,255,255,.95)" }}>
-                  <span className="font-semibold" style={{ color: "#fff" }}>
+                  <button
+                    type="button"
+                    onClick={() => handleAuthorClick(comment.userId)}
+                    className="font-semibold active:opacity-70 transition-opacity"
+                    style={{ color: "#fff" }}
+                  >
                     {comment.userName}
-                  </span>
-                  {comment.isVerified && <VerifiedBadge size="sm" />}
+                  </button>
+                  {comment.isVerified && (
+                    <VerifiedBadge size="sm" tier={comment.verifiedTier} className="ml-1 align-[-2px]" />
+                  )}
                   {" "}
                   <span style={{ color: "rgba(255,255,255,.4)", fontSize: "11.5px" }}>
                     · {formatRelativeTime(comment.createdAt)}
@@ -706,20 +757,10 @@ export function PostCommentsDialog({
         <button
           type="button"
           onClick={() => handleOpenChange(true)}
-          className={cn(
-            "inline-flex shrink-0 items-center justify-center transition-colors",
-            isPostOwner && hasUnreadComments && "text-blue-500",
-          )}
-          aria-label={t("comments_view_label")}
+          className="inline-flex shrink-0 items-center justify-center gap-1 transition-colors"
+          aria-label={triggerLabel}
         >
-          <MessageCircle
-            className={cn(
-              "h-5 w-5 transition-colors",
-              isPostOwner && hasUnreadComments
-                ? "text-blue-500"
-                : "text-muted-foreground",
-            )}
-          />
+          {triggerIcon}
         </button>
         <Drawer open={open} onOpenChange={handleOpenChange} noBodyStyles shouldScaleBackground={false}>
           {drawerContent}

@@ -8,8 +8,10 @@ import {
 } from "@/components/ui/drawer";
 import { Input } from "@/components/ui/input";
 import { UserAvatar } from "@/components/shared/user-avatar";
+import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
 import { type SearchUser, type Conversation, searchUsersDb } from "@/lib/ritmofit-db";
 import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
+import { useLanguage } from "@/lib/language-context";
 
 interface NewConversationDrawerProps {
   open: boolean;
@@ -23,6 +25,7 @@ export function NewConversationDrawer({
   onOpenChange,
   onSelectFollower,
 }: NewConversationDrawerProps) {
+  const { t } = useLanguage();
   const [search, setSearch] = React.useState("");
   const [results, setResults] = React.useState<SearchUser[]>([]);
   const [isSearching, setIsSearching] = React.useState(false);
@@ -71,13 +74,13 @@ export function NewConversationDrawer({
         onOpenAutoFocus={(e) => e.preventDefault()}
       >
         <DrawerHeader className="shrink-0">
-          <DrawerTitle style={{ color: "#fff" }}>Nova mensagem</DrawerTitle>
+          <DrawerTitle style={{ color: "#fff" }}>{t("community_new_message_title")}</DrawerTitle>
         </DrawerHeader>
         <div className="px-4 pb-3 shrink-0">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 pointer-events-none" style={{ color: "rgba(255,255,255,.4)" }} />
             <Input
-              placeholder="Buscar usuário..."
+              placeholder={t("community_new_message_search")}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="rounded-full pl-9"
@@ -95,7 +98,7 @@ export function NewConversationDrawer({
             <div className="flex flex-col items-center gap-2 py-10 px-2">
               <Search className="h-8 w-8" style={{ color: "rgba(255,255,255,.3)" }} />
               <p className="text-sm text-center" style={{ color: "rgba(255,255,255,.5)" }}>
-                Digite o nome de um usuário para iniciar uma conversa
+                {t("community_new_message_hint")}
               </p>
             </div>
           ) : isSearching ? (
@@ -104,7 +107,7 @@ export function NewConversationDrawer({
             </div>
           ) : results.length === 0 ? (
             <p className="text-center text-sm py-10" style={{ color: "rgba(255,255,255,.5)" }}>
-              Nenhum usuário encontrado
+              {t("community_new_message_empty")}
             </p>
           ) : (
             results.map((user) => (
@@ -117,6 +120,8 @@ export function NewConversationDrawer({
                     userId: user.id,
                     userNickname: user.nickname,
                     userPhoto: user.photo,
+                    isVerified: !!user.verifiedTier,
+                    verifiedTier: user.verifiedTier ?? null,
                     lastMessage: "",
                     lastMessageTime: new Date().toISOString(),
                     unreadCount: 0,
@@ -130,7 +135,10 @@ export function NewConversationDrawer({
                   size="md"
                   className="shrink-0"
                 />
-                <span className="font-medium text-sm" style={{ color: "#fff" }}>{user.nickname}</span>
+                <span className="font-medium text-sm inline-flex items-center gap-1" style={{ color: "#fff" }}>
+                  {user.nickname}
+                  {user.verifiedTier && <VerifiedBadge size="sm" tier={user.verifiedTier} />}
+                </span>
               </button>
             ))
           )}

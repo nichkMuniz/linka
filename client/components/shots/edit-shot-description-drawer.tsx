@@ -6,7 +6,9 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
+import { HighlightTextarea, SHADCN_TEXTAREA_CLASS } from "@/components/shared/highlight-textarea";
+import { useLanguage } from "@/lib/language-context";
+import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui/use-toast";
 import { updateShotDb, type ShotWithUser } from "@/lib/ritmofit-db";
 import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
@@ -24,6 +26,7 @@ export function EditShotDescriptionDrawer({
   shot,
   onSaved,
 }: EditShotDescriptionDrawerProps) {
+  const { t } = useLanguage();
   const [description, setDescription] = React.useState("");
   const [isSaving, setIsSaving] = React.useState(false);
   const viewportHeight = useKeyboardAwareHeight();
@@ -42,12 +45,12 @@ export function EditShotDescriptionDrawer({
       if (ok) {
         onSaved(shot.id, description);
         onOpenChange(false);
-        toast({ title: "Clip atualizado!" });
+        toast({ title: t("shots_edit_desc_saved") });
       } else {
-        toast({ title: "Erro ao salvar", variant: "destructive" });
+        toast({ title: t("shots_edit_desc_error"), variant: "destructive" });
       }
     } catch (err: any) {
-      toast({ title: "Erro ao salvar", description: err?.message, variant: "destructive" });
+      toast({ title: t("shots_edit_desc_error"), description: err?.message, variant: "destructive" });
     } finally {
       setIsSaving(false);
     }
@@ -68,14 +71,14 @@ export function EditShotDescriptionDrawer({
         onOpenAutoFocus={(e) => e.preventDefault()}
       >
         <DrawerHeader className="shrink-0">
-          <DrawerTitle style={{ color: "#fff" }}>Editar descrição</DrawerTitle>
+          <DrawerTitle style={{ color: "#fff" }}>{t("shots_edit_desc")}</DrawerTitle>
         </DrawerHeader>
         <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-4">
-          <Textarea
+          <HighlightTextarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="Descrição do clip..."
-            className="min-h-28 resize-none"
+            placeholder={t("shots_edit_desc_placeholder")}
+            className={cn(SHADCN_TEXTAREA_CLASS, "min-h-28 resize-none")}
             style={{
               background: "rgba(255,255,255,.07)",
               border: "1px solid rgba(255,255,255,.12)",
@@ -88,7 +91,7 @@ export function EditShotDescriptionDrawer({
             onClick={handleSave}
             style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}
           >
-            {isSaving ? "Salvando..." : "Salvar"}
+            {isSaving ? t("saving") : t("save")}
           </Button>
         </div>
       </DrawerContent>

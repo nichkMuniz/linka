@@ -39,8 +39,10 @@ import { IncomingMessageToast } from "@/components/shared/incoming-message-toast
 import { showIncomingMessageToast, showIncomingNotificationToast } from "@/lib/incoming-message-toast";
 import { RoutineCompletedToast } from "@/components/shared/routine-completed-toast";
 import { FEATURES } from "@/lib/feature-flags";
-import { getUnreadMessageCountDb, getUnreadNotificationsCountDb, getUserProfileDb, subscribeToUnreadNotificationsDb, recordAccessSessionDb, bufferScreenTime, flushScreenTimeDb, invalidateQueryCache, getPendingWorkoutPartyInviteDb, getWorkoutPartyInviteByIdDb, respondWorkoutPartyInviteDb, type WorkoutPartyInvite } from "@/lib/ritmofit-db";
+import { getUnreadMessageCountDb, getUnreadNotificationsCountDb, getUserProfileDb, subscribeToUnreadNotificationsDb, recordAccessSessionDb, bufferScreenTime, flushScreenTimeDb, invalidateQueryCache, getPendingWorkoutPartyInviteDb, getWorkoutPartyInviteByIdDb, respondWorkoutPartyInviteDb, getOwnVerificationStatusDb, markVerificationSeenDb, type WorkoutPartyInvite } from "@/lib/ritmofit-db";
 import { WorkoutPartyInviteDialog } from "@/components/goals/workout-party-invite-dialog";
+import { VerifiedCongratsDialog } from "@/components/shared/verified-congrats-dialog";
+import { isVerifiedUpgrade, type VerifiedTier } from "@/lib/verified-tier";
 import { reportHandledError } from "@/lib/monitoring";
 import {
   fetchNotificationCopyData,
@@ -118,6 +120,41 @@ export function AppLayout() {
     workoutSeries, resetWorkoutState,
     workoutModalOpen, workoutStartTime, setPendingPartyJoin,
   } = useWorkout();
+
+  // ── Parabéns pelo selo de verificação ────────────────────────────────────
+  // O admin dá o selo em outro aparelho; checamos ao abrir e ao voltar para o
+  // app. Só comemora quando o nível SOBE em relação ao último já visto — uma
+  // remoção ou rebaixamento só sincroniza a marca, em silêncio.
+  const [congratsTier, setCongratsTier] = React.useState<VerifiedTier | null>(null);
+  React.useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    const check = async () => {
+      const status = await getOwnVerificationStatusDb().catch(() => null);
+      if (cancelled || !status || status.tier === status.seenTier) return;
+      if (isVerifiedUpgrade(status.seenTier, status.tier)) {
+        setCongratsTier(status.tier);
+      } else {
+        markVerificationSeenDb(status.tier).catch(() => {});
+      }
+    };
+    check();
+    const onVisible = () => { if (document.visibilityState === "visible") check(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [user]);
+
+  const closeVerifiedCongrats = React.useCallback((goToProfile: boolean) => {
+    const tier = congratsTier;
+    setCongratsTier(null);
+    // Grava ao fechar (e não ao abrir): se o app for morto com o modal na
+    // tela, ele reaparece na próxima abertura em vez de se perder.
+    if (tier) markVerificationSeenDb(tier).catch(() => {});
+    if (goToProfile) navigate("/perfil");
+  }, [congratsTier, navigate]);
 
   // ── Treinar junto: convite recebido ───────────────────────────────────────
   // O diálogo mora AQUI, e não na tela de Metas, porque o convite é para agora:
@@ -1205,6 +1242,14 @@ export function AppLayout() {
         onDecline={handleDeclinePartyInvite}
         onDismiss={() => setPartyInvite(null)}
       />
+      )}
+
+      {congratsTier && (
+        <VerifiedCongratsDialog
+          tier={congratsTier}
+          onClose={() => closeVerifiedCongrats(false)}
+          onConfirm={() => closeVerifiedCongrats(true)}
+        />
       )}
 
       {/* Timer Expired Full-Screen Block */}

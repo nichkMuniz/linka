@@ -24,6 +24,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { useLanguage } from "@/lib/language-context";
 import { FEATURES } from "@/lib/feature-flags";
 import { UserAvatar } from "@/components/shared/user-avatar";
+import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
 import { FollowButton } from "@/components/shared/follow-button";
 import { SearchResultsSkeleton, GridSkeleton } from "@/components/shared/animated-loading";
 import { getPostGradient } from "@/lib/post-visuals";
@@ -485,9 +486,10 @@ export default function Search() {
                     <div className="flex-1 min-w-0">
                       <button
                         onClick={() => navigate(`/usuario/${u.id}`)}
-                        className="font-medium text-sm hover:text-brand transition-colors text-left"
+                        className="font-medium text-sm hover:text-brand transition-colors text-left inline-flex items-center gap-1"
                       >
                         {u.nickname}
+                        {u.verifiedTier && <VerifiedBadge size="sm" tier={u.verifiedTier} />}
                       </button>
                       {u.bio && <p className="text-xs text-white/50 line-clamp-2 mt-1">{u.bio}</p>}
                     </div>

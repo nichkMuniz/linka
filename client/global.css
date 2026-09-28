@@ -181,6 +181,19 @@
   textarea {
     font-size: 16px;
   }
+
+  /* HighlightTextarea (#hashtag/@menção em azul enquanto digita): a camada
+     espelho precisa da MESMA fonte-base do textarea acima — mesma camada, então
+     classes utilitárias e estilos inline sobrescrevem os dois por igual. */
+  .hl-textarea-mirror {
+    font-size: 16px;
+  }
+  /* O placeholder é desenhado no espelho; o do campo (texto transparente)
+     ficaria duplicado/fantasma. */
+  .hl-textarea-input::placeholder {
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+  }
 }
 
 @layer utilities {

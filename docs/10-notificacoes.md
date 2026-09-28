@@ -228,6 +228,9 @@ O corpo do push é montado em runtime por `buildBody()`, com os dados reais da n
 | 17 | "{nome} respondeu ao seu flow." | `profiles` |
 | 19 | "{nome} te chamou pra treinar agora." | `profiles` |
 | 20 | "{nome} mencionou você num comentário." | `profiles` |
+| 21 | "{nome} repostou sua publicação no feed." | `profiles` |
+
+**Type 21 — repost (2026-09-28):** gerado pelo trigger `notify_post_repost` (migração `20260928-repost-notification.sql`) quando alguém marcado reposta uma publicação. Destinatário é o **autor do original**, `follower_id` é quem repostou e `post_id` é o **repost**: o toque (card, banner e push) abre `/post/{repost}`, e apagar o repost ou o original apaga a notificação junto. Não notifica se houver bloqueio. Na lista: ícone `Repeat2` violeta, miniatura da foto e agrupamento por usuário (`isUserBased`).
 
 - Cada nome livre (apelido, grupo, título) passa por `short()` para o push não virar um parágrafo; quando o lookup não encontra o registro, o texto cai numa variante sem o nome ("{nome} curtiu sua promoção.") em vez de ficar vazio.
 - Falha em qualquer lookup **não derruba o push**: `buildBody` é chamada com `.catch()` e volta ao texto genérico.

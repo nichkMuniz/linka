@@ -153,6 +153,12 @@ export type CalorieEstimateExercise = {
 export type CalorieEstimate = {
   /** kcal estimadas, arredondadas para múltiplo de 5 (0 = sem base para estimar) */
   kcal: number;
+  /**
+   * O mesmo valor SEM o arredondamento para 5 — para quem precisa de
+   * proporções (ex.: a fatia de uma modalidade no card de cardio), onde
+   * arredondar os dois lados distorceria a razão.
+   */
+  rawKcal: number;
   /** true = usou {@link DEFAULT_ESTIMATE_WEIGHT_KG} por falta de peso no perfil */
   usedDefaultWeight: boolean;
 };
@@ -220,5 +226,5 @@ export function estimateWorkoutCalories(input: {
 
   // Arredondar para 5 é deliberado: "≈ 315 kcal" passa uma precisão que a conta
   // não tem. Múltiplo de 5 se lê como estimativa.
-  return { kcal: Math.round(kcal / 5) * 5, usedDefaultWeight };
+  return { kcal: Math.round(kcal / 5) * 5, rawKcal: kcal, usedDefaultWeight };
 }

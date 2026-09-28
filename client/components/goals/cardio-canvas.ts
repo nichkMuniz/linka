@@ -33,6 +33,7 @@ import {
   getCardioKind,
 } from "@/lib/cardio-exercises";
 import type { TranslationKey } from "@/lib/i18n";
+import { estimateWorkoutCalories, type CalorieEstimateExercise } from "@/lib/calorie-estimate";
 
 // `sumCardioSets` mora em `@/lib/cardio-exercises` (é só leitura do contrato
 // MIN × KM, sem nada de canvas) — reexportado aqui para não quebrar quem já
@@ -51,11 +52,20 @@ export type CardioExerciseInput = {
   isCardio?: boolean;
   /** MAIOR inclinação (%) entre as séries da esteira. Ausente/null = nenhuma. */
   elevationPct?: number | null;
+  /** Usado só para reconhecer alongamento na repartição de calorias. */
+  muscleGroup?: string | null;
 };
 
 export type CardioSessionInfo = {
   routineName: string;
   durationSecs: number;
+  /**
+   * Calorias da SESSÃO (estimativa do app ou o valor que a pessoa corrigiu na
+   * tela de treino). Ausente/0 = o card não mostra calorias.
+   */
+  caloriesKcal?: number | null;
+  /** Exercícios da sessão — para achar a fatia da modalidade numa sessão mista. */
+  completedExercises?: CardioExerciseInput[];
 };
 
 /** Agregado de uma modalidade de cardio feita na sessão. */
@@ -309,6 +319,48 @@ function drawPulseLine(
 }
 
 /**
+ * Calorias atribuídas a ESTA modalidade, a partir do total da sessão.
+ *
+ * - Sessão só com esta modalidade: é o total, exatamente o número que a pessoa
+ *   viu (e pode ter corrigido) na tela de treino.
+ * - Sessão mista (musculação + esteira, ou esteira + bike): o total é
+ *   repartido pela participação que o estimador do app dá a cada parte. O
+ *   peso corporal se cancela na razão, então não precisa ser conhecido aqui.
+ *   Somar as fatias dos cards dá de volta o total da sessão.
+ *
+ * Devolve null quando não há total (resumo antigo, sessão sem base) — o card
+ * então não mostra calorias em vez de inventar um número.
+ */
+export function cardioGroupCalories(info: CardioSessionInfo, group: CardioGroup): number | null {
+  const total = Number(info.caloriesKcal ?? 0);
+  if (!(total > 0)) return null;
+  const exercises = info.completedExercises ?? [];
+  const toEstimate = (ex: CardioExerciseInput): CalorieEstimateExercise => {
+    const { minutes, km } = ex.isCardio ? sumCardioSets(ex.sets) : { minutes: 0, km: 0 };
+    return {
+      name: ex.name,
+      muscleGroup: ex.muscleGroup ?? null,
+      isCardio: !!ex.isCardio,
+      minutes,
+      km,
+      sets: ex.isCardio ? undefined : ex.sets?.map((st) => ({ kg: st.kg, reps: st.reps })),
+    };
+  };
+  const inGroup = exercises.filter((ex) => ex.isCardio && getCardioKind(ex.name) === group.kind);
+  // Sem a lista de exercícios não há como repartir — só dá para afirmar o total
+  // quando esta é, visivelmente, a única coisa da sessão.
+  if (exercises.length === 0 || inGroup.length === exercises.length) return Math.round(total);
+
+  const all = estimateWorkoutCalories({ durationSecs: info.durationSecs, weightKg: null, exercises: exercises.map(toEstimate) });
+  // durationSecs 0: só os minutos registrados no cardio desta modalidade contam.
+  const part = estimateWorkoutCalories({ durationSecs: 0, weightKg: null, exercises: inGroup.map(toEstimate) });
+  if (!(all.rawKcal > 0) || !(part.rawKcal > 0)) return null;
+  const share = Math.min(1, part.rawKcal / all.rawKcal);
+  const kcal = Math.round((total * share) / 5) * 5;
+  return kcal > 0 ? kcal : null;
+}
+
+/**
  * Card de uma modalidade de cardio. Distância é a métrica em destaque; quando
  * ela não foi registrada (ex.: pular corda, ou esteira anotada só em minutos),
  * o card promove o TEMPO a protagonista em vez de mostrar "0 km".
@@ -359,10 +411,14 @@ export function drawCardioCanvas(
   ctx.fillText(big, W / 2, 254);
   ctx.shadowBlur = 0;
 
-  // Exercícios que compõem o grupo (ex.: "Esteira • Corrida ao Ar Livre")
+  // Exercícios que compõem o grupo (ex.: "Esteira • Corrida ao Ar Livre") e,
+  // quando informada, a inclinação da esteira — que antes ocupava um painel e
+  // agora cabe aqui, liberando o painel para as calorias.
+  const subtitleParts = [...group.names];
+  if (group.elevationPct) subtitleParts.push(`inclinação ${formatElevationPct(group.elevationPct)}`);
   ctx.fillStyle = "rgba(255,255,255,0.40)";
   ctx.font = `500 12px ${FONT}`;
-  ctx.fillText(truncateToWidth(ctx, group.names.join("  •  "), W - 70), W / 2, 284);
+  ctx.fillText(truncateToWidth(ctx, subtitleParts.join("  •  "), W - 70), W / 2, 284);
 
   drawPulseLine(ctx, W, 312, ACCENT);
 
@@ -377,14 +433,13 @@ export function drawCardioCanvas(
   } else {
     panels.push({ l: "SERIES", v: String(group.sets) });
   }
-  // Elevação da esteira: só aparece quando a pessoa informou. Toma o lugar do
-  // painel da SESSAO (o cronômetro já é o número menos específico do card) para
-  // a fileira não passar de três painéis e espremer os valores.
-  if (group.elevationPct) {
-    panels.push({ l: "ELEVACAO", v: formatElevationPct(group.elevationPct) });
-  } else {
-    panels.push({ l: "SESSAO", v: formatCardioMinutes(info.durationSecs / 60) });
-  }
+  // Terceiro painel: CALORIAS da modalidade. Antes era "SESSAO" (o cronômetro
+  // do treino), que repetia o TEMPO numa sessão só de cardio — o mesmo número
+  // duas vezes. Sem calorias (resumo antigo, sessão sem base para estimar), a
+  // fileira fica só com os painéis acima: melhor um painel a menos do que um
+  // número repetido.
+  const kcal = cardioGroupCalories(info, group);
+  if (kcal) panels.push({ l: "CALORIAS", v: `${kcal} kcal` });
   drawCanvasStatPanels(ctx, W, 332, panels, ACCENT);
 
   // Frase de conquista conforme a marca atingida

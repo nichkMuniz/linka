@@ -81,6 +81,8 @@ Cada conversa exibe:
 Ao clicar na linha → entra na conversa (viewMode: `conversation`)
 Ao tocar no botão excluir revelado → soft-delete do histórico apenas para o usuário logado (`deleteConversationForMeDb`); o outro participante continua vendo as mensagens normalmente
 
+**Selo de verificação (2026-09-28):** `VerifiedBadge` (dourado = oficial, azul = verificado) ao lado do nome na lista de conversas, na lista de quem você segue, no drawer "Nova mensagem" (`new-conversation-drawer.tsx`, que também teve os textos traduzidos: `community_new_message_*`), no header e no cartão de perfil da conversa aberta. `Conversation.verifiedTier` vem de `getConversationsDb`; conversas montadas à mão (seguidor, busca, `?user=`) copiam o nível do `SearchUser`/perfil.
+
 ### Segurança na conversa (2026-09-02 — Guideline 1.2)
 
 O header da conversa (`conversation-view.tsx`) tem um botão **"…"** à direita que

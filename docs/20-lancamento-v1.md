@@ -90,7 +90,9 @@ meta, e seus amigos incentivam com os 6 tipos.
 | `postTags` | ✅ **religada 26/09** | Marcar exige ter em quem marcar |
 | `postLocation` | ❌ | Alfinete de localização no post. Dado sensível com retorno nulo no v1 — sem hashtags nem busca por lugar, vira só um texto na legenda. Era a última justificativa de `NSLocationWhenInUseUsageDescription` |
 | `routineSearch` | ❌ | Idem — sem rotinas públicas, a busca parece quebrada |
-| `profileExtraTabs` | ❌ | 4 abas vazias num perfil novo = sinal de app abandonado |
+| `profileExtraTabs` | ❌ | Clipes e Vitrine: abas vazias num perfil novo = sinal de app abandonado |
+| `profileTaggedTab` | ✅ | **Religada em 28/09/2026.** Aba "Marcações": publicações de outras pessoas em que o dono do perfil foi marcado. É por ela que quem foi marcado chega ao "Recompartilhar" |
+| `profileWorkoutsTab` | ✅ | **Religada em 28/09/2026.** Aba "Treinos" separada das demais: tira de Publicações os posts de resumo de treino sem foto do usuário. Tem conteúdo desde o primeiro treino compartilhado |
 | `signupSuggestions` | ❌ | Já estava fora do fluxo; a flag registra a decisão |
 | `biometricLogin` | ❌ | Superfície nativa a mais; o usuário acabou de digitar a senha que criou |
 | `reengagementPush` | ❌ | Push não solicitado na 1ª semana gera opt-out irreversível. **Não controla nada no cliente** — o interruptor real é não agendar a edge function |

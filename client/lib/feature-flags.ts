@@ -252,8 +252,24 @@ export const FEATURES = {
   // "Seguindo"; só quem ainda não segue ninguém cai em "Descobrir". Uma flag
   // global erraria com metade da base — ver docs/01-feed.md.
 
-  /** Abas Treinos, Vitrine, Shots e Marcações no perfil. Fica só Posts. */
+  /** Abas Vitrine e Shots (Clipes) no perfil. */
   profileExtraTabs: false,
+
+  /**
+   * Aba "Treinos" no perfil (religada em 28/09/2026, separada das demais
+   * `profileExtraTabs`). Tira da aba Publicações os posts de resumo de treino
+   * SEM foto do usuário (`isWorkoutCanvasPost`) — as postagens reais ficam
+   * num lado, o histórico visual de treinos no outro. Diferente das outras
+   * abas extras, ela tem conteúdo desde o primeiro treino compartilhado.
+   */
+  profileWorkoutsTab: true,
+
+  /**
+   * Aba "Marcações" no perfil (religada em 28/09/2026): publicações de OUTRAS
+   * pessoas em que o dono do perfil foi marcado. Depende de `postTags`. É por
+   * ela que quem foi marcado chega ao "Recompartilhar" (repost no feed/flow).
+   */
+  profileTaggedTab: true,
 
   /**
    * Step "Seguir pessoas" no fim do cadastro.

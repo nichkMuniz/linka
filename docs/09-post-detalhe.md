@@ -89,6 +89,17 @@ Como a tela sempre exibe exatamente **1 post**, ela não tem scroll de página �
 - Quando o post tem pessoas marcadas (`post.taggedUsers`, carregado por `getPostByIdDb` a partir de `post_tags`), uma linha "👥 com {nick}" (ícone `UsersRound`) aparece no overlay inferior, **acima da descrição** — mesmo padrão do feed
 - 1 pessoa marcada → toque navega direto para `/usuario/:id`; 2+ → rótulo "com {nick} e mais {n}" e o toque abre o `FollowListDrawer` (título "Pessoas marcadas", cada linha navega ao perfil e tem `FollowButton`)
 
+### Segurar para ver só a foto (2026-09-28)
+- Segurar o card por 250 ms esconde toda a interface por cima (pill, ⋮, gradiente, legenda, marcações, barra de ações) e soltar traz de volta. Hook `useHoldToHide`, mesmo do feed (ver `docs/01-feed.md`).
+- O clique que encerra o gesto é barrado em `onClickCapture`, para não expandir a legenda.
+
+### Repost e recompartilhar (2026-09-28)
+- **Post que é repost** (`post.repostOf`): o `RepostAttribution` (`client/components/post/repost-attribution.tsx`) aparece no topo do overlay inferior ("🔁 Repost de {autor}", com avatar e selo). O toque abre o **post original**. A legenda exibida é a do original quando o repost não tem legenda própria (`displayedPostDescription`).
+- **Compartilhar** (menu ⋮): o `ShareDrawer` recebe as ações do hook `usePostReshare`:
+  - **"Seu flow"**: para o **dono** e, agora, para quem foi **marcado**.
+  - **"Seu feed"** (`Repeat2`): só para quem foi **marcado** e não é o dono. Chama `repostPostDb`. Se o usuário já repostou, o botão aparece como "Repostado" (verde, desabilitado), conferido via `getRepostedPostIdsDb`.
+  - Nenhuma das duas aparece num post que já é repost.
+
 ### Pill "Ver treino" + comparação (só em posts de resumo de treino)
 - Quando o post carrega um `workout_summary`, renderiza o `WorkoutDetailButton` (`client/components/shared/workout-detail-dialog.tsx`) no overlay inferior, acima do indicador de carrossel
 - Tocar abre o drawer simplificado com a lista de exercícios (miniatura do exercício + grupo muscular + séries em chips `{kg}kg × {reps}`) — mesmo componente do feed e do Perfil. Ver `docs/01-feed.md` (Detalhe do treino)
@@ -170,6 +181,6 @@ rótulo genérico não diria o alvo.
 ## Observações Técnicas
 
 - Botões de incentivo totalmente funcionais (toggle otimista via `togglePostIncentiveDb`), ao contrário do preview estático de versões antigas desta tela
-- O contador de comentários é passado como `0`/`hasActivity: false` para o `PostCommentsDialog` (limitação conhecida — a tela não busca a contagem real de comentários ao carregar)
+- A contagem real de comentários é carregada junto das curtidas (`getCommentCountsBatchDb([postId])`) e passada ao `PostCommentsDialog`, com `onCountChange` para manter o ícone atualizado. Antes (até 28/09/2026) era `0` fixo e o ícone nunca indicava comentários.
 - Redirecionamento automático (`navigate(-1)`) se o post não for encontrado ou houver erro ao carregar
 - Estilos "glass" (`GLASS_TOP`, `GLASS_ACTION`, gradiente de fallback, truncamento de legenda) centralizados em `client/lib/post-visuals.tsx` e compartilhados com `PostCard` — qualquer ajuste visual deve ser feito lá para manter feed e detalhe consistentes

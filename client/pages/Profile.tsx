@@ -42,11 +42,14 @@ import {
   type PostIncentiveType,
   updateUserGoalDb,
   deleteUserGoalDb,
+  getHiddenProfileGoalIdsDb,
+  setGoalHiddenOnProfileDb,
   invalidateQueryCache,
   invalidateProfileCache,
 } from "@/lib/ritmofit-db";
-import { formatTimeAgo } from "@/lib/utils";
+import { formatTimeAgo, cn } from "@/lib/utils";
 import { reportHandledError } from "@/lib/monitoring";
+import { GLASS_SHEET_PROPS, GLASS_SHEET_STYLE } from "@/lib/glass-styles";
 import { openExternalUrl, isSafeExternalUrl } from "@/lib/safe-url";
 import {
   AlertDialog,
@@ -101,7 +104,12 @@ import { UserSafetyDrawer } from "@/components/shared/user-safety-drawer";
 import { BlockUserDialog } from "@/components/shared/block-user-dialog";
 import { FEATURES } from "@/lib/feature-flags";
 import { ImageCropperDrawer } from "@/components/shared/image-cropper-drawer";
-import { profileShareUrl } from "@/lib/share-url";
+import { profileShareUrl, postShareUrl } from "@/lib/share-url";
+import { usePostReshare } from "@/hooks/use-post-reshare";
+import { useOpenProfileByHandle } from "@/hooks/use-open-profile-by-handle";
+import { renderWithHashtags } from "@/lib/post-visuals";
+import { HighlightTextarea, SHADCN_TEXTAREA_CLASS } from "@/components/shared/highlight-textarea";
+import { RepostAttribution, displayedPostDescription } from "@/components/post/repost-attribution";
 import { ShotThumb } from "@/components/shared/shot-thumb";
 import {
   Edit2,
@@ -125,6 +133,9 @@ import {
   Play,
   UsersRound,
   Ban,
+  Repeat2,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { resetSupabaseAuth, supabase } from "@/lib/supabase";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
@@ -140,6 +151,8 @@ export default function Profile() {
   const location = useLocation();
   const { userId } = useParams<{ userId?: string }>();
   const { t } = useLanguage();
+  // @menção/#hashtag na legenda do viewer de post abrem perfil/página da tag.
+  const openProfileByHandle = useOpenProfileByHandle();
   // Drawer de editar post (legenda mid-scroll) — mantém o campo acima do teclado.
   useKeyboardInputScroll();
 
@@ -176,6 +189,8 @@ export default function Profile() {
   const [shareDrawerOpen, setShareDrawerOpen] = React.useState(false);
   const [shareDrawerText, setShareDrawerText] = React.useState("");
   const [shareDrawerUrl, setShareDrawerUrl] = React.useState<string | undefined>(undefined);
+  // O drawer serve ao perfil e ao post aberto no viewer (recompartilhar).
+  const [shareDrawerTitle, setShareDrawerTitle] = React.useState("");
   const [posts, setPosts] = React.useState<PostWithUser[]>([]);
   const [shots, setShots] = React.useState<ShotWithUser[]>([]);
   // Posts de OUTRAS pessoas em que este perfil foi marcado (aba "Marcações")
@@ -244,13 +259,27 @@ export default function Profile() {
   // Goal detail drawer state
   const [selectedGoalForDrawer, setSelectedGoalForDrawer] = React.useState<UserGoal | null>(null);
 
-  // Metas pendentes primeiro; as concluídas (perc >= 100) vão para o fim da strip
+  // Metas concluídas que o dono ocultou do perfil (`hidden_on_profile`).
+  const [hiddenGoalIds, setHiddenGoalIds] = React.useState<Set<string>>(new Set());
+  // Dono: revela as ocultas (esmaecidas) para poder voltar a mostrá-las.
+  const [showHiddenGoals, setShowHiddenGoals] = React.useState(false);
+  // Meta concluída cujo menu "⋯" está aberto / aguardando confirmar exclusão.
+  const [goalMenuTarget, setGoalMenuTarget] = React.useState<UserGoal | null>(null);
+  const [goalToDelete, setGoalToDelete] = React.useState<UserGoal | null>(null);
+  const [goalActionBusy, setGoalActionBusy] = React.useState(false);
+
+  // Metas pendentes primeiro; as concluídas (perc >= 100) vão para o fim da strip.
+  // Ocultas saem da strip, a menos que o dono peça para vê-las.
   const sortedUserGoals = React.useMemo(
     () =>
-      [...userGoals].sort(
-        (a, b) => Number(a.perc >= 100) - Number(b.perc >= 100),
-      ),
-    [userGoals],
+      [...userGoals]
+        .filter((g) => showHiddenGoals || !hiddenGoalIds.has(g.id))
+        .sort((a, b) => Number(a.perc >= 100) - Number(b.perc >= 100)),
+    [userGoals, hiddenGoalIds, showHiddenGoals],
+  );
+  const hiddenGoalsCount = React.useMemo(
+    () => userGoals.filter((g) => hiddenGoalIds.has(g.id)).length,
+    [userGoals, hiddenGoalIds],
   );
 
   // A aba "Treinos" recebe os posts que são só o CARD de resumo gerado pelo app
@@ -260,16 +289,16 @@ export default function Profile() {
   // atualizando as duas abas de uma vez (ver `setPosts`).
   //
   // ⚠️ O split SÓ faz sentido com a aba "Treinos" visível. Com
-  // `FEATURES.profileExtraTabs` desligada não existe aba para recebê-los, e
+  // `FEATURES.profileWorkoutsTab` desligada não existe aba para recebê-los, e
   // manter o filtro faria os posts de canvas sumirem do perfil inteiro — o
   // usuário publicou e o post simplesmente não aparece em lugar nenhum. Sem a
   // aba, "Publicações" volta a ser o que sempre foi: tudo.
   const workoutPosts = React.useMemo(
-    () => (FEATURES.profileExtraTabs ? posts.filter((p) => isWorkoutCanvasPost(p)) : []),
+    () => (FEATURES.profileWorkoutsTab ? posts.filter((p) => isWorkoutCanvasPost(p)) : []),
     [posts],
   );
   const feedPosts = React.useMemo(
-    () => (FEATURES.profileExtraTabs ? posts.filter((p) => !isWorkoutCanvasPost(p)) : posts),
+    () => (FEATURES.profileWorkoutsTab ? posts.filter((p) => !isWorkoutCanvasPost(p)) : posts),
     [posts],
   );
 
@@ -409,6 +438,7 @@ export default function Profile() {
         offersData,
         commercialPlansData,
         taggedPostsData,
+        hiddenGoalIdsData,
       ] = await Promise.all([
         getUserRoutinesDb(profileUserId),
         getUserGoalsByUserIdDb(profileUserId),
@@ -419,11 +449,20 @@ export default function Profile() {
         FEATURES.store ? getCommercialProfileDb(profileUserId) : Promise.resolve(null),
         FEATURES.store ? getCommercialOffersByUserIdDb(profileUserId) : Promise.resolve([]),
         FEATURES.store ? getCommercialPlansDb(profileUserId) : Promise.resolve([]),
-        FEATURES.profileExtraTabs && FEATURES.postTags ? getTaggedPostsDb(profileUserId) : Promise.resolve([]),
+        FEATURES.profileTaggedTab && FEATURES.postTags ? getTaggedPostsDb(profileUserId) : Promise.resolve([]),
+        // Tolerante: sem a migração 20260928 volta vazio e nada fica oculto.
+        getHiddenProfileGoalIdsDb(profileUserId),
       ]);
       if (isStale()) return;
       setRoutines(routinesData);
-      setUserGoals(isViewingOtherProfile ? userGoalsData.filter((g) => g.visibility === 1) : userGoalsData);
+      setHiddenGoalIds(hiddenGoalIdsData);
+      // Visitante não vê meta privada nem meta que o dono ocultou do perfil.
+      // O dono recebe todas — as ocultas ficam atrás do "Mostrar ocultas".
+      setUserGoals(
+        isViewingOtherProfile
+          ? userGoalsData.filter((g) => g.visibility === 1 && !hiddenGoalIdsData.has(g.id))
+          : userGoalsData,
+      );
       setShots(shotsData);
       setTaggedPosts(taggedPostsData);
       setCommercialProfile(commercialProfileData);
@@ -561,6 +600,15 @@ export default function Profile() {
   // OUTRA pessoa — inclusive no próprio perfil. Editar/excluir e a moderação de
   // comentários seguem o dono do POST, não o dono do perfil (`isViewingOtherProfile`).
   const isOwnSelectedPost = !!user?.id && !!selectedPost && selectedPost.user_id === user.id;
+  // Marcado no post de OUTRA pessoa (e o post não é um repost): pode repostar.
+  const canReshareSelectedPost =
+    !!user?.id && !!selectedPost && !isOwnSelectedPost && !selectedPost.repostOf &&
+    (selectedPost.taggedUsers ?? []).some((u) => u.id === user.id);
+  const postReshare = usePostReshare({
+    context: "profile",
+    // O repost entra na aba Posts do PRÓPRIO perfil; se é ele que está aberto, recarrega.
+    onReposted: () => { if (!isViewingOtherProfile) loadProfile(); },
+  });
 
   const handleUpdatePost = React.useCallback(async () => {
     if (!selectedPost) return;
@@ -791,6 +839,42 @@ export default function Profile() {
     await deleteUserGoalDb(goal.id);
     setUserGoals((prev) => prev.filter((g) => g.id !== goal.id));
     setSelectedGoalForDrawer(null);
+  };
+
+  // Menu "⋯" da meta concluída no perfil: ocultar/mostrar e excluir.
+  const handleToggleGoalHidden = async (goal: UserGoal) => {
+    const hide = !hiddenGoalIds.has(goal.id);
+    setGoalActionBusy(true);
+    try {
+      await setGoalHiddenOnProfileDb(goal.id, hide);
+      setHiddenGoalIds((prev) => {
+        const next = new Set(prev);
+        if (hide) next.add(goal.id); else next.delete(goal.id);
+        return next;
+      });
+      setGoalMenuTarget(null);
+      toast({ title: hide ? t("profile_goal_hidden_toast") : t("profile_goal_shown_toast") });
+    } catch (err) {
+      reportHandledError(err, "profile:toggle-goal-hidden");
+      toast({ title: t("profile_goal_action_error"), description: t("retry"), variant: "destructive" });
+    } finally {
+      setGoalActionBusy(false);
+    }
+  };
+
+  const handleConfirmDeleteGoal = async () => {
+    if (!goalToDelete) return;
+    setGoalActionBusy(true);
+    try {
+      await handleProfileDeleteGoal(goalToDelete);
+      setGoalToDelete(null);
+      toast({ title: t("profile_goal_deleted_toast") });
+    } catch (err) {
+      reportHandledError(err, "profile:delete-goal");
+      toast({ title: t("profile_goal_action_error"), description: t("retry"), variant: "destructive" });
+    } finally {
+      setGoalActionBusy(false);
+    }
   };
 
   const handleProfileToggleRoutineLink = async (routineId: string, goalId: string | null) => {
@@ -1028,9 +1112,9 @@ export default function Profile() {
   // condição: cada aba nova entra nos dois lugares.
   const visibleTabCount =
     1 + // Publicações, sempre presente
-    (FEATURES.profileExtraTabs ? 1 : 0) +
+    (FEATURES.profileWorkoutsTab ? 1 : 0) +
     (FEATURES.profileExtraTabs && FEATURES.shots ? 1 : 0) +
-    (FEATURES.profileExtraTabs && FEATURES.postTags ? 1 : 0) +
+    (FEATURES.profileTaggedTab && FEATURES.postTags ? 1 : 0) +
     (FEATURES.store && profileOffers.length > 0 ? 1 : 0);
 
   return (
@@ -1212,6 +1296,8 @@ export default function Profile() {
                     const profileUrl = profileShareUrl(profileUserId);
                     setShareDrawerText(text);
                     setShareDrawerUrl(profileUrl);
+                    setShareDrawerTitle(t("profile_share_title"));
+                    postReshare.prepare(null);
                     setShareDrawerOpen(true);
                   }}
                   aria-label={t("profile_share")}
@@ -1270,12 +1356,14 @@ export default function Profile() {
             <h1 className="text-white" style={{ fontSize: "21px", fontWeight: 740, letterSpacing: "-0.01em" }}>
               {profile.nickname}
             </h1>
-            {profile.is_verified && <VerifiedBadge size="md" />}
+            {profile.is_verified && <VerifiedBadge size="md" tier={profile.verified_tier} />}
             <UserInsignias userId={profileUserId || ""} showStreak />
           </div>
 
-          {/* Botão Admin — visível apenas para o próprio usuário verificado */}
-          {!isViewingOtherProfile && profile.is_verified && (
+          {/* Botão Admin — só no próprio perfil de conta oficial (selo dourado).
+              Conta "notable" (selo azul) é verificada mas não é da equipe. A
+              autorização real continua no servidor (app_admins). */}
+          {!isViewingOtherProfile && profile.verified_tier === "official" && (
             <button
               onClick={() => navigate("/admin")}
               className="mt-2 flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-brand/10 text-brand hover:bg-brand/20 transition-colors border border-brand/20"
@@ -1442,15 +1530,32 @@ export default function Profile() {
             <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
               {t("profile_goals_section")}
             </span>
+            {/* Dono com metas ocultas: alterna para revelá-las (esmaecidas). */}
+            {!isViewingOtherProfile && hiddenGoalsCount > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowHiddenGoals((v) => !v)}
+                className="ml-auto inline-flex items-center gap-1 text-[11px] font-semibold active:opacity-70"
+                style={{ color: "rgba(255,255,255,.55)" }}
+              >
+                {showHiddenGoals ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                {showHiddenGoals
+                  ? t("profile_goals_hide_hidden")
+                  : t("profile_goals_show_hidden").replace("{n}", String(hiddenGoalsCount))}
+              </button>
+            )}
           </div>
           <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none -mx-4 px-4">
             {sortedUserGoals.map((goal) => {
               const isDone = goal.perc >= 100;
+              const isHidden = hiddenGoalIds.has(goal.id);
+              // Só meta CONCLUÍDA do PRÓPRIO perfil ganha o menu (ocultar/excluir).
+              const hasMenu = isDone && !isViewingOtherProfile;
               return (
+                <div key={goal.id} className="relative flex-shrink-0" style={{ opacity: isHidden ? 0.5 : 1 }}>
                 <button
-                  key={goal.id}
                   onClick={() => setSelectedGoalForDrawer(goal)}
-                  className="flex-shrink-0 w-44 rounded-xl p-3 space-y-2 text-left active:scale-95 transition-transform"
+                  className="w-44 rounded-xl p-3 space-y-2 text-left active:scale-95 transition-transform"
                   style={{
                     background: isDone
                       ? "linear-gradient(rgba(34,197,94,.22),rgba(34,197,94,.08))"
@@ -1460,7 +1565,7 @@ export default function Profile() {
                     border: isDone ? "1px solid rgba(34,197,94,.35)" : "1px solid rgba(255,255,255,.10)",
                   }}
                 >
-                  <p className="text-xs font-medium leading-snug line-clamp-2">
+                  <p className={`text-xs font-medium leading-snug line-clamp-2 ${hasMenu ? "pr-5" : ""}`}>
                     {goal.description}
                   </p>
                   <div className="space-y-1">
@@ -1485,6 +1590,18 @@ export default function Profile() {
                     </div>
                   </div>
                 </button>
+                {hasMenu && (
+                  <button
+                    type="button"
+                    onClick={() => setGoalMenuTarget(goal)}
+                    aria-label={t("profile_goal_menu_aria")}
+                    className="absolute top-1.5 right-1.5 h-7 w-7 rounded-full flex items-center justify-center active:bg-white/10"
+                    style={{ color: "rgba(255,255,255,.7)" }}
+                  >
+                    {isHidden ? <EyeOff className="h-3.5 w-3.5" /> : <MoreHorizontal className="h-4 w-4" />}
+                  </button>
+                )}
+                </div>
               );
             })}
           </div>
@@ -1508,15 +1625,80 @@ export default function Profile() {
         }}
       />
 
+      {/* Menu da meta concluída: ocultar/mostrar no perfil e excluir */}
+      <Drawer open={!!goalMenuTarget} onOpenChange={(o) => { if (!o) setGoalMenuTarget(null); }} {...GLASS_SHEET_PROPS}>
+        <DrawerContent style={GLASS_SHEET_STYLE}>
+          <DrawerHeader className="text-left">
+            <DrawerTitle className="truncate" style={{ color: "#fff" }}>{goalMenuTarget?.description}</DrawerTitle>
+          </DrawerHeader>
+          {goalMenuTarget && (
+            <div className="px-4 space-y-2" style={{ paddingBottom: "max(1.5rem, env(safe-area-inset-bottom))" }}>
+              <button
+                type="button"
+                disabled={goalActionBusy}
+                onClick={() => handleToggleGoalHidden(goalMenuTarget)}
+                className="w-full flex items-center gap-3 rounded-2xl px-4 py-3 text-left disabled:opacity-60"
+                style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)", color: "#fff" }}
+              >
+                {hiddenGoalIds.has(goalMenuTarget.id) ? <Eye className="h-5 w-5" /> : <EyeOff className="h-5 w-5" />}
+                <span className="flex-1 min-w-0">
+                  <span className="block text-sm font-semibold">
+                    {hiddenGoalIds.has(goalMenuTarget.id) ? t("profile_goal_show_action") : t("profile_goal_hide_action")}
+                  </span>
+                  <span className="block text-xs" style={{ color: "rgba(255,255,255,.5)" }}>
+                    {hiddenGoalIds.has(goalMenuTarget.id) ? t("profile_goal_show_desc") : t("profile_goal_hide_desc")}
+                  </span>
+                </span>
+              </button>
+              <button
+                type="button"
+                disabled={goalActionBusy}
+                onClick={() => { setGoalToDelete(goalMenuTarget); setGoalMenuTarget(null); }}
+                className="w-full flex items-center gap-3 rounded-2xl px-4 py-3 text-left disabled:opacity-60"
+                style={{ background: "rgba(239,68,68,.1)", border: "1px solid rgba(239,68,68,.3)", color: "#f87171" }}
+              >
+                <Trash2 className="h-5 w-5" />
+                <span className="flex-1 min-w-0">
+                  <span className="block text-sm font-semibold">{t("profile_goal_delete_action")}</span>
+                  <span className="block text-xs" style={{ color: "rgba(248,113,113,.7)" }}>{t("profile_goal_delete_desc")}</span>
+                </span>
+              </button>
+            </div>
+          )}
+        </DrawerContent>
+      </Drawer>
+
+      <AlertDialog open={!!goalToDelete} onOpenChange={(o) => { if (!o && !goalActionBusy) setGoalToDelete(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("profile_goal_delete_confirm_title")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("profile_goal_delete_confirm_desc").replace("{goal}", goalToDelete?.description ?? "")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={goalActionBusy}>{t("cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={goalActionBusy}
+              onClick={(e) => { e.preventDefault(); handleConfirmDeleteGoal(); }}
+            >
+              {t("delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Posts, Shots and Store Tabs */}
       <Tabs defaultValue="posts" className="w-full px-4">
         {/* Com 5 abas (Publicações, Treinos, Clipes, Marcações e Vitrine) a linha
             não cabe na largura do iPhone — rola na horizontal em vez de
             quebrar/comprimir.
 
-            No v1 sobra só "Publicações" (FEATURES.profileExtraTabs): quatro
-            abas vazias num perfil recém-criado é o sinal mais forte de app
-            abandonado que existe, e nenhuma delas tem conteúdo no dia 1.
+            No v1 ficam "Publicações", "Treinos" e "Marcações" (flags próprias
+            profileWorkoutsTab / profileTaggedTab, religadas em 28/09/2026).
+            Clipes/Vitrine seguem atrás de FEATURES.profileExtraTabs: abas vazias num perfil recém-criado são o
+            sinal mais forte de app abandonado, e elas não têm conteúdo no dia 1.
 
             Por isso o `overflow-x-auto` é condicional: com uma aba só não há o
             que rolar, e o container ainda assim arrastava / dava rubber-band no
@@ -1534,7 +1716,7 @@ export default function Profile() {
           >
             {t("profile_posts")} ({feedPosts.length})
           </TabsTrigger>
-          {FEATURES.profileExtraTabs && (
+          {FEATURES.profileWorkoutsTab && (
           <TabsTrigger
             value="treinos"
             className="shrink-0 whitespace-nowrap !rounded-none !bg-transparent !shadow-none !px-0 pb-3 -mb-px border-b-2 border-transparent !text-white/45 data-[state=active]:!border-white data-[state=active]:!text-white text-[14px] font-[640]"
@@ -1550,7 +1732,7 @@ export default function Profile() {
             {t("nav_clips")}{tabsDataLoaded ? ` (${shots.length})` : ""}
           </TabsTrigger>
           )}
-          {FEATURES.profileExtraTabs && FEATURES.postTags && (
+          {FEATURES.profileTaggedTab && FEATURES.postTags && (
           <TabsTrigger
             value="marcacoes"
             className="shrink-0 whitespace-nowrap !rounded-none !bg-transparent !shadow-none !px-0 pb-3 -mb-px border-b-2 border-transparent !text-white/45 data-[state=active]:!border-white data-[state=active]:!text-white text-[14px] font-[640]"
@@ -1970,6 +2152,11 @@ export default function Profile() {
 
                   {/* Conteúdo */}
                   <div className="md:flex-1 md:overflow-y-auto px-4 pb-4 pt-3 space-y-3">
+                    {/* Repost — crédito do autor original; o toque abre o post dele */}
+                    {!isEditingPost && selectedPost.repostOf && (
+                      <RepostAttribution origin={selectedPost.repostOf} />
+                    )}
+
                     {/* Pessoas marcadas — "com fulano" (1) navega ao perfil; 2+ abre a lista */}
                     {!isEditingPost && (selectedPost.taggedUsers?.length ?? 0) > 0 && (
                       <button
@@ -1997,17 +2184,18 @@ export default function Profile() {
                     {isEditingPost ? (
                       <div className="space-y-1.5">
                         <label className="text-sm font-medium" style={{ color: "#fff" }}>{t("profile_description_label")}</label>
-                        <Textarea
+                        {/* #hashtag e @menção ficam azuis enquanto digita. */}
+                        <HighlightTextarea
                           value={editPostDescription}
                           onChange={(e) => setEditPostDescription(e.target.value)}
-                          className="resize-none"
+                          className={cn(SHADCN_TEXTAREA_CLASS, "resize-none")}
                           rows={3}
                           style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }}
                         />
                       </div>
                     ) : (
                       (() => {
-                        const desc = selectedPost.description ?? "";
+                        const desc = displayedPostDescription(selectedPost);
                         const DESC_MAX = 30;
                         const firstLine = desc.split("\n")[0] ?? "";
                         const truncatable = desc.includes("\n") || desc.length > DESC_MAX;
@@ -2019,7 +2207,7 @@ export default function Profile() {
                             <p className="text-sm leading-relaxed whitespace-pre-wrap flex-1 min-w-0" style={{ color: "rgba(255,255,255,.85)" }}>
                               {!truncatable || postDescExpanded ? (
                                 <>
-                                  {desc}
+                                  {renderWithHashtags(desc, (tag) => navigate(`/tag/${encodeURIComponent(tag)}`), openProfileByHandle)}
                                   {truncatable && postDescExpanded && (
                                     <>
                                       {" "}
@@ -2035,7 +2223,7 @@ export default function Profile() {
                                 </>
                               ) : (
                                 <>
-                                  {truncated}
+                                  {renderWithHashtags(truncated, (tag) => navigate(`/tag/${encodeURIComponent(tag)}`), openProfileByHandle)}
                                   {"... "}
                                   <button
                                     type="button"
@@ -2180,6 +2368,28 @@ export default function Profile() {
                       </div>
                     )}
 
+                    {/* Recompartilhar — quem foi MARCADO no post de outra pessoa
+                        (feed/flow). Abre o mesmo ShareDrawer do feed. */}
+                    {!isEditingPost && canReshareSelectedPost && (
+                      <Button
+                        className="w-full rounded-full gap-2"
+                        style={{ background: "rgba(255,255,255,.09)", color: "#fff", border: "1px solid rgba(255,255,255,.14)" }}
+                        onClick={() => {
+                          hapticLight();
+                          const base = t("share_post_text").replace("{handle}", selectedPost.userNickname ?? "");
+                          setShareDrawerText(selectedPost.description ? `${base}
+"${selectedPost.description}"` : base);
+                          setShareDrawerUrl(postShareUrl(selectedPost.id));
+                          setShareDrawerTitle(t("feed_share_post_title"));
+                          postReshare.prepare(selectedPost);
+                          setShareDrawerOpen(true);
+                        }}
+                      >
+                        <Repeat2 className="h-4 w-4" />
+                        {t("repost_reshare_btn")}
+                      </Button>
+                    )}
+
                     {/* Action Buttons */}
                     {isOwnSelectedPost && (
                       <div className="flex gap-2 pt-2" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
@@ -2295,7 +2505,10 @@ export default function Profile() {
         onOpenChange={setShareDrawerOpen}
         text={shareDrawerText}
         url={shareDrawerUrl}
-        title={t("profile_share_title")}
+        title={shareDrawerTitle}
+        onShareToFlow={postReshare.shareToFlow}
+        onRepostToFeed={postReshare.repostToFeed}
+        repostedToFeed={postReshare.repostedToFeed}
       />
 
       {/* Flow Viewer — mesmo componente do feed, embutido sobre o perfil */}

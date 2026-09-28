@@ -174,7 +174,7 @@ Feed de vídeos curtos no estilo TikTok/Reels. O usuário rola verticalmente ent
 - Adiciona via `addShotCommentDb`
 - Edita via `updateShotCommentDb`
 - Remove via `deleteShotCommentDb`
-- Reações por comentário via `CommentReactions`
+- Reações por comentário via `CommentReactions`: barra rápida (❤️ 🔥 💪 😂 👏 🥇) + botão **"+"**, que abre o `EmojiPickerDrawer` com todos os emojis (2026-09-28). Vale igual para comentários de post, flow e check-in
 
 ---
 

@@ -88,6 +88,7 @@ const TITLE_BY_TYPE: Record<number, string> = {
   18: "Responderam no flow 💬",
   19: "Convite para treinar 💪",
   20: "Você foi mencionado 💬",
+  21: "Nova republicação 🔁",
 };
 
 // Mesmos nomes exibidos no app (INCENTIVE_CONFIG / i18n)
@@ -239,6 +240,10 @@ async function buildBody(
     // quase nunca é do destinatário — por isso sem "no seu post".
     case 20:
       return `${name} mencionou você num comentário.`;
+    // Repost de uma publicação em que o reposter foi marcado (trigger
+    // notify_post_repost). `post_id` é o REPOST — o toque abre ele.
+    case 21:
+      return `${name} repostou sua publicação no feed.`;
     default:
       return "Você tem uma nova notificação no LinKa.";
   }
@@ -274,6 +279,9 @@ function deepLinkFor(type: number, record: NotifRecord): string {
     // convite pendente ao abrir e mostra o diálogo de aceitar/recusar.
     case 19:
       return "/metas";
+    // 21 = repost: abre o repost (post_id), como o card da lista.
+    case 21:
+      return record.post_id ? `/post/${record.post_id}` : "/notificacoes";
     default:
       return "/notificacoes";
   }

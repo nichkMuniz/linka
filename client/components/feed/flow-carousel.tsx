@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Plus } from "lucide-react";
 import { UserAvatar } from "@/components/shared/user-avatar";
+import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
 import { hapticLight } from "@/lib/haptics";
 import { prefetchFlowMedia } from "@/lib/media-prefetch";
 import { pickFlowEntry } from "@/lib/flow-entry";
@@ -202,8 +203,9 @@ export function FlowCarousel({
                   />
                 </div>
               </div>
-              <span className={`text-[11px] text-center truncate max-w-[62px] ${isViewed ? "text-white/40" : "text-white/85"}`}>
-                {story.userNickname.split(" ")[0]}
+              <span className={`text-[11px] max-w-[62px] inline-flex items-center justify-center gap-0.5 ${isViewed ? "text-white/40" : "text-white/85"}`}>
+                <span className="truncate">{story.userNickname.split(" ")[0]}</span>
+                {story.verifiedTier && <VerifiedBadge size="sm" tier={story.verifiedTier} className="w-3 h-3" />}
               </span>
             </button>
           );

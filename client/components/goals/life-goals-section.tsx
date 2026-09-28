@@ -1,6 +1,7 @@
 import * as React from "react";
-import { Plus, Target } from "lucide-react";
+import { Link2, Link2Off, Plus, Target } from "lucide-react";
 import { useLanguage } from "@/lib/language-context";
+import { FEATURES } from "@/lib/feature-flags";
 import type { Routine, UserGoal } from "@/lib/ritmofit-db";
 
 const COLLAPSED_COUNT = 3;
@@ -22,10 +23,19 @@ export function LifeGoalsSection({
   const { t } = useLanguage();
   const [expanded, setExpanded] = React.useState(false);
 
-  const routineCountByGoal = React.useMemo(() => {
-    const map = new Map<string, number>();
+  // Rotinas vinculadas a cada meta, pelo NOME distinto: linhas de `routines`
+  // com o mesmo nome viram um card só na tela, e rotinas de dieta/hábito não
+  // aparecem no v1 (FEATURES.dietAndHabitRoutines) — contá-las prometeria um
+  // vínculo que o usuário não consegue ver.
+  const routinesByGoal = React.useMemo(() => {
+    const map = new Map<string, string[]>();
     routines.forEach((r) => {
-      if (r.goal_id) map.set(r.goal_id, (map.get(r.goal_id) ?? 0) + 1);
+      if (!r.goal_id) return;
+      if (!FEATURES.dietAndHabitRoutines && r.type !== 1) return;
+      const names = map.get(r.goal_id) ?? [];
+      const name = r.name ?? "";
+      if (!names.includes(name)) names.push(name);
+      map.set(r.goal_id, names);
     });
     return map;
   }, [routines]);
@@ -36,7 +46,8 @@ export function LifeGoalsSection({
   const hasMore = active.length > COLLAPSED_COUNT || completed.length > 0;
 
   const renderGoalCard = (goal: UserGoal, isCompleted: boolean) => {
-    const linkedRoutines = routineCountByGoal.get(goal.goal_id) ?? 0;
+    const linkedNames = routinesByGoal.get(goal.goal_id) ?? [];
+    const linkedRoutines = linkedNames.length;
     const perc = Math.min(100, Math.round(goal.perc));
     return (
       <div
@@ -51,9 +62,35 @@ export function LifeGoalsSection({
             <p className="text-[14.5px] font-[680] text-white truncate">{goal.description}</p>
             <p className="text-[11.5px] mt-0.5" style={{ color: "rgba(255,255,255,.5)" }}>
               {goal.days_completed}/{goal.duration} {t("goals_streak_days")}
-              {linkedRoutines > 0 &&
-                ` · ${t("goals_linked_routines_count").replace("{n}", String(linkedRoutines))}`}
             </p>
+            {/* Vínculo com rotina. É o check-in de uma rotina vinculada que soma
+                progresso automaticamente (fora dele, só um post ligado à meta
+                soma) — por isso o aviso convida a tocar: o drawer da meta tem a
+                lista para vincular. Meta concluída não mostra: o app solta as
+                rotinas dela. */}
+            {!isCompleted && (
+              <span
+                className="mt-1.5 inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                style={
+                  linkedRoutines > 0
+                    ? { background: "rgba(34,197,94,.14)", border: "1px solid rgba(34,197,94,.32)", color: "#4ade80" }
+                    : { background: "rgba(255,255,255,.06)", border: "1px dashed rgba(255,255,255,.22)", color: "rgba(255,255,255,.55)" }
+                }
+              >
+                {linkedRoutines > 0 ? (
+                  <Link2 className="h-3 w-3 shrink-0" />
+                ) : (
+                  <Link2Off className="h-3 w-3 shrink-0" />
+                )}
+                <span className="truncate">
+                  {linkedRoutines === 1 && linkedNames[0]
+                    ? t("goals_linked_routine_one").replace("{name}", linkedNames[0])
+                    : linkedRoutines > 0
+                      ? t("goals_linked_routines_count").replace("{n}", String(linkedRoutines))
+                      : t("goals_no_linked_routine")}
+                </span>
+              </span>
+            )}
           </div>
           <span className="text-[13px] font-bold text-white tabular-nums shrink-0">
             {perc}%

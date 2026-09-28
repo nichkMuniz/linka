@@ -28,6 +28,8 @@ import { useLanguage } from "@/lib/language-context";
 import { hapticLight, hapticMedium } from "@/lib/haptics";
 import { getPostGradient, GLASS_TOP, GLASS_ACTION, DESC_MAX_CHARS, renderWithHashtags } from "@/lib/post-visuals";
 import { FEATURES } from "@/lib/feature-flags";
+import { useHoldToHide } from "@/hooks/use-hold-to-hide";
+import { RepostAttribution, displayedPostDescription } from "@/components/post/repost-attribution";
 
 /** Janela do duplo toque: acima disso o toque conta como simples (abre o post). */
 const DOUBLE_TAP_MS = 300;
@@ -80,15 +82,24 @@ function PostCardImpl({
   const [carouselIndex, setCarouselIndex] = React.useState(0);
   const [taggedOpen, setTaggedOpen] = React.useState(false);
   const [isZooming, setIsZooming] = React.useState(false);
+  // Segurar a foto esconde toda a interface por cima — mesmo gesto do flow.
+  const { hidden: holdHidden, consumeHoldClick, holdHandlers } = useHoldToHide();
 
   // Durante a pinça a foto vira o conteúdo — os overlays de texto (identidade,
   // marcações, descrição e "Ver treino") somem para não cobrir a imagem
   // ampliada, e voltam sozinhos quando o usuário solta os dedos. Some por
   // opacidade (não desmontando) para o layout não pular no meio do gesto.
   const zoomHiddenStyle: React.CSSProperties = {
-    opacity: isZooming ? 0 : 1,
+    opacity: isZooming || holdHidden ? 0 : 1,
     transition: "opacity .18s ease-out",
-    pointerEvents: isZooming ? "none" : undefined,
+    pointerEvents: isZooming || holdHidden ? "none" : undefined,
+  };
+  // Só o "segurar": some também o que a pinça mantém (gradiente escuro, menu
+  // ⋮, seguir e a barra de incentivos) — fica apenas a foto, como no flow.
+  const holdHiddenStyle: React.CSSProperties = {
+    opacity: holdHidden ? 0 : 1,
+    transition: "opacity .2s ease",
+    pointerEvents: holdHidden ? "none" : undefined,
   };
 
   // Com FEATURES.postTags desligada ninguém consegue marcar, e a aba
@@ -96,7 +107,11 @@ function PostCardImpl({
   // recurso que o usuário não tem como usar nem encontrar. Zerar na origem
   // cobre tanto a linha "com fulano" quanto o drawer da lista completa.
   const taggedUsers = FEATURES.postTags ? (post.taggedUsers ?? []) : [];
-  const description = post.description ?? "";
+  const description = displayedPostDescription(post);
+  // Contagem viva: comentar/apagar pelo drawer atualiza o ícone na hora (ele
+  // fica preenchido quando há comentários). Uma nova carga do feed reescreve.
+  const [commentCount, setCommentCount] = React.useState(post.commentCount);
+  React.useEffect(() => { setCommentCount(post.commentCount); }, [post.commentCount]);
   const isDescTruncatable = description.includes("\n") || description.length > DESC_MAX_CHARS;
   const truncatedDescription = description.length > DESC_MAX_CHARS
     ? description.slice(0, DESC_MAX_CHARS).trimEnd()
@@ -141,7 +156,11 @@ function PostCardImpl({
           janela de duplo toque, senão o segundo toque navegaria antes do overlay. */}
       <div
         className="relative cursor-pointer select-none"
+        style={{ WebkitTouchCallout: "none" }}
+        {...holdHandlers}
         onClick={() => {
+          // Fim de um "segurar": não é toque simples nem duplo.
+          if (consumeHoldClick()) return;
           const now = Date.now();
           if (now - lastTapRef.current < DOUBLE_TAP_MS) {
             if (singleTapTimerRef.current) clearTimeout(singleTapTimerRef.current);
@@ -177,7 +196,7 @@ function PostCardImpl({
         {/* Dark gradient overlay */}
         <div
           className="absolute inset-0 pointer-events-none"
-          style={{ background: "linear-gradient(to bottom,rgba(0,0,0,.1) 0%,transparent 28%,transparent 55%,rgba(0,0,0,.65) 100%)" }}
+          style={{ background: "linear-gradient(to bottom,rgba(0,0,0,.1) 0%,transparent 28%,transparent 55%,rgba(0,0,0,.65) 100%)", ...holdHiddenStyle }}
         />
 
         {/* ── Compact pill — user identity (left side) ── */}
@@ -204,7 +223,7 @@ function PostCardImpl({
           >
             <div className="text-[13px] font-semibold text-white flex items-center gap-1 leading-tight" style={{ maxWidth: "120px" }}>
               <span className="truncate">{post.userNickname}</span>
-              {post.isVerified && <VerifiedBadge size="sm" />}
+              {post.isVerified && <VerifiedBadge size="sm" tier={post.verifiedTier} />}
               <span className="inline-flex items-center flex-shrink-0" onClick={(e) => e.stopPropagation()}>
                 <UserInsignias userId={post.user_id} />
               </span>
@@ -226,6 +245,7 @@ function PostCardImpl({
         {/* ── Detached actions — right side ── */}
         <div
           className="absolute top-3 right-3 flex items-center gap-1.5 pointer-events-auto z-10"
+          style={holdHiddenStyle}
           onClick={(e) => e.stopPropagation()}
         >
           {showFollowButton && !isOwner && (
@@ -295,8 +315,16 @@ function PostCardImpl({
         {/* ── Bottom: description + glass action bar ── */}
         <div
           className="absolute bottom-3 left-3 right-3 z-10 pointer-events-auto"
+          style={holdHiddenStyle}
           onClick={(e) => e.stopPropagation()}
         >
+          {/* Repost — crédito do autor original; o toque abre o post dele */}
+          {post.repostOf && (
+            <div className="mb-2" style={zoomHiddenStyle}>
+              <RepostAttribution origin={post.repostOf} />
+            </div>
+          )}
+
           {/* Pessoas marcadas — "com fulano" (1) navega ao perfil; 2+ abre a lista */}
           {taggedUsers.length > 0 && (
             <button
@@ -445,9 +473,10 @@ function PostCardImpl({
               <div className="flex items-center gap-1 text-white">
                 <PostCommentsDialog
                   postId={post.id}
-                  commentCount={post.commentCount}
+                  commentCount={commentCount}
                   hasActivity={post.hasActivity}
                   isPostOwner={isOwner}
+                  onCountChange={setCommentCount}
                 />
               </div>
             </div>

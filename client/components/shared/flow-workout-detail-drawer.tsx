@@ -22,6 +22,7 @@ import {
   formatStickerDate,
   formatStickerDuration,
   formatStickerVolume,
+  isStickerFieldShown,
 } from "@/components/shared/flow-workout-sticker";
 
 interface FlowWorkoutDetailDrawerProps {
@@ -116,9 +117,12 @@ export function FlowWorkoutDetailDrawer({
     }
   };
 
-  const dateLabel = workout
+  // O que o autor ocultou no card também fica oculto aqui — senão tocar no
+  // card revelaria tudo. A cópia da rotina continua disponível.
+  const dateLabel = workout && isStickerFieldShown(workout, "date")
     ? formatStickerDate(workout.date, t("flow_workout_today"), t("flow_workout_yesterday"))
     : "";
+  const showExercises = !!workout && isStickerFieldShown(workout, "exercises");
 
   const chip = (content: React.ReactNode, accent = false) => (
     <span
@@ -161,13 +165,14 @@ export function FlowWorkoutDetailDrawer({
               style={{ paddingBottom: "max(1.5rem, env(safe-area-inset-bottom))" }}
             >
               <div className="flex flex-wrap gap-2">
-                {chip(`${workout.totalSeries} ${t("flow_workout_series")}`)}
+                {isStickerFieldShown(workout, "series") && chip(`${workout.totalSeries} ${t("flow_workout_series")}`)}
                 {workout.totalVolume > 0 && chip(formatStickerVolume(workout.totalVolume))}
                 {workout.durationSecs > 0 && chip(<><Timer className="h-3 w-3" />{formatStickerDuration(workout.durationSecs)}</>)}
                 {Number(workout.caloriesKcal ?? 0) > 0 && chip(<><Flame className="h-3 w-3" />{`${Math.round(Number(workout.caloriesKcal))} kcal`}</>)}
                 {Number(workout.prCount ?? 0) > 0 && chip(<><Trophy className="h-3 w-3" />{`${workout.prCount} ${t("flow_workout_prs")}`}</>, true)}
               </div>
 
+              {showExercises && (
               <div className="space-y-2">
                 <p className="text-sm font-semibold" style={{ color: "#fff" }}>
                   {t("flow_workout_detail_exercises")}
@@ -206,6 +211,7 @@ export function FlowWorkoutDetailDrawer({
                   </p>
                 )}
               </div>
+              )}
 
               {!isOwner && user && session !== null && (
                 routineAvailable ? (

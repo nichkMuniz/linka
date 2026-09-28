@@ -118,6 +118,15 @@ background: linear-gradient(135deg, #3A8DFF 0%, #7B3FF2 50%, #FF8A2A 100%);
 
 > **Regra:** Opacidade `/10` ou `/15` para fundos de badges/notificações. Opacidade `/40` ou `/50` para bordas. Sempre use a versão `400` ou `500` para texto sobre fundo claro/escuro respectivamente.
 
+### Selo de verificação (`VerifiedBadge`)
+
+| Nível | Forma | Gradiente | Uso |
+|---|---|---|---|
+| Oficial (`official`) | Roseta de 8 pontas | `#FFB800 → #FF8A2A` (dourado) | Só contas da equipe LinKa |
+| Verificado (`notable`) | Círculo | `#3B9BFF → #1D6FE8` (azul) | Usuários importantes |
+
+> **Regra:** nunca desenhar selo de verificação à mão; usar sempre `VerifiedBadge` com a prop `tier`. Dourado é reservado ao nível oficial — não reutilizar esse gradiente em outro selo ao lado do nome, para não confundir com a conta oficial.
+
 ---
 
 ## 2. Tipografia

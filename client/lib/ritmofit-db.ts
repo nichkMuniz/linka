@@ -17,6 +17,7 @@ import {
   flushOutbox,
 } from "@/lib/offline-outbox";
 import { FEATURES } from "@/lib/feature-flags";
+import { verifiedTierOf, type VerifiedTier } from "@/lib/verified-tier";
 
 // ─── Auth helpers ─────────────────────────────────────────────────────────────
 
@@ -916,14 +917,14 @@ export async function getCommentCountsBatchDb(
  */
 export async function getProfilesBatchDb(
   userIds: string[],
-): Promise<Map<string, { nickname: string; photo: string | null; is_verified: boolean }>> {
-  const result = new Map<string, { nickname: string; photo: string | null; is_verified: boolean }>();
+): Promise<Map<string, { nickname: string; photo: string | null; is_verified: boolean; verified_tier: VerifiedTier | null }>> {
+  const result = new Map<string, { nickname: string; photo: string | null; is_verified: boolean; verified_tier: VerifiedTier | null }>();
   if (!userIds.length || !hasSupabaseConfig || !supabase) return result;
 
   const uniqueIds = [...new Set(userIds)];
   const { data } = await supabase
     .from("profiles")
-    .select("user_id, nickname, photo, is_verified")
+    .select("user_id, nickname, photo, is_verified, verified_tier")
     .in("user_id", uniqueIds);
 
   for (const row of data ?? []) {
@@ -931,6 +932,7 @@ export async function getProfilesBatchDb(
       nickname: row.nickname ?? "Usuário",
       photo: row.photo ?? null,
       is_verified: row.is_verified === true,
+      verified_tier: verifiedTierOf(row),
     });
   }
 
@@ -955,6 +957,7 @@ export type PostComment = {
   text: string;
   createdAt: string;
   isVerified?: boolean;
+  verifiedTier?: VerifiedTier | null;
 };
 
 export async function addPostCommentDb(postId: string, text: string) {
@@ -1011,11 +1014,11 @@ export async function getPostCommentsDb(
   const userIds = [...new Set(rows.map((r: any) => r.user_id).filter(Boolean))];
   const { data: profiles } = await supabase
     .from("profiles")
-    .select("user_id, nickname, handle, photo, is_verified")
+    .select("user_id, nickname, handle, photo, is_verified, verified_tier")
     .in("user_id", userIds);
 
   const profileMap = new Map(
-    (profiles ?? []).map((p: any) => [String(p.user_id), { nickname: String(p.nickname ?? "Usuário"), handle: String(p.handle ?? ""), photo: p.photo ?? null, is_verified: p.is_verified === true }]),
+    (profiles ?? []).map((p: any) => [String(p.user_id), { nickname: String(p.nickname ?? "Usuário"), handle: String(p.handle ?? ""), photo: p.photo ?? null, is_verified: p.is_verified === true, verified_tier: verifiedTierOf(p) }]),
   );
 
   return rows.map(
@@ -1031,6 +1034,7 @@ export async function getPostCommentsDb(
         text: String(row.text ?? ""),
         createdAt: String(row.created_at ?? new Date().toISOString()),
         isVerified: profile?.is_verified ?? false,
+        verifiedTier: profile?.verified_tier ?? null,
       } satisfies PostComment;
     },
   );
@@ -1268,6 +1272,43 @@ export async function deleteUserGoalDb(userGoalId: string) {
   }
 
   invalidateQueryCache("userGoals"); invalidateQueryCache("selectedGoalIds");
+}
+
+/**
+ * Ids das metas de `userId` ocultadas do perfil (`user_goals.hidden_on_profile`).
+ *
+ * Consulta SEPARADA de propósito: a coluna não entra em `USER_GOAL_BASE_COLUMNS`,
+ * que alimenta todas as leituras de metas do app — sem a migração
+ * `20260928-goal-hidden-on-profile.sql`, a coluna inexistente derrubaria a tela
+ * de Metas inteira. Aqui, qualquer erro vira "nada oculto" e o perfil mostra
+ * tudo, como antes.
+ */
+export async function getHiddenProfileGoalIdsDb(userId: string): Promise<Set<string>> {
+  if (!hasSupabaseConfig || !supabase) return new Set();
+  const { data, error } = await supabase
+    .from("user_goals")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("hidden_on_profile", true);
+  if (error) return new Set();
+  return new Set((data ?? []).map((r: any) => String(r.id)));
+}
+
+/**
+ * Oculta (ou volta a mostrar) uma meta no perfil. Não apaga nada — a meta segue
+ * na tela de Metas e no chip dos posts. Lança se nenhuma linha mudou: sob RLS um
+ * UPDATE barrado volta 200 com 0 linhas (ver hist-delete-rls), e o toast de
+ * sucesso mentiria.
+ */
+export async function setGoalHiddenOnProfileDb(userGoalId: string, hidden: boolean): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) throw new Error("Supabase não configurado");
+  const { data, error } = await supabase
+    .from("user_goals")
+    .update({ hidden_on_profile: hidden })
+    .eq("id", userGoalId)
+    .select("id");
+  if (error) throw error;
+  if (!data || data.length === 0) throw new Error("GOAL_NOT_UPDATED");
 }
 
 export type UserGoal = {
@@ -1715,6 +1756,8 @@ export type UserProfile = {
    */
   gender?: string | null;
   is_verified?: boolean;
+  /** Nível do selo (null = sem selo). Ver `client/lib/verified-tier.ts`. */
+  verified_tier?: VerifiedTier | null;
   /** Oculta listas de seguidores/seguindo de outros usuários */
   hide_follow_lists?: boolean;
   /** Oculta posts para quem não segue o usuário */
@@ -1730,7 +1773,7 @@ export async function getUserProfileDb(
   return cached(`userProfile:${userId}`, CACHE_TTL_LONG, async () => {
     const { data, error } = await supabase!
       .from("profiles")
-      .select("id, nickname, bio, photo, cover_photo, objectives, height, weight, age, gender, handle, is_verified, hide_follow_lists, hide_posts_from_non_followers")
+      .select("id, nickname, bio, photo, cover_photo, objectives, height, weight, age, gender, handle, is_verified, verified_tier, hide_follow_lists, hide_posts_from_non_followers")
       .eq("user_id", userId)
       .maybeSingle();
 
@@ -1759,6 +1802,7 @@ export async function getUserProfileDb(
         ? String(Array.isArray(data.gender) ? data.gender[0] ?? "" : data.gender)
         : null,
       is_verified: data.is_verified === true,
+      verified_tier: verifiedTierOf(data),
       hide_follow_lists: data.hide_follow_lists === true,
       hide_posts_from_non_followers: data.hide_posts_from_non_followers === true,
     };
@@ -1882,7 +1926,7 @@ export async function updateUserProfileDb(
     .from("profiles")
     .update(updates)
     .eq("user_id", userId)
-    .select("id, nickname, bio, photo, cover_photo, objectives, handle, height, weight, age, is_verified, hide_follow_lists, hide_posts_from_non_followers")
+    .select("id, nickname, bio, photo, cover_photo, objectives, handle, height, weight, age, is_verified, verified_tier, hide_follow_lists, hide_posts_from_non_followers")
     .maybeSingle();
 
   if (error) {
@@ -1922,6 +1966,7 @@ export async function updateUserProfileDb(
     weight: data.weight != null ? String(data.weight) : null,
     age: data.age != null ? String(data.age) : null,
     is_verified: data.is_verified === true,
+    verified_tier: verifiedTierOf(data),
     hide_follow_lists: data.hide_follow_lists === true,
     hide_posts_from_non_followers: data.hide_posts_from_non_followers === true,
   };
@@ -1983,10 +2028,129 @@ export type PostWithUser = {
   userNickname: string;
   userPhoto: string | null;
   isVerified?: boolean;
+  verifiedTier?: VerifiedTier | null;
   workoutSummary?: PostWorkoutSummary | null;
   taggedUsers?: SearchUser[];
   userGoal?: PostUserGoal;
+  /** Preenchido quando este post é um repost (ver `RepostOrigin`). */
+  repostOf?: RepostOrigin | null;
 };
+
+/**
+ * De onde veio um repost. O repost em si não tem legenda: o card mostra a do
+ * original, com o crédito do autor. Migration: `20260928-post-reposts.sql`.
+ */
+export type RepostOrigin = {
+  postId: string;
+  userId: string;
+  nickname: string;
+  photo: string | null;
+  verifiedTier: VerifiedTier | null;
+  /** null quando o original não é legível pelo viewer (privacidade do autor). */
+  description: string | null;
+};
+
+/**
+ * Crédito + legenda dos originais de uma lista de posts, numa leitura de posts
+ * e uma de perfis. Recebe as linhas cruas (`reposted_from`/`reposted_from_user`)
+ * e devolve Map<id do post REPOST, origem>. Se o original não puder ser lido
+ * (autor passou a esconder os posts), o crédito vem de `reposted_from_user` e a
+ * legenda fica vazia — o card nunca perde a atribuição.
+ */
+export async function getRepostOriginsBatchDb(
+  rows: Array<{ id: unknown; reposted_from?: unknown; reposted_from_user?: unknown }>,
+): Promise<Map<string, RepostOrigin>> {
+  const result = new Map<string, RepostOrigin>();
+  const reposts = rows.filter((r) => r.reposted_from);
+  if (reposts.length === 0 || !hasSupabaseConfig || !supabase) return result;
+
+  const originalIds = [...new Set(reposts.map((r) => String(r.reposted_from)))];
+  const { data: originals } = await supabase
+    .from("posts")
+    .select("id, user_id, description")
+    .in("id", originalIds);
+  const originalMap = new Map((originals ?? []).map((o: any) => [String(o.id), o]));
+
+  const authorIds = reposts.map((r) => {
+    const o = originalMap.get(String(r.reposted_from));
+    return String(o?.user_id ?? r.reposted_from_user ?? "");
+  }).filter(Boolean);
+  const authors = await getProfilesBatchDb(authorIds);
+
+  for (const r of reposts) {
+    const original = originalMap.get(String(r.reposted_from));
+    const authorId = String(original?.user_id ?? r.reposted_from_user ?? "");
+    const author = authors.get(authorId);
+    result.set(String(r.id), {
+      postId: String(r.reposted_from),
+      userId: authorId,
+      nickname: author?.nickname ?? "Usuário",
+      photo: author?.photo ?? null,
+      verifiedTier: author?.verified_tier ?? null,
+      description: original ? String(original.description ?? "") : null,
+    });
+  }
+  return result;
+}
+
+/**
+ * Reposta no feed do usuário logado um post em que ele foi marcado. Reaproveita
+ * as fotos do original (mesmas URLs, sem upload) e não copia legenda, meta nem
+ * resumo de treino — são do autor. As regras (marcado, não é o dono, não é
+ * repost de repost, autor não esconde os posts, um por pessoa) valem no banco
+ * (`validate_post_repost`); aqui só traduzimos os erros.
+ */
+export async function repostPostDb(postId: string): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) throw new Error("Supabase não configurado");
+  assertUUID(postId, "ID do post");
+  const viewer = await getViewer();
+  if (!viewer) throw new Error("Usuário não autenticado");
+
+  const { data: original, error: readError } = await supabase
+    .from("posts")
+    .select("id, photo, photos, reposted_from")
+    .eq("id", postId)
+    .maybeSingle();
+  if (readError) throw readError;
+  if (!original) throw new Error("Post não encontrado");
+
+  const { error } = await supabase.from("posts").insert({
+    user_id: viewer.id,
+    description: "",
+    photo: original.photo,
+    photos: original.photos,
+    // Repost de repost credita a origem (o banco também recusaria o contrário).
+    reposted_from: original.reposted_from ?? original.id,
+  });
+
+  if (error) {
+    const code =
+      error.code === "23505" ? "REPOST_DUPLICATE"
+      : /REPOST_[A-Z_]+/.exec(error.message ?? "")?.[0] ?? null;
+    const err = new Error(error.message);
+    (err as any).code = code;
+    throw err;
+  }
+
+  invalidateQueryCache("userPosts");
+  invalidateQueryCache(`userStats:${viewer.id}`);
+  invalidateQueryCache("feed");
+}
+
+/** Ids (dos originais) que o usuário logado já repostou, dentre os informados. */
+export async function getRepostedPostIdsDb(postIds: string[]): Promise<Set<string>> {
+  const ids = [...new Set(postIds.filter(Boolean))];
+  if (!ids.length || !hasSupabaseConfig || !supabase) return new Set();
+  const viewer = await getViewer();
+  if (!viewer) return new Set();
+  const { data, error } = await supabase
+    .from("posts")
+    .select("reposted_from")
+    .eq("user_id", viewer.id)
+    .in("reposted_from", ids);
+  if (error) return new Set();
+  return new Set((data ?? []).map((r: any) => String(r.reposted_from)));
+}
 
 // Busca em lote as metas vinculadas de vários posts, no mesmo formato usado
 // pelo feed (post.service.ts) — só entram no Map as metas com visibility=1,
@@ -2035,7 +2199,7 @@ export async function getUserPostsDb(userId: string): Promise<PostWithUser[]> {
   const [postsRes, userProfile] = await Promise.all([
     supabase
       .from("posts")
-      .select("id, description, photo, photos, created_at, user_id, user_goal_id, workout_summary")
+      .select("id, description, photo, photos, created_at, user_id, user_goal_id, workout_summary, reposted_from, reposted_from_user")
       .eq("user_id", userId)
       .order("created_at", { ascending: false })
       .limit(100),
@@ -2053,11 +2217,13 @@ export async function getUserPostsDb(userId: string): Promise<PostWithUser[]> {
   const userNickname = userProfile?.nickname || "Usuário";
   const userPhoto = userProfile?.photo || null;
   const isVerified = userProfile?.is_verified === true;
+  const verifiedTier = verifiedTierOf(userProfile);
 
   const rows = data ?? [];
-  const [tagsMap, goalsMap] = await Promise.all([
+  const [tagsMap, goalsMap, repostMap] = await Promise.all([
     getPostTagsBatchDb(rows.map((r: any) => String(r.id))),
     getPostGoalsBatchDb(rows.map((r: any) => r.user_goal_id).filter(Boolean)),
+    getRepostOriginsBatchDb(rows),
   ]);
 
   return rows.map((row: any) => ({
@@ -2071,9 +2237,11 @@ export async function getUserPostsDb(userId: string): Promise<PostWithUser[]> {
     userNickname,
     userPhoto,
     isVerified,
+    verifiedTier,
     workoutSummary: (row.workout_summary as PostWorkoutSummary | null) ?? null,
     taggedUsers: tagsMap.get(String(row.id)) ?? [],
     userGoal: row.user_goal_id ? goalsMap.get(String(row.user_goal_id)) : undefined,
+    repostOf: repostMap.get(String(row.id)) ?? null,
   }));
 
   });
@@ -2086,15 +2254,16 @@ export async function getPostByIdDb(postId: string): Promise<PostWithUser | null
 
   const { data, error } = await supabase
     .from("posts")
-    .select("id, description, photo, photos, created_at, user_id, user_goal_id, workout_summary")
+    .select("id, description, photo, photos, created_at, user_id, user_goal_id, workout_summary, reposted_from, reposted_from_user")
     .eq("id", postId)
     .maybeSingle();
 
   if (error || !data) return null;
 
-  const [userProfile, tagsMap] = await Promise.all([
+  const [userProfile, tagsMap, repostMap] = await Promise.all([
     getUserProfileDb(String(data.user_id)),
     getPostTagsBatchDb([String(data.id)]),
+    getRepostOriginsBatchDb([data]),
   ]);
   return {
     id: String(data.id),
@@ -2107,8 +2276,10 @@ export async function getPostByIdDb(postId: string): Promise<PostWithUser | null
     userNickname: userProfile?.nickname || "Usuário",
     userPhoto: userProfile?.photo || null,
     isVerified: userProfile?.is_verified === true,
+    verifiedTier: verifiedTierOf(userProfile),
     workoutSummary: (data.workout_summary as PostWorkoutSummary | null) ?? null,
     taggedUsers: tagsMap.get(String(data.id)) ?? [],
+    repostOf: repostMap.get(String(data.id)) ?? null,
   };
 
   });
@@ -2301,6 +2472,7 @@ export async function getTaggedPostsDb(userId: string): Promise<PostWithUser[]> 
         userNickname: author?.nickname || "Usuário",
         userPhoto: author?.photo ?? null,
         isVerified: author?.is_verified === true,
+        verifiedTier: author?.verified_tier ?? null,
         workoutSummary: (row.workout_summary as PostWorkoutSummary | null) ?? null,
         taggedUsers: postTagsMap.get(String(row.id)) ?? [],
         userGoal: row.user_goal_id ? goalsMap.get(String(row.user_goal_id)) : undefined,
@@ -5375,6 +5547,8 @@ export type SearchUser = {
   photo?: string | null;
   /** @usuário SEM o "@" (minúsculo). É o que a menção insere no texto. */
   handle?: string | null;
+  /** Nível do selo de verificação (null/ausente = sem selo). */
+  verifiedTier?: VerifiedTier | null;
 };
 
 export async function searchUsersDb(query: string): Promise<SearchUser[]> {
@@ -5386,7 +5560,7 @@ export async function searchUsersDb(query: string): Promise<SearchUser[]> {
   const [{ data, error }, blockedIds] = await Promise.all([
     supabase
       .from("profiles")
-      .select("user_id, nickname, bio, photo, handle")
+      .select("user_id, nickname, bio, photo, handle, is_verified, verified_tier")
       .ilike("nickname", searchQuery)
       .limit(20),
     getBlockedIdsDb(),
@@ -5411,6 +5585,7 @@ export async function searchUsersDb(query: string): Promise<SearchUser[]> {
       bio: row.bio ? String(row.bio) : undefined,
       photo: row.photo ? String(row.photo) : null,
       handle: row.handle ? String(row.handle) : null,
+      verifiedTier: verifiedTierOf(row),
     }));
 }
 
@@ -5818,7 +5993,7 @@ export async function getAllUsersDb(
       try {
         const { data, error } = await supabase!
           .from("profiles")
-          .select("user_id, nickname, bio, photo")
+          .select("user_id, nickname, bio, photo, is_verified, verified_tier")
           .order("nickname", { ascending: true })
           .range(offset, offset + limit - 1);
 
@@ -5834,6 +6009,7 @@ export async function getAllUsersDb(
           nickname: String(row.nickname ?? "Usuário"),
           bio: row.bio ? String(row.bio) : undefined,
           photo: row.photo ? String(row.photo) : null,
+          verifiedTier: verifiedTierOf(row),
         })) as SearchUser[];
       } catch (err: any) {
         console.error("Error fetching all users:", err);
@@ -6155,7 +6331,26 @@ export type StoryWorkoutSticker = {
   exercises: Array<{ name: string; sets: number; kg: number; isCardio?: boolean }>;
   /** quantos exercícios ficaram de fora de `exercises` (vira "+N exercícios") */
   extraCount?: number;
+  /**
+   * Informações que o autor escolheu ocultar no card. Ausente = mostra tudo
+   * (flows antigos). Os valores ocultos já saem ZERADOS do snapshot
+   * (`applyStickerFields`), para não ficarem no jsonb nem aparecerem em builds
+   * antigos. As exceções são `series` e `date`: `date` é a chave que o drawer
+   * usa para achar a sessão, e zerar `series` faria build antigo mostrar
+   * "0 séries". Para essas duas, a lista é a única fonte.
+   */
+  hidden?: WorkoutStickerField[];
 };
+
+/** Blocos do card de treino do flow que o autor pode ocultar. */
+export type WorkoutStickerField =
+  | "date"
+  | "series"
+  | "volume"
+  | "duration"
+  | "calories"
+  | "prs"
+  | "exercises";
 
 /**
  * Post do feed compartilhado no flow ("Seu flow" no compartilhar). O flow não
@@ -6223,6 +6418,8 @@ export type Story = {
 export type StoryWithUser = Story & {
   userNickname: string;
   userPhoto: string | null;
+  /** Nível do selo de verificação do autor (null/ausente = sem selo). */
+  verifiedTier?: VerifiedTier | null;
   /** Pessoas marcadas neste flow (estilo Instagram). */
   taggedUsers?: SearchUser[];
   /** Atribuição de repost: apelido de quem postou o flow original. */
@@ -6354,7 +6551,7 @@ export async function getActiveStoriesDb(): Promise<StoryWithUser[]> {
       ),
       supabase
         .from("profiles")
-        .select("user_id, nickname, photo")
+        .select("user_id, nickname, photo, is_verified, verified_tier")
         .in("user_id", userIdsToShow),
     ]);
 
@@ -6364,22 +6561,24 @@ export async function getActiveStoriesDb(): Promise<StoryWithUser[]> {
     }
 
     const storyList = flowResult.data ?? [];
-    const profileMap = new Map<string, { nickname: string; photo: string | null }>();
+    const profileMap = new Map<string, { nickname: string; photo: string | null; verifiedTier: VerifiedTier | null }>();
     (profilesResult.data ?? []).forEach((p: any) => {
       profileMap.set(String(p.user_id), {
         nickname: String(p.nickname ?? "Usuário"),
         photo: p.photo ? String(p.photo) : null,
+        verifiedTier: verifiedTierOf(p),
       });
     });
 
     return attachRepostAuthors(storyList.map((story: any) => {
-      const profile = profileMap.get(story.user_id) ?? { nickname: "Usuário", photo: null};
+      const profile = profileMap.get(story.user_id) ?? { nickname: "Usuário", photo: null, verifiedTier: null };
       return {
         ...story,
         id: String(story.id),
         user_id: String(story.user_id),
         userNickname: profile.nickname,
         userPhoto: profile.photo,
+        verifiedTier: profile.verifiedTier,
       };
     }));
   } catch (err: any) {
@@ -6408,7 +6607,7 @@ export async function getUserActiveStoriesDb(userId: string): Promise<StoryWithU
         ),
         supabase!
           .from("profiles")
-          .select("user_id, nickname, photo")
+          .select("user_id, nickname, photo, is_verified, verified_tier")
           .eq("user_id", userId)
           .limit(1),
       ]);
@@ -6423,6 +6622,7 @@ export async function getUserActiveStoriesDb(userId: string): Promise<StoryWithU
         user_id: String(story.user_id),
         userNickname: profile?.nickname ?? "Usuário",
         userPhoto: profile?.photo ?? null,
+        verifiedTier: verifiedTierOf(profile),
       })));
     } catch (err: any) {
       console.error("Error fetching user stories:", err);
@@ -6454,7 +6654,7 @@ export async function getExpiredUserFlowsDb(): Promise<StoryWithUser[]> {
       ),
       supabase
         .from("profiles")
-        .select("user_id, nickname, photo")
+        .select("user_id, nickname, photo, is_verified, verified_tier")
         .eq("user_id", viewer.id)
         .limit(1),
     ]);
@@ -6469,6 +6669,7 @@ export async function getExpiredUserFlowsDb(): Promise<StoryWithUser[]> {
       user_id: String(story.user_id),
       userNickname: profile?.nickname ?? "Usuário",
       userPhoto: profile?.photo ?? null,
+      verifiedTier: verifiedTierOf(profile),
     })));
   } catch (err: any) {
     console.error("Error fetching expired flows:", err);
@@ -6491,7 +6692,7 @@ export async function getFlowByIdDb(flowId: string): Promise<StoryWithUser | nul
     const story = flowRows[0];
     const { data: profileRows } = await supabase
       .from("profiles")
-      .select("user_id, nickname, photo")
+      .select("user_id, nickname, photo, is_verified, verified_tier")
       .eq("user_id", story.user_id)
       .limit(1);
 
@@ -6503,6 +6704,7 @@ export async function getFlowByIdDb(flowId: string): Promise<StoryWithUser | nul
       user_id: String(story.user_id),
       userNickname: profile?.nickname ?? "Usuário",
       userPhoto: profile?.photo ?? null,
+      verifiedTier: verifiedTierOf(profile),
     }]);
     return withAuthor;
   } catch (err: any) {
@@ -7273,6 +7475,7 @@ export type Conversation = {
   lastMessageTime: string;
   unreadCount: number;
   isVerified?: boolean;
+  verifiedTier?: VerifiedTier | null;
   /**
    * Há bloqueio entre as duas pontas (qualquer direção). A conversa continua na
    * lista e o histórico continua legível — o que some é a barra de escrever.
@@ -7615,12 +7818,12 @@ export async function getConversationsDb(): Promise<Conversation[]> {
 
     // Batch-fetch all conversation partner profiles in a single query
     const otherUserIds = summaries.map((c) => c.userId).filter(Boolean);
-    const profileMap = new Map<string, { nickname: string; photo: string | null; bio: string | null; is_verified: boolean }>();
+    const profileMap = new Map<string, { nickname: string; photo: string | null; bio: string | null; is_verified: boolean; verified_tier: VerifiedTier | null }>();
 
     if (otherUserIds.length > 0) {
       const { data: profiles } = await supabase
         .from("profiles")
-        .select("user_id, nickname, photo, bio, is_verified")
+        .select("user_id, nickname, photo, bio, is_verified, verified_tier")
         .in("user_id", otherUserIds);
 
       (profiles ?? []).forEach((p: any) => {
@@ -7629,6 +7832,7 @@ export async function getConversationsDb(): Promise<Conversation[]> {
           photo: p.photo ? String(p.photo) : null,
           bio: p.bio ? String(p.bio) : null,
           is_verified: p.is_verified === true,
+          verified_tier: verifiedTierOf(p),
         });
       });
     }
@@ -7637,7 +7841,7 @@ export async function getConversationsDb(): Promise<Conversation[]> {
     const conversations: Conversation[] = [];
 
     for (const { userId, lastMessage, lastMessageTime, unreadCount } of summaries) {
-      const profile = profileMap.get(userId) ?? { nickname: "Usuário", photo: null, bio: null, is_verified: false };
+      const profile = profileMap.get(userId) ?? { nickname: "Usuário", photo: null, bio: null, is_verified: false, verified_tier: null };
 
       conversations.push({
         userId,
@@ -7645,6 +7849,7 @@ export async function getConversationsDb(): Promise<Conversation[]> {
         userPhoto: profile.photo,
         userBio: profile.bio,
         isVerified: profile.is_verified,
+        verifiedTier: profile.verified_tier,
         lastMessage,
         lastMessageTime,
         unreadCount,
@@ -8073,7 +8278,7 @@ export async function getFollowingDb(
     // Fetch profile data for each user being followed
     const { data: profiles, error: profileError } = await supabase!
       .from("profiles")
-      .select("user_id, nickname, bio, photo, handle")
+      .select("user_id, nickname, bio, photo, handle, is_verified, verified_tier")
       .in("user_id", followingIds);
 
     if (profileError) {
@@ -8087,6 +8292,7 @@ export async function getFollowingDb(
       bio: row.bio ? String(row.bio) : undefined,
       photo: row.photo ? String(row.photo) : null,
       handle: row.handle ? String(row.handle) : null,
+      verifiedTier: verifiedTierOf(row),
     }));
   } catch (err: any) {
     console.error("Error getting following:", err);
@@ -8111,6 +8317,7 @@ export type ShotWithUser = Shot & {
   userPhoto: string | null;
   commentCount?: number;
   isVerified?: boolean;
+  verifiedTier?: VerifiedTier | null;
 };
 
 export async function getShotsDb(): Promise<ShotWithUser[]> {
@@ -8146,7 +8353,7 @@ export async function getShotsDb(): Promise<ShotWithUser[]> {
     const [profilesResult, likesResult, commentsResult] = await Promise.all([
       supabase
         .from("profiles")
-        .select("user_id, nickname, handle, photo, is_verified")
+        .select("user_id, nickname, handle, photo, is_verified, verified_tier")
         .in("user_id", uniqueUserIds),
       supabase
         .from("shots_likes")
@@ -8171,7 +8378,7 @@ export async function getShotsDb(): Promise<ShotWithUser[]> {
     const profileMap = new Map(
       profiles.map((p: any) => [
         p.user_id,
-        { nickname: p.nickname, handle: p.handle, photo: p.photo, is_verified: p.is_verified === true },
+        { nickname: p.nickname, handle: p.handle, photo: p.photo, is_verified: p.is_verified === true, verified_tier: verifiedTierOf(p) },
       ]),
     );
 
@@ -8222,6 +8429,7 @@ export async function getShotsDb(): Promise<ShotWithUser[]> {
           handle: null,
           photo: null,
           is_verified: false,
+          verified_tier: null,
         };
         const likeData = likesMap.get(String(shot.id)) || {
           likes: { apoio: 0, continua: 0, ganhador: 0, consegueMais: 0, limiteMaior: 0, maisAlgum: 0 },
@@ -8241,6 +8449,7 @@ export async function getShotsDb(): Promise<ShotWithUser[]> {
           userHandle: userProfile.handle ? String(userProfile.handle) : null,
           userPhoto: userProfile.photo ? String(userProfile.photo) : null,
           isVerified: (userProfile as any).is_verified === true,
+          verifiedTier: userProfile.verified_tier,
         };
       },
     );
@@ -8304,6 +8513,7 @@ export async function getShotByIdDb(shotId: string): Promise<ShotWithUser | null
       userHandle: userProfile?.handle ? String(userProfile.handle) : null,
       userPhoto: userProfile?.photo || null,
       isVerified: userProfile?.is_verified === true,
+      verifiedTier: verifiedTierOf(userProfile),
     };
   } catch (err: any) {
     console.error("Error getting shot by id:", err?.message || String(err));
@@ -8892,7 +9102,7 @@ export async function toggleUserHabitCompletionDb(
 // Notifications functionality
 export type NotificationItem = {
   id: string;
-  type: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 20; // 1 = new follower, 2 = incentive, 3 = comment, 4 = duel invite, 5 = join request, 6 = comment reaction, 7 = check-in reaction, 8 = promotion comment, 9 = tagged in post, 10 = private message, 11 = duel check-in, 12 = promotion like, 13 = promotion expired, 14 = check-in classificado, 15 = check-in desclassificado, 16 = tagged in flow, 17 = resposta a um flow (mensagem privada, só push), 18 = comentaram no flow em que você também comentou, 20 = mencionado (@) num comentário
+  type: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 20 | 21; // 1 = new follower, 2 = incentive, 3 = comment, 4 = duel invite, 5 = join request, 6 = comment reaction, 7 = check-in reaction, 8 = promotion comment, 9 = tagged in post, 10 = private message, 11 = duel check-in, 12 = promotion like, 13 = promotion expired, 14 = check-in classificado, 15 = check-in desclassificado, 16 = tagged in flow, 17 = resposta a um flow (mensagem privada, só push), 18 = comentaram no flow em que você também comentou, 20 = mencionado (@) num comentário, 21 = repost da sua publicação (post_id = o repost)
   userId: string;
   userNickname: string;
   userPhoto: string | null;
@@ -9604,7 +9814,7 @@ export async function deletePostDb(postId: string): Promise<boolean> {
     // ficavam órfãs no bucket para sempre.
     const { data: postData, error: fetchError } = await supabase
       .from("posts")
-      .select("user_id, photo, photos")
+      .select("user_id, photo, photos, reposted_from")
       .eq("id", postId)
       .single();
 
@@ -9651,7 +9861,13 @@ export async function deletePostDb(postId: string): Promise<boolean> {
 
     // Apaga TODA a mídia do post do storage — foto principal + carrossel.
     // Best-effort: o post já saiu do banco, falhar aqui só deixa lixo.
-    await removeStorageObjects(collectMediaUrls(postData, ["photo"], ["photos"]));
+    //
+    // Repost NÃO: as fotos são as mesmas URLs do original, de outra pessoa.
+    // (Apagar um ORIGINAL leva os reposts junto — trigger
+    // `delete_reposts_of_post` — então os arquivos dele ficam sem referência.)
+    if (!postData.reposted_from) {
+      await removeStorageObjects(collectMediaUrls(postData, ["photo"], ["photos"]));
+    }
 
     // Invalidar ANTES do return — o post excluído não pode continuar sendo
     // servido pelo cache (memória/localStorage) na grade do perfil, e o
@@ -15902,12 +16118,17 @@ async function filterUnreferencedUrls(
   urls: string[],
   table: string,
   columns: string[],
+  /** colunas `text[]` (ex.: `posts.photos`) — testadas por "contém" */
+  arrayColumns: string[] = [],
 ): Promise<string[]> {
   if (!supabase || urls.length === 0) return [];
   const unreferenced: string[] = [];
   for (const url of urls) {
     try {
-      const orFilter = columns.map((c) => `${c}.eq.${url}`).join(",");
+      const orFilter = [
+        ...columns.map((c) => `${c}.eq.${url}`),
+        ...arrayColumns.map((c) => `${c}.cs.{"${url}"}`),
+      ].join(",");
       const { count, error } = await (supabase as any)
         .from(table)
         .select("*", { count: "exact", head: true })
@@ -15992,14 +16213,18 @@ export async function adminDeleteContentDb(
 
   const result = (data ?? {}) as { deleted?: boolean; media?: string[] };
 
-  // Flow: a mídia pode estar compartilhada com um repost (`repostStoryDb` não
-  // copia o arquivo). Remover a lista crua apagaria o flow de outra pessoa —
-  // que sequer foi denunciada. Post e shot não têm esse compartilhamento.
+  // Flow e post: a mídia pode estar compartilhada com um repost
+  // (`repostStoryDb`/`repostPostDb` não copiam o arquivo). Remover a lista crua
+  // apagaria o conteúdo de outra pessoa — que sequer foi denunciado. Remover um
+  // REPOST de post devolve as URLs do original, que continuam referenciadas.
+  // Shot não tem esse compartilhamento.
   const media = result.media ?? [];
   await removeStorageObjects(
     tipo === "flow"
       ? await filterUnreferencedUrls(media, "flow", ["media_url", "poster_url"])
-      : media,
+      : tipo === "post"
+        ? await filterUnreferencedUrls(media, "posts", ["photo"], ["photos"])
+        : media,
   );
 
   invalidateQueryCache("userPosts");
@@ -16240,22 +16465,23 @@ export async function getAdminAnatomyCoverageDb(): Promise<AnatomyCoverage> {
 // ─── Admin: verified accounts ─────────────────────────────────────────────────
 
 /**
- * Marca/desmarca a conta como verificada (selo dourado).
+ * Define o nível do selo da conta: `official` (equipe LinKa, dourado),
+ * `notable` (usuário importante, azul) ou `null` (remove o selo).
  *
  * Via RPC `SECURITY DEFINER`: o UPDATE direto batia em duas travas de uma vez —
- * `profiles_update_own` (só a própria linha) e o trigger `freeze_is_verified`,
- * que reverte a coluna fora do service_role. As duas falham **sem erro**, então
- * a tela dizia "verificado com sucesso" sem ter verificado ninguém.
+ * `profiles_update_own` (só a própria linha) e os triggers `freeze_is_verified`
+ * / `freeze_verified_tier`, que revertem as colunas fora do admin. As travas
+ * falham **sem erro**, então a tela diria "verificado" sem ter verificado.
  *
- * Migration: `docs/migrations/20260811-admin-moderation.sql`.
+ * Migration: `docs/migrations/20260928-verified-tiers.sql`.
  */
-export async function setUserVerifiedDb(userId: string, verified: boolean): Promise<boolean> {
+export async function setUserVerifiedTierDb(userId: string, tier: VerifiedTier | null): Promise<boolean> {
   if (!hasSupabaseConfig || !supabase) return false;
   assertUUID(userId, "ID do usuário");
 
-  const { data, error } = await supabase.rpc("admin_set_verified", {
+  const { data, error } = await supabase.rpc("admin_set_verified_tier", {
     p_user_id: userId,
-    p_verified: verified,
+    p_tier: tier,
   });
 
   if (error) {
@@ -16400,12 +16626,20 @@ export async function adminSearchUsersDb(
   }));
 }
 
-export async function getVerifiedAccountsDb(): Promise<{ userId: string; nickname: string; handle: string; photo: string | null }[]> {
+export type VerifiedAccount = {
+  userId: string;
+  nickname: string;
+  handle: string;
+  photo: string | null;
+  tier: VerifiedTier;
+};
+
+export async function getVerifiedAccountsDb(): Promise<VerifiedAccount[]> {
   if (!hasSupabaseConfig || !supabase) return [];
 
   const { data, error } = await supabase
     .from("profiles")
-    .select("user_id, nickname, handle, photo")
+    .select("user_id, nickname, handle, photo, is_verified, verified_tier")
     .eq("is_verified", true)
     .order("nickname");
 
@@ -16419,7 +16653,56 @@ export async function getVerifiedAccountsDb(): Promise<{ userId: string; nicknam
     nickname: String(p.nickname ?? ""),
     handle: String(p.handle ?? ""),
     photo: p.photo ? String(p.photo) : null,
+    tier: verifiedTierOf(p) ?? "notable",
   }));
+}
+
+// ─── Parabéns pelo selo (próprio usuário) ─────────────────────────────────────
+
+/**
+ * Nível atual do selo do usuário logado e o último nível que ele já viu
+ * comemorado. Leitura direta, sem `cached()`: o selo é dado pelo admin em
+ * outro aparelho, e o cache longo do perfil atrasaria o modal em horas.
+ *
+ * Devolve null em qualquer falha (inclusive a coluna `verified_seen_tier`
+ * ainda não existir) — o modal é opcional e nunca pode quebrar a abertura.
+ * Migration: `docs/migrations/20260928-verified-celebration.sql`.
+ */
+export async function getOwnVerificationStatusDb(): Promise<{
+  tier: VerifiedTier | null;
+  seenTier: VerifiedTier | null;
+} | null> {
+  if (!hasSupabaseConfig || !supabase) return null;
+  const viewer = await getViewer();
+  if (!viewer) return null;
+
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("is_verified, verified_tier, verified_seen_tier")
+    .eq("user_id", viewer.id)
+    .maybeSingle();
+  if (error || !data) return null;
+
+  const seen = (data as any).verified_seen_tier;
+  return {
+    tier: verifiedTierOf(data),
+    seenTier: seen === "official" || seen === "notable" ? seen : null,
+  };
+}
+
+/** Grava o nível já comemorado (null = limpa, para uma nova verificação comemorar de novo). */
+export async function markVerificationSeenDb(tier: VerifiedTier | null): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+  const viewer = await getViewer();
+  if (!viewer) return;
+
+  const { error } = await supabase
+    .from("profiles")
+    .update({ verified_seen_tier: tier })
+    .eq("user_id", viewer.id);
+  if (error) console.error("Error marking verification as seen:", error);
+  // O selo em si pode ter mudado desde o último cache do perfil.
+  invalidateProfileCache(viewer.id);
 }
 
 

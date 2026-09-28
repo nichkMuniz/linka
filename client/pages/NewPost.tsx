@@ -1,5 +1,7 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
+import { HighlightTextarea, SHADCN_TEXTAREA_CLASS } from "@/components/shared/highlight-textarea";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
@@ -1468,15 +1470,17 @@ export default function NewPost() {
           border: "1px solid rgba(255,255,255,.1)",
           boxShadow: "inset 0 1px 0 rgba(255,255,255,.14)",
         }}>
-          <Textarea
+          {/* #hashtag e @menção ficam azuis enquanto digita (HighlightTextarea). */}
+          <HighlightTextarea
             ref={captionTextareaRef}
             placeholder={mediaType === "post" ? t("newpost_caption_placeholder") : t("newpost_caption_video_placeholder")}
+            placeholderColor="rgba(255,255,255,.4)"
             value={activeText}
             onChange={(e) =>
               mediaType === "post" ? setDescription(e.target.value) : setVideoDescription(e.target.value)
             }
             maxLength={500}
-            className="resize-none border-0 shadow-none focus-visible:ring-0 p-0 bg-transparent w-full text-white placeholder:text-white/40"
+            className={cn(SHADCN_TEXTAREA_CLASS, "resize-none border-0 shadow-none focus-visible:ring-0 p-0 bg-transparent w-full text-white")}
             style={{ fontSize: 15, lineHeight: 1.5, minHeight: 118 }}
             rows={5}
           />

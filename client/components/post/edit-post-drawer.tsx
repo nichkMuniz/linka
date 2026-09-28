@@ -1,5 +1,6 @@
 import * as React from "react";
 import { Target, Trash2, ChevronLeft, ChevronRight, UserRoundPlus, X, Check } from "lucide-react";
+import { HighlightTextarea, SHADCN_TEXTAREA_CLASS } from "@/components/shared/highlight-textarea";
 import {
   Drawer,
   DrawerContent,
@@ -202,11 +203,13 @@ export function EditPostDrawer({ open, onOpenChange, post, onSaved }: EditPostDr
           )}
 
           <div className="relative">
-            <textarea
+            {/* #hashtag e @menção ficam azuis enquanto digita (HighlightTextarea). */}
+            <HighlightTextarea
               ref={descriptionRef}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder={t("editpost_description_placeholder")}
+              placeholderColor="rgba(255,255,255,.4)"
               rows={4}
               className="w-full px-3 py-2 rounded-2xl text-sm resize-none focus:outline-none"
               style={{

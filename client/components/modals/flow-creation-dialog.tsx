@@ -1,5 +1,7 @@
 import * as React from "react";
 import { createPortal } from "react-dom";
+import { HighlightTextarea, SHADCN_TEXTAREA_CLASS } from "@/components/shared/highlight-textarea";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
@@ -13,8 +15,13 @@ import {
   formatStickerDate,
   formatStickerDuration,
   formatStickerVolume,
+  isStickerFieldShown,
+  applyStickerFields,
 } from "@/components/shared/flow-workout-sticker";
-import { WorkoutStickerPickerDrawer } from "@/components/modals/workout-sticker-picker-drawer";
+import {
+  WorkoutStickerPickerDrawer,
+  type WorkoutStickerChoice,
+} from "@/components/modals/workout-sticker-picker-drawer";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { useLanguage } from "@/lib/language-context";
 import { saveMediaToPhotos, SaveMediaError, compressVideoBlob } from "@/lib/native-media";
@@ -36,6 +43,7 @@ import {
   Lock,
   Download,
   Dumbbell,
+  SlidersHorizontal,
 } from "lucide-react";
 import { FEATURES } from "@/lib/feature-flags";
 
@@ -210,6 +218,37 @@ function pickVideoMimeType(): string {
     }
   }
   return "";
+}
+
+// Resolve quando o <video> já pintou um frame real da câmera e o layout teve
+// mais dois frames para assentar no tamanho final. Usa
+// `requestVideoFrameCallback` (iOS 15.4+) e cai para polling de `videoWidth`
+// onde não existir. O timeout garante que a prévia nunca fique presa invisível.
+function waitForFirstVideoFrame(video: HTMLVideoElement, timeoutMs = 1500): Promise<void> {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      window.clearTimeout(timer);
+      resolve();
+    };
+    const settle = () => requestAnimationFrame(() => requestAnimationFrame(finish));
+    const timer = window.setTimeout(finish, timeoutMs);
+    const v = video as HTMLVideoElement & {
+      requestVideoFrameCallback?: (cb: () => void) => number;
+    };
+    if (typeof v.requestVideoFrameCallback === "function") {
+      v.requestVideoFrameCallback(settle);
+      return;
+    }
+    const poll = () => {
+      if (done) return;
+      if (video.videoWidth > 0 && video.readyState >= 2) settle();
+      else requestAnimationFrame(poll);
+    };
+    poll();
+  });
 }
 
 // Transformação aplicada à mídia na tela de compartilhar (estilo story do Instagram)
@@ -549,9 +588,10 @@ function stickerChips(
   data: StoryWorkoutSticker,
   labels: DrawableSticker["labels"],
 ): Array<{ text: string; accent: boolean }> {
-  const chips: Array<{ text: string; accent: boolean }> = [
-    { text: `${data.totalSeries} ${labels.series}`, accent: false },
-  ];
+  const chips: Array<{ text: string; accent: boolean }> = [];
+  if (isStickerFieldShown(data, "series")) {
+    chips.push({ text: `${data.totalSeries} ${labels.series}`, accent: false });
+  }
   if (data.totalVolume > 0) chips.push({ text: formatStickerVolume(data.totalVolume), accent: false });
   if (data.durationSecs > 0) chips.push({ text: formatStickerDuration(data.durationSecs), accent: false });
   if (Number(data.caloriesKcal ?? 0) > 0) {
@@ -571,6 +611,8 @@ function stickerChipLines(
   chips: Array<{ text: string }>,
   contentW: number,
 ): number {
+  // Sem chips (autor ocultou todos os números) = a linha inteira some do card.
+  if (chips.length === 0) return 0;
   ctx.save();
   ctx.font = `700 9.5px ${STICKER_FONT}`;
   let lines = 1;
@@ -586,8 +628,8 @@ function stickerChipLines(
 
 function stickerCardHeight(data: StoryWorkoutSticker, chipLines = 1): number {
   const rows = data.exercises?.length ?? 0;
-  let h = STICKER_PAD + STICKER_HEADER_H + 9 + STICKER_CHIPS_H
-    + (chipLines - 1) * (STICKER_CHIPS_H + 6);
+  let h = STICKER_PAD + STICKER_HEADER_H;
+  if (chipLines > 0) h += 9 + STICKER_CHIPS_H + (chipLines - 1) * (STICKER_CHIPS_H + 6);
   if (rows > 0) {
     h += 9 + 1 + 8 + rows * STICKER_ROW_H + (rows - 1) * STICKER_ROW_GAP;
     if (data.extraCount) h += STICKER_ROW_GAP + 12;
@@ -712,7 +754,8 @@ function drawWorkoutStickerOnCanvas(
   // Exercícios da sessão
   const rows = data.exercises ?? [];
   if (rows.length > 0) {
-    const lineY = chipY + STICKER_CHIPS_H + 9;
+    // Sem chips, a lista começa logo abaixo do cabeçalho (como no React).
+    const lineY = (chips.length > 0 ? chipY + STICKER_CHIPS_H : iconTop + STICKER_HEADER_H) + 9;
     ctx.fillStyle = "rgba(255,255,255,.1)";
     ctx.fillRect(left, lineY, contentW, 1);
     let rowY = lineY + 1 + 8;
@@ -798,12 +841,17 @@ export function FlowCreationDialog({
   // sticker por flow, arrastável e redimensionável como as frases. `null` = o
   // usuário não citou treino nenhum.
   const [workoutSticker, setWorkoutSticker] = React.useState<{
+    /** o que é desenhado e publicado — `full` com os blocos ocultos zerados */
     data: StoryWorkoutSticker;
+    /** snapshot completo, para o autor poder reexibir um bloco antes de publicar */
+    full: StoryWorkoutSticker;
     x: number;
     y: number;
     scale: number;
   } | null>(null);
   const [workoutPickerOpen, setWorkoutPickerOpen] = React.useState(false);
+  // true = o drawer abre direto na personalização do sticker já colado.
+  const [workoutPickerEditing, setWorkoutPickerEditing] = React.useState(false);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   // "Salvar rascunho": grava o flow como ele está na galeria do celular.
   const [isSavingDraft, setIsSavingDraft] = React.useState(false);
@@ -820,6 +868,16 @@ export function FlowCreationDialog({
   const [facingMode, setFacingMode] = React.useState<"user" | "environment">("user");
   const [cameraError, setCameraError] = React.useState<string | null>(null);
   const [cameraReady, setCameraReady] = React.useState(false);
+  // O <video> só aparece depois que o primeiro frame foi pintado já no tamanho
+  // final. No WebKit do iOS, logo após receber o `srcObject`, a camada de vídeo
+  // é desenhada por alguns frames no tamanho intrínseco provisório (um
+  // quadradinho) e só então se expande para a tela — era o "quadrado que
+  // cresce" ao abrir o flow. Mantê-lo invisível até lá e entrar com fade
+  // esconde o salto (vale também para a troca de câmera).
+  const [videoShown, setVideoShown] = React.useState(false);
+  // Identifica a abertura de stream corrente: uma troca rápida de câmera não
+  // pode deixar o `startStream` anterior revelar o vídeo fora de hora.
+  const streamTokenRef = React.useRef(0);
   const [isRecording, setIsRecording] = React.useState(false);
   // Gravação "travada" (mãos livres, após arrastar o obturador para cima).
   const [isRecordingLocked, setIsRecordingLocked] = React.useState(false);
@@ -967,11 +1025,13 @@ export function FlowCreationDialog({
       streamRef.current = null;
     }
     setCameraReady(false);
+    setVideoShown(false);
   }, []);
 
   const startStream = React.useCallback(async (mode: "user" | "environment") => {
     stopStream();
     setCameraError(null);
+    const token = ++streamTokenRef.current;
     try {
       if (!navigator.mediaDevices?.getUserMedia) {
         throw new Error("Câmera não suportada neste dispositivo");
@@ -1027,7 +1087,10 @@ export function FlowCreationDialog({
         videoRef.current.srcObject = stream;
         await videoRef.current.play().catch(() => {});
       }
+      if (token !== streamTokenRef.current) return;
       setCameraReady(true);
+      if (videoRef.current) await waitForFirstVideoFrame(videoRef.current);
+      if (token === streamTokenRef.current) setVideoShown(true);
     } catch (err: any) {
       setCameraError(
         err?.name === "NotAllowedError"
@@ -1893,11 +1956,13 @@ export function FlowCreationDialog({
               "{n}",
               String(workoutSticker.data.extraCount ?? 0),
             ),
-            date: formatStickerDate(
-              workoutSticker.data.date,
-              t("flow_workout_today"),
-              t("flow_workout_yesterday"),
-            ),
+            date: isStickerFieldShown(workoutSticker.data, "date")
+              ? formatStickerDate(
+                  workoutSticker.data.date,
+                  t("flow_workout_today"),
+                  t("flow_workout_yesterday"),
+                )
+              : "",
           },
         }
       : null;
@@ -2372,13 +2437,26 @@ export function FlowCreationDialog({
 
   // Escolha no drawer → o mini frame nasce um pouco abaixo do centro (onde não
   // cobre o rosto da selfie nem a descrição), pronto para ser arrastado.
-  const handlePickWorkout = (data: StoryWorkoutSticker) => {
-    setWorkoutSticker({
-      data,
-      x: window.innerWidth / 2,
-      y: window.innerHeight * 0.45,
-      scale: 1,
-    });
+  // Reedição (botão de ajustes no sticker) mantém posição e tamanho.
+  const handlePickWorkout = ({ full, hidden }: WorkoutStickerChoice) => {
+    const data = applyStickerFields(full, hidden);
+    setWorkoutSticker((prev) =>
+      prev && workoutPickerEditing
+        ? { ...prev, data, full }
+        : {
+            data,
+            full,
+            x: window.innerWidth / 2,
+            y: window.innerHeight * 0.45,
+            scale: 1,
+          },
+    );
+  };
+
+  const openWorkoutPicker = (editing: boolean) => {
+    hapticLight();
+    setWorkoutPickerEditing(editing);
+    setWorkoutPickerOpen(true);
   };
 
   const handleClose = () => {
@@ -2605,6 +2683,18 @@ export function FlowCreationDialog({
         >
           <X className="h-3.5 w-3.5" />
         </button>
+        {/* Personalizar o que o card mostra — mesmo visual do X, no canto oposto. */}
+        <button
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            openWorkoutPicker(true);
+          }}
+          className="absolute -top-2 -left-2 h-6 w-6 rounded-full bg-black/80 border border-white/25 flex items-center justify-center text-white active:opacity-70"
+          aria-label={t("flow_workout_customize")}
+        >
+          <SlidersHorizontal className="h-3.5 w-3.5" />
+        </button>
       </div>
     </div>
   ) : null;
@@ -2616,8 +2706,7 @@ export function FlowCreationDialog({
     <button
       onClick={(e) => {
         e.stopPropagation();
-        hapticLight();
-        setWorkoutPickerOpen(true);
+        openWorkoutPicker(false);
       }}
       className="h-10 px-3 rounded-full bg-black/40 backdrop-blur flex items-center text-white text-sm font-semibold gap-1"
       aria-label={t("flow_workout_button")}
@@ -2632,7 +2721,9 @@ export function FlowCreationDialog({
     <>
       <div
         data-flow-dialog-root
-        className="fixed inset-0 z-[100] bg-black flex flex-col overflow-hidden"
+        /* Só opacidade na entrada: transform no root viraria containing block
+           dos elementos `fixed` internos. */
+        className="fixed inset-0 z-[100] bg-black flex flex-col overflow-hidden animate-in fade-in duration-200"
         style={{ height: "100dvh", width: "100vw" }}
         role="dialog"
         aria-modal="true"
@@ -2673,17 +2764,29 @@ export function FlowCreationDialog({
                   </Button>
                 </div>
               ) : (
+                <>
+                {!videoShown && (
+                  // Aparece só se a câmera demorar (delay de 700ms); na abertura
+                  // normal o vídeo entra antes e o spinner nunca chega a surgir.
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none animate-in fade-in fill-mode-both duration-300 delay-700">
+                    <Loader2 className="h-8 w-8 text-white/50 animate-spin" />
+                  </div>
+                )}
                 <video
                   ref={videoRef}
                   autoPlay
                   playsInline
                   muted
-                  className="h-full w-full object-cover"
+                  className={cn(
+                    "h-full w-full object-cover transition-opacity duration-300 ease-out",
+                    videoShown ? "opacity-100" : "opacity-0",
+                  )}
                   style={{
                     transform: `scaleX(${(facingMode === "user" ? -1 : 1) * (nativeZoomRef.current ? 1 : zoom)}) scaleY(${nativeZoomRef.current ? 1 : zoom})`,
                     transformOrigin: "center",
                   }}
                 />
+                </>
               )}
             </div>
 
@@ -3300,13 +3403,15 @@ export function FlowCreationDialog({
                   </button>
                 )}
                 <div className="relative">
-                  <Textarea
+                  {/* #hashtag e @menção ficam azuis enquanto digita. */}
+                  <HighlightTextarea
                     ref={descriptionRef}
                     placeholder={t("flow_description_placeholder")}
+                    placeholderColor="rgba(255,255,255,.6)"
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
                     maxLength={200}
-                    className="resize-none h-20 bg-black/40 backdrop-blur border-white/20 text-white placeholder:text-white/60"
+                    className={cn(SHADCN_TEXTAREA_CLASS, "resize-none h-20 bg-black/40 backdrop-blur border-white/20 text-white")}
                   />
                   {/* "@" na descrição → sugestão; a escolhida entra nas marcações
                       do flow (flow_tags → notificação type 16). */}
@@ -3350,6 +3455,11 @@ export function FlowCreationDialog({
           open={workoutPickerOpen}
           onOpenChange={setWorkoutPickerOpen}
           onSelect={handlePickWorkout}
+          editing={
+            workoutPickerEditing && workoutSticker
+              ? { full: workoutSticker.full, hidden: workoutSticker.data.hidden ?? [] }
+              : null
+          }
         />
       )}
     </>

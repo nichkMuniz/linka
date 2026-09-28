@@ -760,6 +760,7 @@ Notificações geradas para os usuários (follows, likes, comentários, duelos).
 | 18 | **Comentaram num flow em que o destinatário também comentou** | `follower_id` (quem comentou agora), `flow_id` |
 | 19 | **Convite para treinar junto** (26/08/2026) | `follower_id` (quem convidou), `post_id` (= `workout_parties.id`) |
 | 20 | **Mencionado com "@" num comentário** (27/09/2026) | `follower_id` (quem comentou), `post_id` ou `shots_id` ou `flow_id` |
+| 21 | **Repostaram sua publicação** (28/09/2026) | `follower_id` (quem repostou), `post_id` (o **repost**, não o original) |
 | 14 | Check-in **classificado** (aprovado) por um participante | `follower_id` (quem votou), `duel_check_in_id` |
 | 15 | Check-in **desclassificado** (reprovado) por um participante | `follower_id` (quem votou), `duel_check_in_id` |
 
@@ -780,6 +781,7 @@ Notificações geradas para os usuários (follows, likes, comentários, duelos).
 | `comments` | `trg_notify_post_comment_mentions` | `notify_post_comment_mentions()` | type 20 — cada `@handle` do texto (migração `20260927-comment-mentions.sql`) |
 | `shots_comments` | `trg_notify_shot_comment_mentions` | `notify_shot_comment_mentions()` | type 20 |
 | `flow_comments` | `trg_notify_flow_comment_mentions` | `notify_flow_comment_mentions()` | type 20 |
+| `posts` | `trg_notify_post_repost` | `notify_post_repost()` | type 21 — para o autor do original, quando `reposted_from` vem preenchido; pula se houver bloqueio (migração `20260928-repost-notification.sql`) |
 
 > **Menções (type 20):** os três triggers usam `comment_mention_recipients(text, autor, dono)` (`SECURITY DEFINER`, `stable`): extrai até 10 `@handle` do texto (regex `(?:^|\s)@([a-z0-9._-]+)`, ponto/hífen final removidos), casa com `lower(profiles.handle)` e exclui o autor, o **dono do conteúdo** (já recebe o type 3) e qualquer par com bloqueio (`user_blocks`, as duas direções). Só no INSERT — editar comentário não renotifica. Cada trigger engole o próprio erro (`raise warning`): uma menção nunca impede o comentário de ser salvo. Legenda de post/flow não passa por aqui — lá a menção escolhida no autocomplete vira `post_tags`/`flow_tags` (types 9/16).
 | `post_tags` | `trg_notify_post_tag` | `notify_post_tag()` | type 9 (marcado em post) |
@@ -875,6 +877,14 @@ Posts publicados no feed principal.
 | `updated_at` | timestamp | — | `now()` | Data de atualização |
 | `photos` | jsonb | — | — | Array JSON de fotos adicionais |
 | `workout_summary` | jsonb | — | `NULL` | **(2026-07-06)** Snapshot estruturado do treino quando um "resumo do treino" é compartilhado no feed (rotina, duração, séries, volume, `caloriesKcal` (kcal da sessão, desde 21/08/2026), `imageUrl` do card gerado e a lista de exercícios com `sets: {kg, reps}` por série). Formato = `PostWorkoutSummary` (`client/lib/workout-summary-types.ts`). Habilita o pill "Ver treino" + o modal de detalhe no feed/Perfil/PostDetail. Desde **26/08/2026** traz também **`userPhotoCount`** — quantas fotos da galeria/câmera a pessoa anexou ao resumo (o card gerado e o mapa do trajeto não contam); `0` manda o post para a aba **Treinos** do perfil em vez da aba Posts (ver `docs/08-perfil.md`). Sem migração: é só mais uma chave do jsonb, e posts antigos caem no fallback de `isWorkoutCanvasPost`. Desde **26/08/2026** cada exercício da lista traz também **`workoutId`** (o id no catálogo `workouts`), que é a chave usada pela **comparação de treino** para casar o mesmo exercício entre duas pessoas — posts antigos caem no casamento por nome (ver `docs/01-feed.md` → Comparar treino). Também sem migração. `NULL` em posts comuns de imagem/texto. Herda as policies RLS de `posts`. Ver `docs/migrations/20260706-post-workout-summary.sql` |
+| `reposted_from` | uuid | — | `NULL` | **(2026-09-28)** FK → `posts.id` (`on delete cascade`). Preenchido quando o post é um **repost** de um post em que o usuário foi marcado. O repost reaproveita `photo`/`photos` do original (mesmas URLs, sem upload), nasce com `description` vazia (o app exibe a legenda do original) e não copia meta nem `workout_summary`. Migration: `docs/migrations/20260928-post-reposts.sql` |
+| `reposted_from_user` | uuid | — | `NULL` | **(2026-09-28)** Autor do original. Gravado pelo trigger `validate_post_repost`, nunca pelo app. Serve de crédito quando o original deixa de ser legível pelo viewer |
+
+**Reposts (migration `20260928-post-reposts.sql`):**
+- `posts_one_repost_per_user`: índice único parcial `(user_id, reposted_from) where reposted_from is not null`, um repost por pessoa por post. Apagar o repost libera repostar de novo.
+- `validate_post_repost()` (trigger `before insert or update`, SECURITY DEFINER). No INSERT exige que o original exista, que **não seja repost** (sem repost de repost), que **não seja do próprio usuário**, que o usuário esteja **marcado** nele (`post_tags`) e que o autor **não esconda os posts** de não seguidores (`profile_hides_posts`). Erros: `REPOST_ORIGINAL_NOT_FOUND`, `REPOST_OF_REPOST`, `REPOST_OWN_POST`, `REPOST_NOT_TAGGED`, `REPOST_PRIVATE_AUTHOR`. No UPDATE congela `reposted_from`/`reposted_from_user`.
+- `delete_reposts_of_post()` (trigger `before delete`, SECURITY DEFINER). Antes de o original sair, apaga cada repost com as dependências dele (`notifications`, `likes`, `comments`, `post_tags`, `post_complaint`). O `on delete cascade` sozinho falharia (comments/likes do repost não têm cascade), e o autor do original não consegue apagar linhas alheias pela RLS.
+- **Storage:** `deletePostDb` **não** apaga arquivos de um repost (são do original). `adminDeleteContentDb` filtra as URLs ainda referenciadas (`photo` e `photos`) antes de apagar. Apagar o original leva os reposts antes, então os arquivos dele ficam sem referência e são apagados normalmente.
 
 ---
 
@@ -898,7 +908,9 @@ Perfil público dos usuários da plataforma.
 | `weight` | float[] | — | — | peso do usuario |
 | `age` | bigint[] | — | — | idade do usuario |
 | `handle` | text | — | — | @usuário. Guardado **sem** o prefixo `@` e em minúsculo (o `@` é só exibição). **Único global** via índice `profiles_handle_unique_idx` (`unique (lower(handle)) where handle is not null and handle <> ''`). Escrito pelo trigger `handle_new_user` (com de-colisão por sufixo) e sobrescrito pelo `UPDATE` do cliente no fim do cadastro. Migration: `docs/migrations/20260720-profiles-signup-fixes.sql` |
-| `is_verified` | boolean | ✓ | `false` | Indica conta oficial verificada (badge dourado). Só pode ser alterado via service_role (admin). |
+| `is_verified` | boolean | ✓ | `false` | Tem selo de verificação (qualquer nível). Fica **sincronizado** com `verified_tier` (`true` ⇔ nível não nulo) para builds antigos, que só leem esta coluna. Só pode ser alterado via service_role ou admin. |
+| `verified_seen_tier` | text | — | `null` | Último nível de selo que o **próprio** usuário já viu comemorado no modal de parabéns (`VerifiedCongratsDialog`). Escrito pelo dono via `profiles_update_own`, sem trava (não concede nada). Backfill: `official` já marcado como visto. Migration: `docs/migrations/20260928-verified-celebration.sql` |
+| `verified_tier` | text | — | `null` | Nível do selo: `'official'` (equipe LinKa, roseta dourada) ou `'notable'` (usuário importante, círculo azul); `null` = sem selo. Check `profiles_verified_tier_check`. Protegido pelo trigger `freeze_verified_tier` (só service_role/admin). Escrito pela RPC `admin_set_verified_tier`. Migration: `docs/migrations/20260928-verified-tiers.sql` |
 | `hide_follow_lists` | boolean | ✓ | `false` | Privacidade: quando `true`, outros usuários não conseguem abrir as listas de seguidores/seguindo deste perfil (gating client-side em `Profile.tsx`). |
 | `hide_posts_from_non_followers` | boolean | ✓ | `false` | Privacidade: quando `true`, a aba Posts do perfil só é visível para quem segue o dono. |
 | `is_banned` | boolean | ✓ | `false` | Conta banida pela moderação. Escrito **só** pela RPC `admin_set_banned` (o trigger `freeze_is_banned` reverte qualquer outra origem). Sozinho ele **não bloqueia nada** — quem barra o acesso é o `auth.users.banned_until` que a mesma RPC grava; este flag serve ao card de métricas e à tela `BannedScreen`. Migration: `docs/migrations/20260811-admin-ban-user.sql` |
@@ -922,6 +934,12 @@ Perfil público dos usuários da plataforma.
 - `admin_purge_refs(p_table, p_col, p_id)` — helper **interno** (sem grant) que apaga referências comparando `coluna::text`, tolerando as divergências de tipo do schema e tabelas ausentes.
 - `admin_set_verified(p_user_id uuid, p_verified boolean default true) → boolean` — único caminho de escrita de `is_verified`.
 - `freeze_is_verified` foi reescrito para reconhecer `is_app_admin` — sem isso a RPC acima gravaria e o trigger reverteria na saída.
+
+**Dois níveis de verificação (migration `20260928-verified-tiers.sql`):**
+- Coluna `verified_tier` (ver tabela acima) + backfill: quem já tinha `is_verified = true` virou `'official'` se está em `app_admins`, senão `'notable'`.
+- `admin_set_verified_tier(p_user_id uuid, p_tier text) → boolean` — RPC `SECURITY DEFINER` (grant `authenticated`), checa `is_app_admin`, grava `verified_tier` **e** `is_verified` juntos. `p_tier = null` remove o selo. Retorna `false` se nenhuma linha casou.
+- `admin_set_verified` (booleana) foi mantida para compatibilidade e agora delega: `true` → `'notable'`, `false` → `null`.
+- `freeze_verified_tier` (trigger `before update`) — mesma regra do `freeze_is_verified`, senão qualquer usuário se daria o selo oficial via `profiles_update_own`.
 
 > ⚠️ **`profiles.id` é bigint; o uuid do usuário é `user_id`.** Filtrar por `id` com um uuid gera `invalid input syntax for type bigint` — foi exatamente o bug do botão "Banir usuário" do painel admin.
 >
@@ -1253,6 +1271,7 @@ Metas ativas vinculadas a um usuário.
 | `duration` | bigint | ✓ | — | Duração da meta (dias) |
 | `quantity` | bigint | ✓ | — | Quantidade alvo |
 | `visibility` | smallint | ✓ | `1` | Visibilidade (1 = pública, 0 = privada) |
+| `hidden_on_profile` | boolean | ✓ | `false` | **(2026-09-28)** Meta ocultada da strip "Metas" do perfil pelo dono (para todos). Não apaga nem muda `visibility`: a meta segue na tela de Metas e no chip dos posts. Lida à parte, de forma tolerante (`getHiddenProfileGoalIdsDb`), **fora** de `USER_GOAL_BASE_COLUMNS`. Migration: `docs/migrations/20260928-goal-hidden-on-profile.sql` |
 | `created_at` | timestamptz | ✓ | `now()` | Data de criação |
 | `perc` | real | ✓ | `0` | Percentual de conclusão (calculado a partir de `days_completed / duration`, arredondado — ver `incrementGoalProgressDb`) |
 | `days_completed` | smallint | — | `0` | Dias completados. Incrementado em +1 por dia (no máx.) ao concluir qualquer rotina vinculada à meta, via `incrementGoalProgressDb`. **Fonte de verdade para o progresso.** |

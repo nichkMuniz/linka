@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useLanguage } from "@/lib/language-context";
 import { UserAvatar } from "@/components/shared/user-avatar";
+import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
 import { SwipeableConversationRow } from "@/components/community/swipeable-conversation-row";
 import { NewConversationDrawer } from "@/components/community/new-conversation-drawer";
 import {
@@ -66,6 +67,8 @@ export function MessagesTab({
       userId: follower.id,
       userNickname: follower.nickname,
       userPhoto: follower.photo,
+      verifiedTier: follower.verifiedTier ?? null,
+      isVerified: !!follower.verifiedTier,
       lastMessage: "",
       lastMessageTime: new Date().toISOString(),
       unreadCount: 0,
@@ -82,7 +85,10 @@ export function MessagesTab({
         <UserAvatar photo={follower.photo} nickname={follower.nickname} size="lg" />
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-white/90">{follower.nickname}</p>
+        <p className="text-sm font-medium text-white/90 flex items-center gap-1 min-w-0">
+          <span className="truncate">{follower.nickname}</span>
+          {follower.verifiedTier && <VerifiedBadge size="sm" tier={follower.verifiedTier} />}
+        </p>
         {follower.bio && (
           <p className="text-xs text-white/50 truncate">{follower.bio}</p>
         )}
@@ -158,6 +164,9 @@ export function MessagesTab({
                           >
                             {conversation.userNickname}
                           </p>
+                          {conversation.isVerified && (
+                            <VerifiedBadge size="sm" tier={conversation.verifiedTier} />
+                          )}
                           {/* A conversa com quem foi bloqueado permanece na
                               lista (o histórico é do usuário e pode virar
                               evidência). Sem esta marca, encontrá-la aqui

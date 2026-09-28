@@ -65,8 +65,9 @@ import {
   adminDismissComplaintDb,
   adminDeleteContentDb,
   adminBanUserDb,
-  setUserVerifiedDb,
+  setUserVerifiedTierDb,
   getVerifiedAccountsDb,
+  type VerifiedAccount,
   getAdminPremiumUsersDb,
   adminSetPremiumDb,
   adminSearchUsersDb,
@@ -85,6 +86,7 @@ import {
   type AdminActiveUser,
 } from "@/lib/ritmofit-db";
 import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
+import type { VerifiedTier } from "@/lib/verified-tier";
 import { Input } from "@/components/ui/input";
 import { reportHandledError } from "@/lib/monitoring";
 import { copyToClipboard } from "@/lib/clipboard";
@@ -694,9 +696,12 @@ export default function Admin() {
   // ── Verified accounts ──────────────────────────────────────────────────────
   const [activeUsers, setActiveUsers] = React.useState<AdminActiveUser[]>([]);
   const [todayActivity, setTodayActivity] = React.useState<AdminTodayUser[]>([]);
-  const [verifiedAccounts, setVerifiedAccounts] = React.useState<{ userId: string; nickname: string; handle: string; photo: string | null }[]>([]);
+  const [verifiedAccounts, setVerifiedAccounts] = React.useState<VerifiedAccount[]>([]);
   const [verifyHandle, setVerifyHandle] = React.useState("");
   const [verifyingHandle, setVerifyingHandle] = React.useState(false);
+  // Nível aplicado pelo botão "Verificar": notable (azul) é o padrão — oficial
+  // (dourado) é só para contas da equipe LinKa.
+  const [verifyTier, setVerifyTier] = React.useState<VerifiedTier>("notable");
 
   async function handleVerifyByHandle() {
     const raw = verifyHandle.trim().replace(/^@/, "");
@@ -711,9 +716,13 @@ export default function Admin() {
         .ilike("handle", raw)
         .maybeSingle();
       if (error || !data) { toast({ title: "Usuário não encontrado", variant: "destructive" }); return; }
-      const ok = await setUserVerifiedDb(String(data.user_id), true);
+      const ok = await setUserVerifiedTierDb(String(data.user_id), verifyTier);
       if (ok) {
-        toast({ title: `@${data.handle} verificado com sucesso` });
+        toast({
+          title: verifyTier === "official"
+            ? `@${data.handle} agora é conta oficial`
+            : `@${data.handle} verificado com sucesso`,
+        });
         setVerifyHandle("");
         setVerifiedAccounts(await getVerifiedAccountsDb());
       } else {
@@ -728,12 +737,27 @@ export default function Admin() {
   }
 
   async function handleRemoveVerified(userId: string, nickname: string) {
-    const ok = await setUserVerifiedDb(userId, false);
+    const ok = await setUserVerifiedTierDb(userId, null);
     if (ok) {
       toast({ title: `Verificação de ${nickname} removida` });
       setVerifiedAccounts((prev) => prev.filter((a) => a.userId !== userId));
     } else {
       toast({ title: "Erro ao remover verificação", variant: "destructive" });
+    }
+  }
+
+  async function handleToggleVerifiedTier(acc: VerifiedAccount) {
+    const next: VerifiedTier = acc.tier === "official" ? "notable" : "official";
+    const ok = await setUserVerifiedTierDb(acc.userId, next);
+    if (ok) {
+      toast({
+        title: next === "official"
+          ? `${acc.nickname} agora é conta oficial`
+          : `${acc.nickname} agora é conta verificada`,
+      });
+      setVerifiedAccounts((prev) => prev.map((a) => (a.userId === acc.userId ? { ...a, tier: next } : a)));
+    } else {
+      toast({ title: "Erro ao trocar o nível da verificação", variant: "destructive" });
     }
   }
 
@@ -1507,6 +1531,29 @@ export default function Admin() {
           <h2 className="text-base font-semibold">Contas Verificadas</h2>
         </div>
 
+        {/* Nível aplicado ao verificar */}
+        <div className="grid grid-cols-2 gap-2">
+          {([
+            { tier: "notable" as const, title: "Verificado", hint: "Usuário importante" },
+            { tier: "official" as const, title: "Oficial", hint: "Equipe LinKa" },
+          ]).map((opt) => (
+            <button
+              key={opt.tier}
+              type="button"
+              onClick={() => setVerifyTier(opt.tier)}
+              className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-left transition-colors ${
+                verifyTier === opt.tier ? "border-brand bg-brand/10" : "border-border/40 bg-muted/20"
+              }`}
+            >
+              <VerifiedBadge size="md" tier={opt.tier} />
+              <span className="min-w-0">
+                <span className="block text-sm font-medium">{opt.title}</span>
+                <span className="block text-[11px] text-muted-foreground">{opt.hint}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+
         {/* Adicionar verificação */}
         <div className="flex gap-2">
           <div className="relative flex-1">
@@ -1549,11 +1596,20 @@ export default function Admin() {
                   <div className="min-w-0">
                     <div className="flex items-center gap-1">
                       <span className="text-sm font-medium truncate">{acc.nickname}</span>
-                      <VerifiedBadge size="sm" />
+                      <VerifiedBadge size="sm" tier={acc.tier} />
                     </div>
                     {acc.handle && <p className="text-xs text-muted-foreground truncate">@{acc.handle}</p>}
                   </div>
                 </div>
+                <div className="flex items-center gap-1 shrink-0">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleToggleVerifiedTier(acc)}
+                  className="h-7 px-2 text-[11px]"
+                >
+                  {acc.tier === "official" ? "Tornar verificado" : "Tornar oficial"}
+                </Button>
                 <Button
                   size="sm"
                   variant="ghost"
@@ -1562,6 +1618,7 @@ export default function Admin() {
                 >
                   <X className="w-3.5 h-3.5" />
                 </Button>
+                </div>
               </div>
             ))}
           </div>

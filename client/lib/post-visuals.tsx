@@ -74,16 +74,47 @@ function renderMention(
 }
 
 /**
- * Comentários: destaca só as menções "@usuario" (hashtag em comentário segue
- * texto puro). Com `onMentionClick`, a menção abre o perfil.
+ * Comentários: menções "@usuario" (tocáveis com `onMentionClick`, abrem o
+ * perfil) e, desde 28/09/2026, hashtags em azul — só destacadas, sem toque: o
+ * comentário vive dentro de um drawer, e navegar para /tag daqui o deixaria
+ * aberto por cima da página nova.
  */
 export function renderWithMentions(
   text: string,
   onMentionClick?: (handle: string) => void,
 ) {
+  return renderWithHashtags(text, undefined, onMentionClick);
+}
+
+const HIGHLIGHT_COLOR = "#9db8ff";
+
+/**
+ * Versão para CAMPOS DE TEXTO (a camada espelho do `HighlightTextarea`): pinta
+ * #hashtag e @menção com a mesma regra da exibição, mas SÓ a cor — nada de
+ * `font-medium`. O texto espelhado precisa ter exatamente a largura do texto
+ * digitado; um peso diferente empurraria as letras e o cursor desalinharia.
+ */
+export function renderHighlightedInput(text: string): React.ReactNode[] {
   return text.split(/(\s+)/).map((token, i) => {
-    const mention = token.startsWith("@") ? splitMention(token) : null;
-    return mention ? renderMention(i, mention.handle, mention.rest, onMentionClick) : token;
+    if (token.startsWith("@")) {
+      const mention = splitMention(token);
+      if (!mention) return token;
+      return (
+        <React.Fragment key={i}>
+          <span style={{ color: HIGHLIGHT_COLOR }}>{"@" + mention.handle}</span>
+          {mention.rest}
+        </React.Fragment>
+      );
+    }
+    if (!token.startsWith("#")) return token;
+    const m = token.match(/^#([\p{L}\p{N}_]+)/u);
+    if (!m) return token;
+    return (
+      <React.Fragment key={i}>
+        <span style={{ color: HIGHLIGHT_COLOR }}>{"#" + m[1]}</span>
+        {token.slice(1 + m[1].length)}
+      </React.Fragment>
+    );
   });
 }
 

@@ -2,7 +2,12 @@ import * as React from "react";
 import { Dumbbell, Flame, ImageOff, Timer, Trophy } from "lucide-react";
 import { useLanguage } from "@/lib/language-context";
 import { UserAvatar } from "@/components/shared/user-avatar";
-import type { StoryPostSticker, StoryTextElement, StoryWorkoutSticker } from "@/lib/ritmofit-db";
+import type {
+  StoryPostSticker,
+  StoryTextElement,
+  StoryWorkoutSticker,
+  WorkoutStickerField,
+} from "@/lib/ritmofit-db";
 
 /**
  * Mini frame do treino citado no flow (estilo "repost" do Instagram).
@@ -21,6 +26,45 @@ export const MAX_STICKER_EXERCISES = 8;
 /** Limites de pinça do sticker. */
 export const MIN_STICKER_SCALE = 0.6;
 export const MAX_STICKER_SCALE = 1.8;
+
+/** Ordem em que os blocos aparecem no card (e nos toggles de personalização). */
+export const WORKOUT_STICKER_FIELDS: WorkoutStickerField[] = [
+  "date",
+  "series",
+  "volume",
+  "duration",
+  "calories",
+  "prs",
+  "exercises",
+];
+
+/** O bloco aparece no card? (`hidden` ausente = flow antigo, mostra tudo.) */
+export function isStickerFieldShown(data: StoryWorkoutSticker, field: WorkoutStickerField): boolean {
+  return !data.hidden?.includes(field);
+}
+
+/**
+ * Snapshot que vai para o flow a partir do completo + o que o autor ocultou.
+ * Zera os valores ocultos para eles não serem publicados (ver o comentário de
+ * `StoryWorkoutSticker.hidden`). O composer guarda o completo à parte, para
+ * o autor poder reexibir um bloco antes de publicar.
+ */
+export function applyStickerFields(
+  full: StoryWorkoutSticker,
+  hidden: WorkoutStickerField[],
+): StoryWorkoutSticker {
+  const off = new Set(hidden);
+  return {
+    ...full,
+    totalVolume: off.has("volume") ? 0 : full.totalVolume,
+    durationSecs: off.has("duration") ? 0 : full.durationSecs,
+    caloriesKcal: off.has("calories") ? undefined : full.caloriesKcal,
+    prCount: off.has("prs") ? undefined : full.prCount,
+    exercises: off.has("exercises") ? [] : full.exercises,
+    extraCount: off.has("exercises") ? undefined : full.extraCount,
+    hidden: hidden.length > 0 ? WORKOUT_STICKER_FIELDS.filter((f) => off.has(f)) : undefined,
+  };
+}
 
 export function formatStickerVolume(kg: number): string {
   if (kg >= 1000) return `${(kg / 1000).toFixed(1).replace(".", ",")} t`;
@@ -63,13 +107,18 @@ interface FlowWorkoutStickerProps {
 export function FlowWorkoutSticker({ data, scale = 1, className, interactive = false }: FlowWorkoutStickerProps) {
   const { t } = useLanguage();
 
-  const exercises = Array.isArray(data.exercises) ? data.exercises : [];
-  const extra = Number(data.extraCount ?? 0);
-  const dateLabel = formatStickerDate(
-    data.date,
-    t("flow_workout_today"),
-    t("flow_workout_yesterday"),
-  );
+  const exercises = isStickerFieldShown(data, "exercises") && Array.isArray(data.exercises) ? data.exercises : [];
+  const extra = isStickerFieldShown(data, "exercises") ? Number(data.extraCount ?? 0) : 0;
+  const dateLabel = isStickerFieldShown(data, "date")
+    ? formatStickerDate(data.date, t("flow_workout_today"), t("flow_workout_yesterday"))
+    : "";
+  const showSeries = isStickerFieldShown(data, "series");
+  const hasChips =
+    showSeries ||
+    data.totalVolume > 0 ||
+    data.durationSecs > 0 ||
+    Number(data.caloriesKcal ?? 0) > 0 ||
+    Number(data.prCount ?? 0) > 0;
 
   return (
     <div
@@ -124,8 +173,9 @@ export function FlowWorkoutSticker({ data, scale = 1, className, interactive = f
       </div>
 
       {/* Números da sessão */}
+      {hasChips && (
       <div className="flex items-center gap-1.5 flex-wrap" style={{ marginTop: 9 }}>
-        <StickerChip>{`${data.totalSeries} ${t("flow_workout_series")}`}</StickerChip>
+        {showSeries && <StickerChip>{`${data.totalSeries} ${t("flow_workout_series")}`}</StickerChip>}
         {data.totalVolume > 0 && <StickerChip>{formatStickerVolume(data.totalVolume)}</StickerChip>}
         {data.durationSecs > 0 && (
           <StickerChip icon={<Timer className="h-2.5 w-2.5" />}>
@@ -143,6 +193,7 @@ export function FlowWorkoutSticker({ data, scale = 1, className, interactive = f
           </StickerChip>
         )}
       </div>
+      )}
 
       {/* Exercícios feitos */}
       {exercises.length > 0 && (

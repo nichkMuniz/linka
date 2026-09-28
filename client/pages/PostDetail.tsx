@@ -1,11 +1,12 @@
 import * as React from "react";
 import { useOpenProfileByHandle } from "@/hooks/use-open-profile-by-handle";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
-import { getPostByIdDb, getPostLikeUsersDb, getPostLikesDb, getUserPostLikesDb, togglePostIncentiveDb, getUserGoalByIdDb, deletePostDb, flushPendingIncentivesDb, type PostWithUser, type PostLikeStats, type PostIncentiveType, type UserGoal } from "@/lib/ritmofit-db";
+import { getPostByIdDb, getCommentCountsBatchDb, getPostLikeUsersDb, getPostLikesDb, getUserPostLikesDb, togglePostIncentiveDb, getUserGoalByIdDb, deletePostDb, flushPendingIncentivesDb, type PostWithUser, type PostLikeStats, type PostIncentiveType, type UserGoal } from "@/lib/ritmofit-db";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/use-toast";
-import { sharePostToFlow } from "@/lib/post-to-flow";
-import { reportHandledError } from "@/lib/monitoring";
+import { usePostReshare } from "@/hooks/use-post-reshare";
+import { useHoldToHide } from "@/hooks/use-hold-to-hide";
+import { RepostAttribution, displayedPostDescription } from "@/components/post/repost-attribution";
 import { useAuth } from "@/hooks/useAuth";
 import { useLanguage } from "@/lib/language-context";
 import { ArrowLeft, Edit2, Trash2, MoreVertical, UsersRound, Share2, Ban } from "lucide-react";
@@ -53,10 +54,22 @@ export default function PostDetail() {
   const { t } = useLanguage();
 
   const [post, setPost] = React.useState<PostWithUser | null>(null);
+  const postReshare = usePostReshare({ context: "post-detail" });
+  // Segurar a foto esconde a interface por cima — mesmo gesto do flow e do feed.
+  const { hidden: holdHidden, consumeHoldClick, holdHandlers } = useHoldToHide();
+  const holdHiddenStyle: React.CSSProperties = {
+    opacity: holdHidden ? 0 : 1,
+    transition: "opacity .2s ease",
+    pointerEvents: holdHidden ? "none" : undefined,
+  };
+  const prepareReshare = postReshare.prepare;
+  React.useEffect(() => { prepareReshare(post); }, [post, prepareReshare]);
   const [postGoal, setPostGoal] = React.useState<UserGoal | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [likesModalOpen, setLikesModalOpen] = React.useState(false);
   const [postLikes, setPostLikes] = React.useState<Array<{ userId: string; userNickname: string; userPhoto: string | null; type: number }>>([]);
+  // Contagem real — o ícone de comentários fica preenchido quando há algum.
+  const [commentCount, setCommentCount] = React.useState(0);
   const [likeStats, setLikeStats] = React.useState<PostLikeStats>({ apoio: 0, continua: 0, ganhador: 0, consegueMais: 0, limiteMaior: 0, maisAlgum: 0 });
   const [userLikes, setUserLikes] = React.useState<PostIncentiveType[]>([]);
   const [togglingIncentives, setTogglingIncentives] = React.useState<Set<number>>(new Set());
@@ -100,12 +113,14 @@ export default function PostDetail() {
         if (foundPost) {
           setPost(foundPost);
           // Load likes data in parallel
-          const [stats, myLikes] = await Promise.all([
+          const [stats, myLikes, counts] = await Promise.all([
             getPostLikesDb(postId),
             getUserPostLikesDb(postId),
+            getCommentCountsBatchDb([postId]).catch(() => new Map<string, number>()),
           ]);
           setLikeStats(stats);
           setUserLikes(myLikes);
+          setCommentCount(counts.get(postId) ?? 0);
           // Load linked goal if present
           if (foundPost.user_goal_id) {
             getUserGoalByIdDb(String(foundPost.user_goal_id)).then(setPostGoal).catch(() => {});
@@ -142,7 +157,7 @@ export default function PostDetail() {
 
   const totalLikes = likeStats.apoio + likeStats.continua + likeStats.ganhador + likeStats.consegueMais + likeStats.limiteMaior + likeStats.maisAlgum;
 
-  const description = post?.description ?? "";
+  const description = post ? displayedPostDescription(post) : "";
   const isDescTruncatable = description.includes("\n") || description.length > DESC_MAX_CHARS;
   const truncatedDescription = description.length > DESC_MAX_CHARS
     ? description.slice(0, DESC_MAX_CHARS).trimEnd()
@@ -233,7 +248,19 @@ export default function PostDetail() {
 
       {/* Post Detail */}
       <div className="flex-1 min-h-0 max-w-2xl mx-auto w-full px-4 py-4 flex">
-        <div className="relative overflow-hidden fade-in w-full h-full" style={{ borderRadius: "28px", boxShadow: "0 20px 44px -16px rgba(0,0,0,.7)" }}>
+        <div
+          className="relative overflow-hidden fade-in w-full h-full select-none"
+          style={{ borderRadius: "28px", boxShadow: "0 20px 44px -16px rgba(0,0,0,.7)", WebkitTouchCallout: "none" }}
+          {...holdHandlers}
+          /* O clique que encerra um "segurar" não chega aos filhos (ex.: a
+             legenda, que expandiria ao toque). */
+          onClickCapture={(e) => {
+            if (consumeHoldClick()) {
+              e.stopPropagation();
+              e.preventDefault();
+            }
+          }}
+        >
           {photos ? (
             <PostCarousel
               photos={photos}
@@ -253,13 +280,13 @@ export default function PostDetail() {
           {/* Dark gradient overlay */}
           <div
             className="absolute inset-0 pointer-events-none"
-            style={{ background: "linear-gradient(to bottom,rgba(0,0,0,.1) 0%,transparent 28%,transparent 55%,rgba(0,0,0,.65) 100%)" }}
+            style={{ background: "linear-gradient(to bottom,rgba(0,0,0,.1) 0%,transparent 28%,transparent 55%,rgba(0,0,0,.65) 100%)", ...holdHiddenStyle }}
           />
 
           {/* Compact pill — user identity (top-left) */}
           <div
             className="absolute top-3 left-3 inline-flex items-center gap-2 pointer-events-auto z-10"
-            style={{ height: "44px", borderRadius: "22px", padding: "0 12px 0 6px", ...GLASS_TOP }}
+            style={{ height: "44px", borderRadius: "22px", padding: "0 12px 0 6px", ...GLASS_TOP, ...holdHiddenStyle }}
           >
             <button
               className="flex-shrink-0 active:opacity-70 transition-opacity"
@@ -279,7 +306,7 @@ export default function PostDetail() {
             >
               <div className="text-[13px] font-semibold text-white flex items-center gap-1 leading-tight" style={{ maxWidth: "160px" }}>
                 <span className="truncate">{post.userNickname}</span>
-                {post.isVerified && <VerifiedBadge size="sm" />}
+                {post.isVerified && <VerifiedBadge size="sm" tier={post.verifiedTier} />}
               </div>
               <div className="text-[10.5px] text-white/60 leading-tight">{formatTimeAgo(post.created_at)}</div>
             </button>
@@ -295,7 +322,7 @@ export default function PostDetail() {
           </div>
 
           {/* Context menu (top-right) — compartilhar para todos; editar/excluir só para o dono */}
-          <div className="absolute top-3 right-3 z-10">
+          <div className="absolute top-3 right-3 z-10" style={holdHiddenStyle}>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
@@ -344,7 +371,14 @@ export default function PostDetail() {
           </div>
 
           {/* Bottom: description + glass action bar */}
-          <div className="absolute bottom-3 left-3 right-3 z-10 pointer-events-auto">
+          <div className="absolute bottom-3 left-3 right-3 z-10 pointer-events-auto" style={holdHiddenStyle}>
+            {/* Repost — crédito do autor original; o toque abre o post dele */}
+            {post.repostOf && (
+              <div className="mb-2">
+                <RepostAttribution origin={post.repostOf} />
+              </div>
+            )}
+
             {/* Pessoas marcadas — "com fulano" (1) navega ao perfil; 2+ abre a lista */}
             {FEATURES.postTags && (post.taggedUsers?.length ?? 0) > 0 && (
               <button
@@ -476,8 +510,9 @@ export default function PostDetail() {
                 <div className="flex items-center gap-1 text-white">
                   <PostCommentsDialog
                     postId={post.id}
-                    commentCount={0}
+                    commentCount={commentCount}
                     hasActivity={false}
+                    onCountChange={setCommentCount}
                     isPostOwner={post.user_id === user?.id}
                     defaultOpen={navState?.openComments === true}
                   />
@@ -519,27 +554,10 @@ export default function PostDetail() {
         url={postShareUrl(post.id)}
         title={t("feed_share_post_title")}
         onSendToFriend={() => setSendToFriendOpen(true)}
-        // "Seu flow" só no PRÓPRIO post com foto (1ª foto do carrossel).
-        onShareToFlow={
-          post.user_id === user?.id && photos?.[0]
-            ? async () => {
-                try {
-                  await sharePostToFlow({
-                    postId: post.id,
-                    photo: String(photos[0]),
-                    authorId: post.user_id,
-                    authorNickname: post.userNickname ?? "",
-                    authorPhoto: post.userPhoto ?? null,
-                  });
-                  toast({ title: t("share_flow_success"), description: t("share_flow_success_desc") });
-                } catch (err) {
-                  reportHandledError(err, "post-detail:share-post-to-flow");
-                  toast({ title: t("share_flow_error"), description: t("retry"), variant: "destructive" });
-                  throw err;
-                }
-              }
-            : undefined
-        }
+        // "Seu flow" (dono ou marcado) e "Seu feed" (marcado) — ver usePostReshare.
+        onShareToFlow={postReshare.shareToFlow}
+        onRepostToFeed={postReshare.repostToFeed}
+        repostedToFeed={postReshare.repostedToFeed}
       />
 
       <SendToFriendDrawer

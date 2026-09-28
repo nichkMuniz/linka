@@ -52,6 +52,7 @@ const TITLE_KEY_BY_TYPE: Record<number, TranslationKey> = {
   18: "notif_title_18",
   19: "notif_title_19",
   20: "notif_title_20",
+  21: "notif_title_21",
 };
 
 const INCENTIVE_KEY_BY_TYPE: Record<number, TranslationKey> = {
@@ -199,6 +200,9 @@ export function notificationBody(
     // 20 = mencionado com "@" num comentário (trigger notify_comment_mentions).
     case 20:
       return t("notif_desc_comment_mention").replace("{name}", name);
+    // 21 = alguém repostou uma publicação do destinatário (post_id = o repost).
+    case 21:
+      return t("notif_desc_post_repost").replace("{name}", name);
     default:
       return t("notif_body_default");
   }
@@ -249,6 +253,9 @@ export function notificationDeepLink(row: NotificationRow): string {
     // aparece sozinho ao abrir (busca o pendente na montagem do layout).
     case 19:
       return "/metas";
+    // Repost: abre o repost, mesmo destino do card na lista.
+    case 21:
+      return row.post_id ? `/post/${row.post_id}` : "/notificacoes";
     default:
       return "/notificacoes";
   }

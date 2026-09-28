@@ -29,7 +29,7 @@ Tela interna de moderação, métricas e gestão de usuários. **Não é traduzi
 | Fila de moderação | `admin_complaints_view` + `adminDismissComplaintDb` / `adminDeleteContentDb` / `adminBanUserDb` → RPC `admin_set_banned()` |
 | **Anatomia dos exercícios** | `getAdminAnatomyCoverageDb()` → `workouts` + `workout_muscles` (leitura direta, sem RPC) |
 | **LinKa Premium** | `admin_list_premium()` / `admin_set_premium()` — ver `docs/17-premium.md` |
-| Contas Verificadas | `getVerifiedAccountsDb()` / `setUserVerifiedDb()` ⚠️ ver nota no fim |
+| Contas Verificadas | `getVerifiedAccountsDb()` / `setUserVerifiedTierDb()` — dois níveis (oficial/verificado), ver "Verificar conta" |
 
 ## Atividade de hoje (por usuário)
 
@@ -110,7 +110,9 @@ Corrigido em 11/08/2026 — o botão estourava `invalid input syntax for type bi
 
 ### Verificar conta
 
-`setUserVerifiedDb(userId, verified)` → RPC `admin_set_verified()`. Mesma migração da remoção de conteúdo.
+`setUserVerifiedTierDb(userId, tier)` → RPC `admin_set_verified_tier()` (migração `20260928-verified-tiers.sql`). `tier` é `"official"`, `"notable"` ou `null` (remove).
+
+**Dois níveis (2026-09-28):** acima da busca há um seletor com os dois selos: **Verificado** (azul, usuário importante, é o padrão) e **Oficial** (dourado, equipe LinKa). O botão "Verificar" aplica o nível escolhido. Na lista, cada conta mostra o selo do seu nível e um botão **"Tornar oficial" / "Tornar verificado"** para trocar de nível sem remover o selo; o `X` remove.
 
 Corrigido em 11/08/2026 — batia em **duas** travas: `profiles_update_own` e o trigger `freeze_is_verified`, que revertia a coluna fora do service_role. A migração ensina o trigger a reconhecer `is_app_admin`, senão a RPC gravaria e o trigger desfaria na saída.
 

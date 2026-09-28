@@ -1,7 +1,7 @@
 import * as React from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
-import { MessageCircle, MessagesSquare, UserPlus, Zap, Swords, SmilePlus, ChevronLeft, AtSign, Send, Dumbbell, Heart, Clock, CheckCircle2, XCircle } from "lucide-react";
+import { MessageCircle, MessagesSquare, UserPlus, Zap, Swords, SmilePlus, ChevronLeft, AtSign, Send, Dumbbell, Heart, Clock, CheckCircle2, XCircle, Repeat2 } from "lucide-react";
 import { INCENTIVE_CONFIG } from "@/lib/incentive-config";
 import { getNotificationsDb, markNotificationsAsReadDb, clearNotificationsDb, getFollowingIdsDb, invalidateQueryCache, type NotificationItem } from "@/lib/ritmofit-db";
 import { notificationBody } from "@/lib/notification-copy";
@@ -249,6 +249,9 @@ export default function Notifications() {
       // 20 = mencionado (@) num comentário — mesmo "@" da marcação (9/16).
       case 20:
         return <AtSign className="h-5 w-5 text-cyan-400" />;
+      // 21 = repostaram sua publicação — mesmo ícone do botão "Seu feed".
+      case 21:
+        return <Repeat2 className="h-5 w-5 text-violet-400" />;
       default:
         return <Zap className="h-5 w-5 text-gray-500" />;
     }
@@ -422,6 +425,13 @@ export default function Notifications() {
       }
       return;
     }
+    // Type 21 (repostaram sua publicação) — abre o repost, onde o autor vê como
+    // a publicação apareceu no feed de quem repostou.
+    if (notification.type === 21) {
+      if (notification.postId) navigate(`/post/${notification.postId}`);
+      else navigate(`/usuario/${notification.userId}`);
+      return;
+    }
     // Type 18 (comentaram no flow que você comentou) — abre o flow da conversa.
     // Se ele já expirou (>24h), o Index.tsx avisa com um toast, como no tipo 3.
     if (notification.type === 18 && notification.flowId) {
@@ -572,6 +582,7 @@ export default function Notifications() {
       case 16: return { iconBg: "rgba(34,211,238,.16)", iconColor: "#22d3ee" };
       case 18: return { iconBg: "rgba(129,140,248,.16)", iconColor: "#818cf8" };
       case 20: return { iconBg: "rgba(34,211,238,.16)", iconColor: "#22d3ee" };
+      case 21: return { iconBg: "rgba(167,139,250,.16)", iconColor: "#a78bfa" };
       default: return { iconBg: "rgba(255,255,255,.1)", iconColor: "rgba(255,255,255,.7)" };
     }
   };
@@ -661,11 +672,12 @@ export default function Notifications() {
       case 16: return { background: "#22d3ee" };
       case 18: return { background: "#818cf8" };
       case 20: return { background: "#22d3ee" };
+      case 21: return { background: "#a78bfa" };
       default: return { background: "rgba(255,255,255,.5)" };
     }
   };
 
-  const isUserBased = (type: number) => [1, 2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 20].includes(type);
+  const isUserBased = (type: number) => [1, 2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 20, 21].includes(type);
 
   return (
     <>
@@ -790,7 +802,7 @@ export default function Notifications() {
                           const groupedUsers = notification.groupedUsers ?? [];
                           const isGrouped = (notification.groupedCount ?? 1) > 1;
                           const isFollow = notification.type === 1;
-                          const hasThumbnail = (notification.type === 2 || notification.type === 3 || notification.type === 9 || notification.type === 16 || notification.type === 18 || notification.type === 20) && notification.postPhoto;
+                          const hasThumbnail = (notification.type === 2 || notification.type === 3 || notification.type === 9 || notification.type === 16 || notification.type === 18 || notification.type === 20 || notification.type === 21) && notification.postPhoto;
 
                           return (
                             /* div (não button): a notificação de novo seguidor precisa

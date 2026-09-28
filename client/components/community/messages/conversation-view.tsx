@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/useAuth";
 import { useLanguage } from "@/lib/language-context";
 import { UserAvatar } from "@/components/shared/user-avatar";
+import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
 import { UserInsignias } from "@/components/profile/user-insignias";
 import { SwipeableMessageBubble } from "@/components/community/swipeable-message-bubble";
 import { SharedContentMessage } from "@/components/community/shared-content-message";
@@ -114,6 +115,9 @@ export function ConversationView({ ctl }: { ctl: MessagesController }) {
             className="flex-shrink-0"
           />
           <p className="text-sm font-medium truncate">{conversation.userNickname}</p>
+          {conversation.isVerified && (
+            <VerifiedBadge size="sm" tier={conversation.verifiedTier} className="-ml-2" />
+          )}
         </button>
         <UserInsignias userId={conversation.userId} />
 
@@ -148,7 +152,10 @@ export function ConversationView({ ctl }: { ctl: MessagesController }) {
             nickname={conversation.userNickname}
             className="w-20 h-20 ring-2 ring-border"
           />
-          <p className="font-semibold text-base">{conversation.userNickname}</p>
+          <p className="font-semibold text-base flex items-center gap-1.5">
+            {conversation.userNickname}
+            {conversation.isVerified && <VerifiedBadge size="md" tier={conversation.verifiedTier} />}
+          </p>
           {conversation.userBio && (
             <p className="text-sm text-muted-foreground text-center max-w-xs px-4">
               {conversation.userBio}

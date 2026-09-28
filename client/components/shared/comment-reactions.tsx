@@ -1,6 +1,6 @@
 import * as React from "react";
 import * as ReactDOM from "react-dom";
-import { Smile } from "lucide-react";
+import { Plus, Smile } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   getCommentReactionsDb,
@@ -11,6 +11,7 @@ import {
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/components/ui/use-toast";
 import { useLanguage } from "@/lib/language-context";
+import { EmojiPickerDrawer, pushRecentEmoji } from "@/components/shared/emoji-picker-drawer";
 
 const QUICK_EMOJIS = ["❤️", "🔥", "💪", "😂", "👏", "🥇"];
 
@@ -32,6 +33,8 @@ export function CommentReactions({ commentType, commentId, commentOwnerId, sourc
   const { t } = useLanguage();
   const [reactions, setReactions] = React.useState<CommentReactionSummary[]>([]);
   const [open, setOpen] = React.useState(false);
+  // Seletor com todos os emojis ("+" no fim da barra rápida).
+  const [pickerOpen, setPickerOpen] = React.useState(false);
   const [loading, setLoading] = React.useState<string | null>(null);
   const [popoverStyle, setPopoverStyle] = React.useState<React.CSSProperties>({});
   const triggerRef = React.useRef<HTMLButtonElement>(null);
@@ -82,6 +85,9 @@ export function CommentReactions({ commentType, commentId, commentOwnerId, sourc
     if (!user) return;
     setLoading(emoji);
     setOpen(false);
+    // A barra rápida também alimenta os "recentes" do seletor completo — só
+    // quando a reação é ADICIONADA (tocar de novo remove).
+    if (!reactions.find((r) => r.emoji === emoji)?.userReacted) pushRecentEmoji(emoji);
 
     // Optimistic update
     setReactions((prev) => {
@@ -158,7 +164,7 @@ export function CommentReactions({ commentType, commentId, commentOwnerId, sourc
                 ? "text-white/50 hover:text-white hover:bg-white/10"
                 : "text-muted-foreground hover:text-foreground hover:bg-muted/60",
             )}
-            aria-label="Reagir ao comentário"
+            aria-label={t("comment_reaction_react_aria")}
           >
             <Smile className="h-3.5 w-3.5" />
           </button>
@@ -192,9 +198,33 @@ export function CommentReactions({ commentType, commentId, commentOwnerId, sourc
                   </button>
                 );
               })}
+              {/* Todos os emojis — abre o seletor completo por cima do drawer */}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setOpen(false);
+                  setPickerOpen(true);
+                }}
+                className={cn(
+                  "flex h-7 w-7 items-center justify-center rounded-full transition-colors",
+                  dark ? "bg-white/10 text-white/80" : "bg-muted text-muted-foreground",
+                )}
+                aria-label={t("emoji_picker_title")}
+              >
+                <Plus className="h-4 w-4" />
+              </button>
             </div>,
             document.body,
           )}
+
+          <EmojiPickerDrawer
+            open={pickerOpen}
+            onOpenChange={setPickerOpen}
+            onSelect={handleReact}
+            closeOnSelect
+            selected={reactions.filter((r) => r.userReacted).map((r) => r.emoji)}
+          />
         </>
       )}
     </div>

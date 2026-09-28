@@ -1,5 +1,6 @@
 import * as React from "react";
 import { ChevronLeft, ChevronRight, RotateCcw, UserRoundPlus, X } from "lucide-react";
+import { HighlightTextarea, SHADCN_TEXTAREA_CLASS } from "@/components/shared/highlight-textarea";
 import { useLanguage } from "@/lib/language-context";
 import { toast } from "@/components/ui/use-toast";
 import {
@@ -2373,11 +2374,13 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed, onPartyRo
 
         {/* Auto-generated description (editable) — "@" sugere pessoas e marca */}
         <div style={{ position: "relative" }}>
-        <textarea
+        {/* #hashtag e @menção ficam azuis enquanto digita (HighlightTextarea). */}
+        <HighlightTextarea
           ref={descriptionRef}
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           placeholder={t("goals_summary_description_placeholder")}
+          placeholderColor="rgba(255,255,255,.4)"
           rows={4}
           style={{
             width: "100%", background: CARD,

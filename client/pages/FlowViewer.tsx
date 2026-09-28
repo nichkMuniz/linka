@@ -88,6 +88,7 @@ import { Input } from "@/components/ui/input";
 import { motion, AnimatePresence } from "framer-motion";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { UserAvatar } from "@/components/shared/user-avatar";
+import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
 import { FEATURES } from "@/lib/feature-flags";
 import { cdnImg } from "@/lib/image-url";
 import { prefetchFlowMedia } from "@/lib/media-prefetch";
@@ -1097,7 +1098,10 @@ export default function FlowViewer({ embedded }: { embedded?: FlowViewerEmbedded
                 <AvatarImage src={prevStory.userPhoto} />
                 <AvatarFallback>{prevStory.userNickname?.charAt(0)}</AvatarFallback>
               </Avatar>
-              <p className="text-white text-xs font-bold drop-shadow">{prevStory.userNickname}</p>
+              <p className="text-white text-xs font-bold drop-shadow inline-flex items-center gap-1">
+                {prevStory.userNickname}
+                {prevStory.verifiedTier && <VerifiedBadge size="sm" tier={prevStory.verifiedTier} />}
+              </p>
             </div>
           </div>
         )}
@@ -1185,7 +1189,10 @@ export default function FlowViewer({ embedded }: { embedded?: FlowViewerEmbedded
                         <AvatarFallback>{story.userNickname?.charAt(0)}</AvatarFallback>
                       </Avatar>
                       <div className="flex flex-col">
-                        <span className="text-white text-sm font-bold drop-shadow-md">{story.userNickname}</span>
+                        <span className="text-white text-sm font-bold drop-shadow-md inline-flex items-center gap-1">
+                          {story.userNickname}
+                          {story.verifiedTier && <VerifiedBadge size="sm" tier={story.verifiedTier} />}
+                        </span>
                         <span className="text-white/70 text-[10px] drop-shadow-md">{formatTimeAgo(story.created_at)}</span>
                       </div>
                     </button>
@@ -1700,7 +1707,10 @@ export default function FlowViewer({ embedded }: { embedded?: FlowViewerEmbedded
                 <AvatarImage src={nextStory.userPhoto} />
                 <AvatarFallback>{nextStory.userNickname?.charAt(0)}</AvatarFallback>
               </Avatar>
-              <p className="text-white text-xs font-bold drop-shadow">{nextStory.userNickname}</p>
+              <p className="text-white text-xs font-bold drop-shadow inline-flex items-center gap-1">
+                {nextStory.userNickname}
+                {nextStory.verifiedTier && <VerifiedBadge size="sm" tier={nextStory.verifiedTier} />}
+              </p>
             </div>
           </div>
         )}
@@ -1749,11 +1759,31 @@ export default function FlowViewer({ embedded }: { embedded?: FlowViewerEmbedded
                 <div key={comment.id} className="flex flex-col gap-1.5">
                   <div className="flex items-start justify-between group">
                     <div className="flex items-start gap-2.5 min-w-0 flex-1">
-                      <div className="shrink-0 h-8 w-8 rounded-full overflow-hidden">
+                      {/* Foto e nome abrem o perfil de quem comentou — mesmo
+                          caminho da @menção: fecha o drawer, sai do viewer. */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCommentsDrawerOpen(false);
+                          leaveViewer();
+                          navigate(comment.userId === user?.id ? "/perfil" : `/usuario/${comment.userId}`);
+                        }}
+                        className="shrink-0 h-8 w-8 rounded-full overflow-hidden active:opacity-70 transition-opacity"
+                        aria-label={t("comments_open_profile").replace("{name}", comment.userName)}
+                      >
                         <UserAvatar photo={comment.userPhoto} nickname={comment.userName} className="h-full w-full" />
-                      </div>
+                      </button>
                       <div className="flex flex-col min-w-0 flex-1">
-                        <span className="text-sm font-bold leading-tight" style={{ color: "#fff" }}>
+                        <span
+                          className="text-sm font-bold leading-tight active:opacity-70 transition-opacity"
+                          style={{ color: "#fff" }}
+                          role="button"
+                          onClick={() => {
+                            setCommentsDrawerOpen(false);
+                            leaveViewer();
+                            navigate(comment.userId === user?.id ? "/perfil" : `/usuario/${comment.userId}`);
+                          }}
+                        >
                           {comment.userName}
                           {comment.userHandle && (
                             <span className="font-normal" style={{ color: "rgba(255,255,255,.5)" }}>

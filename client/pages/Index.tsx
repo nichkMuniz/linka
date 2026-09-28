@@ -34,7 +34,6 @@ import {
   type PostIncentiveType,
   type StoryTextElement,
   type StoryWithUser,
-  type StoryPostSticker,
   invalidateProfileCache,
   invalidateQueryCache,
   getFollowingIdsDb,
@@ -47,8 +46,7 @@ import { BlockUserDialog } from "@/components/shared/block-user-dialog";
 import { GoalCompletedDialog } from "@/components/shared/goal-completed-dialog";
 import { GoalShareDrawer } from "@/components/goals/goal-share-drawer";
 import { ShareDrawer } from "@/components/shared/share-drawer";
-import { sharePostToFlow } from "@/lib/post-to-flow";
-import { reportHandledError } from "@/lib/monitoring";
+import { usePostReshare } from "@/hooks/use-post-reshare";
 import { SendToFriendDrawer, type SendableContent } from "@/components/shared/send-to-friend-drawer";
 import { postShareUrl } from "@/lib/share-url";
 import { EditPostDrawer } from "@/components/post/edit-post-drawer";
@@ -199,7 +197,6 @@ export default function Index() {
 
   const [shareDrawerOpen, setShareDrawerOpen] = React.useState(false);
   // Post a virar flow ("Seu flow" no ShareDrawer) — null = opção oculta.
-  const [shareToFlowPost, setShareToFlowPost] = React.useState<StoryPostSticker | null>(null);
   const [shareDrawerText, setShareDrawerText] = React.useState("");
   const [shareDrawerUrl, setShareDrawerUrl] = React.useState<string | undefined>(undefined);
   const [sendToFriendOpen, setSendToFriendOpen] = React.useState(false);
@@ -1013,20 +1010,17 @@ export default function Index() {
     [t],
   );
 
+  const postReshare = usePostReshare({
+    context: "feed",
+    // O ring de flows no topo do feed mostra o novo flow na hora.
+    onFlowShared: () => { getActiveStoriesDb().then(setStories).catch(() => {}); },
+    // O repost entra no topo do próprio feed.
+    onReposted: () => { loadFeed(false, true); },
+  });
+
   const handleSharePost = React.useCallback((post: PostWithStats) => {
-    // "Seu flow" só para o PRÓPRIO post com foto (1ª foto do carrossel).
-    const firstPhoto = post.photos?.length ? String(post.photos[0]) : post.photo || null;
-    setShareToFlowPost(
-      post.user_id === user?.id && firstPhoto
-        ? {
-            postId: post.id,
-            photo: firstPhoto,
-            authorId: post.user_id,
-            authorNickname: post.userNickname ?? "",
-            authorPhoto: post.userPhoto ?? null,
-          }
-        : null,
-    );
+    // "Seu flow" (dono ou marcado) e "Seu feed" (marcado) — ver usePostReshare.
+    postReshare.prepare(post);
     const base = t("share_post_text").replace("{handle}", post.userNickname ?? "");
     const text = post.description ? `${base}\n"${post.description}"` : base;
     setShareDrawerText(text);
@@ -1038,21 +1032,8 @@ export default function Index() {
       authorNickname: post.userNickname,
     });
     setShareDrawerOpen(true);
-  }, [t, user?.id]);
+  }, [t, postReshare.prepare]);
 
-  const handleShareToFlow = React.useCallback(async () => {
-    if (!shareToFlowPost) return;
-    try {
-      await sharePostToFlow(shareToFlowPost);
-      toast({ title: t("share_flow_success"), description: t("share_flow_success_desc") });
-      // O ring de flows no topo do feed mostra o novo flow na hora.
-      getActiveStoriesDb().then(setStories).catch(() => {});
-    } catch (err) {
-      reportHandledError(err, "feed:share-post-to-flow");
-      toast({ title: t("share_flow_error"), description: t("retry"), variant: "destructive" });
-      throw err;
-    }
-  }, [shareToFlowPost, t]);
 
   const handleReportUser = React.useCallback((post: PostWithStats) => {
     setReportedPost(post);
@@ -1730,7 +1711,9 @@ export default function Index() {
         url={shareDrawerUrl}
         title={t("feed_share_post_title")}
         onSendToFriend={() => setSendToFriendOpen(true)}
-        onShareToFlow={shareToFlowPost ? handleShareToFlow : undefined}
+        onShareToFlow={postReshare.shareToFlow}
+        onRepostToFeed={postReshare.repostToFeed}
+        repostedToFeed={postReshare.repostedToFeed}
       />
 
       <SendToFriendDrawer

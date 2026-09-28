@@ -1360,7 +1360,7 @@ export default function Shots() {
                     onClick={() => navigate(`/usuario/${shot.user_id}`)}
                     className="flex items-center gap-1 min-w-0 hover:opacity-80 transition-opacity text-left"
                   >
-                    {shot.isVerified && <VerifiedBadge size="sm" className="shrink-0" />}
+                    {shot.isVerified && <VerifiedBadge size="sm" tier={shot.verifiedTier} className="shrink-0" />}
                     <p className="text-sm font-bold text-white drop-shadow-md truncate">
                       {shot.userNickname || t("shots_user_fallback")}
                     </p>

@@ -1372,7 +1372,12 @@ export default function Goals() {
 
         {/* Cobertura muscular da semana — some sozinho quando não há anatomia
             semeada ou nenhum treino no período (ver o componente). */}
-        {FEATURES.muscleAnatomy && <MuscleCoverageCard refreshToken={muscleCoverageVersion} />}
+        {FEATURES.muscleAnatomy && <MuscleCoverageCard
+          refreshToken={muscleCoverageVersion}
+          routines={routines}
+          userWorkouts={workouts}
+          onRoutinesChanged={reloadRoutines}
+        />}
 
         {/* Peso — só o lembrete semanal aparece aqui; fora dessa janela o
             componente não renderiza nada e o acesso permanente é o ícone ⚖️ no

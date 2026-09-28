@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Activity, ArrowLeft, ChevronRight, Loader2 } from "lucide-react";
+import { Activity, ArrowLeft, ChevronRight, Loader2, Plus } from "lucide-react";
 import {
   Drawer,
   DrawerContent,
@@ -15,10 +15,13 @@ import {
   getWorkoutsByMuscleDb,
   type Muscle,
   type MuscleCoverage,
+  type Routine,
+  type UserWorkoutWithDetails,
   type Workout,
 } from "@/lib/ritmofit-db";
 import { ExerciseImage } from "@/components/shared/exercise-image";
 import { ItemDetailDrawer, type ItemDetailData } from "@/components/goals/item-detail-drawer";
+import { AddToRoutineDrawer, type AddToRoutineExercise } from "@/components/goals/add-to-routine-drawer";
 
 /**
  * Cobertura muscular da semana — Fase 4 do plano de treino profissional.
@@ -44,6 +47,11 @@ const GAP_DAYS = 10;
 interface MuscleCoverageCardProps {
   /** muda quando um treino é finalizado — força a releitura */
   refreshToken?: number;
+  /** Rotinas e itens de treino do usuário — alimentam o "Colocar na rotina". */
+  routines?: Routine[];
+  userWorkouts?: UserWorkoutWithDetails[];
+  /** Um exercício entrou numa rotina: o pai recarrega as rotinas. */
+  onRoutinesChanged?: () => void;
 }
 
 function daysSince(iso: string | null): number | null {
@@ -53,7 +61,12 @@ function daysSince(iso: string | null): number | null {
   return Math.floor(ms / 86400_000);
 }
 
-export function MuscleCoverageCard({ refreshToken }: MuscleCoverageCardProps) {
+export function MuscleCoverageCard({
+  refreshToken,
+  routines = [],
+  userWorkouts = [],
+  onRoutinesChanged,
+}: MuscleCoverageCardProps) {
   const { t } = useLanguage();
   const [rows, setRows] = React.useState<MuscleCoverage[] | null>(null);
   const [open, setOpen] = React.useState(false);
@@ -63,6 +76,8 @@ export function MuscleCoverageCard({ refreshToken }: MuscleCoverageCardProps) {
   const [muscleDetail, setMuscleDetail] = React.useState<Muscle | null>(null);
   const [muscleExercises, setMuscleExercises] = React.useState<Workout[] | null>(null);
   const [exerciseDetail, setExerciseDetail] = React.useState<ItemDetailData | null>(null);
+  // Exercício escolhido no "+" → seletor de rotina por cima do drawer.
+  const [addToRoutine, setAddToRoutine] = React.useState<AddToRoutineExercise | null>(null);
 
   React.useEffect(() => {
     if (!muscleDetail) return;
@@ -269,32 +284,47 @@ export function MuscleCoverageCard({ refreshToken }: MuscleCoverageCardProps) {
               </p>
             ) : (
               muscleExercises.map((w) => (
-                <button
+                // Duas ações na linha: o corpo abre a ficha do exercício; o "+"
+                // abre o seletor de rotina. Dois botões irmãos (e não um dentro do
+                // outro), para cada toque ter um único destino.
+                <div
                   key={w.id}
-                  type="button"
-                  onClick={() =>
-                    setExerciseDetail({
-                      type: 1,
-                      id: w.id,
-                      name: w.name,
-                      photo: w.photo ?? null,
-                      description: w.description ?? null,
-                      meta: w.muscle_group ?? null,
-                      canEdit: !!w.isCustom,
-                    })
-                  }
-                  className="w-full flex items-center gap-3 rounded-2xl p-2.5 text-left active:scale-[0.99] transition-transform"
+                  className="w-full flex items-center gap-2 rounded-2xl p-2.5"
                   style={{ background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.1)" }}
                 >
-                  <ExerciseImage photo={w.photo} name={w.name} muscleGroup={w.muscle_group} className="h-12 w-12 rounded-xl shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[13.5px] font-semibold truncate" style={{ color: "#fff" }}>{w.name}</p>
-                    {w.muscle_group && (
-                      <p className="text-[11px] truncate" style={{ color: "rgba(255,255,255,.5)" }}>{w.muscle_group}</p>
-                    )}
-                  </div>
-                  <ChevronRight className="h-4 w-4 shrink-0" style={{ color: "rgba(255,255,255,.35)" }} />
-                </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setExerciseDetail({
+                        type: 1,
+                        id: w.id,
+                        name: w.name,
+                        photo: w.photo ?? null,
+                        description: w.description ?? null,
+                        meta: w.muscle_group ?? null,
+                        canEdit: !!w.isCustom,
+                      })
+                    }
+                    className="flex-1 min-w-0 flex items-center gap-3 text-left active:opacity-70 transition-opacity"
+                  >
+                    <ExerciseImage photo={w.photo} name={w.name} muscleGroup={w.muscle_group} className="h-12 w-12 rounded-xl shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[13.5px] font-semibold truncate" style={{ color: "#fff" }}>{w.name}</p>
+                      {w.muscle_group && (
+                        <p className="text-[11px] truncate" style={{ color: "rgba(255,255,255,.5)" }}>{w.muscle_group}</p>
+                      )}
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAddToRoutine({ id: String(w.id), name: w.name })}
+                    aria-label={t("goals_add_to_routine_title")}
+                    className="h-9 w-9 shrink-0 rounded-full flex items-center justify-center active:scale-90 transition-transform"
+                    style={{ background: "rgba(91,140,255,.2)", border: "1px solid rgba(91,140,255,.4)", color: "#9db8ff" }}
+                  >
+                    <Plus className="h-4 w-4" />
+                  </button>
+                </div>
               ))
             )}
           </div>
@@ -370,6 +400,15 @@ export function MuscleCoverageCard({ refreshToken }: MuscleCoverageCardProps) {
 
       {/* Ficha do exercício (foto + como executar) — por cima do drawer */}
       <ItemDetailDrawer item={exerciseDetail} onClose={() => setExerciseDetail(null)} />
+
+      {/* "Colocar na rotina" — por cima do drawer de cobertura */}
+      <AddToRoutineDrawer
+        exercise={addToRoutine}
+        onClose={() => setAddToRoutine(null)}
+        routines={routines}
+        userWorkouts={userWorkouts}
+        onAdded={onRoutinesChanged}
+      />
     </>
   );
 }

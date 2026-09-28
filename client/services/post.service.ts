@@ -4,6 +4,7 @@ import {
   getCommentCountsBatchDb,
   getProfilesBatchDb,
   getPostTagsBatchDb,
+  getRepostOriginsBatchDb,
   togglePostIncentiveDb,
   getFollowingIdsDb,
   getBlockedIdsDb,
@@ -12,8 +13,10 @@ import {
   type PostWithLikes,
   type PostIncentiveType,
   type SearchUser,
+  type RepostOrigin,
 } from "@/lib/ritmofit-db";
 import type { PostWorkoutSummary } from "@/lib/workout-summary-types";
+import type { VerifiedTier } from "@/lib/verified-tier";
 
 export type PostWithStats = PostWithLikes & {
   commentCount: number;
@@ -21,6 +24,9 @@ export type PostWithStats = PostWithLikes & {
   userNickname: string;
   userPhoto: string | null;
   isVerified?: boolean;
+  verifiedTier?: VerifiedTier | null;
+  /** Preenchido quando o post é um repost — crédito e legenda do original. */
+  repostOf?: RepostOrigin | null;
   workoutSummary?: PostWorkoutSummary | null;
   taggedUsers?: SearchUser[];
   userGoal?: {
@@ -71,7 +77,7 @@ export const getFeedPosts = async (
 
   let query = supabase
     .from("posts")
-    .select("id, description, photo, photos, created_at, user_id, user_goal_id, workout_summary")
+    .select("id, description, photo, photos, created_at, user_id, user_goal_id, workout_summary, reposted_from, reposted_from_user")
     .in("user_id", userIdsToShow)
     .order("created_at", { ascending: false })
     .limit(limit);
@@ -94,7 +100,7 @@ export const getFeedPosts = async (
   )];
 
   // Batch-fetch ALL enrichment data in parallel (3 queries total — likes + viewer-likes merged into one round-trip)
-  const [likesBundle, commentCountsMap, profilesMap, tagsMap, goalMap] = await Promise.all([
+  const [likesBundle, commentCountsMap, profilesMap, tagsMap, goalMap, repostMap] = await Promise.all([
     getPostLikesWithViewerBatchDb(postIds),
     getCommentCountsBatchDb(postIds),
     getProfilesBatchDb(userIds),
@@ -126,6 +132,7 @@ export const getFeedPosts = async (
       }
       return map;
     })(),
+    getRepostOriginsBatchDb(rows),
   ]);
   const { likesMap, userLikesMap } = likesBundle;
 
@@ -148,9 +155,11 @@ export const getFeedPosts = async (
       userNickname: profile?.nickname || "Usuário",
       userPhoto: profile?.photo || null,
       isVerified: profile?.is_verified === true,
+      verifiedTier: profile?.verified_tier ?? null,
       workoutSummary: (post.workout_summary as PostWorkoutSummary | null) ?? null,
       taggedUsers: tagsMap.get(post.id) ?? [],
       userGoal,
+      repostOf: repostMap.get(String(post.id)) ?? null,
     };
   });
 
@@ -184,6 +193,9 @@ export const getDiscoverPosts = async (
     .from("posts")
     .select("id, description, photo, photos, created_at, user_id, user_goal_id, workout_summary")
     .not("user_id", "in", `(${excludedIds.join(",")})`)
+    // Reposts ficam fora do Descobrir: o original já pode aparecer aqui, e o
+    // mesmo post em dobro, de autores diferentes, confunde.
+    .is("reposted_from", null)
     .order("created_at", { ascending: false })
     .limit(limit);
   // Cursor de paginação (scroll infinito): busca posts mais antigos que o último já exibido.
@@ -254,6 +266,7 @@ export const getDiscoverPosts = async (
       userNickname: profile?.nickname || "Usuário",
       userPhoto: profile?.photo || null,
       isVerified: profile?.is_verified === true,
+      verifiedTier: profile?.verified_tier ?? null,
       workoutSummary: (post.workout_summary as PostWorkoutSummary | null) ?? null,
       taggedUsers: tagsMap.get(post.id) ?? [],
       userGoal,
