@@ -1,4 +1,5 @@
 import * as React from "react";
+import { IMMUTABLE_CACHE_CONTROL } from "@/lib/storage-cache";
 import {
   getPromotionsDb,
   createPromotionDb,
@@ -773,7 +774,7 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
       const path = `${user.id}/${Date.now()}.${ext}`;
       const { error } = await supabase.storage
         .from("promotions")
-        .upload(path, uploadFile, { contentType: uploadFile.type, upsert: false });
+        .upload(path, uploadFile, { cacheControl: IMMUTABLE_CACHE_CONTROL, contentType: uploadFile.type, upsert: false });
       if (error) throw error;
       const { data: urlData } = supabase.storage.from("promotions").getPublicUrl(path);
       return urlData.publicUrl;
@@ -1258,7 +1259,7 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
       const path = `${user.id}/${Date.now()}.${ext}`;
       const { error } = await supabase.storage
         .from("promotions")
-        .upload(path, uploadFile, { contentType: uploadFile.type, upsert: false });
+        .upload(path, uploadFile, { cacheControl: IMMUTABLE_CACHE_CONTROL, contentType: uploadFile.type, upsert: false });
       if (error) throw error;
       const { data: urlData } = supabase.storage.from("promotions").getPublicUrl(path);
       return urlData.publicUrl;

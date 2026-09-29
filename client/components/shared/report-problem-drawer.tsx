@@ -206,7 +206,7 @@ export function ReportProblemDrawer({
               autoCorrect="off"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="seu@email.com"
+              placeholder={t("report_problem_email_placeholder")}
               style={{
                 background: "rgba(255,255,255,.07)",
                 border: "1px solid rgba(255,255,255,.12)",

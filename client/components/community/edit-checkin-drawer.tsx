@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
+import { useLanguage } from "@/lib/language-context";
 import { X, Plus, ChevronLeft, ChevronRight, Image } from "lucide-react";
 import { updateGroupCheckInDb, uploadCheckInPhotoDb, type GroupCheckIn } from "@/lib/ritmofit-db";
 import { compressImageFile } from "@/lib/image-compress";
@@ -29,6 +30,7 @@ export function EditCheckInDrawer({
   checkIn,
   onUpdated,
 }: EditCheckInDrawerProps) {
+  const { t } = useLanguage();
   const [workoutInfo, setWorkoutInfo] = React.useState("");
   const [description, setDescription] = React.useState("");
   // URLs das fotos já existentes que o usuário quer manter
@@ -92,7 +94,7 @@ export function EditCheckInDrawer({
   const handleSave = async () => {
     if (!checkIn) return;
     if (!workoutInfo.trim()) {
-      toast({ title: "Campo obrigatório", description: "Preencha o campo de exercício", variant: "destructive" });
+      toast({ title: t("duels_checkin_metric_required_title"), description: t("duels_edit_checkin_exercise_required"), variant: "destructive" });
       return;
     }
     setIsSaving(true);
@@ -124,9 +126,9 @@ export function EditCheckInDrawer({
         photos: updated.photos,
       });
       onOpenChange(false);
-      toast({ title: "Check-in atualizado!", description: "Suas alterações foram salvas com sucesso." });
+      toast({ title: t("duels_edit_checkin_saved_title"), description: t("duels_edit_checkin_saved_desc") });
     } catch (error: any) {
-      toast({ title: "Erro ao atualizar check-in", description: error.message || "Tente novamente", variant: "destructive" });
+      toast({ title: t("duels_edit_checkin_error"), description: error.message || t("retry"), variant: "destructive" });
     } finally {
       setIsSaving(false);
     }
@@ -147,8 +149,8 @@ export function EditCheckInDrawer({
         onOpenAutoFocus={(e) => e.preventDefault()}
       >
         <DrawerHeader className="shrink-0">
-          <DrawerTitle style={{ color: "#fff" }}>Editar Check-in</DrawerTitle>
-          <DrawerDescription className="sr-only">Edite as informações do seu check-in</DrawerDescription>
+          <DrawerTitle style={{ color: "#fff" }}>{t("duels_checkin_edit")}</DrawerTitle>
+          <DrawerDescription className="sr-only">{t("duels_edit_checkin_sr")}</DrawerDescription>
         </DrawerHeader>
 
         <div
@@ -159,11 +161,11 @@ export function EditCheckInDrawer({
           {checkIn && (
             <div className="space-y-4">
               <div className="space-y-2">
-                <label className="text-sm font-medium" style={{ color: "rgba(255,255,255,.7)" }}>Exercício *</label>
+                <label className="text-sm font-medium" style={{ color: "rgba(255,255,255,.7)" }}>{t("duels_edit_checkin_exercise")}</label>
                 <Input
                   value={workoutInfo}
                   onChange={(e) => setWorkoutInfo(e.target.value)}
-                  placeholder="Ex: Supino Reto..."
+                  placeholder={t("duels_edit_checkin_exercise_placeholder")}
                   style={{
                     background: "rgba(255,255,255,.07)",
                     border: "1px solid rgba(255,255,255,.12)",
@@ -173,11 +175,11 @@ export function EditCheckInDrawer({
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm font-medium" style={{ color: "rgba(255,255,255,.7)" }}>Descrição</label>
+                <label className="text-sm font-medium" style={{ color: "rgba(255,255,255,.7)" }}>{t("duels_checkin_description")}</label>
                 <Textarea
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Adicione detalhes sobre seu treino..."
+                  placeholder={t("duels_edit_checkin_description_placeholder")}
                   className="min-h-24"
                   style={{
                     background: "rgba(255,255,255,.07)",
@@ -200,7 +202,7 @@ export function EditCheckInDrawer({
                       onClick={() => fileInputRef.current?.click()}
                     >
                       <Plus className="h-4 w-4 mr-1" />
-                      Adicionar
+                      {t("duels_edit_checkin_add")}
                     </Button>
                   )}
                 </div>
@@ -217,7 +219,7 @@ export function EditCheckInDrawer({
                   <div className="relative rounded-xl overflow-hidden bg-black aspect-square">
                     <img
                       src={allPreviewUrls[activeIndex]}
-                      alt="foto do treino"
+                      alt={t("duels_edit_checkin_photo_alt")}
                       className="w-full h-full object-cover"
                     />
                     {/* Remove button */}
@@ -278,7 +280,7 @@ export function EditCheckInDrawer({
                     style={{ borderColor: "rgba(255,255,255,.2)", color: "rgba(255,255,255,.5)" }}
                   >
                     <Image className="h-8 w-8" />
-                    <span className="text-sm">Adicionar foto</span>
+                    <span className="text-sm">{t("duels_edit_checkin_add_photo")}</span>
                   </button>
                 )}
               </div>
@@ -286,7 +288,7 @@ export function EditCheckInDrawer({
               <div className="grid grid-cols-3 gap-2">
                 <div className="text-center p-3 rounded-lg" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.08)" }}>
                   <div className="font-semibold text-lg" style={{ color: "#5b8cff" }}>{checkIn.series}</div>
-                  <div className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>Séries</div>
+                  <div className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>{t("duels_edit_checkin_series")}</div>
                 </div>
                 <div className="text-center p-3 rounded-lg" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.08)" }}>
                   <div className="font-semibold text-lg" style={{ color: "#5b8cff" }}>{checkIn.volume}</div>
@@ -294,7 +296,7 @@ export function EditCheckInDrawer({
                 </div>
                 <div className="text-center p-3 rounded-lg" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.08)" }}>
                   <div className="font-semibold text-lg" style={{ color: "#5b8cff" }}>✓</div>
-                  <div className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>Concluído</div>
+                  <div className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>{t("duels_edit_checkin_done")}</div>
                 </div>
               </div>
 
@@ -304,7 +306,7 @@ export function EditCheckInDrawer({
                 className="w-full rounded-full border-0"
                 style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}
               >
-                {isSaving ? "Salvando..." : "Salvar Alterações"}
+                {isSaving ? t("saving") : t("duels_edit_checkin_save")}
               </Button>
             </div>
           )}

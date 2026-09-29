@@ -26,7 +26,7 @@ import { useNavigate } from "react-router-dom";
 import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
 import { useLanguage } from "@/lib/language-context";
 import { hapticLight, hapticMedium } from "@/lib/haptics";
-import { getPostGradient, GLASS_TOP, GLASS_ACTION, DESC_MAX_CHARS, renderWithHashtags } from "@/lib/post-visuals";
+import { getPostGradient, GLASS_TOP, GLASS_ACTION, renderWithHashtags, isCaptionTruncatable, collapsedCaption } from "@/lib/post-visuals";
 import { FEATURES } from "@/lib/feature-flags";
 import { useHoldToHide } from "@/hooks/use-hold-to-hide";
 import { RepostAttribution, displayedPostDescription } from "@/components/post/repost-attribution";
@@ -112,10 +112,8 @@ function PostCardImpl({
   // fica preenchido quando há comentários). Uma nova carga do feed reescreve.
   const [commentCount, setCommentCount] = React.useState(post.commentCount);
   React.useEffect(() => { setCommentCount(post.commentCount); }, [post.commentCount]);
-  const isDescTruncatable = description.includes("\n") || description.length > DESC_MAX_CHARS;
-  const truncatedDescription = description.length > DESC_MAX_CHARS
-    ? description.slice(0, DESC_MAX_CHARS).trimEnd()
-    : description.split("\n")[0] ?? "";
+  const isDescTruncatable = isCaptionTruncatable(description);
+  const truncatedDescription = collapsedCaption(description);
 
   const totalLikes = Object.values(post.likes).reduce((sum: number, val: number) => sum + val, 0);
   const progressWidth = `${Math.min(100, Math.max(0, post.userGoal?.perc ?? 0))}%`;
@@ -257,7 +255,10 @@ function PostCardImpl({
               <button
                 type="button"
                 className="flex items-center justify-center text-white active:scale-90 transition-transform"
-                style={{ width: 36, height: 36, borderRadius: "50%", background: "rgba(0,0,0,.28)", backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)", border: "1px solid rgba(255,255,255,.16)" }}
+                // Sem backdrop-filter: cada post do feed tinha uma camada de blur
+                // reamostrada pela GPU a cada frame da rolagem. Fundo sólido
+                // um pouco mais escuro dá o mesmo contraste sobre a foto.
+                style={{ width: 36, height: 36, borderRadius: "50%", background: "rgba(0,0,0,.4)", border: "1px solid rgba(255,255,255,.16)" }}
               >
                 <MoreVertical className="h-4 w-4" />
               </button>
@@ -351,13 +352,13 @@ function PostCardImpl({
           {/* Description */}
           {description && (
             <p
-              className={cn("text-[13px] text-white leading-snug mb-2.5 px-1", isDescTruncatable && "cursor-pointer")}
+              // pre-wrap: respeita as quebras de linha que a pessoa digitou.
+              className={cn("text-[13px] text-white leading-snug mb-2.5 px-1 whitespace-pre-wrap break-words", isDescTruncatable && "cursor-pointer")}
               style={{
                 textShadow: "0 1px 8px rgba(0,0,0,.5)",
                 ...(isDescTruncatable && descExpanded ? {
-                  background: "rgba(0,0,0,.45)",
-                  backdropFilter: "blur(14px)",
-                  WebkitBackdropFilter: "blur(14px)",
+                  // Sólido em vez de blur (ver o botão ⋮ acima).
+                  background: "rgba(0,0,0,.62)",
                   borderRadius: "14px",
                   padding: "8px 12px",
                   marginBottom: "10px",

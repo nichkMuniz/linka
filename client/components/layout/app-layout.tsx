@@ -39,6 +39,7 @@ import { IncomingMessageToast } from "@/components/shared/incoming-message-toast
 import { showIncomingMessageToast, showIncomingNotificationToast } from "@/lib/incoming-message-toast";
 import { RoutineCompletedToast } from "@/components/shared/routine-completed-toast";
 import { FEATURES } from "@/lib/feature-flags";
+import { requestAppRefresh, useAppRefresh } from "@/lib/app-refresh";
 import { getUnreadMessageCountDb, getUnreadNotificationsCountDb, getUserProfileDb, subscribeToUnreadNotificationsDb, recordAccessSessionDb, bufferScreenTime, flushScreenTimeDb, invalidateQueryCache, getPendingWorkoutPartyInviteDb, getWorkoutPartyInviteByIdDb, respondWorkoutPartyInviteDb, getOwnVerificationStatusDb, markVerificationSeenDb, type WorkoutPartyInvite } from "@/lib/ritmofit-db";
 import { WorkoutPartyInviteDialog } from "@/components/goals/workout-party-invite-dialog";
 import { VerifiedCongratsDialog } from "@/components/shared/verified-congrats-dialog";
@@ -59,7 +60,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useRoutineNotifications } from "@/hooks/use-routine-notifications";
 import { useEdgeSwipeBack } from "@/hooks/use-edge-swipe-back";
 import { useLanguage } from "@/lib/language-context";
-import { useWorkout } from "@/lib/workout-context";
+import { useWorkout, useWorkoutClock } from "@/lib/workout-context";
 import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 
@@ -106,6 +107,48 @@ function writeDailyUsage(usage: DailyUsage): void {
   }
 }
 
+// ─── Relógio do limite diário (store externo com seletor) ────────────────────
+// O contador sobe a cada segundo. Como estado do AppLayout, ele re-renderizava
+// o header/footer inteiros a cada segundo para quem ativou o limite. Agora o
+// layout observa só o ESTADO (normal / últimos 5 min / expirado) e apenas o
+// texto `mm:ss` (`DailyTimerLabel`) observa os segundos — mesmo padrão do
+// relógio do treino (`useWorkoutClock`).
+type UsageClock = { seconds: number; snooze: number };
+
+let usageClock: UsageClock = (() => {
+  const u = readDailyUsage();
+  return { seconds: Math.floor(u.seconds), snooze: u.snooze };
+})();
+const usageClockListeners = new Set<() => void>();
+
+function setUsageClock(next: UsageClock) {
+  if (next.seconds === usageClock.seconds && next.snooze === usageClock.snooze) return;
+  usageClock = next;
+  usageClockListeners.forEach((listener) => listener());
+}
+
+function subscribeUsageClock(listener: () => void) {
+  usageClockListeners.add(listener);
+  return () => usageClockListeners.delete(listener);
+}
+
+function useUsageClock<T>(selector: (clock: UsageClock) => T): T {
+  return React.useSyncExternalStore(subscribeUsageClock, () => selector(usageClock), () => selector(usageClock));
+}
+
+function remainingOf(clock: UsageClock, limitSeconds: number): number {
+  return Math.max(0, limitSeconds + clock.snooze - clock.seconds);
+}
+
+/** Único pedaço do layout que re-renderiza a cada segundo com o limite ativo. */
+function DailyTimerLabel({ limitSeconds, className }: { limitSeconds: number; className?: string }) {
+  const remaining = useUsageClock((c) => remainingOf(c, limitSeconds));
+  const label = remaining <= 0
+    ? "00:00"
+    : `${String(Math.floor(remaining / 60)).padStart(2, "0")}:${String(remaining % 60).padStart(2, "0")}`;
+  return className ? <span className={className}>{label}</span> : <>{label}</>;
+}
+
 export function AppLayout() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -116,7 +159,7 @@ export function AppLayout() {
   const { t } = useLanguage();
   const {
     workoutMinimized, setWorkoutMinimized, pendingReopen, setPendingReopen,
-    globalRestTimerRemaining, globalRestTimerActive, globalRestTimerTotal, setGlobalRestTimerTotal,
+    globalRestTimerActive, globalRestTimerTotal, setGlobalRestTimerTotal,
     workoutSeries, resetWorkoutState,
     workoutModalOpen, workoutStartTime, setPendingPartyJoin,
   } = useWorkout();
@@ -313,7 +356,6 @@ export function AppLayout() {
   const [profilePhoto, setProfilePhoto] = React.useState<string | null>(null);
 
   // Daily usage timer
-  const [usageSecondsElapsed, setUsageSecondsElapsed] = React.useState(() => Math.floor(readDailyUsage().seconds));
   const sessionStartRef = React.useRef<number>(Date.now());
 
   // Screen time tracking
@@ -390,7 +432,6 @@ export function AppLayout() {
     sessionStorage.setItem("ritmofit_current_screen", location.pathname);
   }, [location.pathname]);
   const [timerBlockVisible, setTimerBlockVisible] = React.useState(false);
-  const [timerSnoozeSeconds, setTimerSnoozeSeconds] = React.useState(() => readDailyUsage().snooze); // adiar acumulado hoje
   const [limitIgnoredToday, setLimitIgnoredToday] = React.useState(() => {
     const ignored = localStorage.getItem("ritmofit_limit_ignored_date");
     return ignored === new Date().toDateString();
@@ -474,8 +515,7 @@ export function AppLayout() {
   React.useEffect(() => {
     if (!dailyLimitMinutes) return;
     const initial = readDailyUsage();
-    setUsageSecondsElapsed(Math.floor(initial.seconds));
-    setTimerSnoozeSeconds(initial.snooze);
+    setUsageClock({ seconds: Math.floor(initial.seconds), snooze: initial.snooze });
 
     // Soma, a cada segundo, o tempo real desde o tick anterior — só com o app
     // em primeiro plano e fora da tela de registrar treino (o bloqueio nunca
@@ -491,11 +531,22 @@ export function AppLayout() {
         usage.seconds += delta / 1000;
         writeDailyUsage(usage);
       }
-      setUsageSecondsElapsed(Math.floor(usage.seconds));
-      setTimerSnoozeSeconds(usage.snooze);
+      setUsageClock({ seconds: Math.floor(usage.seconds), snooze: usage.snooze });
     }, 1000);
     return () => { clearInterval(interval); };
   }, [dailyLimitMinutes]);
+
+  const loadProfilePhoto = React.useCallback(async () => {
+    if (!user) return;
+    try {
+      const profile = await getUserProfileDb(user.id);
+      if (profile?.photo) {
+        setProfilePhoto(profile.photo);
+      }
+    } catch (err) {
+      console.error("Error loading profile photo:", err);
+    }
+  }, [user]);
 
   const loadUnreadCounts = React.useCallback(async () => {
     try {
@@ -509,20 +560,65 @@ export function AppLayout() {
       console.error("Error loading unread counts:", err);
     }
   }, []);
+  // O efeito de volta do background é montado uma vez só; lê a versão atual por ref.
+  const loadUnreadCountsRef = React.useRef(loadUnreadCounts);
+  loadUnreadCountsRef.current = loadUnreadCounts;
 
-  // Refetch manual de badges (mensagens/notificações) — cobre o caso da
-  // subscription realtime cair silenciosamente (app em background no iOS,
-  // reconexão de WebView, etc). Disparado sempre que o usuário sinaliza um
-  // refresh explícito: tap no logo/home (`ritmofit-refresh-feed`) ou o gesto
-  // de pull-to-refresh do feed (`ritmofit-refresh-badges`).
+  // Refresh global (pull-to-refresh de qualquer tela, toque no logo, volta do
+  // background — ver @/lib/app-refresh): o cache já chega derrubado, então os
+  // contadores e a foto do header saem do banco, não da memória. Cobre também
+  // a subscription realtime que caiu em silêncio com o app suspenso.
+  useAppRefresh(() => {
+    loadUnreadCounts();
+    loadProfilePhoto();
+  });
+
+  // Volta do background: o iOS suspende o WebView e o realtime não entrega o
+  // que chegou nesse meio-tempo.
+  //  - fora por 3 min ou mais → refresh global (derruba o cache das telas);
+  //  - fora por 15 s a 3 min → só os contadores do header/footer, que são
+  //    baratos. Derrubar o cache inteiro a cada troca rápida de app fazia
+  //    Perfil/Metas abrirem com esqueleto em vez de instantâneos.
+  // No nativo o sinal confiável é o `appStateChange` do Capacitor (mesmo
+  // critério da dica de atualização do feed); no navegador, `visibilitychange`.
   React.useEffect(() => {
-    window.addEventListener("ritmofit-refresh-feed", loadUnreadCounts);
-    window.addEventListener("ritmofit-refresh-badges", loadUnreadCounts);
-    return () => {
-      window.removeEventListener("ritmofit-refresh-feed", loadUnreadCounts);
-      window.removeEventListener("ritmofit-refresh-badges", loadUnreadCounts);
+    const RESUME_REFRESH_AFTER_MS = 3 * 60_000;
+    const RESUME_BADGES_AFTER_MS = 15_000;
+    let hiddenAt: number | null = null;
+    const onHide = () => { hiddenAt = Date.now(); };
+    const onShow = () => {
+      const awayMs = hiddenAt === null ? 0 : Date.now() - hiddenAt;
+      hiddenAt = null;
+      if (awayMs >= RESUME_REFRESH_AFTER_MS) {
+        requestAppRefresh("resume");
+      } else if (awayMs >= RESUME_BADGES_AFTER_MS) {
+        invalidateQueryCache("unreadMsgCount");
+        invalidateQueryCache("unreadNotifCount");
+        void loadUnreadCountsRef.current();
+      }
     };
-  }, [loadUnreadCounts]);
+    if (Capacitor.isNativePlatform()) {
+      let listener: { remove: () => void } | null = null;
+      let disposed = false;
+      CapApp.addListener("appStateChange", ({ isActive }) => {
+        if (isActive) onShow();
+        else onHide();
+      }).then((l) => {
+        if (disposed) l.remove();
+        else listener = l;
+      });
+      return () => {
+        disposed = true;
+        listener?.remove();
+      };
+    }
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") onHide();
+      else onShow();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, []);
 
   // O efeito das subscriptions roda uma única vez ([]), então guardar `t` numa
   // ref é o que faz o banner acompanhar a troca de idioma — capturado direto,
@@ -541,9 +637,13 @@ export function AppLayout() {
       setUnreadNotificationsCount(count);
     });
 
+    // Nome único por execução: o efeito roda de novo quando o usuário muda, e
+    // reaproveitar o nome devolveria o canal antigo já inscrito.
+    const channelSuffix = Math.random().toString(36).slice(2, 8);
+
     // Native local notification when a new social notification arrives
     const notifChannel = user ? supabase
-      ?.channel("app-layout-notif-push")
+      ?.channel(`app-layout-notif-push:${user.id}:${channelSuffix}`)
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${user.id}` },
@@ -604,7 +704,7 @@ export function AppLayout() {
     // Realtime subscription for new messages — filtered to current user + debounced
     let msgDebounceTimer: ReturnType<typeof setTimeout> | null = null;
     const messagesChannel = user ? supabase
-      ?.channel("app-layout-messages")
+      ?.channel(`app-layout-messages:${user.id}:${channelSuffix}`)
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "messages", filter: `following_id=eq.${user.id}` },
@@ -639,11 +739,16 @@ export function AppLayout() {
       .subscribe() : null;
 
     return () => {
-      notifChannel?.unsubscribe();
-      messagesChannel?.unsubscribe();
+      if (notifChannel) supabase?.removeChannel(notifChannel);
+      if (messagesChannel) supabase?.removeChannel(messagesChannel);
+      if (msgDebounceTimer) clearTimeout(msgDebounceTimer);
       if (unsubscribe) unsubscribe();
     };
-  }, []);
+    // Por usuário: com `[]`, se o layout montasse antes da sessão ficar pronta
+    // (user null), os canais nunca eram criados e os badges só mudavam com
+    // refresh manual.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   // Clear badges when user visits the respective pages
   React.useEffect(() => {
@@ -660,20 +765,8 @@ export function AppLayout() {
   }, [location.pathname]);
 
   React.useEffect(() => {
-    const loadProfilePhoto = async () => {
-      if (!user) return;
-      try {
-        const profile = await getUserProfileDb(user.id);
-        if (profile?.photo) {
-          setProfilePhoto(profile.photo);
-        }
-      } catch (err) {
-        console.error("Error loading profile photo:", err);
-      }
-    };
-
     loadProfilePhoto();
-  }, [user]);
+  }, [loadProfilePhoto]);
 
   // Full-screen mode: driven by data-fullscreen-step on document.body (set by NewPost).
   // We also treat /postar as fullscreen by default to avoid a flash of header/footer
@@ -731,13 +824,15 @@ export function AppLayout() {
   }, [isScrollHidePage, location.pathname]);
 
   const limitSeconds = dailyLimitMinutes * 60;
-  const remainingSeconds = Math.max(0, limitSeconds + timerSnoozeSeconds - usageSecondsElapsed);
   const showTimer = dailyLimitMinutes > 0 && !limitIgnoredToday;
-  const timerMins = Math.floor(remainingSeconds / 60);
-  const timerSecs = remainingSeconds % 60;
-  const timerLabel = remainingSeconds <= 0 ? "00:00" : `${String(timerMins).padStart(2, "0")}:${String(timerSecs).padStart(2, "0")}`;
-  const timerUrgent = remainingSeconds <= 300 && remainingSeconds > 0; // last 5 min
-  const timerExpired = remainingSeconds <= 0 && dailyLimitMinutes > 0;
+  // Só o estado — o layout re-renderiza quando ele MUDA, não a cada segundo.
+  const timerStatus = useUsageClock((c) => {
+    if (!dailyLimitMinutes) return "ok";
+    const remaining = remainingOf(c, limitSeconds);
+    return remaining <= 0 ? "expired" : remaining <= 300 ? "urgent" : "ok";
+  });
+  const timerUrgent = timerStatus === "urgent"; // last 5 min
+  const timerExpired = timerStatus === "expired" && dailyLimitMinutes > 0;
 
   // Show block screen when timer expires (not if user ignored limit today)
   React.useEffect(() => {
@@ -789,12 +884,13 @@ export function AppLayout() {
         <button
           onClick={() => {
             if (location.pathname === "/") {
+              requestAppRefresh("home");
               window.dispatchEvent(new CustomEvent("ritmofit-refresh-feed"));
             } else {
               navigate("/");
             }
           }}
-          aria-label="Ir para Home"
+          aria-label={t("nav_home_aria")}
           className={cn(
             "mb-6 flex items-center rounded-xl py-2 hover:bg-muted/50 transition cursor-pointer",
             sidebarExpanded ? "px-3" : "justify-center px-0",
@@ -856,7 +952,7 @@ export function AppLayout() {
             {sidebarExpanded && (
               <div className="flex flex-col">
                 <span className="text-[11px] font-medium">{t("nav_time_remaining")}</span>
-                <span className="text-sm font-mono font-bold">{timerLabel}</span>
+                <DailyTimerLabel limitSeconds={limitSeconds} className="text-sm font-mono font-bold" />
               </div>
             )}
           </div>
@@ -881,7 +977,7 @@ export function AppLayout() {
         {/* Profile at bottom */}
         <Link
           to="/perfil"
-          aria-label="Perfil"
+          aria-label={t("nav_profile")}
           title={!sidebarExpanded ? (t("nav_profile") ?? "Perfil") : undefined}
           className={cn(
             "flex items-center rounded-xl py-3 transition hover:bg-muted/50",
@@ -924,7 +1020,7 @@ export function AppLayout() {
         >
           {/* Left: avatar + logo */}
           <div className="flex items-center gap-2">
-            <Link to="/perfil" aria-label="Perfil" onClick={() => hapticLight()}>
+            <Link to="/perfil" aria-label={t("nav_profile")} onClick={() => hapticLight()}>
               <UserAvatar
                 photo={profilePhoto}
                 size="sm"
@@ -935,6 +1031,7 @@ export function AppLayout() {
               onClick={() => {
                 hapticLight();
                 if (location.pathname === "/") {
+                  requestAppRefresh("home");
                   window.dispatchEvent(new CustomEvent("ritmofit-refresh-feed"));
                   const feedContainer = document.querySelector('[data-feed-container]');
                   if (feedContainer) feedContainer.scrollTop = 0;
@@ -942,7 +1039,7 @@ export function AppLayout() {
                   navigate("/");
                 }
               }}
-              aria-label="Ir para Home ou Atualizar Feed"
+              aria-label={t("nav_home_refresh_aria")}
               className="flex items-center cursor-pointer"
             >
               <img src="/logo-branco.png" alt="LinKa" className="h-6 w-auto object-contain" />
@@ -957,7 +1054,7 @@ export function AppLayout() {
                 timerExpired ? "bg-red-500/30 text-red-400" : timerUrgent ? "bg-orange-500/25 text-orange-400" : "bg-white/10 text-white/70"
               )}>
                 <Timer className="h-3 w-3" />
-                {timerLabel}
+                <DailyTimerLabel limitSeconds={limitSeconds} />
               </div>
             )}
             <Link
@@ -1090,6 +1187,7 @@ export function AppLayout() {
                     if (isHome && location.pathname === "/") {
                       e.preventDefault();
                       window.scrollTo({ top: 0, behavior: "smooth" });
+                      requestAppRefresh("home");
                       window.dispatchEvent(new CustomEvent("ritmofit-refresh-feed"));
                     }
                   }}
@@ -1132,10 +1230,6 @@ export function AppLayout() {
         const hasAnyValues = Object.values(workoutSeries).some((series) =>
           series.some((s) => (s.kg > 0 || s.reps > 0))
         );
-        const showTimer = globalRestTimerActive && globalRestTimerRemaining > 0;
-        const timerPercent = globalRestTimerTotal > 0
-          ? (globalRestTimerRemaining / globalRestTimerTotal) * 100
-          : 0;
 
         return (
           <motion.div
@@ -1183,21 +1277,11 @@ export function AppLayout() {
                 boxShadow: "inset 0 1px 0 rgba(255,255,255,.3), 0 16px 36px -12px rgba(0,0,0,.6)",
               }}
             >
-              {showTimer ? (
-                <>
-                  <Timer className="h-4 w-4 shrink-0" />
-                  <span>{globalRestTimerRemaining}s</span>
-                  <span
-                    className="absolute bottom-0 left-0 h-1 bg-white/40 rounded-full transition-all"
-                    style={{ width: `${timerPercent}%` }}
-                  />
-                </>
-              ) : (
-                <>
-                  <Dumbbell className="h-4 w-4" />
-                  {t("goals_workout_in_progress")}
-                </>
-              )}
+              <MinimizedWorkoutLabel
+                restActive={globalRestTimerActive}
+                restTotal={globalRestTimerTotal}
+                inProgressLabel={t("goals_workout_in_progress")}
+              />
             </button>
           </motion.div>
         );
@@ -1275,7 +1359,7 @@ export function AppLayout() {
                   const usage = readDailyUsage();
                   usage.snooze += seconds;
                   writeDailyUsage(usage);
-                  setTimerSnoozeSeconds(usage.snooze);
+                  setUsageClock({ seconds: Math.floor(usage.seconds), snooze: usage.snooze });
                   setTimerBlockVisible(false);
                 }}
               >
@@ -1300,5 +1384,41 @@ export function AppLayout() {
       )}
 
     </div>
+  );
+}
+
+/**
+ * Rótulo do botão do treino minimizado. É o único pedaço do layout que observa
+ * os segundos do descanso — o resto do header/footer não re-renderiza a cada
+ * tique (ver `useWorkoutClock`).
+ */
+function MinimizedWorkoutLabel({
+  restActive,
+  restTotal,
+  inProgressLabel,
+}: {
+  restActive: boolean;
+  restTotal: number;
+  inProgressLabel: string;
+}) {
+  const remaining = useWorkoutClock((c) => c.restRemaining);
+  if (restActive && remaining > 0) {
+    const pct = restTotal > 0 ? (remaining / restTotal) * 100 : 0;
+    return (
+      <>
+        <Timer className="h-4 w-4 shrink-0" />
+        <span>{remaining}s</span>
+        <span
+          className="absolute bottom-0 left-0 h-1 bg-white/40 rounded-full transition-all"
+          style={{ width: `${pct}%` }}
+        />
+      </>
+    );
+  }
+  return (
+    <>
+      <Dumbbell className="h-4 w-4" />
+      {inProgressLabel}
+    </>
   );
 }

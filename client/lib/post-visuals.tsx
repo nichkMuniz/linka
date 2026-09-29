@@ -34,6 +34,22 @@ export const GLASS_ACTION: React.CSSProperties = {
 // Caption description truncation — same limit used everywhere a post caption renders
 export const DESC_MAX_CHARS = 80;
 
+/** A legenda pede "ver mais": tem mais de uma linha ou passa do limite. */
+export function isCaptionTruncatable(desc: string, max = DESC_MAX_CHARS): boolean {
+  return desc.includes("\n") || desc.length > max;
+}
+
+/**
+ * Trecho da legenda RECOLHIDA: só a primeira linha, até `max` caracteres.
+ * Antes cortava os `max` primeiros caracteres da legenda inteira — que podiam
+ * conter quebras de linha; com as quebras agora preservadas na tela
+ * (`whitespace-pre-wrap`), o recolhido viraria várias linhas sobre a foto.
+ */
+export function collapsedCaption(desc: string, max = DESC_MAX_CHARS): string {
+  const firstLine = desc.split("\n")[0] ?? "";
+  return firstLine.length > max ? firstLine.slice(0, max).trimEnd() : firstLine;
+}
+
 // Menção "@usuario" dentro de um token — mesmo conjunto de caracteres do handle
 // (`MENTION_HANDLE_CHARS`). Ponto/hífen no FIM saem do handle ("@ana." é fim de
 // frase), igual ao que o trigger de notificação faz.

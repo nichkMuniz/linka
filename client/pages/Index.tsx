@@ -15,6 +15,7 @@ import {
   getRoutineItemsForViewDb,
   getUserGoalsDb,
   getActiveStoriesDb,
+  FLOW_CREATED_EVENT,
   getFlowByIdDb,
   getUserProfileDb,
   createStoryDb,
@@ -47,6 +48,7 @@ import { GoalCompletedDialog } from "@/components/shared/goal-completed-dialog";
 import { GoalShareDrawer } from "@/components/goals/goal-share-drawer";
 import { ShareDrawer } from "@/components/shared/share-drawer";
 import { usePostReshare } from "@/hooks/use-post-reshare";
+import { requestAppRefresh, useAppRefresh } from "@/lib/app-refresh";
 import { SendToFriendDrawer, type SendableContent } from "@/components/shared/send-to-friend-drawer";
 import { postShareUrl } from "@/lib/share-url";
 import { EditPostDrawer } from "@/components/post/edit-post-drawer";
@@ -69,7 +71,7 @@ import { App as CapApp } from "@capacitor/app";
 import { PostSkeleton } from "@/components/shared/animated-loading";
 import type { PostWithStats } from "../services/post.service";
 import { FlowCarousel } from "@/components/feed/flow-carousel";
-import { FlowCreationDialog } from "@/components/modals/flow-creation-dialog";
+import { FlowCreationDialog, type FlowCreationSeed } from "@/components/modals/flow-creation-dialog";
 import { useAuth } from "@/hooks/useAuth";
 import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
@@ -132,6 +134,20 @@ if (typeof window !== "undefined") {
   });
 }
 
+// Flow publicado (de qualquer tela — ver FLOW_CREATED_EVENT): mesma lógica do
+// bloqueio acima, no escopo do módulo porque o caso que importa é o feed
+// DESMONTADO. O criador do feed publica e já navega para o viewer; o
+// `setStories` daquele instante nunca chegava ao `feedCache` (a tela desmontava
+// antes do efeito que persiste o cache), então voltar ao feed restaurava o
+// ring SEM o flow novo até a pessoa puxar para atualizar. Com o flag, o feed
+// relê os flows assim que volta a montar.
+let feedStoriesStale = false;
+if (typeof window !== "undefined") {
+  window.addEventListener(FLOW_CREATED_EVENT, () => {
+    feedStoriesStale = true;
+  });
+}
+
 export default function Index() {
   const { user } = useAuth();
   const { t } = useLanguage();
@@ -191,6 +207,8 @@ export default function Index() {
 
   const [storyCreationOpen, setStoryCreationOpen] = React.useState(false);
   const [isCreatingStory, setIsCreatingStory] = React.useState(false);
+  // Conteúdo com que o criador de flow abre pronto (ex.: resumo do treino).
+  const [flowSeed, setFlowSeed] = React.useState<FlowCreationSeed | null>(null);
   const [currentUserPhoto, setCurrentUserPhoto] = React.useState<string | null>(() => (cacheValid ? feedCache.currentUserPhoto : null));
   const [currentUserNickname, setCurrentUserNickname] = React.useState<string | null>(() => (cacheValid ? feedCache.currentUserNickname : null));
   const [viewedStoryIds, setViewedStoryIds] = React.useState<Set<string>>(() => (cacheValid ? feedCache.viewedStoryIds : new Set()));
@@ -264,6 +282,8 @@ export default function Index() {
       // Só invalida quando o refresh é EXPLÍCITO do usuário: na carga inicial isso
       // descartava um cache ainda válido e forçava uma query a cada abertura do app.
       if (force) invalidateQueryCache("activeStories");
+      // Esta carga já traz o ring atual — nenhum flow publicado fica pendente.
+      feedStoriesStale = false;
       const [postsData, storiesData, followingIds] = await Promise.all([
         getFeedPosts(),
         getActiveStoriesDb(),
@@ -339,6 +359,30 @@ export default function Index() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
+  // Relê o ring de flows. Grava direto no `feedCache` além do estado: se a tela
+  // desmontar com a leitura em voo (publicar → viewer), a volta ao feed já
+  // encontra a lista nova.
+  const refreshStories = React.useCallback(() => {
+    feedStoriesStale = false;
+    getActiveStoriesDb()
+      .then(async (storiesData) => {
+        feedCache.stories = storiesData;
+        setStories(storiesData);
+        const viewed = await getMyViewedFlowUserIdsDb(storiesData.map((s: StoryWithUser) => s.id));
+        feedCache.viewedStoryIds = viewed as Set<string>;
+        setViewedStoryIds(viewed as Set<string>);
+      })
+      .catch((err) => console.error("Erro ao atualizar flows:", err));
+  }, []);
+
+  // Flow publicado com o feed aberto (ou publicado de outra tela enquanto o
+  // feed estava desmontado — aí o flag de módulo resolve no mount).
+  React.useEffect(() => {
+    if (feedStoriesStale && feedCache.hydrated) refreshStories();
+    window.addEventListener(FLOW_CREATED_EVENT, refreshStories);
+    return () => window.removeEventListener(FLOW_CREATED_EVENT, refreshStories);
+  }, [refreshStories]);
+
   // Persiste o estado vivo do feed no cache de módulo para sobreviver ao unmount.
   React.useEffect(() => {
     feedCache.posts = posts;
@@ -375,6 +419,18 @@ export default function Index() {
   // Open a specific flow when navigating from a notification. If it's no longer
   // in the active ring (expired >24h), redirect to the flow archive (own flow)
   // showing that exact media, instead of silently doing nothing.
+  // "Compartilhar no Flow" do resumo do treino: chega com a mídia pronta e
+  // abre o criador direto na legenda. O estado é limpo na hora para voltar/
+  // recarregar não reabrir o criador.
+  React.useEffect(() => {
+    const seed = (location.state as { createFlowSeed?: FlowCreationSeed } | null)?.createFlowSeed;
+    if (!seed?.mediaUrl && !seed?.postSticker) return;
+    navigate(location.pathname, { replace: true, state: {} });
+    setFlowSeed(seed);
+    setStoryCreationOpen(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state]);
+
   React.useEffect(() => {
     const state = location.state as { openFlow?: string } | null;
     if (!state?.openFlow || loading) return;
@@ -451,6 +507,26 @@ export default function Index() {
     document.addEventListener("visibilitychange", onVisibility);
     return () => document.removeEventListener("visibilitychange", onVisibility);
   }, []);
+
+  // Volta do background (refresh global com reason "resume"): no topo do feed,
+  // recarrega tudo em silêncio — não há leitura para atrapalhar. Rolado para
+  // baixo, trocar os posts de lugar faria a pessoa perder onde estava: aí só os
+  // flows (o ring) são atualizados e a dica de atualização continua valendo.
+  useAppRefresh(({ reason }) => {
+    if (reason !== "resume" || !feedCache.hydrated) return;
+    if (window.scrollY < 80) {
+      setShowRefreshHint(false);
+      loadFeed(false, true);
+      return;
+    }
+    getActiveStoriesDb()
+      .then((storiesData) => {
+        setStories(storiesData);
+        return getMyViewedFlowUserIdsDb(storiesData.map((s: StoryWithUser) => s.id));
+      })
+      .then((viewed) => setViewedStoryIds(viewed as Set<string>))
+      .catch((err) => console.error("Erro ao atualizar flows:", err));
+  });
 
   // Some sozinha depois de alguns segundos — é só uma dica, não bloqueia nada.
   React.useEffect(() => {
@@ -722,7 +798,14 @@ export default function Index() {
           };
 
           setStories((prev) => [enrichedStory, ...prev]);
+          // A navegação logo abaixo desmonta o feed antes do efeito que persiste
+          // o cache — grava já, para o ring aparecer ao voltar mesmo antes da
+          // releitura (FLOW_CREATED_EVENT) chegar.
+          if (!feedCache.stories.some((s) => s.id === enrichedStory.id)) {
+            feedCache.stories = [enrichedStory, ...feedCache.stories];
+          }
           setStoryCreationOpen(false);
+          setFlowSeed(null);
           navigate(`/flows/${enrichedStory.id}`);
         }
       } catch (err) {
@@ -940,7 +1023,7 @@ export default function Index() {
         setCopiedRoutineKeys((prev) => new Set(prev).add(key));
         toast({
           title: routineType === 1 ? t("feed_workout_copied") : routineType === 2 ? t("feed_diet_copied") : t("feed_habit_copied"),
-          description: t("feed_routine_copied_desc").replace("{name}", routineName ?? "Rotina"),
+          description: t("feed_routine_copied_desc").replace("{name}", routineName ?? t("routine_fallback_name")),
         });
       } catch (err: any) {
         toast({ title: t("feed_copy_error"), description: err?.message || t("retry"), variant: "destructive" });
@@ -1013,7 +1096,8 @@ export default function Index() {
   const postReshare = usePostReshare({
     context: "feed",
     // O ring de flows no topo do feed mostra o novo flow na hora.
-    onFlowShared: () => { getActiveStoriesDb().then(setStories).catch(() => {}); },
+    // O ring se atualiza sozinho via FLOW_CREATED_EVENT (refreshStories).
+    onFlowShared: undefined,
     // O repost entra no topo do próprio feed.
     onReposted: () => { loadFeed(false, true); },
   });
@@ -1200,14 +1284,15 @@ export default function Index() {
     isPullingRef.current = false;
     if (pullDistanceRef.current >= PULL_THRESHOLD) {
       hapticLight();
+      // Refresh GLOBAL antes do feed: derruba o cache do app inteiro (seguidos,
+      // perfis, curtidas, contadores...) e avisa header/footer e as outras
+      // partes montadas — ver @/lib/app-refresh. Assim o feed já lê do banco e
+      // o perfil aberto em seguida também.
+      requestAppRefresh("pull");
       setShowRefreshHint(false);
       setDiscoverLoaded(false);
       setHasMoreDiscover(true);
       loadFeed(true, true);
-      // Refresh de badges (mensagens/notificações) — o AppLayout escuta este
-      // evento para refazer o fetch, cobrindo o caso da subscription realtime
-      // ter caído silenciosamente.
-      window.dispatchEvent(new CustomEvent("ritmofit-refresh-badges"));
     }
     pullDistanceRef.current = 0;
     if (pullIndicatorRef.current) {
@@ -1493,7 +1578,11 @@ export default function Index() {
       {/* Flow Creation Dialog */}
       <FlowCreationDialog
         open={storyCreationOpen}
-        onOpenChange={setStoryCreationOpen}
+        onOpenChange={(open) => {
+          setStoryCreationOpen(open);
+          if (!open) setFlowSeed(null);
+        }}
+        seed={flowSeed}
         onCreateStory={handleCreateStory}
         isLoading={isCreatingStory}
       />
@@ -1712,6 +1801,7 @@ export default function Index() {
         title={t("feed_share_post_title")}
         onSendToFriend={() => setSendToFriendOpen(true)}
         onShareToFlow={postReshare.shareToFlow}
+        onEditFlow={postReshare.editFlow}
         onRepostToFeed={postReshare.repostToFeed}
         repostedToFeed={postReshare.repostedToFeed}
       />

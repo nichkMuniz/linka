@@ -4,6 +4,7 @@ import { LocalNotifications, type LocalNotificationSchema } from "@capacitor/loc
 import { Capacitor } from "@capacitor/core";
 import { getRoutineSchedulesDb, RoutineScheduleEntry } from "@/lib/ritmofit-db";
 import { REST_NOTIF_ID } from "@/lib/workout-context";
+import { resolveLanguage } from "@/lib/i18n";
 
 // Mapeia o tipo textual da notificação para o código numérico usado em
 // RoutineCard.key (`${RoutineTypeCode}::${name}`), permitindo abrir o drawer
@@ -77,12 +78,8 @@ type SchedulerLabels = {
 };
 
 function getSchedulerLabels(): SchedulerLabels {
-  let isEn = false;
-  try {
-    isEn = (localStorage.getItem("ritmofit-language") || "pt") === "en";
-  } catch {
-    isEn = false;
-  }
+  // Escolha salva ou idioma do aparelho — o mesmo da tela.
+  const isEn = resolveLanguage() === "en";
   return {
     type: isEn ? TYPE_LABELS_EN : TYPE_LABELS_PT,
     plural: isEn ? TYPE_PLURAL_EN : TYPE_PLURAL_PT,

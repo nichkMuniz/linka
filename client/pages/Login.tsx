@@ -1,4 +1,5 @@
 import * as React from "react";
+import { IMMUTABLE_CACHE_CONTROL } from "@/lib/storage-cache";
 
 import { useNavigate } from "react-router-dom";
 
@@ -407,8 +408,8 @@ export default function Login() {
       if (ok) {
         setBiometricEnabled(true);
         toast({
-          title: `${biometricSupport.label} ativado`,
-          description: `Da próxima vez, entre com ${biometricSupport.label}.`,
+          title: t("login_biometric_enabled_title").replace("{biometric}", biometricSupport.label),
+          description: t("login_biometric_enabled_desc").replace("{biometric}", biometricSupport.label),
         });
       }
     } catch {
@@ -753,7 +754,7 @@ export default function Login() {
             () =>
               supabase!.storage
                 .from("posts")
-                .upload(filePath, photoFile, { contentType: "image/jpeg", upsert: true }),
+                .upload(filePath, photoFile, { cacheControl: IMMUTABLE_CACHE_CONTROL, contentType: "image/jpeg", upsert: true }),
             { retries: 2, delayMs: 1200 },
           );
 
@@ -871,7 +872,7 @@ export default function Login() {
               const filePath = `${authUser.id}/business-logo-${Date.now()}.${extension}`;
               const { error: logoUploadError } = await supabase.storage
                 .from("posts")
-                .upload(filePath, businessLogoFile, { contentType: businessLogoFile.type });
+                .upload(filePath, businessLogoFile, { cacheControl: IMMUTABLE_CACHE_CONTROL, contentType: businessLogoFile.type });
               if (!logoUploadError) {
                 const { data: { publicUrl } } = supabase.storage.from("posts").getPublicUrl(filePath);
                 businessLogoUrl = publicUrl;

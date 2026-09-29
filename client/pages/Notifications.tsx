@@ -1,4 +1,5 @@
 import * as React from "react";
+import { requestAppRefresh, useAppRefresh } from "@/lib/app-refresh";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { MessageCircle, MessagesSquare, UserPlus, Zap, Swords, SmilePlus, ChevronLeft, AtSign, Send, Dumbbell, Heart, Clock, CheckCircle2, XCircle, Repeat2 } from "lucide-react";
@@ -178,6 +179,8 @@ export default function Notifications() {
     if (pullDistanceRef.current >= PULL_THRESHOLD) {
       hapticLight();
       invalidateQueryCache("notifications");
+      // Refresh global: contadores do header/footer e demais telas também.
+      requestAppRefresh("pull", "notifications");
       loadNotifications();
     }
     pullDistanceRef.current = 0;
@@ -187,6 +190,13 @@ export default function Notifications() {
     }
     if (pullSpinnerRef.current) pullSpinnerRef.current.style.opacity = "0";
   }, [loadNotifications]);
+
+  // Refresh vindo de fora (logo, volta do background): relê a lista — o cache
+  // já chega derrubado pelo refresh global.
+  useAppRefresh(({ source }) => {
+    if (source === "notifications") return;
+    loadNotifications();
+  });
 
   const getIncentiveTypeName = (type: number): string => {
     const map: Record<number, Parameters<typeof t>[0]> = {

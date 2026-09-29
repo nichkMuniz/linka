@@ -1,4 +1,6 @@
 import { reportHandledError } from "@/lib/monitoring";
+import { IMMUTABLE_CACHE_CONTROL } from "@/lib/storage-cache";
+import { resolveLanguage, tUi, type TranslationKey } from "@/lib/i18n";
 import { getUserSafe, hasSupabaseConfig, supabase, registerViewerCacheInvalidator, registerAuthUserReadyHandler } from "@/lib/supabase";
 import type { PostWorkoutSummary } from "@/lib/workout-summary-types";
 import { SHARE_BASE_URL } from "@/lib/share-url";
@@ -75,12 +77,16 @@ function assertShotId(value: string, label: string) {
   if (!/^\d+$/.test(v) && !UUID_RE.test(v)) throw new Error(`${label} inválido`);
 }
 
-function assertMaxLength(value: string, max: number, label: string) {
-  if (value.length > max) throw new Error(`${label} muito longo (máximo ${max} caracteres)`);
+// Estas duas chegam à tela (o toast mostra `err.message`), então o rótulo é uma
+// chave de tradução e a frase sai no idioma do app.
+function assertMaxLength(value: string, max: number, label: TranslationKey) {
+  if (value.length > max) {
+    throw new Error(tUi("validation_too_long").replace("{label}", tUi(label)).replace("{max}", String(max)));
+  }
 }
 
-function assertNotEmpty(value: string, label: string) {
-  if (!value.trim()) throw new Error(`${label} não pode estar vazio`);
+function assertNotEmpty(value: string, label: TranslationKey) {
+  if (!value.trim()) throw new Error(tUi("validation_empty").replace("{label}", tUi(label)));
 }
 
 // ─── Viewer cache ─────────────────────────────────────────────────────────────
@@ -171,8 +177,12 @@ registerAuthUserReadyHandler((userId: string) => {
 //
 // Write operations call invalidateQueryCache(prefix) to bust both layers.
 
-const _queryCache = new Map<string, { data: unknown; expiry: number }>();
+const _queryCache = new Map<string, { data: unknown; expiry: number; ttl: number }>();
 const _inflight = new Map<string, Promise<unknown>>();
+// Leituras que estavam em voo quando a chave foi invalidada: quando chegarem,
+// NÃO podem gravar no cache — o dado delas é anterior à invalidação, e gravá-lo
+// desfaria o refresh (era o "atualizei e continuou velho").
+const _discardedInflight = new WeakSet<Promise<unknown>>();
 
 // TTL por MUTABILIDADE do dado — quem pode escrever nele, e não "quão importante
 // ele é". Regra que define o tier:
@@ -211,9 +221,16 @@ const PERSIST_MAX_BYTES = 250_000; // ~250KB per entry
 const PERSIST_VERSION = 1;
 const PERSIST_PREFIX = "lk:q:";
 
-type PersistedEntry = { v: number; t: number; d: unknown };
+// `l` = TTL com que a entrada foi gravada. Vem ANTES de `d` no JSON de
+// propósito: o refresh global (`invalidateVolatileQueryCache`) lê só o começo
+// da string para decidir se a entrada é catálogo estático, sem fazer parse de
+// payloads de até 250KB. Entradas antigas sem `l` contam como voláteis.
+type PersistedEntry = { v: number; t: number; l?: number; d: unknown };
 
 function persistRead<T>(key: string): { data: T; storedAt: number } | null {
+  // Gravação ainda na fila (ver persistWrite) é a versão mais nova.
+  const queued = _pendingPersist.get(key);
+  if (queued) return { data: queued.data as T, storedAt: queued.t };
   try {
     const raw = localStorage.getItem(PERSIST_PREFIX + key);
     if (!raw) return null;
@@ -229,17 +246,59 @@ function persistRead<T>(key: string): { data: T; storedAt: number } | null {
   }
 }
 
-function persistWrite(key: string, data: unknown) {
-  try {
-    const payload = JSON.stringify({ v: PERSIST_VERSION, t: Date.now(), d: data } satisfies PersistedEntry);
-    if (payload.length > PERSIST_MAX_BYTES) return;
-    localStorage.setItem(PERSIST_PREFIX + key, payload);
-  } catch {
-    // Quota exceeded or serialization failed — non-fatal.
+// A cópia em disco NÃO é gravada na hora: `JSON.stringify` + `setItem` de até
+// 250 KB rodam no thread principal, e cada consulta fazia isso bem no instante
+// em que a tela estava montando (engasgo ao navegar). As gravações entram numa
+// fila por chave (a última vence) e saem quando o app fica ocioso. A memória
+// (`_queryCache`) já tem o dado na hora — o disco só serve à próxima abertura.
+const _pendingPersist = new Map<string, { data: unknown; ttl?: number; t: number }>();
+let _persistFlushScheduled = false;
+
+function flushPendingPersist() {
+  _persistFlushScheduled = false;
+  const entries = Array.from(_pendingPersist.entries());
+  _pendingPersist.clear();
+  for (const [key, { data, ttl, t }] of entries) {
+    try {
+      const payload = JSON.stringify({ v: PERSIST_VERSION, t, l: ttl, d: data } satisfies PersistedEntry);
+      if (payload.length > PERSIST_MAX_BYTES) continue;
+      localStorage.setItem(PERSIST_PREFIX + key, payload);
+    } catch {
+      // Quota exceeded or serialization failed — non-fatal.
+    }
+  }
+}
+
+function schedulePersistFlush() {
+  if (_persistFlushScheduled) return;
+  _persistFlushScheduled = true;
+  const w = typeof window !== "undefined" ? (window as any) : null;
+  if (w?.requestIdleCallback) w.requestIdleCallback(flushPendingPersist, { timeout: 2000 });
+  else setTimeout(flushPendingPersist, 300);
+}
+
+// App indo para o background (ou sendo fechado): grava o que estiver na fila,
+// senão a próxima abertura perderia o cache da sessão.
+if (typeof document !== "undefined") {
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden" && _pendingPersist.size > 0) flushPendingPersist();
+  });
+}
+
+function persistWrite(key: string, data: unknown, ttl?: number) {
+  _pendingPersist.set(key, { data, ttl, t: Date.now() });
+  schedulePersistFlush();
+}
+
+/** Descarta gravações na fila das chaves invalidadas (senão o dado velho voltaria ao disco). */
+function dropPendingPersist(match: (key: string) => boolean) {
+  for (const key of Array.from(_pendingPersist.keys())) {
+    if (match(key)) _pendingPersist.delete(key);
   }
 }
 
 function persistDelete(prefix?: string) {
+  dropPendingPersist((key) => !prefix || key.startsWith(prefix));
   try {
     if (!prefix) {
       const toRemove: string[] = [];
@@ -380,15 +439,18 @@ async function cached<T>(
 
   const fetchAndStore = (): Promise<T> => {
     if (inflight) return inflight;
-    const p = fn()
+    const p: Promise<T> = fn()
       .then((data) => {
+        if (_discardedInflight.has(p)) return data;
         if (opts?.skipEmpty && Array.isArray(data) && data.length === 0) return data;
-        _queryCache.set(key, { data, expiry: Date.now() + ttl });
-        persistWrite(key, data);
+        _queryCache.set(key, { data, expiry: Date.now() + ttl, ttl });
+        persistWrite(key, data, ttl);
         return data;
       })
       .finally(() => {
-        _inflight.delete(key);
+        // Só remove a PRÓPRIA entrada: depois de uma invalidação, a chave pode
+        // já apontar para uma leitura nova.
+        if (_inflight.get(key) === p) _inflight.delete(key);
       });
     _inflight.set(key, p);
     return p;
@@ -404,7 +466,7 @@ async function cached<T>(
     // cold start revalidava TODAS as chaves (inclusive catálogos imutáveis),
     // e o TTL só evitava refetch dentro da mesma sessão.
     if (age < ttl) {
-      _queryCache.set(key, { data: persisted.data, expiry: persisted.storedAt + ttl });
+      _queryCache.set(key, { data: persisted.data, expiry: persisted.storedAt + ttl, ttl });
       return persisted.data;
     }
 
@@ -412,7 +474,7 @@ async function cached<T>(
     // paint instantâneo) e revalida em background.
     // Janela curta de frescor na memória para que re-leituras no mesmo tick
     // não disparem outro fetch.
-    _queryCache.set(key, { data: persisted.data, expiry: Date.now() + 1_000 });
+    _queryCache.set(key, { data: persisted.data, expiry: Date.now() + 1_000, ttl });
     fetchAndStore().catch(() => { /* background error already logged by fn */ });
     return persisted.data;
   }
@@ -421,16 +483,66 @@ async function cached<T>(
   return fetchAndStore();
 }
 
+/** Tira da deduplicação as leituras em voo das chaves invalidadas (ver `_discardedInflight`). */
+function discardInflight(match: (key: string) => boolean) {
+  for (const [key, p] of _inflight) {
+    if (!match(key)) continue;
+    _discardedInflight.add(p);
+    _inflight.delete(key);
+  }
+}
+
 export function invalidateQueryCache(prefix?: string) {
   if (!prefix) {
     _queryCache.clear();
+    discardInflight(() => true);
     persistDelete();
     return;
   }
   for (const key of _queryCache.keys()) {
     if (key.startsWith(prefix)) _queryCache.delete(key);
   }
+  discardInflight((key) => key.startsWith(prefix));
   persistDelete(prefix);
+}
+
+/**
+ * Refresh global (pull-to-refresh, toque no logo, volta do background — ver
+ * `client/lib/app-refresh.ts`): derruba TODO dado que pode ter mudado — de
+ * terceiros ou do próprio usuário em outro aparelho — e preserva só os
+ * catálogos estáticos (`CACHE_TTL_STATIC`), que não mudam com a atividade de
+ * ninguém e custam caro para rebaixar.
+ *
+ * Sem isto, cada tela invalidava só as PRÓPRIAS chaves: atualizar o feed não
+ * tocava no cache do perfil nem no dos contadores, e a próxima tela aberta
+ * servia o que já tinha em memória/disco.
+ */
+export function invalidateVolatileQueryCache() {
+  const isStatic = (ttl: number | undefined) => (ttl ?? 0) >= CACHE_TTL_STATIC;
+  const staticKeys = new Set<string>();
+  for (const [key, entry] of _queryCache) {
+    if (isStatic(entry.ttl)) staticKeys.add(key);
+    else _queryCache.delete(key);
+  }
+  discardInflight((key) => !staticKeys.has(key));
+  dropPendingPersist((key) => !(isStatic(_pendingPersist.get(key)?.ttl) || key.startsWith("chatMessages:")));
+  try {
+    const toRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k || !k.startsWith(PERSIST_PREFIX)) continue;
+      const key = k.slice(PERSIST_PREFIX.length);
+      if (staticKeys.has(key)) continue;
+      // Semente da conversa: nunca é servida no lugar da rede (ver chatSeedKey).
+      if (key.startsWith("chatMessages:")) continue;
+      const head = localStorage.getItem(k)?.slice(0, 64) ?? "";
+      const ttl = Number(/"l":(\d+)/.exec(head)?.[1] ?? 0);
+      if (!isStatic(ttl)) toRemove.push(k);
+    }
+    toRemove.forEach((k) => localStorage.removeItem(k));
+  } catch {
+    // storage indisponível — a memória já foi limpa
+  }
 }
 
 // ————————————————————————————————————————————————————————————————
@@ -441,15 +553,9 @@ export function invalidateQueryCache(prefix?: string) {
 // para o texto original em português (inclui itens criados pelo usuário, que
 // não têm tradução). O idioma é lido do mesmo localStorage do language-context.
 // ————————————————————————————————————————————————————————————————
+// Escolha salva ou idioma do aparelho — mesma fonte da tela (ver `resolveLanguage`).
 export function getUiLanguage(): "pt" | "en" {
-  try {
-    return typeof localStorage !== "undefined" &&
-      localStorage.getItem("ritmofit-language") === "en"
-      ? "en"
-      : "pt";
-  } catch {
-    return "pt";
-  }
+  return resolveLanguage();
 }
 
 function pickLocalized(pt: any, eng: any): string {
@@ -822,7 +928,7 @@ export async function getPostLikeUsersDb(postId: string): Promise<Array<{
         const profile = profileMap.get(like.user_id);
         return {
           userId: like.user_id,
-          userNickname: profile?.nickname ?? "Usuário",
+          userNickname: profile?.nickname ?? tUi("user_fallback_name"),
           userPhoto: profile?.photo ?? null,
           type: like.type,
         };
@@ -929,7 +1035,7 @@ export async function getProfilesBatchDb(
 
   for (const row of data ?? []) {
     result.set(row.user_id, {
-      nickname: row.nickname ?? "Usuário",
+      nickname: row.nickname ?? tUi("user_fallback_name"),
       photo: row.photo ?? null,
       is_verified: row.is_verified === true,
       verified_tier: verifiedTierOf(row),
@@ -964,8 +1070,8 @@ export async function addPostCommentDb(postId: string, text: string) {
   if (!hasSupabaseConfig || !supabase) return;
 
   assertUUID(postId, "ID do post");
-  assertNotEmpty(text, "Comentário");
-  assertMaxLength(text.trim(), 500, "Comentário");
+  assertNotEmpty(text, "validation_label_comment");
+  assertMaxLength(text.trim(), 500, "validation_label_comment");
 
   const viewer = await getViewer();
   if (!viewer) return;
@@ -1018,7 +1124,7 @@ export async function getPostCommentsDb(
     .in("user_id", userIds);
 
   const profileMap = new Map(
-    (profiles ?? []).map((p: any) => [String(p.user_id), { nickname: String(p.nickname ?? "Usuário"), handle: String(p.handle ?? ""), photo: p.photo ?? null, is_verified: p.is_verified === true, verified_tier: verifiedTierOf(p) }]),
+    (profiles ?? []).map((p: any) => [String(p.user_id), { nickname: String(p.nickname ?? tUi("user_fallback_name")), handle: String(p.handle ?? ""), photo: p.photo ?? null, is_verified: p.is_verified === true, verified_tier: verifiedTierOf(p) }]),
   );
 
   return rows.map(
@@ -1028,7 +1134,7 @@ export async function getPostCommentsDb(
         id: String(row.id),
         postId: String(row.post_id),
         userId: String(row.user_id),
-        userName: profile?.nickname ?? String(row.user_name ?? "Usuário"),
+        userName: profile?.nickname ?? String(row.user_name ?? tUi("user_fallback_name")),
         userHandle: profile?.handle ?? "",
         userPhoto: profile?.photo ?? null,
         text: String(row.text ?? ""),
@@ -1061,8 +1167,8 @@ export async function deletePostCommentDb(commentId: string) {
 export async function updatePostCommentDb(commentId: string, text: string) {
   if (!hasSupabaseConfig || !supabase) return;
 
-  assertNotEmpty(text, "Comentário");
-  assertMaxLength(text.trim(), 500, "Comentário");
+  assertNotEmpty(text, "validation_label_comment");
+  assertMaxLength(text.trim(), 500, "validation_label_comment");
 
   const { error } = await supabase
     .from("comments")
@@ -1143,10 +1249,10 @@ export async function createCustomGoalAndSelectDb(
   if (!hasSupabaseConfig || !supabase) throw new Error("Supabase não configurado");
 
   assertUUID(userId, "ID do usuário");
-  assertNotEmpty(description, "Descrição da meta");
-  assertMaxLength(description.trim(), 200, "Descrição da meta");
-  if (duration <= 0 || duration > 3650) throw new Error("Duração inválida (1–3650 dias)");
-  if (quantity <= 0 || quantity > 100000) throw new Error("Quantidade inválida");
+  assertNotEmpty(description, "validation_label_goal_description");
+  assertMaxLength(description.trim(), 200, "validation_label_goal_description");
+  if (duration <= 0 || duration > 3650) throw new Error(tUi("validation_goal_duration"));
+  if (quantity <= 0 || quantity > 100000) throw new Error(tUi("validation_goal_quantity"));
 
   // Meta personalizada NÃO entra no catálogo `goals`: vive em
   // `user_custom_goals`, com dono, e o `user_goals` aponta por `custom_goal_id`.
@@ -2084,7 +2190,7 @@ export async function getRepostOriginsBatchDb(
     result.set(String(r.id), {
       postId: String(r.reposted_from),
       userId: authorId,
-      nickname: author?.nickname ?? "Usuário",
+      nickname: author?.nickname ?? tUi("user_fallback_name"),
       photo: author?.photo ?? null,
       verifiedTier: author?.verified_tier ?? null,
       description: original ? String(original.description ?? "") : null,
@@ -2112,7 +2218,7 @@ export async function repostPostDb(postId: string): Promise<void> {
     .eq("id", postId)
     .maybeSingle();
   if (readError) throw readError;
-  if (!original) throw new Error("Post não encontrado");
+  if (!original) throw new Error(tUi("error_post_not_found"));
 
   const { error } = await supabase.from("posts").insert({
     user_id: viewer.id,
@@ -2214,7 +2320,7 @@ export async function getUserPostsDb(userId: string): Promise<PostWithUser[]> {
     return [];
   }
 
-  const userNickname = userProfile?.nickname || "Usuário";
+  const userNickname = userProfile?.nickname || tUi("user_fallback_name");
   const userPhoto = userProfile?.photo || null;
   const isVerified = userProfile?.is_verified === true;
   const verifiedTier = verifiedTierOf(userProfile);
@@ -2273,7 +2379,7 @@ export async function getPostByIdDb(postId: string): Promise<PostWithUser | null
     created_at: String(data.created_at ?? ""),
     user_id: String(data.user_id),
     user_goal_id: data.user_goal_id ?? null,
-    userNickname: userProfile?.nickname || "Usuário",
+    userNickname: userProfile?.nickname || tUi("user_fallback_name"),
     userPhoto: userProfile?.photo || null,
     isVerified: userProfile?.is_verified === true,
     verifiedTier: verifiedTierOf(userProfile),
@@ -2469,7 +2575,7 @@ export async function getTaggedPostsDb(userId: string): Promise<PostWithUser[]> 
         created_at: String(row.created_at ?? ""),
         user_id: String(row.user_id ?? ""),
         user_goal_id: row.user_goal_id ?? null,
-        userNickname: author?.nickname || "Usuário",
+        userNickname: author?.nickname || tUi("user_fallback_name"),
         userPhoto: author?.photo ?? null,
         isVerified: author?.is_verified === true,
         verifiedTier: author?.verified_tier ?? null,
@@ -3046,7 +3152,7 @@ export async function updateCustomWorkoutDb(
 
   const location = await locateOwnCustomWorkout(workoutId, viewer.id);
   if (!location) {
-    throw new Error("Não foi possível editar este exercício (ele não é seu ou foi removido).");
+    throw new Error(tUi("error_custom_exercise_edit"));
   }
   // Foto anterior, para limpar o Storage depois da troca.
   const previousPhoto = updates.photo !== undefined ? location.photo : null;
@@ -3063,7 +3169,7 @@ export async function updateCustomWorkoutDb(
     throw error;
   }
   if (!data || data.length === 0) {
-    throw new Error("Não foi possível editar este exercício (ele não é seu ou foi removido).");
+    throw new Error(tUi("error_custom_exercise_edit"));
   }
 
   // Foto de exercício pode ser COMPARTILHADA entre linhas do catálogo (imagens
@@ -3098,7 +3204,7 @@ export async function deleteCustomWorkoutDb(workoutId: string): Promise<void> {
   // 0. Onde o exercício está, e a foto (lida antes de qualquer delete).
   const location = await locateOwnCustomWorkout(workoutId, viewer.id);
   if (!location) {
-    throw new Error("Não foi possível apagar este exercício (ele não é seu ou foi removido).");
+    throw new Error(tUi("error_custom_exercise_delete"));
   }
 
   // 1. Histórico deste exercício (antes dos vínculos, para não violar FK).
@@ -3131,7 +3237,7 @@ export async function deleteCustomWorkoutDb(workoutId: string): Promise<void> {
     throw error;
   }
   if (!data || data.length === 0) {
-    throw new Error("Não foi possível apagar este exercício (ele não é seu ou foi removido).");
+    throw new Error(tUi("error_custom_exercise_delete"));
   }
 
   // Imagem de exercício pode ser compartilhada por nome entre linhas do
@@ -3158,7 +3264,7 @@ export async function uploadCustomExercisePhotoDb(rawFile: File): Promise<string
   const path = `exercise-photos/${viewer.id}/${Date.now()}.${ext}`;
   const { error } = await supabase.storage
     .from("posts")
-    .upload(path, file, { upsert: false, contentType: file.type || "image/jpeg" });
+    .upload(path, file, { cacheControl: IMMUTABLE_CACHE_CONTROL, upsert: false, contentType: file.type || "image/jpeg" });
   if (error) throw error;
   const { data } = supabase.storage.from("posts").getPublicUrl(path);
   return data.publicUrl;
@@ -3781,7 +3887,7 @@ export async function getRecentWorkoutSessionsDb(
       const s = r.last_summary as RoutineLastSummary;
       return {
         routineId: r.id,
-        routineName: s.routineName || r.name || "Treino",
+        routineName: s.routineName || r.name || tUi("workout_fallback_name"),
         completedAt: s.completedAt,
         totalSeries: Number(s.totalSeries ?? 0),
         totalVolume: Number(s.totalVolume ?? 0),
@@ -4994,7 +5100,7 @@ export async function getUserWorkoutsDb(
       workout_id: String(row.workout_id ?? ""),
       user_id: String(row.user_id ?? ""),
       name: row.name ? String(row.name) : null,
-      workoutName: pickLocalized(w?.name, w?.name_eng) || "Exercício desconhecido",
+      workoutName: pickLocalized(w?.name, w?.name_eng) || tUi("unknown_exercise_name"),
       workoutPhoto: resolveWorkoutPhotoUrl(w?.photo, w?.wger_id),
       workoutDescription: pickLocalized(w?.description, w?.description_eng) || undefined,
       muscle_group: w?.muscle_group || null,
@@ -5345,7 +5451,7 @@ export async function getUserHabitsDb(
           habit_id: String(row.habit_id ?? ""),
           user_id: String(row.user_id ?? ""),
           name: row.name ? String(row.name) : null,
-          habitName: pickLocalized(hd?.name, hd?.name_eng) || "Hábito desconhecido",
+          habitName: pickLocalized(hd?.name, hd?.name_eng) || tUi("unknown_habit_name"),
           habitDescription: pickLocalized(hd?.description, hd?.description_eng) || undefined,
           is_completed: row.is_completed ?? false,
           completed_at: row.completed_at ?? null,
@@ -5382,7 +5488,7 @@ export async function getUserHabitsDb(
           habit_id: String(row.habit_id ?? ""),
           user_id: String(row.user_id ?? ""),
           name: row.name ? String(row.name) : null,
-          habitName: pickLocalized(hd?.name, hd?.name_eng) || "Hábito desconhecido",
+          habitName: pickLocalized(hd?.name, hd?.name_eng) || tUi("unknown_habit_name"),
           habitDescription: pickLocalized(hd?.description, hd?.description_eng) || undefined,
           is_completed: row.is_completed ?? false,
           completed_at: null,
@@ -5405,7 +5511,7 @@ export async function getUserHabitsDb(
         habit_id: String(row.habit_id ?? ""),
         user_id: String(row.user_id ?? ""),
         name: row.name ? String(row.name) : null,
-        habitName: "Hábito desconhecido",
+        habitName: tUi("unknown_habit_name"),
         habitDescription: undefined,
         is_completed: false,
         completed_at: null,
@@ -5427,7 +5533,7 @@ export async function getUserHabitsDb(
     habit_id: String(row.habit_id ?? ""),
     user_id: String(row.user_id ?? ""),
     name: row.name ? String(row.name) : null,
-    habitName: pickLocalized((row.habits as any)?.name, (row.habits as any)?.name_eng) || "Hábito desconhecido",
+    habitName: pickLocalized((row.habits as any)?.name, (row.habits as any)?.name_eng) || tUi("unknown_habit_name"),
     habitDescription: pickLocalized((row.habits as any)?.description, (row.habits as any)?.description_eng) || undefined,
     is_completed: row.is_completed ?? false,
     completed_at: row.completed_at ?? null,
@@ -5496,7 +5602,7 @@ export async function getRoutineSchedulesDb(
     results.push({
       id: String(row.id),
       type: "workout",
-      name: row.name || pickLocalized(w?.name, w?.name_eng) || "Treino",
+      name: row.name || pickLocalized(w?.name, w?.name_eng) || tUi("workout_fallback_name"),
       scheduled_time: String(row.scheduled_time),
       scheduled_days: row.scheduled_days ? String(row.scheduled_days) : null,
     });
@@ -5581,7 +5687,7 @@ export async function searchUsersDb(query: string): Promise<SearchUser[]> {
     .filter((row: any) => !blocked.has(String(row.user_id ?? "")))
     .map((row: any) => ({
       id: String(row.user_id ?? ""),
-      nickname: String(row.nickname ?? "Usuário"),
+      nickname: String(row.nickname ?? tUi("user_fallback_name")),
       bio: row.bio ? String(row.bio) : undefined,
       photo: row.photo ? String(row.photo) : null,
       handle: row.handle ? String(row.handle) : null,
@@ -5621,7 +5727,7 @@ export async function searchMentionUsersDb(term: string): Promise<SearchUser[]> 
     .filter((row: any) => row.handle && !blocked.has(String(row.user_id)) && String(row.user_id) !== viewer?.id)
     .map((row: any) => ({
       id: String(row.user_id),
-      nickname: String(row.nickname ?? "Usuário"),
+      nickname: String(row.nickname ?? tUi("user_fallback_name")),
       photo: row.photo ? String(row.photo) : null,
       handle: String(row.handle),
     }));
@@ -5736,7 +5842,7 @@ export async function searchRoutinesDb(
           routineName: row.name ? String(row.name) : null,
           routineType: Number(row.type),
           userId: String(row.user_id),
-          userNickname: profile?.nickname ? String(profile.nickname) : "Usuário",
+          userNickname: profile?.nickname ? String(profile.nickname) : tUi("user_fallback_name"),
           userPhoto: profile?.photo ? String(profile.photo) : null,
         };
       })
@@ -6006,7 +6112,7 @@ export async function getAllUsersDb(
 
         return (data ?? []).map((row: any) => ({
           id: String(row.user_id ?? ""),
-          nickname: String(row.nickname ?? "Usuário"),
+          nickname: String(row.nickname ?? tUi("user_fallback_name")),
           bio: row.bio ? String(row.bio) : undefined,
           photo: row.photo ? String(row.photo) : null,
           verifiedTier: verifiedTierOf(row),
@@ -6564,14 +6670,14 @@ export async function getActiveStoriesDb(): Promise<StoryWithUser[]> {
     const profileMap = new Map<string, { nickname: string; photo: string | null; verifiedTier: VerifiedTier | null }>();
     (profilesResult.data ?? []).forEach((p: any) => {
       profileMap.set(String(p.user_id), {
-        nickname: String(p.nickname ?? "Usuário"),
+        nickname: String(p.nickname ?? tUi("user_fallback_name")),
         photo: p.photo ? String(p.photo) : null,
         verifiedTier: verifiedTierOf(p),
       });
     });
 
     return attachRepostAuthors(storyList.map((story: any) => {
-      const profile = profileMap.get(story.user_id) ?? { nickname: "Usuário", photo: null, verifiedTier: null };
+      const profile = profileMap.get(story.user_id) ?? { nickname: tUi("user_fallback_name"), photo: null, verifiedTier: null };
       return {
         ...story,
         id: String(story.id),
@@ -6620,7 +6726,7 @@ export async function getUserActiveStoriesDb(userId: string): Promise<StoryWithU
         ...story,
         id: String(story.id),
         user_id: String(story.user_id),
-        userNickname: profile?.nickname ?? "Usuário",
+        userNickname: profile?.nickname ?? tUi("user_fallback_name"),
         userPhoto: profile?.photo ?? null,
         verifiedTier: verifiedTierOf(profile),
       })));
@@ -6667,7 +6773,7 @@ export async function getExpiredUserFlowsDb(): Promise<StoryWithUser[]> {
       ...story,
       id: String(story.id),
       user_id: String(story.user_id),
-      userNickname: profile?.nickname ?? "Usuário",
+      userNickname: profile?.nickname ?? tUi("user_fallback_name"),
       userPhoto: profile?.photo ?? null,
       verifiedTier: verifiedTierOf(profile),
     })));
@@ -6702,7 +6808,7 @@ export async function getFlowByIdDb(flowId: string): Promise<StoryWithUser | nul
       ...story,
       id: String(story.id),
       user_id: String(story.user_id),
-      userNickname: profile?.nickname ?? "Usuário",
+      userNickname: profile?.nickname ?? tUi("user_fallback_name"),
       userPhoto: profile?.photo ?? null,
       verifiedTier: verifiedTierOf(profile),
     }]);
@@ -6712,6 +6818,14 @@ export async function getFlowByIdDb(flowId: string): Promise<StoryWithUser | nul
     return null;
   }
 }
+
+/**
+ * Disparado depois que um flow é publicado — qualquer caminho: criador de flow,
+ * "Seu flow" de um post, repost de flow. O ring do feed e o do perfil escutam
+ * para aparecer com o flow novo sem refresh manual (ver Index.tsx/Profile.tsx).
+ * `detail` = `{ id, userId }` do flow criado.
+ */
+export const FLOW_CREATED_EVENT = "lk:flow-created";
 
 export async function createStoryDb(
   description: string,
@@ -6795,6 +6909,14 @@ export async function createStoryDb(
     invalidateQueryCache("activeStories");
     invalidateQueryCache("userActiveStories");
     invalidateQueryCache("userShots");
+
+    if (data && typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent(FLOW_CREATED_EVENT, {
+          detail: { id: String(data.id), userId: String(data.user_id) },
+        }),
+      );
+    }
 
     return data ? { ...data, id: String(data.id), user_id: String(data.user_id) } : null;
   } catch (err: any) {
@@ -7039,8 +7161,8 @@ export async function addStoryCommentDb(
 ): Promise<StoryComment | null> {
   if (!hasSupabaseConfig || !supabase) return null;
 
-  assertNotEmpty(text, "Comentário");
-  assertMaxLength(text.trim(), 500, "Comentário");
+  assertNotEmpty(text, "validation_label_comment");
+  assertMaxLength(text.trim(), 500, "validation_label_comment");
 
   const viewer = await getViewer();
   if (!viewer) return null;
@@ -7073,7 +7195,7 @@ export async function addStoryCommentDb(
       id: data?.id || "",
       storyId: storyId,
       userId: viewer.id,
-      userName: profileData?.nickname || "Usuário",
+      userName: profileData?.nickname || tUi("user_fallback_name"),
       userHandle: profileData?.handle || "",
       userPhoto: profileData?.photo || null,
       text,
@@ -7112,7 +7234,7 @@ export async function getStoryCommentsDb(
       .in("user_id", userIds);
 
     const profileMap = new Map(
-      (profiles ?? []).map((p: any) => [String(p.user_id), { nickname: String(p.nickname ?? "Usuário"), handle: String(p.handle ?? ""), photo: p.photo || null}]),
+      (profiles ?? []).map((p: any) => [String(p.user_id), { nickname: String(p.nickname ?? tUi("user_fallback_name")), handle: String(p.handle ?? ""), photo: p.photo || null}]),
     );
 
     return rows.map((comment: any) => {
@@ -7121,7 +7243,7 @@ export async function getStoryCommentsDb(
         id: String(comment.id),
         storyId: storyId,
         userId: String(comment.user_id),
-        userName: profile?.nickname ?? "Usuário",
+        userName: profile?.nickname ?? tUi("user_fallback_name"),
         userHandle: profile?.handle ?? "",
         userPhoto: profile?.photo ?? null,
         text: String(comment.text ?? ""),
@@ -7157,8 +7279,8 @@ export async function updateStoryCommentDb(commentId: string, text: string): Pro
   if (!hasSupabaseConfig || !supabase) return false;
 
   try {
-    assertNotEmpty(text, "Comentário");
-    assertMaxLength(text.trim(), 500, "Comentário");
+    assertNotEmpty(text, "validation_label_comment");
+    assertMaxLength(text.trim(), 500, "validation_label_comment");
 
     const numId = Number(commentId);
     const idVal = Number.isFinite(numId) ? numId : commentId;
@@ -7308,7 +7430,7 @@ export async function getFlowViewersDb(storyId: string): Promise<FlowViewer[]> {
       const profile = profileMap.get(String(view.follower_id));
       return {
         followerId: String(view.follower_id),
-        userNickname: profile?.nickname ?? "Usuário",
+        userNickname: profile?.nickname ?? tUi("user_fallback_name"),
         userPhoto: profile?.photo ?? null,
         incentiveTypes: likesPerUser.get(String(view.follower_id)) ?? [],
         viewedAt: String(view.updated_at ?? view.created_at),
@@ -7436,7 +7558,7 @@ export async function getShotViewersDb(shotId: string): Promise<ShotViewer[]> {
       const profile = profileMap.get(String(view.follower_id));
       return {
         followerId: String(view.follower_id),
-        userNickname: profile?.nickname ?? "Usuário",
+        userNickname: profile?.nickname ?? tUi("user_fallback_name"),
         userPhoto: profile?.photo ?? null,
         incentiveTypes: likesPerUser.get(String(view.follower_id)) ?? [],
         viewedAt: String(view.updated_at ?? view.created_at),
@@ -7578,7 +7700,7 @@ export async function uploadMessageAudioDb(blob: Blob, recipientId: string): Pro
 
   const { error } = await supabase.storage
     .from(CHAT_MEDIA_BUCKET)
-    .upload(path, blob, { upsert: false, contentType: blob.type || "audio/mp4" });
+    .upload(path, blob, { cacheControl: IMMUTABLE_CACHE_CONTROL, upsert: false, contentType: blob.type || "audio/mp4" });
   if (error) throw error;
 
   return `${CHAT_MEDIA_PREFIX}${path}`;
@@ -7597,7 +7719,7 @@ export async function uploadMessageImageDb(rawFile: File, recipientId: string): 
 
   const { error } = await supabase.storage
     .from(CHAT_MEDIA_BUCKET)
-    .upload(path, file, { upsert: false, contentType: file.type || "image/jpeg" });
+    .upload(path, file, { cacheControl: IMMUTABLE_CACHE_CONTROL, upsert: false, contentType: file.type || "image/jpeg" });
   if (error) throw error;
 
   return `${CHAT_MEDIA_PREFIX}${path}`;
@@ -7626,8 +7748,8 @@ export async function sendMessageDb(
   if (!hasSupabaseConfig || !supabase) return null;
 
   assertUUID(recipientId, "ID do destinatário");
-  assertNotEmpty(text, "Mensagem");
-  assertMaxLength(text.trim(), 1000, "Mensagem");
+  assertNotEmpty(text, "validation_label_message");
+  assertMaxLength(text.trim(), 1000, "validation_label_message");
 
   const viewer = await getViewer();
   if (!viewer) return null;
@@ -7828,7 +7950,7 @@ export async function getConversationsDb(): Promise<Conversation[]> {
 
       (profiles ?? []).forEach((p: any) => {
         profileMap.set(String(p.user_id), {
-          nickname: String(p.nickname ?? "Usuário"),
+          nickname: String(p.nickname ?? tUi("user_fallback_name")),
           photo: p.photo ? String(p.photo) : null,
           bio: p.bio ? String(p.bio) : null,
           is_verified: p.is_verified === true,
@@ -7841,7 +7963,7 @@ export async function getConversationsDb(): Promise<Conversation[]> {
     const conversations: Conversation[] = [];
 
     for (const { userId, lastMessage, lastMessageTime, unreadCount } of summaries) {
-      const profile = profileMap.get(userId) ?? { nickname: "Usuário", photo: null, bio: null, is_verified: false, verified_tier: null };
+      const profile = profileMap.get(userId) ?? { nickname: tUi("user_fallback_name"), photo: null, bio: null, is_verified: false, verified_tier: null };
 
       conversations.push({
         userId,
@@ -7955,16 +8077,16 @@ export async function getConversationMessagesDb(
       ...msg,
       senderNickname:
         msg.user_id === viewer.id
-          ? senderProfile?.nickname || "Você"
-          : recipientProfile?.nickname || "Usuário",
+          ? senderProfile?.nickname || tUi("nav_you")
+          : recipientProfile?.nickname || tUi("user_fallback_name"),
       senderPhoto:
         msg.user_id === viewer.id
           ? senderProfile?.photo || null
           : recipientProfile?.photo || null,
       recipientNickname:
         msg.following_id === viewer.id
-          ? senderProfile?.nickname || "Você"
-          : recipientProfile?.nickname || "Usuário",
+          ? senderProfile?.nickname || tUi("nav_you")
+          : recipientProfile?.nickname || tUi("user_fallback_name"),
       recipientPhoto:
         msg.following_id === viewer.id
           ? senderProfile?.photo || null
@@ -8231,7 +8353,7 @@ export async function getFollowersDb(userId?: string): Promise<SearchUser[]> {
 
     return (profiles ?? []).map((row: any) => ({
       id: String(row.user_id ?? ""),
-      nickname: String(row.nickname ?? "Usuário"),
+      nickname: String(row.nickname ?? tUi("user_fallback_name")),
       bio: row.bio ? String(row.bio) : undefined,
       photo: row.photo ? String(row.photo) : null,
     }));
@@ -8288,7 +8410,7 @@ export async function getFollowingDb(
 
     return (profiles ?? []).map((row: any) => ({
       id: String(row.user_id ?? ""),
-      nickname: String(row.nickname ?? "Usuário"),
+      nickname: String(row.nickname ?? tUi("user_fallback_name")),
       bio: row.bio ? String(row.bio) : undefined,
       photo: row.photo ? String(row.photo) : null,
       handle: row.handle ? String(row.handle) : null,
@@ -8425,7 +8547,7 @@ export async function getShotsDb(): Promise<ShotWithUser[]> {
     const shotsWithUserData: ShotWithUser[] = (shotsData ?? []).map(
       (shot: any) => {
         const userProfile = profileMap.get(String(shot.user_id)) || {
-          nickname: "Usuário",
+          nickname: tUi("user_fallback_name"),
           handle: null,
           photo: null,
           is_verified: false,
@@ -8445,7 +8567,7 @@ export async function getShotsDb(): Promise<ShotWithUser[]> {
           likes: likeData.likes,
           userLikes: likeData.userLikes,
           commentCount: commentCountMap.get(String(shot.id)) ?? 0,
-          userNickname: String(userProfile.nickname ?? "Usuário"),
+          userNickname: String(userProfile.nickname ?? tUi("user_fallback_name")),
           userHandle: userProfile.handle ? String(userProfile.handle) : null,
           userPhoto: userProfile.photo ? String(userProfile.photo) : null,
           isVerified: (userProfile as any).is_verified === true,
@@ -8509,7 +8631,7 @@ export async function getShotByIdDb(shotId: string): Promise<ShotWithUser | null
       likes,
       userLikes,
       commentCount: commentsResult.count ?? 0,
-      userNickname: userProfile?.nickname || "Usuário",
+      userNickname: userProfile?.nickname || tUi("user_fallback_name"),
       userHandle: userProfile?.handle ? String(userProfile.handle) : null,
       userPhoto: userProfile?.photo || null,
       isVerified: userProfile?.is_verified === true,
@@ -8662,7 +8784,7 @@ export async function getShotLikeUsersDb(shotId: string): Promise<Array<{
       const profile = profileMap.get(like.user_id);
       return {
         userId: like.user_id,
-        userNickname: profile?.nickname ?? "Usuário",
+        userNickname: profile?.nickname ?? tUi("user_fallback_name"),
         userPhoto: profile?.photo ?? null,
         type: like.type,
       };
@@ -8848,7 +8970,7 @@ export async function getShotCommentsDb(
             id: String(row.id),
             shotId: String(row.post_id),
             userId: String(row.user_id),
-            userName: String(row.user_name ?? "Usuário"),
+            userName: String(row.user_name ?? tUi("user_fallback_name")),
             userHandle: String(row.user_handle ?? "user"),
             userPhoto: null,
             text: String(row.text ?? ""),
@@ -8869,7 +8991,7 @@ export async function getShotCommentsDb(
         .in("user_id", uniqueUserIds);
 
       (profiles ?? []).forEach((p: any) => {
-        profileMap.set(String(p.user_id), { nickname: p.nickname ?? "Usuário", handle: p.handle ?? null, photo: p.photo ?? null});
+        profileMap.set(String(p.user_id), { nickname: p.nickname ?? tUi("user_fallback_name"), handle: p.handle ?? null, photo: p.photo ?? null});
       });
     }
 
@@ -8879,7 +9001,7 @@ export async function getShotCommentsDb(
         id: String(row.id),
         shotId: String(row.shots_id),
         userId: String(row.user_id),
-        userName: profile?.nickname ?? String(row.user_name ?? "Usuário"),
+        userName: profile?.nickname ?? String(row.user_name ?? tUi("user_fallback_name")),
         userHandle: profile?.handle ?? String(row.user_handle ?? "user"),
         userPhoto: profile?.photo ?? null,
         text: String(row.text ?? ""),
@@ -8941,8 +9063,8 @@ export async function deleteShotCommentDb(commentId: string) {
 export async function updateShotCommentDb(commentId: string, text: string) {
   if (!hasSupabaseConfig || !supabase) return;
   assertUUID(commentId, "ID do comentário");
-  assertNotEmpty(text, "Comentário");
-  assertMaxLength(text.trim(), 500, "Comentário");
+  assertNotEmpty(text, "validation_label_comment");
+  assertMaxLength(text.trim(), 500, "validation_label_comment");
 
   const viewer = await getViewer();
   if (!viewer) return;
@@ -9003,7 +9125,7 @@ export async function getRankingDb(): Promise<RankingUser[]> {
     return rankingData.map((r: any) => {
       const uid = String(r.user_id);
       const points = Number(r.points) || 0;
-      const profile = profileMap.get(uid) || { nickname: "Usuário", photo: null};
+      const profile = profileMap.get(uid) || { nickname: tUi("user_fallback_name"), photo: null};
       return {
         userId: uid,
         userNickname: String(profile.nickname),
@@ -9819,11 +9941,11 @@ export async function deletePostDb(postId: string): Promise<boolean> {
       .single();
 
     if (fetchError) throw fetchError;
-    if (!postData) throw new Error("Post não encontrado");
+    if (!postData) throw new Error(tUi("error_post_not_found"));
 
     // Verify ownership
     if (postData.user_id !== viewer.id) {
-      throw new Error("Você não tem permissão para deletar este post");
+      throw new Error(tUi("error_post_delete_forbidden"));
     }
 
     // Delete notifications referencing this post
@@ -9903,10 +10025,10 @@ export async function updatePostDb(
       .single();
 
     if (fetchError) throw fetchError;
-    if (!postData) throw new Error("Post não encontrado");
+    if (!postData) throw new Error(tUi("error_post_not_found"));
 
     if (postData.user_id !== viewer.id) {
-      throw new Error("Você não tem permissão para editar este post");
+      throw new Error(tUi("error_post_edit_forbidden"));
     }
 
     // Update the post
@@ -9945,15 +10067,15 @@ export async function removePostPhotoDb(
     .single();
 
   if (fetchError) throw fetchError;
-  if (!postData) throw new Error("Post não encontrado");
-  if (postData.user_id !== viewer.id) throw new Error("Sem permissão para editar este post");
+  if (!postData) throw new Error(tUi("error_post_not_found"));
+  if (postData.user_id !== viewer.id) throw new Error(tUi("error_post_edit_forbidden"));
 
   const currentPhotos: string[] = Array.isArray(postData.photos)
     ? postData.photos
     : [postData.photo].filter(Boolean);
 
   if (currentPhotos.length <= 1) {
-    throw new Error("Não é possível remover a última foto do post");
+    throw new Error(tUi("error_post_last_photo"));
   }
 
   const updatedPhotos = currentPhotos.filter((p) => p !== photoUrl);
@@ -10066,7 +10188,7 @@ export async function getUserShotsDb(userId: string): Promise<ShotWithUser[]> {
 
       return {
         ...shot,
-        userNickname: profileData?.nickname || "Usuário",
+        userNickname: profileData?.nickname || tUi("user_fallback_name"),
         userHandle: profileData?.handle || null,
         userPhoto: profileData?.photo || null,
         likes,
@@ -11163,7 +11285,7 @@ export async function uploadWorkoutImageDb(userId: string, blob: Blob): Promise<
   const path = `workout-summary/${userId}/${Date.now()}.${ext}`;
   const { error } = await supabase.storage
     .from("posts")
-    .upload(path, blob, { contentType: blob.type, upsert: false });
+    .upload(path, blob, { cacheControl: IMMUTABLE_CACHE_CONTROL, contentType: blob.type, upsert: false });
   if (error) throw error;
   const { data } = supabase.storage.from("posts").getPublicUrl(path);
   return data.publicUrl;
@@ -12021,7 +12143,7 @@ export async function getEnrichedDuelGroupsDb(
         .select("user_id, nickname, photo")
         .in("user_id", creatorIds);
       (profiles ?? []).forEach((p: any) => {
-        creatorProfileMap[p.user_id] = { nickname: p.nickname || "Usuário", photo: p.photo || null};
+        creatorProfileMap[p.user_id] = { nickname: p.nickname || tUi("user_fallback_name"), photo: p.photo || null};
       });
     }
 
@@ -12066,13 +12188,13 @@ export async function getEnrichedDuelGroupsDb(
         .select("user_id, nickname, photo")
         .in("user_id", participantGroupCreatorIds);
       (pgProfiles ?? []).forEach((p: any) => {
-        participantCreatorProfileMap[p.user_id] = { nickname: p.nickname || "Usuário", photo: p.photo || null};
+        participantCreatorProfileMap[p.user_id] = { nickname: p.nickname || tUi("user_fallback_name"), photo: p.photo || null};
       });
     }
 
     const myGroups: EnrichedDuelGroup[] = [
       ...createdGroups.map((g: any) => {
-        const creator = creatorProfileMap[g.created_by] ?? { nickname: "Usuário", photo: null};
+        const creator = creatorProfileMap[g.created_by] ?? { nickname: tUi("user_fallback_name"), photo: null};
         return {
           ...toBase(g),
           creatorNickname: creator.nickname,
@@ -12083,7 +12205,7 @@ export async function getEnrichedDuelGroupsDb(
         };
       }),
       ...participantGroups.map((g: any) => {
-        const creator = participantCreatorProfileMap[g.created_by] ?? { nickname: "Usuário", photo: null};
+        const creator = participantCreatorProfileMap[g.created_by] ?? { nickname: tUi("user_fallback_name"), photo: null};
         return {
           ...toBase(g),
           creatorNickname: creator.nickname,
@@ -12096,7 +12218,7 @@ export async function getEnrichedDuelGroupsDb(
     ];
 
     const availableGroups: EnrichedDuelGroup[] = availGroups.map((g: any) => {
-      const creator = creatorProfileMap[g.created_by] ?? { nickname: "Usuário", photo: null};
+      const creator = creatorProfileMap[g.created_by] ?? { nickname: tUi("user_fallback_name"), photo: null};
       return {
         ...toBase(g),
         creatorNickname: creator.nickname,
@@ -12161,7 +12283,7 @@ export async function updateGroupPhotoDb(groupId: string, file: File): Promise<s
   const path = `group-covers/${groupId}/${Date.now()}.${ext}`;
   const { error: uploadError } = await supabase.storage
     .from("posts")
-    .upload(path, file, { upsert: false, contentType: file.type });
+    .upload(path, file, { cacheControl: IMMUTABLE_CACHE_CONTROL, upsert: false, contentType: file.type });
   if (uploadError) throw uploadError;
   const { data: urlData } = supabase.storage.from("posts").getPublicUrl(path);
   const photoUrl = urlData.publicUrl;
@@ -12208,7 +12330,7 @@ export async function addGroupCheckInDb(
       .eq("user_id", userId)
       .single();
 
-    const currentNickname = profile?.nickname || "Usuário";
+    const currentNickname = profile?.nickname || tUi("user_fallback_name");
 
     // All distinct muscle groups trained in this check-in, most-frequent
     // first (same ranking as `muscleGroup`, which is just muscleGroups[0]).
@@ -12362,7 +12484,7 @@ export async function getGroupCheckInsDb(groupId: string): Promise<GroupCheckIn[
         .select("user_id, nickname, photo")
         .in("user_id", userIds);
       (profiles ?? []).forEach((p: any) => {
-        profileMap.set(String(p.user_id), { nickname: p.nickname || "Usuário", photo: p.photo || null});
+        profileMap.set(String(p.user_id), { nickname: p.nickname || tUi("user_fallback_name"), photo: p.photo || null});
       });
     }
 
@@ -12372,7 +12494,7 @@ export async function getGroupCheckInsDb(groupId: string): Promise<GroupCheckIn[
         id: checkIn.id,
         groupId: checkIn.group_id,
         userId: checkIn.user_id,
-        userName: profile?.nickname ?? checkIn.user_name ?? "Usuário",
+        userName: profile?.nickname ?? checkIn.user_name ?? tUi("user_fallback_name"),
         userPhoto: profile?.photo ?? null,
         photo: checkIn.photo || "",
         // Ensure photos is always an array, even if it's a string or null from the DB
@@ -12429,7 +12551,7 @@ export async function getGroupCheckInDetailDb(checkInId: string): Promise<GroupC
       id: data.id,
       groupId: data.group_id,
       userId: data.user_id,
-      userName: profile?.nickname ?? data.user_name ?? "Usuário",
+      userName: profile?.nickname ?? data.user_name ?? tUi("user_fallback_name"),
       userPhoto: profile?.photo ?? null,
       photo: data.photo || "",
       // Ensure photos is always an array, even if it's a string or null from the DB
@@ -12472,7 +12594,7 @@ export async function uploadCheckInPhotoDb(userId: string, file: File, index: nu
   const filePath = `checkins/${userId}/${Date.now()}-${index}.${ext}`;
   const { error } = await supabase.storage
     .from("posts")
-    .upload(filePath, file, { contentType: file.type, upsert: false });
+    .upload(filePath, file, { cacheControl: IMMUTABLE_CACHE_CONTROL, contentType: file.type, upsert: false });
   if (error) throw error;
   const { data } = supabase.storage.from("posts").getPublicUrl(filePath);
   return data.publicUrl;
@@ -12823,7 +12945,7 @@ export async function getGroupParticipantsDb(
 
     return (profiles || []).map((profile: any) => ({
       userId: profile.user_id,
-      userNickname: profile.nickname || "Usuário",
+      userNickname: profile.nickname || tUi("user_fallback_name"),
       userPhoto: profile.photo || null,
     }));
   } catch (error: any) {
@@ -13028,7 +13150,7 @@ export async function deleteAllUserDataDb(userId: string): Promise<void> {
   // usuário já foram apagadas acima, e um `return` silencioso deixaria a conta
   // viva em auth.users sem ninguém saber.
   if (!accessToken) {
-    throw new Error("Sessão expirada — entre novamente para excluir a conta");
+    throw new Error(tUi("error_delete_account_session"));
   }
 
   // URL ABSOLUTA obrigatoriamente. Dentro do WebView do Capacitor a base é
@@ -13201,7 +13323,7 @@ export async function getPendingGroupRequestsDb(opts?: { fresh?: boolean }): Pro
 
     const profileMap: Record<string, { nickname: string; photo: string | null }> = {};
     for (const p of profiles ?? []) {
-      profileMap[p.user_id] = { nickname: p.nickname || "Usuário", photo: p.photo || null };
+      profileMap[p.user_id] = { nickname: p.nickname || tUi("user_fallback_name"), photo: p.photo || null };
     }
 
     const groupNameMap: Record<string, string> = {};
@@ -13211,7 +13333,7 @@ export async function getPendingGroupRequestsDb(opts?: { fresh?: boolean }): Pro
       groupId: p.group_id,
       groupName: groupNameMap[p.group_id] || "Grupo",
       userId: p.user_id,
-      userNickname: profileMap[p.user_id]?.nickname || "Usuário",
+      userNickname: profileMap[p.user_id]?.nickname || tUi("user_fallback_name"),
       userPhoto: profileMap[p.user_id]?.photo || null,
       participants: countMap[p.group_id] ?? 1,
     }));
@@ -13312,14 +13434,14 @@ export async function getCheckInCommentsDb(checkInId: string): Promise<CheckInCo
 
     const profileMap: Record<string, { nickname: string; photo: string | null }> = {};
     for (const p of profiles ?? []) {
-      profileMap[p.user_id] = { nickname: p.nickname || "Usuário", photo: p.photo || null};
+      profileMap[p.user_id] = { nickname: p.nickname || tUi("user_fallback_name"), photo: p.photo || null};
     }
 
     return data.map((c: any) => ({
       id: c.id,
       checkInId: c.check_in_id,
       userId: c.user_id,
-      userNickname: profileMap[c.user_id]?.nickname || "Usuário",
+      userNickname: profileMap[c.user_id]?.nickname || tUi("user_fallback_name"),
       userPhoto: profileMap[c.user_id]?.photo || null,
       text: c.text,
       createdAt: c.created_at,
@@ -13395,7 +13517,7 @@ export async function getCheckInReactionUsersDb(checkInId: string): Promise<Chec
     return reactions.map((r) => ({
       userId: r.user_id,
       emoji: r.emoji,
-      userName: profileMap[r.user_id]?.nickname ?? "Usuário",
+      userName: profileMap[r.user_id]?.nickname ?? tUi("user_fallback_name"),
       userPhoto: profileMap[r.user_id]?.photo ?? null,
     }));
   } catch {
@@ -13450,8 +13572,8 @@ export async function sendCheckInReactionNotificationDb(checkInId: string, check
 export async function addCheckInCommentDb(checkInId: string, text: string): Promise<CheckInComment> {
   if (!supabase) throw new Error("Supabase não configurado");
   assertUUID(checkInId, "ID do check-in");
-  assertNotEmpty(text, "Comentário");
-  assertMaxLength(text.trim(), 500, "Comentário");
+  assertNotEmpty(text, "validation_label_comment");
+  assertMaxLength(text.trim(), 500, "validation_label_comment");
 
   const viewer = await getViewer();
   if (!viewer) throw new Error("Não autenticado");
@@ -13498,7 +13620,7 @@ export async function addCheckInCommentDb(checkInId: string, text: string): Prom
     id: data.id,
     checkInId: data.check_in_id,
     userId: data.user_id,
-    userNickname: profile?.nickname || "Usuário",
+    userNickname: profile?.nickname || tUi("user_fallback_name"),
     userPhoto: profile?.photo || null,
     text: data.text,
     createdAt: data.created_at,
@@ -13524,8 +13646,8 @@ export async function deleteCheckInCommentDb(commentId: string): Promise<void> {
 export async function updateCheckInCommentDb(commentId: string, text: string): Promise<void> {
   if (!hasSupabaseConfig || !supabase) return;
 
-  assertNotEmpty(text, "Comentário");
-  assertMaxLength(text.trim(), 500, "Comentário");
+  assertNotEmpty(text, "validation_label_comment");
+  assertMaxLength(text.trim(), 500, "validation_label_comment");
 
   const { error } = await supabase
     .from("duel_check_in_comments")
@@ -15191,7 +15313,7 @@ export async function getPromotionsDb(
       const profile = profileMap.get(String(r.user_id));
       return {
         ...r,
-        user_nickname: profile?.nickname ?? "Usuário",
+        user_nickname: profile?.nickname ?? tUi("user_fallback_name"),
         user_handle: profile?.handle ?? "",
         user_photo: profile?.photo ?? null,
         likes_count: countMap.get(r.id) ?? 0,
@@ -15219,8 +15341,8 @@ export async function createPromotionDb(payload: {
 }): Promise<Promotion | null> {
   if (!hasSupabaseConfig || !supabase) return null;
 
-  assertNotEmpty(payload.title, "Título");
-  assertMaxLength(payload.title, 120, "Título");
+  assertNotEmpty(payload.title, "validation_label_title");
+  assertMaxLength(payload.title, 120, "validation_label_title");
 
   const viewer = await getViewer();
   if (!viewer) return null;
@@ -15566,7 +15688,7 @@ export async function getPromotionCommentsDb(
     const profileMap = new Map(
       (profiles ?? []).map((p: any) => [
         String(p.user_id),
-        { nickname: String(p.nickname ?? "Usuário"), handle: String(p.handle ?? ""), photo: p.photo ?? null},
+        { nickname: String(p.nickname ?? tUi("user_fallback_name")), handle: String(p.handle ?? ""), photo: p.photo ?? null},
       ]),
     );
 
@@ -15576,7 +15698,7 @@ export async function getPromotionCommentsDb(
         id: String(row.id),
         promotionId: String(row.promotion_id),
         userId: String(row.user_id),
-        userName: profile?.nickname ?? "Usuário",
+        userName: profile?.nickname ?? tUi("user_fallback_name"),
         userHandle: profile?.handle ?? "",
         userPhoto: profile?.photo ?? null,
         text: String(row.text ?? ""),
@@ -15590,8 +15712,8 @@ export async function addPromotionCommentDb(promotionId: string, text: string) {
   if (!hasSupabaseConfig || !supabase) return;
 
   assertUUID(promotionId, "ID da promoção");
-  assertNotEmpty(text, "Comentário");
-  assertMaxLength(text.trim(), 500, "Comentário");
+  assertNotEmpty(text, "validation_label_comment");
+  assertMaxLength(text.trim(), 500, "validation_label_comment");
 
   const viewer = await getViewer();
   if (!viewer) return;
@@ -15644,8 +15766,8 @@ export async function deletePromotionCommentDb(commentId: string) {
 export async function updatePromotionCommentDb(commentId: string, text: string) {
   if (!hasSupabaseConfig || !supabase) return;
 
-  assertNotEmpty(text, "Comentário");
-  assertMaxLength(text.trim(), 500, "Comentário");
+  assertNotEmpty(text, "validation_label_comment");
+  assertMaxLength(text.trim(), 500, "validation_label_comment");
 
   const { error } = await supabase
     .from("promotion_comments")
@@ -17064,7 +17186,7 @@ export async function getWorkoutPartyInviteByIdDb(
 
 /** Completa a linha da party com apelido e foto de quem convidou. */
 async function hydrateWorkoutParty(row: any): Promise<WorkoutPartyInvite> {
-  let nickname = "Usuário";
+  let nickname = tUi("user_fallback_name");
   let photo: string | null = null;
   if (supabase && row.host_id) {
     const { data: profile } = await supabase
@@ -17146,7 +17268,7 @@ export async function getWorkoutPartyMembersDb(
         const profile = byId.get(String(row.user_id));
         const member: WorkoutPartyMember = {
           userId: String(row.user_id),
-          nickname: profile?.nickname ? String(profile.nickname) : "Usuário",
+          nickname: profile?.nickname ? String(profile.nickname) : tUi("user_fallback_name"),
           photo: profile?.photo ? String(profile.photo) : null,
           role: row.role === "host" ? "host" : "guest",
           status: String(row.status ?? "pending") as WorkoutPartyMemberStatus,

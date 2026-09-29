@@ -63,7 +63,7 @@ import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
 import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
 import { hapticLight, hapticMedium } from "@/lib/haptics";
 import { cn } from "@/lib/utils";
-import { renderWithHashtags, renderWithMentions } from "@/lib/post-visuals";
+import { renderWithHashtags, renderWithMentions, isCaptionTruncatable, collapsedCaption } from "@/lib/post-visuals";
 import { MentionSuggestions } from "@/components/shared/mention-suggestions";
 import { useOpenProfileByHandle } from "@/hooks/use-open-profile-by-handle";
 import { UserInsignias } from "@/components/profile/user-insignias";
@@ -1400,14 +1400,13 @@ export default function Shots() {
                   {shot.description && (() => {
                     const description = shot.description;
                     const isExpanded = expandedDescriptions.has(shot.id);
-                    const isDescTruncatable = description.includes("\n") || description.length > DESC_MAX_CHARS;
-                    const truncatedDescription = description.length > DESC_MAX_CHARS
-                      ? description.slice(0, DESC_MAX_CHARS).trimEnd()
-                      : description.split("\n")[0] ?? "";
+                    const isDescTruncatable = isCaptionTruncatable(description, DESC_MAX_CHARS);
+                    const truncatedDescription = collapsedCaption(description, DESC_MAX_CHARS);
                     return (
                       <p
                         className={cn(
-                          "text-sm text-white drop-shadow-md leading-relaxed pointer-events-auto inline-block",
+                          // pre-wrap: respeita as quebras de linha que a pessoa digitou.
+                          "text-sm text-white drop-shadow-md leading-relaxed pointer-events-auto inline-block whitespace-pre-wrap break-words",
                           isDescTruncatable && "cursor-pointer",
                           isExpanded && "max-h-[40vh] overflow-y-auto",
                         )}
@@ -1472,7 +1471,7 @@ export default function Shots() {
                   {/* Comments Button */}
                   <button
                     onClick={() => { hapticLight(); handleOpenComments(shot); }}
-                    aria-label={`Comentários (${shot.commentCount || 0})`}
+                    aria-label={t("shots_comments_aria").replace("{n}", String(shot.commentCount || 0))}
                     className="inline-flex shrink-0 items-center gap-1 transition-opacity hover:opacity-80 min-h-[44px] min-w-[44px] justify-center"
                   >
                     <div className="flex flex-col items-center gap-1">

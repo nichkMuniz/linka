@@ -1,4 +1,5 @@
 import * as React from "react";
+import { IMMUTABLE_CACHE_CONTROL } from "@/lib/storage-cache";
 import {
   getUserProfileDb,
   getUserPostsDb,
@@ -27,6 +28,7 @@ import {
   type CommercialOffer,
   getUserActiveStoriesDb,
   getMyViewedFlowUserIdsDb,
+  FLOW_CREATED_EVENT,
   getUserPostLikesDb,
   deleteAllUserDataDb,
   type UserProfile,
@@ -105,6 +107,7 @@ import { BlockUserDialog } from "@/components/shared/block-user-dialog";
 import { FEATURES } from "@/lib/feature-flags";
 import { ImageCropperDrawer } from "@/components/shared/image-cropper-drawer";
 import { profileShareUrl, postShareUrl } from "@/lib/share-url";
+import { requestAppRefresh, useAppRefresh } from "@/lib/app-refresh";
 import { usePostReshare } from "@/hooks/use-post-reshare";
 import { useOpenProfileByHandle } from "@/hooks/use-open-profile-by-handle";
 import { renderWithHashtags } from "@/lib/post-visuals";
@@ -145,6 +148,27 @@ import { hapticLight } from "@/lib/haptics";
 import { prefetchFlowMedia } from "@/lib/media-prefetch";
 import { pickFlowEntry } from "@/lib/flow-entry";
 
+// Lado da miniatura na grade do perfil (px CSS). 3 colunas num iPhone ≈ 120px
+// por célula; com folga para as larguras maiores (sm/md usam 4–5 colunas).
+const GRID_THUMB_PX = 160;
+
+// Último perfil exibido (dados do "batch 1"), por visitante + perfil. Reabrir um
+// perfil já visto nasce preenchido e atualiza por trás (recarga soft), em vez
+// de passar pelo esqueleto a cada navegação. A chave inclui QUEM está vendo:
+// trocar de conta no aparelho não pode mostrar a visão do dono a outra pessoa.
+type ProfileSnapshot = { profile: UserProfile | null; stats: UserStats; posts: PostWithUser[] };
+const profileSnapshots = new Map<string, ProfileSnapshot>();
+const MAX_PROFILE_SNAPSHOTS = 12;
+
+function saveProfileSnapshot(key: string, snap: ProfileSnapshot) {
+  profileSnapshots.delete(key);
+  profileSnapshots.set(key, snap);
+  if (profileSnapshots.size > MAX_PROFILE_SNAPSHOTS) {
+    const oldest = profileSnapshots.keys().next().value;
+    if (oldest !== undefined) profileSnapshots.delete(oldest);
+  }
+}
+
 export default function Profile() {
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
@@ -184,14 +208,16 @@ export default function Profile() {
   // Determine if we're viewing another user's profile
   const isViewingOtherProfile = !!userId && userId !== user?.id;
   const profileUserId = userId || user?.id;
+  const snapshotKey = profileUserId && user?.id ? `${user.id}:${profileUserId}` : null;
+  const initialSnapshot = snapshotKey ? profileSnapshots.get(snapshotKey) : undefined;
 
-  const [profile, setProfile] = React.useState<UserProfile | null>(null);
+  const [profile, setProfile] = React.useState<UserProfile | null>(() => initialSnapshot?.profile ?? null);
   const [shareDrawerOpen, setShareDrawerOpen] = React.useState(false);
   const [shareDrawerText, setShareDrawerText] = React.useState("");
   const [shareDrawerUrl, setShareDrawerUrl] = React.useState<string | undefined>(undefined);
   // O drawer serve ao perfil e ao post aberto no viewer (recompartilhar).
   const [shareDrawerTitle, setShareDrawerTitle] = React.useState("");
-  const [posts, setPosts] = React.useState<PostWithUser[]>([]);
+  const [posts, setPosts] = React.useState<PostWithUser[]>(() => initialSnapshot?.posts ?? []);
   const [shots, setShots] = React.useState<ShotWithUser[]>([]);
   // Posts de OUTRAS pessoas em que este perfil foi marcado (aba "Marcações")
   const [taggedPosts, setTaggedPosts] = React.useState<PostWithUser[]>([]);
@@ -216,14 +242,14 @@ export default function Profile() {
   const [isLikesModalOpen, setIsLikesModalOpen] = React.useState(false);
   const [selectedShot, setSelectedShot] = React.useState<ShotWithUser | null>(null);
   const [isShotEditorOpen, setIsShotEditorOpen] = React.useState(false);
-  const [stats, setStats] = React.useState<UserStats>({
+  const [stats, setStats] = React.useState<UserStats>(() => initialSnapshot?.stats ?? {
     postsCount: 0,
     followersCount: 0,
     followingCount: 0,
     points: 0,
     level: 1,
   });
-  const [loading, setLoading] = React.useState(true);
+  const [loading, setLoading] = React.useState(() => !initialSnapshot);
   const [profileError, setProfileError] = React.useState(false);
   /**
    * Bloqueio entre o visitante e o dono deste perfil. Com bloqueio o perfil não
@@ -376,6 +402,17 @@ export default function Profile() {
     //
     // O `catch(() => [])` mantém a regra da casa: falha de rede aqui não pode
     // transformar um perfil normal numa tela de bloqueio.
+    // Batch 1 já sai JUNTO com a checagem de bloqueio (antes esperava por ela:
+    // duas idas ao servidor antes de pintar o perfil de outra pessoa). Com
+    // bloqueio o resultado é descartado sem nunca chegar ao estado da tela — o
+    // custo é só a consulta, a regra de privacidade continua a mesma.
+    const batch1 = Promise.all([
+      getUserProfileDb(profileUserId),
+      getUserStatsDb(profileUserId),
+      getUserPostsDb(profileUserId),
+    ]);
+    batch1.catch(() => { /* tratado no await abaixo */ });
+
     if (isViewingOtherProfile) {
       const [blockedIds, blockedByMeIds] = await Promise.all([
         getBlockedIdsDb().catch(() => [] as string[]),
@@ -393,6 +430,12 @@ export default function Profile() {
         // lista do app. Conteúdo, contagens e abas não.
         const profileData = await getUserProfileDb(profileUserId).catch(() => null);
         if (isStale()) return;
+        // Na recarga soft o conteúdo anterior ainda estava na tela.
+        if (snapshotKey) profileSnapshots.delete(snapshotKey);
+        setPosts([]);
+        setShots([]);
+        setTaggedPosts([]);
+        setRoutines([]);
         setProfile(profileData);
         setLoading(false);
         return;
@@ -403,16 +446,13 @@ export default function Profile() {
 
     try {
       // Batch 1 — critical above-the-fold data: show immediately
-      const [profileData, statsData, postsData] = await Promise.all([
-        getUserProfileDb(profileUserId),
-        getUserStatsDb(profileUserId),
-        getUserPostsDb(profileUserId),
-      ]);
+      const [profileData, statsData, postsData] = await batch1;
       if (isStale()) return;
       setProfile(profileData);
       setStats(statsData);
       setPosts(postsData);
       setLoading(false); // unblock UI as soon as critical data arrives
+      if (snapshotKey) saveProfileSnapshot(snapshotKey, { profile: profileData, stats: statsData, posts: postsData });
     } catch (err: any) {
       if (isStale()) return;
       console.error("Error loading profile:", err);
@@ -506,7 +546,7 @@ export default function Profile() {
     } else {
       setViewerFollowsProfile(false);
     }
-  }, [profileUserId, isViewingOtherProfile]);
+  }, [profileUserId, isViewingOtherProfile, snapshotKey]);
 
   // Pull-to-refresh handlers (declared after loadProfile to avoid forward reference).
   // Atualizam o indicador direto no DOM — nenhum re-render React durante o gesto.
@@ -557,6 +597,9 @@ export default function Profile() {
         invalidateQueryCache(`userActiveStories:${profileUserId}`);
         if (user?.id) invalidateQueryCache(`isFollowing:${user.id}:${profileUserId}`);
       }
+      // Refresh global: header/footer (notificações, mensagens) e o resto do
+      // app também saem do banco — ver @/lib/app-refresh.
+      requestAppRefresh("pull", "profile");
       // soft: mantém o conteúdo atual na tela em vez de voltar ao skeleton
       loadProfile({ soft: true });
     }
@@ -763,9 +806,55 @@ export default function Profile() {
 
 
 
+  // Mantém o snapshot igual ao que está na tela — edição do próprio perfil,
+  // seguir/deixar de seguir e post apagado mudam o estado sem passar pelo load.
   React.useEffect(() => {
-    loadProfile();
+    if (loading || !snapshotKey || !profile || blockRelation.isBlocked) return;
+    saveProfileSnapshot(snapshotKey, { profile, stats, posts });
+  }, [loading, snapshotKey, profile, stats, posts, blockRelation.isBlocked]);
+
+  React.useEffect(() => {
+    // Perfil já visto (snapshot) → mostra na hora e atualiza por trás.
+    const snap = snapshotKey ? profileSnapshots.get(snapshotKey) : undefined;
+    if (snap) {
+      setProfile(snap.profile);
+      setStats(snap.stats);
+      setPosts(snap.posts);
+      setLoading(false);
+      loadProfile({ soft: true });
+    } else {
+      loadProfile();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profileUserId, loadProfile]);
+
+  // Flow publicado (criador, "Seu flow" de um post, repost): o ring do PRÓPRIO
+  // perfil aparece na hora. Com o perfil desmontado não precisa — o
+  // createStoryDb já derrubou o cache de `userActiveStories`.
+  React.useEffect(() => {
+    if (!profileUserId || isViewingOtherProfile) return;
+    const onFlowCreated = () => {
+      getUserActiveStoriesDb(profileUserId)
+        .then(async (stories) => {
+          setProfileStories(stories);
+          const viewed = await getMyViewedFlowUserIdsDb(stories.map((s) => s.id)).catch(
+            () => new Set<string>(),
+          );
+          setViewedFlowIds(viewed);
+        })
+        .catch((err) => console.error("Erro ao atualizar flows do perfil:", err));
+    };
+    window.addEventListener(FLOW_CREATED_EVENT, onFlowCreated);
+    return () => window.removeEventListener(FLOW_CREATED_EVENT, onFlowCreated);
+  }, [profileUserId, isViewingOtherProfile]);
+
+  // Refresh vindo de fora (pull no feed, toque no logo, volta do background):
+  // o cache já chega derrubado, então a recarga soft lê tudo do banco sem
+  // voltar ao skeleton.
+  useAppRefresh(({ source }) => {
+    if (source === "profile") return;
+    loadProfile({ soft: true });
+  });
 
   // When navigating from one profile to another (e.g. tapping a name inside an
   // open post's comments/incentives), Profile.tsx stays mounted since "/perfil"
@@ -951,7 +1040,7 @@ export default function Profile() {
       const filePath = `covers/${user.id}-${Date.now()}.jpg`;
       const { error: uploadError } = await supabase.storage
         .from("posts")
-        .upload(filePath, blob, { contentType: "image/jpeg" });
+        .upload(filePath, blob, { cacheControl: IMMUTABLE_CACHE_CONTROL, contentType: "image/jpeg" });
       if (uploadError) throw uploadError;
       const { data: { publicUrl } } = supabase.storage.from("posts").getPublicUrl(filePath);
       const updated = await updateUserProfileDb(user.id, { cover_photo: publicUrl });
@@ -1545,7 +1634,9 @@ export default function Profile() {
               </button>
             )}
           </div>
-          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none -mx-4 px-4">
+          {/* overflow-y-hidden: overflow-x-auto sozinho vira scroller vertical
+              também (ver a barra de abas abaixo) e prenderia o arrasto da página. */}
+          <div className="flex gap-2 overflow-x-auto overflow-y-hidden pb-1 scrollbar-none -mx-4 px-4">
             {sortedUserGoals.map((goal) => {
               const isDone = goal.perc >= 100;
               const isHidden = hiddenGoalIds.has(goal.id);
@@ -1706,20 +1797,26 @@ export default function Profile() {
             defeito. Continua ligado assim que existir mais de uma aba, então
             religar as flags não traz o problema de layout de volta.
 
-            Sem abas extras não se declara overflow nenhum (em vez de
-            `overflow-hidden`): o sublinhado da aba ativa usa `-mb-px` para
-            cobrir a borda da lista, e ficaria recortado. */}
-        <TabsList className={`w-full justify-start gap-5 !h-auto !bg-transparent !rounded-none !p-0 border-b border-white/10 ${visibleTabCount > 1 ? "overflow-x-auto no-scrollbar" : ""}`}>
+            Scroll VERTICAL da barra (corrigido 29/09/2026): pela regra do CSS,
+            `overflow-x: auto` força o eixo y a `auto` também — e o sublinhado
+            da aba ativa usava `-mb-px` para cobrir a borda, sobrando 1px de
+            conteúdo vertical. A barra virava um scroller vertical: o toque que
+            começava nela rolava (e dava rubber-band) a própria barra em vez da
+            página. Agora o eixo y é travado (`overflow-y-hidden`, e o arrasto
+            vertical encadeia para a página) e a linha cinza é uma sombra
+            INTERNA da barra: o sublinhado (borda da aba, pintada por cima da
+            sombra do pai) a cobre sem sair da caixa, então nada é recortado. */}
+        <TabsList className={`w-full justify-start gap-5 !h-auto !bg-transparent !rounded-none !p-0 !shadow-[inset_0_-1px_0_rgba(255,255,255,0.1)] ${visibleTabCount > 1 ? "overflow-x-auto overflow-y-hidden no-scrollbar" : ""}`}>
           <TabsTrigger
             value="posts"
-            className="shrink-0 whitespace-nowrap !rounded-none !bg-transparent !shadow-none !px-0 pb-3 -mb-px border-b-2 border-transparent !text-white/45 data-[state=active]:!border-white data-[state=active]:!text-white text-[14px] font-[640]"
+            className="shrink-0 whitespace-nowrap !rounded-none !bg-transparent !shadow-none !px-0 pb-3 border-b-2 border-transparent !text-white/45 data-[state=active]:!border-white data-[state=active]:!text-white text-[14px] font-[640]"
           >
             {t("profile_posts")} ({feedPosts.length})
           </TabsTrigger>
           {FEATURES.profileWorkoutsTab && (
           <TabsTrigger
             value="treinos"
-            className="shrink-0 whitespace-nowrap !rounded-none !bg-transparent !shadow-none !px-0 pb-3 -mb-px border-b-2 border-transparent !text-white/45 data-[state=active]:!border-white data-[state=active]:!text-white text-[14px] font-[640]"
+            className="shrink-0 whitespace-nowrap !rounded-none !bg-transparent !shadow-none !px-0 pb-3 border-b-2 border-transparent !text-white/45 data-[state=active]:!border-white data-[state=active]:!text-white text-[14px] font-[640]"
           >
             {t("profile_workouts")} ({workoutPosts.length})
           </TabsTrigger>
@@ -1727,7 +1824,7 @@ export default function Profile() {
           {FEATURES.profileExtraTabs && FEATURES.shots && (
           <TabsTrigger
             value="shots"
-            className="shrink-0 whitespace-nowrap !rounded-none !bg-transparent !shadow-none !px-0 pb-3 -mb-px border-b-2 border-transparent !text-white/45 data-[state=active]:!border-white data-[state=active]:!text-white text-[14px] font-[640]"
+            className="shrink-0 whitespace-nowrap !rounded-none !bg-transparent !shadow-none !px-0 pb-3 border-b-2 border-transparent !text-white/45 data-[state=active]:!border-white data-[state=active]:!text-white text-[14px] font-[640]"
           >
             {t("nav_clips")}{tabsDataLoaded ? ` (${shots.length})` : ""}
           </TabsTrigger>
@@ -1735,7 +1832,7 @@ export default function Profile() {
           {FEATURES.profileTaggedTab && FEATURES.postTags && (
           <TabsTrigger
             value="marcacoes"
-            className="shrink-0 whitespace-nowrap !rounded-none !bg-transparent !shadow-none !px-0 pb-3 -mb-px border-b-2 border-transparent !text-white/45 data-[state=active]:!border-white data-[state=active]:!text-white text-[14px] font-[640]"
+            className="shrink-0 whitespace-nowrap !rounded-none !bg-transparent !shadow-none !px-0 pb-3 border-b-2 border-transparent !text-white/45 data-[state=active]:!border-white data-[state=active]:!text-white text-[14px] font-[640]"
           >
             {t("profile_tagged")}{tabsDataLoaded ? ` (${taggedPosts.length})` : ""}
           </TabsTrigger>
@@ -1743,7 +1840,7 @@ export default function Profile() {
           {FEATURES.store && profileOffers.length > 0 && (
             <TabsTrigger
               value="vitrine"
-              className="shrink-0 whitespace-nowrap !rounded-none !bg-transparent !shadow-none !px-0 pb-3 -mb-px border-b-2 border-transparent !text-white/45 data-[state=active]:!border-white data-[state=active]:!text-white text-[14px] font-[640]"
+              className="shrink-0 whitespace-nowrap !rounded-none !bg-transparent !shadow-none !px-0 pb-3 border-b-2 border-transparent !text-white/45 data-[state=active]:!border-white data-[state=active]:!text-white text-[14px] font-[640]"
             >
               {commercialProfile ? `${t("settings_section_business")} (${profileOffers.length})` : `${t("nav_store")} (${profileOffers.length})`}
             </TabsTrigger>
@@ -1766,11 +1863,12 @@ export default function Profile() {
                   onClick={() => handleViewPost(post)}
                   className="group relative aspect-square overflow-hidden rounded-[14px] bg-muted transition-all cursor-pointer"
                 >
-                  <img
-                    src={post.photo}
+                  {/* Miniatura guardada no aparelho (ver @/lib/thumb-cache): a grade
+                      monta dezenas de fotos de centenas de KB de uma vez. */}
+                  <ImageWithFallback
+                    src={post.photo ?? undefined}
                     alt={post.description}
-                    loading="lazy"
-                    decoding="async"
+                    thumbSize={GRID_THUMB_PX}
                     className="h-full w-full object-cover group-hover:scale-110 transition-transform"
                   />
                   <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
@@ -1814,11 +1912,10 @@ export default function Profile() {
                   onClick={() => handleViewPost(post)}
                   className="group relative aspect-square overflow-hidden rounded-[14px] bg-muted transition-all cursor-pointer"
                 >
-                  <img
-                    src={post.workoutSummary?.imageUrl || post.photo}
+                  <ImageWithFallback
+                    src={post.workoutSummary?.imageUrl || post.photo || undefined}
                     alt={post.workoutSummary?.routineName || post.description}
-                    loading="lazy"
-                    decoding="async"
+                    thumbSize={GRID_THUMB_PX}
                     className="h-full w-full object-cover group-hover:scale-110 transition-transform"
                   />
                   <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
@@ -1912,11 +2009,12 @@ export default function Profile() {
                   onClick={() => handleViewPost(post)}
                   className="group relative aspect-square overflow-hidden rounded-[14px] bg-muted transition-all cursor-pointer"
                 >
-                  <img
-                    src={post.photo}
+                  {/* Miniatura guardada no aparelho (ver @/lib/thumb-cache): a grade
+                      monta dezenas de fotos de centenas de KB de uma vez. */}
+                  <ImageWithFallback
+                    src={post.photo ?? undefined}
                     alt={post.description}
-                    loading="lazy"
-                    decoding="async"
+                    thumbSize={GRID_THUMB_PX}
                     className="h-full w-full object-cover group-hover:scale-110 transition-transform"
                   />
                   <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
@@ -2507,6 +2605,7 @@ export default function Profile() {
         url={shareDrawerUrl}
         title={shareDrawerTitle}
         onShareToFlow={postReshare.shareToFlow}
+        onEditFlow={postReshare.editFlow}
         onRepostToFeed={postReshare.repostToFeed}
         repostedToFeed={postReshare.repostedToFeed}
       />

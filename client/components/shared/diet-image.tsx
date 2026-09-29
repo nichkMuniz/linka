@@ -1,4 +1,5 @@
 import * as React from "react";
+import { useThumbSrc } from "@/lib/thumb-cache";
 import { UtensilsCrossed } from "lucide-react";
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -73,16 +74,20 @@ interface DietImageProps {
   name: string;
   category?: string | null;
   className?: string;
+  /** Maior lado exibido (px CSS) — ver `thumbSize` em `ExerciseImage`. */
+  thumbSize?: number;
 }
 
-export function DietImage({ photo, name, category, className = "h-14 w-14" }: DietImageProps) {
+export function DietImage({ photo, name, category, className = "h-14 w-14", thumbSize = 64 }: DietImageProps) {
   const [imgError, setImgError] = React.useState(false);
+  const shownSrc = useThumbSrc(photo, thumbSize);
+  React.useEffect(() => setImgError(false), [photo]);
 
   if (photo && !imgError) {
     return (
       <img
-        src={photo}
-        alt={name}
+        src={shownSrc}
+        alt={shownSrc ? name : ""}
         className={`${className} rounded-lg object-cover flex-shrink-0 bg-muted`}
         onError={() => setImgError(true)}
         loading="lazy"

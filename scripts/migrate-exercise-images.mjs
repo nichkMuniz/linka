@@ -15,6 +15,12 @@ import { readFileSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 
+// Cache de 7 dias (segundos). Sem isto o objeto sobe sem cache útil e o app
+// busca cada imagem do catálogo de novo a toda exibição. Não é "imutável"
+// (1 ano) porque este script sobrescreve o MESMO caminho (upsert) ao corrigir
+// uma imagem — a versão nova precisa chegar ao aparelho em dias, não em um ano.
+const CATALOG_CACHE_CONTROL = "604800";
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 function loadEnv() {
@@ -101,7 +107,7 @@ async function uploadImage(wgerId, imageUrl) {
 
     const { error } = await supabase.storage
       .from(STORAGE_BUCKET)
-      .upload(path, buffer, { upsert: true, contentType });
+      .upload(path, buffer, { upsert: true, contentType, cacheControl: CATALOG_CACHE_CONTROL });
 
     if (error) {
       console.warn(`    Storage error for wger_id ${wgerId}: ${error.message}`);

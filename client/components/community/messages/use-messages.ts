@@ -338,7 +338,7 @@ export function useMessages({
           read: newMessage.read ?? 0,
           created_at: newMessage.created_at ?? new Date().toISOString(),
           emoji: newMessage.emoji ?? null,
-          senderNickname: "Você",
+          senderNickname: t("nav_you"),
           senderPhoto: null,
           recipientNickname: selectedConversation.userNickname || "Usuário",
           recipientPhoto: selectedConversation.userPhoto || null,
@@ -393,7 +393,7 @@ export function useMessages({
             read: newMessage.read ?? 0,
             created_at: newMessage.created_at ?? new Date().toISOString(),
             emoji: newMessage.emoji ?? null,
-            senderNickname: "Você",
+            senderNickname: t("nav_you"),
             senderPhoto: null,
             recipientNickname: selectedConversation.userNickname || "Usuário",
             recipientPhoto: selectedConversation.userPhoto || null,
@@ -489,7 +489,7 @@ export function useMessages({
           read: newMessage.read ?? 0,
           created_at: newMessage.created_at ?? new Date().toISOString(),
           emoji: newMessage.emoji ?? null,
-          senderNickname: "Você",
+          senderNickname: t("nav_you"),
           senderPhoto: null,
           recipientNickname: selectedConversation.userNickname || "Usuário",
           recipientPhoto: selectedConversation.userPhoto || null,
@@ -592,14 +592,14 @@ export function useMessages({
             emoji: msg.emoji ?? null,
             senderNickname:
               msg.user_id === user.id
-                ? "Você"
+                ? t("nav_you")
                 : selectedConversation.userNickname || "Usuário",
             senderPhoto:
               msg.user_id === user.id ? null : selectedConversation.userPhoto || null,
             recipientNickname:
               msg.user_id === user.id
                 ? selectedConversation.userNickname || "Usuário"
-                : "Você",
+                : t("nav_you"),
             recipientPhoto:
               msg.user_id === user.id ? selectedConversation.userPhoto || null : null,
           };

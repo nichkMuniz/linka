@@ -62,6 +62,16 @@ export function UserSafetyDrawer({
   const [reportOpen, setReportOpen] = React.useState(false);
   const [reportContentOpen, setReportContentOpen] = React.useState(false);
   const [blockOpen, setBlockOpen] = React.useState(false);
+  // Alvo CONGELADO no toque da ação. Tocar numa linha fecha este menu, e vários
+  // pais zeram o próprio estado ao fechar (o drawer de comentários faz
+  // `setSafetyTarget(null)`) — o `userId` chegava null ao ReportDrawer, que só
+  // desenha os motivos com alvo: abria vazio, "sem opção nenhuma". O bloqueio
+  // abria sem ninguém para bloquear. Com a cópia, os filhos não dependem mais
+  // de o pai manter o alvo depois que o menu fecha.
+  const [frozen, setFrozen] = React.useState<{ userId: string | null; userName: string } | null>(null);
+  const freeze = () => setFrozen({ userId, userName });
+  const targetUserId = frozen?.userId ?? userId;
+  const targetUserName = frozen?.userName ?? userName;
 
   const rowStyle: React.CSSProperties = {
     background: "rgba(255,255,255,.06)",
@@ -90,6 +100,7 @@ export function UserSafetyDrawer({
             {content && (
               <button
                 onClick={() => {
+                  freeze();
                   onOpenChange(false);
                   setReportContentOpen(true);
                 }}
@@ -105,6 +116,7 @@ export function UserSafetyDrawer({
 
             <button
               onClick={() => {
+                freeze();
                 onOpenChange(false);
                 setReportOpen(true);
               }}
@@ -121,6 +133,7 @@ export function UserSafetyDrawer({
 
             <button
               onClick={() => {
+                freeze();
                 onOpenChange(false);
                 setBlockOpen(true);
               }}
@@ -150,7 +163,7 @@ export function UserSafetyDrawer({
           open={reportOpen}
           onOpenChange={setReportOpen}
           type="user"
-          target={userId ? { id: userId, userId, userName } : null}
+          target={targetUserId ? { id: targetUserId, userId: targetUserId, userName: targetUserName } : null}
         />
       )}
 
@@ -159,15 +172,15 @@ export function UserSafetyDrawer({
           open={reportContentOpen}
           onOpenChange={setReportContentOpen}
           type={content.type}
-          target={userId ? { id: content.id, userId, userName } : null}
+          target={targetUserId ? { id: content.id, userId: targetUserId, userName: targetUserName } : null}
         />
       )}
 
       <BlockUserDialog
         open={blockOpen}
         onOpenChange={setBlockOpen}
-        userId={userId}
-        userName={userName}
+        userId={targetUserId}
+        userName={targetUserName}
         mode={blockedByMe ? "unblock" : "block"}
         onDone={onBlocked}
       />

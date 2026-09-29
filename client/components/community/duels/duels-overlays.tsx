@@ -15,6 +15,7 @@ import {
   type GroupCheckIn,
   type DuelCheckInVoteType,
 } from "@/lib/ritmofit-db";
+import { IMMUTABLE_CACHE_CONTROL } from "@/lib/storage-cache";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -738,8 +739,8 @@ export function DuelsOverlays({
           onOpenAutoFocus={(e) => e.preventDefault()}
         >
           <DrawerHeader className="shrink-0">
-            <DrawerTitle className="text-white">Adicionar Check-in</DrawerTitle>
-            <DrawerDescription className="sr-only">Registre seu check-in de treino</DrawerDescription>
+            <DrawerTitle className="text-white">{t("duels_checkin_add_title")}</DrawerTitle>
+            <DrawerDescription className="sr-only">{t("duels_checkin_add_sr")}</DrawerDescription>
           </DrawerHeader>
 
           <div className="flex-1 overflow-y-auto px-4 pb-4">
@@ -888,7 +889,7 @@ export function DuelsOverlays({
                         <Plus className="h-8 w-8 text-brand" />
                       </div>
                       <div className="text-center">
-                        <p className="text-sm font-medium text-white">Adicionar Fotos</p>
+                        <p className="text-sm font-medium text-white">{t("duels_checkin_add_photos")}</p>
                         <p className="text-xs mt-1" style={{ color: "rgba(255,255,255,.5)" }}>{t("duels_checkin_photo_hint")}</p>
                       </div>
                       <div className="flex gap-2">
@@ -937,13 +938,13 @@ export function DuelsOverlays({
 
               {/* Description */}
               <div className="space-y-2">
-                <label className={GLASS_LABEL_CLASS}>Descrição</label>
+                <label className={GLASS_LABEL_CLASS}>{t("duels_checkin_description")}</label>
                 <Textarea
                   value={checkInForm.description}
                   onChange={(e) =>
                     setCheckInForm({ ...checkInForm, description: e.target.value })
                   }
-                  placeholder="Como foi seu treino? Deixe uma mensagem..."
+                  placeholder={t("duels_checkin_description_placeholder")}
                   className={`min-h-20 ${GLASS_FIELD_CLASS}`}
                   style={GLASS_FIELD_STYLE}
                 />
@@ -951,7 +952,7 @@ export function DuelsOverlays({
 
               {/* Completed Routine Selector */}
               <div className="space-y-2">
-                <label className={GLASS_LABEL_CLASS}>O que você treinou? *</label>
+                <label className={GLASS_LABEL_CLASS}>{t("duels_checkin_what_trained")}</label>
                 {isLoadingRoutines ? (
                   <div className="space-y-2">
                     {[1, 2].map((i) => (
@@ -992,9 +993,10 @@ export function DuelsOverlays({
                       const completedDate = new Date(routine.completedAt);
                       const today = new Date();
                       const isToday = completedDate.toDateString() === today.toDateString();
+                      const dateLocale = language === "en" ? "en-US" : "pt-BR";
                       const dateLabel = isToday
-                        ? "Hoje " + completedDate.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
-                        : completedDate.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" }) + " " + completedDate.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+                        ? t("duels_today") + " " + completedDate.toLocaleTimeString(dateLocale, { hour: "2-digit", minute: "2-digit" })
+                        : completedDate.toLocaleDateString(dateLocale, { day: "2-digit", month: "short" }) + " " + completedDate.toLocaleTimeString(dateLocale, { hour: "2-digit", minute: "2-digit" });
                       const alreadyCheckedIn = checkedInRoutineDayKeys.has(routineDayKey(routine.routineName, routine.completedAt));
 
                       return (
@@ -1064,10 +1066,10 @@ export function DuelsOverlays({
               {/* Metric input for scoring types that need manual value */}
               {selectedGroupForView?.scoringType && ["duration", "distance", "steps", "calories"].includes(selectedGroupForView.scoringType) && (() => {
                 const metricConfig = {
-                  duration:  { label: "Duração do treino *",   placeholder: "Ex: 45",  unit: "min",    type: "number" },
-                  distance:  { label: "Distância percorrida *", placeholder: "Ex: 5.2", unit: "km",     type: "number" },
-                  steps:     { label: "Passos dados *",         placeholder: "Ex: 8000", unit: "passos", type: "number" },
-                  calories:  { label: "Calorias queimadas *",   placeholder: "Ex: 350", unit: "kcal",   type: "number" },
+                  duration:  { label: t("duels_metric_duration_label"), placeholder: t("duels_metric_example").replace("{v}", "45"), unit: "min", type: "number" },
+                  distance:  { label: t("duels_metric_distance_label"), placeholder: t("duels_metric_example").replace("{v}", "5.2"), unit: "km", type: "number" },
+                  steps:     { label: t("duels_metric_steps_label"), placeholder: t("duels_metric_example").replace("{v}", "8000"), unit: t("duels_metric_steps_unit"), type: "number" },
+                  calories:  { label: t("duels_metric_calories_label"), placeholder: t("duels_metric_example").replace("{v}", "350"), unit: "kcal", type: "number" },
                 }[selectedGroupForView.scoringType as "duration" | "distance" | "steps" | "calories"];
                 return (
                   <div className="space-y-2">
@@ -1092,7 +1094,7 @@ export function DuelsOverlays({
                 onClick={async () => {
                   if (!user || !selectedGroupForView || isSubmittingCheckIn) return;
                   if (!selectedRoutineKey) {
-                    toast({ title: "Selecione um treino", description: "Escolha o treino que você realizou", variant: "destructive" });
+                    toast({ title: t("duels_checkin_select_workout_title"), description: t("duels_checkin_select_workout_desc"), variant: "destructive" });
                     return;
                   }
                   const routineToSubmit = completedRoutines[parseInt(selectedRoutineKey)];
@@ -1102,13 +1104,13 @@ export function DuelsOverlays({
                   }
                   const needsMetric = ["duration", "distance", "steps", "calories"].includes(selectedGroupForView.scoringType || "");
                   if (needsMetric && !checkInMetricValue) {
-                    toast({ title: "Campo obrigatório", description: "Informe o valor da métrica para este desafio", variant: "destructive" });
+                    toast({ title: t("duels_checkin_metric_required_title"), description: t("duels_checkin_metric_required_desc"), variant: "destructive" });
                     return;
                   }
                   setIsSubmittingCheckIn(true);
                   try {
                     const selectedRoutine = completedRoutines[parseInt(selectedRoutineKey)];
-                    const exerciseName = selectedRoutine?.routineName || "Treino";
+                    const exerciseName = selectedRoutine?.routineName || t("duels_checkin_workout_fallback");
 
                     // Upload all photos to storage
                     const uploadedUrls: string[] = [];
@@ -1120,7 +1122,7 @@ export function DuelsOverlays({
 
                       const { error: uploadError } = await supabase.storage
                         .from("posts") // Re-using the posts bucket
-                        .upload(filePath, file, {
+                        .upload(filePath, file, { cacheControl: IMMUTABLE_CACHE_CONTROL,
                           contentType: file.type,
                           upsert: false,
                         });
@@ -1166,13 +1168,13 @@ export function DuelsOverlays({
                     setCheckInMetricValue("");
 
                     toast({
-                      title: "Check-in adicionado!",
-                      description: "Seu check-in foi registrado com sucesso.",
+                      title: t("duels_checkin_added_title"),
+                      description: t("duels_checkin_added_desc"),
                     });
                   } catch (err: any) {
                     toast({
-                      title: "Erro ao adicionar check-in",
-                      description: err.message || "Tente novamente",
+                      title: t("duels_checkin_add_error"),
+                      description: err.message || t("retry"),
                       variant: "destructive",
                     });
                   } finally {
@@ -1183,7 +1185,7 @@ export function DuelsOverlays({
                 style={GLASS_PRIMARY_BTN_STYLE}
                 disabled={!selectedRoutineKey || !user || isSubmittingCheckIn}
               >
-                Adicionar Check-in
+                {t("duels_checkin_add_title")}
               </Button>
             </div>
           </div>
@@ -1237,10 +1239,10 @@ export function DuelsOverlays({
                 <DrawerTitle className="text-base flex items-center gap-2 text-white">
                   <span className="text-xl">{reactionViewerState.emoji}</span>
                   {!reactionViewerState.loading && (
-                    <span>{reactionViewerState.users.filter(u => u.emoji === reactionViewerState.emoji).length} {reactionViewerState.users.filter(u => u.emoji === reactionViewerState.emoji).length === 1 ? "reação" : "reações"}</span>
+                    <span>{reactionViewerState.users.filter(u => u.emoji === reactionViewerState.emoji).length} {reactionViewerState.users.filter(u => u.emoji === reactionViewerState.emoji).length === 1 ? t("duels_reaction_one") : t("duels_reaction_many")}</span>
                   )}
                 </DrawerTitle>
-                <DrawerDescription className="sr-only">Pessoas que reagiram</DrawerDescription>
+                <DrawerDescription className="sr-only">{t("duels_reactions_people_sr")}</DrawerDescription>
               </DrawerHeader>
               <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-3">
                 {reactionViewerState.loading ? (
@@ -1280,8 +1282,8 @@ export function DuelsOverlays({
           onOpenAutoFocus={(e) => e.preventDefault()}
         >
           <DrawerHeader className="shrink-0 flex items-center justify-between">
-            <DrawerTitle className="text-white">Detalhes do Check-in</DrawerTitle>
-            <DrawerDescription className="sr-only">Veja detalhes e comentários do check-in</DrawerDescription>
+            <DrawerTitle className="text-white">{t("duels_checkin_detail_title")}</DrawerTitle>
+            <DrawerDescription className="sr-only">{t("duels_checkin_detail_sr")}</DrawerDescription>
             {selectedCheckInForDetail && selectedCheckInForDetail.userId === user?.id && (
               <div className="flex gap-2">
                 <button
@@ -1291,7 +1293,7 @@ export function DuelsOverlays({
                     }
                   }}
                   className="p-2 hover:bg-white/10 rounded-lg transition-colors"
-                  title="Editar check-in"
+                  title={t("duels_checkin_edit")}
                 >
                   <Edit3 className="h-4 w-4 text-white/60 hover:text-white" />
                 </button>
@@ -1299,23 +1301,23 @@ export function DuelsOverlays({
                   onClick={() => {
                     if (selectedCheckInForDetail) {
                       showConfirm(
-                        "Excluir check-in",
-                        "Tem certeza que deseja excluir este check-in? Esta ação é irreversível.",
+                        t("duels_checkin_delete"),
+                        t("duels_checkin_delete_confirm"),
                         async () => {
                           try {
                             await deleteGroupCheckInDb(selectedCheckInForDetail.id);
                             setGroupCheckIns(groupCheckIns.filter((c) => c.id !== selectedCheckInForDetail.id));
                             setIsCheckInDetailOpen(false);
-                            toast({ title: "Check-in excluído!", description: "O check-in foi removido com sucesso." });
+                            toast({ title: t("duels_checkin_deleted_title"), description: t("duels_checkin_deleted_desc") });
                           } catch (error: any) {
-                            toast({ title: "Erro ao excluir check-in", description: error.message || "Tente novamente.", variant: "destructive" });
+                            toast({ title: t("duels_checkin_delete_error"), description: error.message || t("retry"), variant: "destructive" });
                           }
                         },
                       );
                     }
                   }}
                   className="p-2 hover:bg-destructive/10 rounded-lg transition-colors"
-                  title="Excluir check-in"
+                  title={t("duels_checkin_delete")}
                 >
                   <Trash2 className="h-4 w-4 text-destructive" />
                 </button>
@@ -1371,7 +1373,7 @@ export function DuelsOverlays({
 
                 {/* Rotina + stats numa linha */}
                 <div className="flex items-center gap-3 py-1" style={{ borderTop: "1px solid rgba(255,255,255,.1)" }}>
-                  <span className="text-xs shrink-0" style={{ color: "rgba(255,255,255,.5)" }}>Rotina</span>
+                  <span className="text-xs shrink-0" style={{ color: "rgba(255,255,255,.5)" }}>{t("duels_checkin_routine_label")}</span>
                   <span className="text-xs font-medium text-brand truncate flex-1">{selectedCheckInForDetail.workoutInfo}</span>
                   {selectedCheckInForDetail.exercises?.length > 0 && (
                     <span className="text-xs shrink-0" style={{ color: "rgba(255,255,255,.5)" }}>{selectedCheckInForDetail.exercises.length} exerc.</span>
@@ -1449,11 +1451,11 @@ export function DuelsOverlays({
                                 getCheckInVotesDb(selectedGroupForView.id).then(setCheckInVotes).catch(() => {});
                               });
                             }}
-                            aria-label="Aprovar check-in"
+                            aria-label={t("duels_vote_approve_aria")}
             className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl border text-sm font-semibold transition-colors ${userVote === "classify" ? "bg-emerald-500/15 border-emerald-500/50 text-emerald-400" : "bg-white/5 border-white/15 text-white/60 hover:border-emerald-500/40 hover:text-emerald-400"}`}
                           >
                             <CheckCircle2 className="h-4 w-4 shrink-0" />
-                            Aprovar
+                            {t("duels_vote_approve")}
                             {classifyCount > 0 && <span className="text-xs opacity-70">({classifyCount})</span>}
                           </button>
                           <button
@@ -1467,11 +1469,11 @@ export function DuelsOverlays({
                                 getCheckInVotesDb(selectedGroupForView.id).then(setCheckInVotes).catch(() => {});
                               });
                             }}
-                            aria-label="Anular check-in"
+                            aria-label={t("duels_vote_annul_aria")}
             className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl border text-sm font-semibold transition-colors ${userVote === "disqualify" ? "bg-destructive/15 border-destructive/50 text-destructive" : "bg-white/5 border-white/15 text-white/60 hover:border-destructive/40 hover:text-destructive"}`}
                           >
                             <XCircle className="h-4 w-4 shrink-0" />
-                            Anular
+                            {t("duels_vote_annul")}
                             {disqualifyCount > 0 && <span className="text-xs opacity-70">({disqualifyCount})</span>}
                           </button>
                         </div>
@@ -1531,7 +1533,7 @@ export function DuelsOverlays({
                                     type="button"
                                     onClick={() => handleStartEditComment(comment)}
                                     className="rounded-lg p-1 text-white/50 transition-colors hover:bg-white/10 hover:text-white"
-                                    aria-label="Editar comentário"
+                                    aria-label={t("duels_comment_edit_aria")}
                                   >
                                     <Pencil className="h-3.5 w-3.5" />
                                   </button>
@@ -1572,7 +1574,7 @@ export function DuelsOverlays({
                                     className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                                   >
                                     <Check className="h-3 w-3" />
-                                    Salvar
+                                    {t("save")}
                                   </button>
                                   <button
                                     type="button"
@@ -1581,7 +1583,7 @@ export function DuelsOverlays({
                                     className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium bg-white/10 text-white/70 hover:bg-white/20 disabled:opacity-50 transition-colors"
                                   >
                                     <X className="h-3 w-3" />
-                                    Cancelar
+                                    {t("cancel")}
                                   </button>
                                 </div>
                               </div>
@@ -1970,8 +1972,8 @@ export function DuelsOverlays({
           onOpenAutoFocus={(e) => e.preventDefault()}
         >
           <DrawerHeader className="shrink-0">
-            <DrawerTitle className="text-white">Participantes ({groupParticipants.length})</DrawerTitle>
-            <DrawerDescription className="sr-only">Lista de participantes do grupo</DrawerDescription>
+            <DrawerTitle className="text-white">{t("duels_participants_title").replace("{n}", String(groupParticipants.length))}</DrawerTitle>
+            <DrawerDescription className="sr-only">{t("duels_participants_sr")}</DrawerDescription>
           </DrawerHeader>
 
           <div className="flex-1 overflow-y-auto px-4 pb-4">
@@ -2006,11 +2008,11 @@ export function DuelsOverlays({
                 <div className="grid grid-cols-3 gap-2 mb-4">
                   <div className="p-3 rounded-lg flex flex-col items-center justify-center text-center" style={GLASS_PANEL_STYLE}>
                     <span className="text-xl font-bold text-brand mb-1">{totalCheckIns}</span>
-                    <span className="text-[10px] uppercase tracking-wider font-semibold text-white/50">Total Check-ins</span>
+                    <span className="text-[10px] uppercase tracking-wider font-semibold text-white/50">{t("duels_stat_total_checkins")}</span>
                   </div>
                   <div className="p-3 rounded-lg flex flex-col items-center justify-center text-center" style={GLASS_PANEL_STYLE}>
                     <span className="text-xl font-bold text-brand mb-1">{avgCheckInsPerDay.toFixed(1)}</span>
-                    <span className="text-[10px] uppercase tracking-wider font-semibold text-white/50">Média / Dia</span>
+                    <span className="text-[10px] uppercase tracking-wider font-semibold text-white/50">{t("duels_stat_avg_day")}</span>
                   </div>
                   <div className="p-3 rounded-lg flex flex-col items-center justify-center text-center" style={GLASS_PANEL_STYLE}>
                     {topReactionUser && topReactionUser.count > 0 ? (
@@ -2023,12 +2025,12 @@ export function DuelsOverlays({
                             className="h-6 w-6 border border-white/15"
                           />
                         </div>
-                        <span className="text-[10px] uppercase tracking-wider font-semibold text-white/50">Mais Reações</span>
+                        <span className="text-[10px] uppercase tracking-wider font-semibold text-white/50">{t("duels_stat_top_reactions")}</span>
                       </>
                     ) : (
                       <>
                         <span className="text-xl font-bold text-brand mb-1">0</span>
-                        <span className="text-[10px] uppercase tracking-wider font-semibold text-white/50">Mais Reações</span>
+                        <span className="text-[10px] uppercase tracking-wider font-semibold text-white/50">{t("duels_stat_top_reactions")}</span>
                       </>
                     )}
                   </div>
@@ -2055,7 +2057,7 @@ export function DuelsOverlays({
                       <button
                         onClick={(e) => { e.stopPropagation(); setRemoveMemberConfirm({ open: true, participant }); }}
                         className="p-1.5 rounded-full hover:bg-destructive/10 transition-colors text-white/50 hover:text-destructive flex-shrink-0"
-                        title="Remover do grupo"
+                        title={t("duels_remove_from_group")}
                       >
                         <X className="h-4 w-4" />
                       </button>
@@ -2063,7 +2065,7 @@ export function DuelsOverlays({
                   </div>
                 ))
               ) : (
-                <p className="text-sm text-center py-4" style={{ color: "rgba(255,255,255,.5)" }}>Nenhum participante ainda</p>
+                <p className="text-sm text-center py-4" style={{ color: "rgba(255,255,255,.5)" }}>{t("duels_no_participants")}</p>
               )}
             </div>
           </div>
@@ -2078,7 +2080,7 @@ export function DuelsOverlays({
                 }}
               >
                 <Plus className="h-4 w-4" />
-                Adicionar Membros
+                {t("duels_add_members")}
               </Button>
             </div>
           )}
@@ -2156,11 +2158,11 @@ export function DuelsOverlays({
                     </div>
                     <div className="text-center flex-1">
                       <p className="text-lg font-bold leading-none mb-1 text-white">{activeDays}</p>
-                      <p className="text-[11px] text-white/50">Dias ativos</p>
+                      <p className="text-[11px] text-white/50">{t("duels_active_days")}</p>
                     </div>
                     <div className="text-center flex-1">
                       <p className="text-lg font-bold leading-none mb-1 text-white">{durationStr}</p>
-                      <p className="text-[11px] text-white/50">Duração</p>
+                      <p className="text-[11px] text-white/50">{t("duels_duration")}</p>
                     </div>
                   </div>
 
@@ -2195,7 +2197,7 @@ export function DuelsOverlays({
 
                   <div className="flex justify-center mt-2 pb-2">
                     <Button variant="secondary" size="sm" className="rounded-full px-8 opacity-50 cursor-not-allowed">
-                      Ver todos os check-ins
+                      {t("duels_view_all_checkins")}
                     </Button>
                   </div>
                 </div>
@@ -2218,7 +2220,7 @@ export function DuelsOverlays({
               .then(setGroupParticipants)
               .catch((err: any) => {
                 console.error("Error refreshing participants:", err);
-                toast({ title: "Erro ao atualizar participantes", description: err?.message || "Tente novamente.", variant: "destructive" });
+                toast({ title: t("duels_participants_refresh_error"), description: err?.message || t("retry"), variant: "destructive" });
               });
           }
         }}
@@ -2242,13 +2244,13 @@ export function DuelsOverlays({
       <AlertDialog open={removeMemberConfirm.open} onOpenChange={(open) => setRemoveMemberConfirm((prev) => ({ ...prev, open }))}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Remover participante</AlertDialogTitle>
+            <AlertDialogTitle>{t("duels_remove_participant_title")}</AlertDialogTitle>
             <AlertDialogDescription>
-              Tem certeza que deseja remover {removeMemberConfirm.participant?.userNickname} do grupo?
+              {t("duels_remove_participant_desc").replace("{name}", removeMemberConfirm.participant?.userNickname ?? "")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setRemoveMemberConfirm({ open: false, participant: null })}>Cancelar</AlertDialogCancel>
+            <AlertDialogCancel onClick={() => setRemoveMemberConfirm({ open: false, participant: null })}>{t("cancel")}</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={async (e) => {
@@ -2260,13 +2262,13 @@ export function DuelsOverlays({
                   await removeGroupMemberDb(selectedGroupForView.id, userId);
                   setGroupParticipants((prev) => prev.filter((p) => p.userId !== userId));
                   setSelectedGroupForView((prev: any) => prev ? { ...prev, participants: Math.max(0, (prev.participants ?? 1) - 1) } : prev);
-                  toast({ title: "Participante removido", description: `${userNickname} foi removido do grupo.` });
+                  toast({ title: t("duels_participant_removed_title"), description: t("duels_participant_removed_desc").replace("{name}", userNickname) });
                 } catch (err: any) {
-                  toast({ title: "Erro ao remover", description: err?.message || "Tente novamente.", variant: "destructive" });
+                  toast({ title: t("duels_remove_error"), description: err?.message || t("retry"), variant: "destructive" });
                 }
               }}
             >
-              Remover
+              {t("remove")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -2284,7 +2286,7 @@ export function DuelsOverlays({
             <AlertDialogDescription>{confirmDialog.description}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
             <AlertDialogAction
               onClick={async (e) => {
                 e.preventDefault();
@@ -2293,7 +2295,7 @@ export function DuelsOverlays({
               }}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              Confirmar
+              {t("confirm")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

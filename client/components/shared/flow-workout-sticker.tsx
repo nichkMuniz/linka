@@ -351,7 +351,11 @@ export function FlowElementView({ el, interactive = false }: { el: StoryTextElem
       style={{
         left: `${el.x}%`,
         top: `${el.y}%`,
-        transform: "translate(-50%, -50%)",
+        // A moldura do post ganhou pinça no criador ("Editar antes de postar");
+        // o mini frame de treino aplica a própria escala por dentro.
+        transform: isPost && el.scale && el.scale !== 1
+          ? `translate(-50%, -50%) scale(${el.scale})`
+          : "translate(-50%, -50%)",
         width: "max-content",
         maxWidth: isWorkout || isPost ? "92vw" : "80vw",
         padding: isWorkout || isPost ? 0 : "0 0.5rem",

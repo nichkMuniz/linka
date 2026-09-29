@@ -6,7 +6,7 @@ import {
 } from "@/components/ui/drawer";
 import { toast } from "@/components/ui/use-toast";
 import * as React from "react";
-import { Check, CirclePlus, Copy, Link, Loader2, Repeat2, SendHorizontal } from "lucide-react";
+import { ArrowLeft, Check, ChevronRight, CirclePlus, Copy, Link, Loader2, PenLine, Repeat2, SendHorizontal } from "lucide-react";
 import { Share } from "@capacitor/share";
 import { Browser } from "@capacitor/browser";
 import { useLanguage } from "@/lib/language-context";
@@ -32,6 +32,12 @@ interface ShareDrawerProps {
    */
   onShareToFlow?: () => Promise<void>;
   /**
+   * "Seu flow → Editar antes de postar": leva ao criador de flow com o conteúdo
+   * já colado. Com esta prop, tocar em "Seu flow" abre a escolha entre postar
+   * agora (`onShareToFlow`) e editar antes; sem ela, "Seu flow" posta direto.
+   */
+  onEditFlow?: () => void;
+  /**
    * "Seu feed": reposta no feed do usuário um post em que ele foi MARCADO. Só o
    * pai sabe se se aplica — sem a prop, o botão não aparece. Mesmo contrato do
    * `onShareToFlow`: fecha ao resolver, fica aberto em erro.
@@ -49,11 +55,31 @@ export function ShareDrawer({
   title,
   onSendToFriend,
   onShareToFlow,
+  onEditFlow,
   onRepostToFeed,
   repostedToFeed = false,
 }: ShareDrawerProps) {
   const { t } = useLanguage();
   const [sharingToFlow, setSharingToFlow] = React.useState(false);
+  // Etapa "Postar agora / Editar antes" do "Seu flow" — volta à lista de
+  // destinos sempre que o drawer reabre.
+  const [flowChoiceOpen, setFlowChoiceOpen] = React.useState(false);
+  React.useEffect(() => {
+    if (!open) setFlowChoiceOpen(false);
+  }, [open]);
+
+  const postToFlowNow = async () => {
+    if (!onShareToFlow) return;
+    setSharingToFlow(true);
+    try {
+      await onShareToFlow();
+      onOpenChange(false);
+    } catch {
+      // o pai já mostrou o toast de erro; o drawer fica aberto
+    } finally {
+      setSharingToFlow(false);
+    }
+  };
   const [repostingToFeed, setRepostingToFeed] = React.useState(false);
   // Dentro do WebView do Capacitor, window.location.href é "capacitor://localhost",
   // que não pode ser compartilhado. Usar sempre o domínio público como fallback.
@@ -164,8 +190,71 @@ export function ShareDrawer({
         }}
       >
         <DrawerHeader className="pb-2">
-          <DrawerTitle style={{ color: "#fff" }}>{title ?? t("share_title")}</DrawerTitle>
+          <DrawerTitle style={{ color: "#fff" }}>
+            {flowChoiceOpen ? t("share_flow_choice_title") : title ?? t("share_title")}
+          </DrawerTitle>
         </DrawerHeader>
+
+        {flowChoiceOpen ? (
+          <div className="px-4 pb-2 space-y-2">
+            {/* Postar agora — o mesmo flow de sempre, sem passar pelo editor */}
+            <button
+              disabled={sharingToFlow}
+              onClick={postToFlowNow}
+              className="w-full flex items-center gap-3 rounded-2xl p-3 text-left disabled:opacity-60 active:opacity-70"
+              style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}
+            >
+              <div
+                className="w-11 h-11 shrink-0 rounded-xl flex items-center justify-center"
+                style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)" }}
+              >
+                {sharingToFlow ? (
+                  <Loader2 className="w-5 h-5 text-white animate-spin" />
+                ) : (
+                  <CirclePlus className="w-5 h-5 text-white" />
+                )}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-white">{t("share_flow_post_now")}</p>
+                <p className="text-xs" style={{ color: "rgba(255,255,255,.6)" }}>{t("share_flow_post_now_desc")}</p>
+              </div>
+            </button>
+
+            {/* Editar antes — abre o criador de flow com o post já colado */}
+            <button
+              disabled={sharingToFlow}
+              onClick={() => {
+                onOpenChange(false);
+                onEditFlow?.();
+              }}
+              className="w-full flex items-center gap-3 rounded-2xl p-3 text-left disabled:opacity-60 active:opacity-70"
+              style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}
+            >
+              <div
+                className="w-11 h-11 shrink-0 rounded-xl flex items-center justify-center"
+                style={{ background: "rgba(255,255,255,.1)", border: "1px solid rgba(255,255,255,.15)" }}
+              >
+                <PenLine className="w-5 h-5 text-white" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-white">{t("share_flow_edit_first")}</p>
+                <p className="text-xs" style={{ color: "rgba(255,255,255,.6)" }}>{t("share_flow_edit_first_desc")}</p>
+              </div>
+              <ChevronRight className="w-4 h-4 shrink-0" style={{ color: "rgba(255,255,255,.4)" }} />
+            </button>
+
+            <button
+              disabled={sharingToFlow}
+              onClick={() => setFlowChoiceOpen(false)}
+              className="w-full h-11 flex items-center justify-center gap-2 text-sm font-semibold disabled:opacity-60"
+              style={{ color: "rgba(255,255,255,.6)" }}
+            >
+              <ArrowLeft className="w-4 h-4" />
+              {t("back")}
+            </button>
+          </div>
+        ) : (
+        <>
 
         {/* Preview card */}
         <div className="px-4 pb-3">
@@ -199,16 +288,10 @@ export function ShareDrawer({
           {onShareToFlow && (
             <button
               disabled={sharingToFlow}
-              onClick={async () => {
-                setSharingToFlow(true);
-                try {
-                  await onShareToFlow();
-                  onOpenChange(false);
-                } catch {
-                  // o pai já mostrou o toast de erro; o drawer fica aberto
-                } finally {
-                  setSharingToFlow(false);
-                }
+              onClick={() => {
+                // Com edição disponível, primeiro a escolha; senão posta direto.
+                if (onEditFlow) setFlowChoiceOpen(true);
+                else void postToFlowNow();
               }}
               className="flex flex-col items-center gap-1.5 min-w-[60px] disabled:opacity-60"
             >
@@ -340,6 +423,8 @@ export function ShareDrawer({
             <span className="text-xs text-center" style={{ color: "rgba(255,255,255,.7)" }}>{t("share_btn_copy")}</span>
           </button>
         </div>
+        </>
+        )}
 
         <div className="h-6" />
       </DrawerContent>

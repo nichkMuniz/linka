@@ -197,6 +197,9 @@ export default function FlowViewer({ embedded }: { embedded?: FlowViewerEmbedded
   const [isTyping, setIsTyping] = React.useState(false);
   const [isDeletingStory, setIsDeletingStory] = React.useState(false);
   const [commentToDelete, setCommentToDelete] = React.useState<string | null>(null);
+  // Confirmação de excluir o próprio flow (antes era o `confirm()` nativo do
+  // WebKit — caixa cinza genérica, fora do visual do app).
+  const [deleteStoryConfirmOpen, setDeleteStoryConfirmOpen] = React.useState(false);
   const [viewersDrawerOpen, setViewersDrawerOpen] = React.useState(false);
   const [viewers, setViewers] = React.useState<FlowViewer[]>([]);
   const [isLoadingViewers, setIsLoadingViewers] = React.useState(false);
@@ -533,7 +536,11 @@ export default function FlowViewer({ embedded }: { embedded?: FlowViewerEmbedded
   // Menu "⋮" aberto — e o que se abre a partir dele (denúncia, bloqueio) — pausa o
   // flow; sem isso ele avançava por baixo e a denúncia apontava para o flow errado.
   // Ao fechar tudo, só retoma se foi ESTA pausa (se já estava pausado, continua).
-  const optionsHold = optionsMenuOpen || reportDrawerOpen || blockDialogOpen || workoutDetail !== null;
+  // A confirmação de excluir entra aqui porque, diferente do `confirm()` nativo
+  // que ela substituiu, um diálogo não congela o JS: sem a pausa o flow
+  // avançava por baixo e a exclusão caía no flow SEGUINTE.
+  const optionsHold =
+    optionsMenuOpen || reportDrawerOpen || blockDialogOpen || workoutDetail !== null || deleteStoryConfirmOpen;
   const pausedByOptionsRef = React.useRef(false);
   React.useEffect(() => {
     if (optionsHold) {
@@ -937,7 +944,7 @@ export default function FlowViewer({ embedded }: { embedded?: FlowViewerEmbedded
         );
         if (!wasActive) showIncentiveToast(incentiveType);
       } catch (err: any) {
-        toast({ title: "Erro ao reagir", description: err?.message || "Tente novamente." });
+        toast({ title: t("flow_react_error"), description: err?.message || t("retry") });
       } finally {
         setTogglingLikeId(null);
       }
@@ -955,7 +962,7 @@ export default function FlowViewer({ embedded }: { embedded?: FlowViewerEmbedded
         setNewComment("");
       }
     } catch (err: any) {
-      toast({ title: "Erro ao comentar", description: err?.message || "Tente novamente." });
+      toast({ title: t("flow_comment_error"), description: err?.message || t("retry") });
     } finally {
       setIsAddingComment(false);
     }
@@ -999,10 +1006,10 @@ export default function FlowViewer({ embedded }: { embedded?: FlowViewerEmbedded
           );
           setEditingCommentId(null);
           setEditCommentDraft("");
-          toast({ title: "Comentário editado!" });
+          toast({ title: t("flow_comment_edited") });
         }
       } catch (err: any) {
-        toast({ title: "Erro ao editar comentário", description: err?.message || "Tente novamente." });
+        toast({ title: t("flow_comment_edit_error"), description: err?.message || t("retry") });
       } finally {
         setSavingEditCommentId(null);
       }
@@ -1012,7 +1019,6 @@ export default function FlowViewer({ embedded }: { embedded?: FlowViewerEmbedded
 
   const handleDeleteStory = React.useCallback(async () => {
     if (!story) return;
-    if (!confirm("Tem certeza que deseja deletar este flow?")) return;
     setIsDeletingStory(true);
     try {
       const success = await deleteStoryDb(story.id);
@@ -1021,7 +1027,7 @@ export default function FlowViewer({ embedded }: { embedded?: FlowViewerEmbedded
         // das barras de progresso e da navegação, sem precisar sair e voltar.
         setAllStories((prev) => prev.filter((s) => s.id !== story.id));
         embeddedRef.current?.onDeleted?.(story.id);
-        toast({ title: "Flow deletado", description: "Seu flow foi removido." });
+        toast({ title: t("settings_flow_deleted") });
         if (nextStory) {
           goToStory(nextStory.id);
         } else if (prevStory) {
@@ -1031,11 +1037,11 @@ export default function FlowViewer({ embedded }: { embedded?: FlowViewerEmbedded
         }
       }
     } catch (err: any) {
-      toast({ title: "Erro ao deletar", description: err?.message || "Tente novamente.", variant: "destructive" });
+      toast({ title: t("settings_flow_delete_error"), description: err?.message || t("retry"), variant: "destructive" });
     } finally {
       setIsDeletingStory(false);
     }
-  }, [story, goToStory, closeViewer, nextStory, prevStory]);
+  }, [story, goToStory, closeViewer, nextStory, prevStory, t]);
 
   // Embutido: renderiza direto no <body>. Dentro da página, o `PageTransition`
   // (framer, com `transform`) vira o containing block do `position: fixed` — o
@@ -1202,8 +1208,9 @@ export default function FlowViewer({ embedded }: { embedded?: FlowViewerEmbedded
                 <div className="flex items-center gap-2">
                   {isOwner && (
                     <motion.button
-                      onClick={handleDeleteStory}
+                      onClick={() => setDeleteStoryConfirmOpen(true)}
                       disabled={isDeletingStory}
+                      aria-label={t("delete")}
                       whileTap={{ scale: 0.88 }}
                       style={HEADER_GLASS_BTN_STYLE}
                       className="h-9 w-9 rounded-full flex items-center justify-center text-white/90 hover:text-red-400 transition-colors disabled:opacity-50"
@@ -1745,15 +1752,15 @@ export default function FlowViewer({ embedded }: { embedded?: FlowViewerEmbedded
             className="flex-shrink-0 px-[18px] pb-[14px] pt-2 text-[18px] leading-none"
             style={{ fontWeight: 740, color: "#fff" }}
           >
-            Comentários · {comments.length}
+            {t("flow_comments_title").replace("{n}", String(comments.length))}
           </DrawerTitle>
-          <DrawerDescription className="sr-only">Lista de comentários do flow</DrawerDescription>
+          <DrawerDescription className="sr-only">{t("flow_comments_sr")}</DrawerDescription>
           <div
             className="flex-1 overflow-y-auto overscroll-contain px-[18px] space-y-4"
             style={{ paddingBottom: "max(3rem, env(safe-area-inset-bottom))" }}
           >
             {comments.length === 0 ? (
-              <p className="text-center py-10 text-sm" style={{ color: "rgba(255,255,255,.5)" }}>Nenhum comentário ainda</p>
+              <p className="text-center py-10 text-sm" style={{ color: "rgba(255,255,255,.5)" }}>{t("flow_no_comments")}</p>
             ) : (
               comments.map((comment) => (
                 <div key={comment.id} className="flex flex-col gap-1.5">
@@ -1821,7 +1828,7 @@ export default function FlowViewer({ embedded }: { embedded?: FlowViewerEmbedded
                                 style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}
                               >
                                 <Check className="h-3 w-3" />
-                                Salvar
+                                {t("save")}
                               </button>
                               <button
                                 type="button"
@@ -1831,7 +1838,7 @@ export default function FlowViewer({ embedded }: { embedded?: FlowViewerEmbedded
                                 style={{ background: "rgba(255,255,255,.08)", color: "rgba(255,255,255,.7)" }}
                               >
                                 <X className="h-3 w-3" />
-                                Cancelar
+                                {t("cancel")}
                               </button>
                             </div>
                           </div>
@@ -1879,7 +1886,7 @@ export default function FlowViewer({ embedded }: { embedded?: FlowViewerEmbedded
           <DrawerHeader>
             <DrawerTitle className="flex items-center gap-2 pt-2">
               <Eye className="h-5 w-5" />
-              Visualizações ({viewers.length})
+              {t("flow_views_title").replace("{n}", String(viewers.length))}
             </DrawerTitle>
           </DrawerHeader>
           <div className="overflow-y-auto px-4 pb-12 space-y-3">
@@ -1888,7 +1895,7 @@ export default function FlowViewer({ embedded }: { embedded?: FlowViewerEmbedded
                 <div className="animate-spin rounded-full h-7 w-7 border-t-2 border-brand" />
               </div>
             ) : viewers.length === 0 ? (
-              <p className="text-center text-muted-foreground py-10">Nenhuma visualização</p>
+              <p className="text-center text-muted-foreground py-10">{t("flow_no_views")}</p>
             ) : (
               viewers.map((viewer) => (
                 <button
@@ -1919,20 +1926,43 @@ export default function FlowViewer({ embedded }: { embedded?: FlowViewerEmbedded
         </DrawerContent>
       </Drawer>
 
+      {/* Delete Story Dialog — mesmo padrão (e textos) da exclusão pelo
+          arquivo de flows nas Configurações. */}
+      <AlertDialog open={deleteStoryConfirmOpen} onOpenChange={setDeleteStoryConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("settings_flow_delete_title")}</AlertDialogTitle>
+            <AlertDialogDescription>{t("settings_flow_delete_desc")}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setDeleteStoryConfirmOpen(false);
+                void handleDeleteStory();
+              }}
+              className="bg-red-500 hover:bg-red-600"
+            >
+              {t("delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Delete Comment Dialog */}
       <AlertDialog open={!!commentToDelete} onOpenChange={(o) => !o && setCommentToDelete(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Remover comentário?</AlertDialogTitle>
-            <AlertDialogDescription>Essa ação não pode ser desfeita.</AlertDialogDescription>
+            <AlertDialogTitle>{t("shots_comment_delete_title")}</AlertDialogTitle>
+            <AlertDialogDescription>{t("shots_comment_delete_desc")}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => commentToDelete && handleDeleteComment(commentToDelete)}
               className="bg-red-500 hover:bg-red-600"
             >
-              Remover
+              {t("remove")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

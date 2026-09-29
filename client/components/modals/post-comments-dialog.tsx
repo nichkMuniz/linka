@@ -374,9 +374,12 @@ export function PostCommentsDialog({
 
   // Três estados do ícone, do mais forte para o mais fraco:
   //  1. dono com comentário NÃO LIDO → azul, preenchido;
-  //  2. post com comentários → preenchido em branco + a contagem ao lado — sem
-  //     isto não havia como saber se o post tinha comentários sem abrir o drawer;
+  //  2. post com comentários → preenchido em branco — sem isto não havia como
+  //     saber se o post tinha comentários sem abrir o drawer;
   //  3. sem comentários → contorno apagado.
+  // SEM o número ao lado (29/09/2026): a contagem alargava o botão e deixava os
+  // ícones da barra colados — o toque caía no ícone vizinho. O preenchimento já
+  // sinaliza "tem comentários"; a contagem segue no aria-label.
   const hasComments = commentCount > 0;
   const unread = isPostOwner && hasUnreadComments;
   const triggerIcon = (
@@ -389,16 +392,6 @@ export function PostCommentsDialog({
         fill={unread || hasComments ? "currentColor" : "none"}
         fillOpacity={unread ? 0.9 : hasComments ? 0.85 : 0}
       />
-      {hasComments && (
-        <span
-          className={cn(
-            "text-[12px] font-semibold tabular-nums leading-none",
-            unread ? "text-blue-500" : "text-white/90",
-          )}
-        >
-          {commentCount > 99 ? "99+" : commentCount}
-        </span>
-      )}
     </>
   );
   const triggerLabel = hasComments
@@ -410,7 +403,7 @@ export function PostCommentsDialog({
       type="button"
       whileHover={{ scale: 1.08 }}
       whileTap={{ scale: 0.92 }}
-      className="inline-flex shrink-0 items-center justify-center gap-1 transition-colors"
+      className="inline-flex shrink-0 items-center justify-center transition-colors"
       aria-label={triggerLabel}
     >
       {triggerIcon}
@@ -757,7 +750,7 @@ export function PostCommentsDialog({
         <button
           type="button"
           onClick={() => handleOpenChange(true)}
-          className="inline-flex shrink-0 items-center justify-center gap-1 transition-colors"
+          className="inline-flex shrink-0 items-center justify-center transition-colors"
           aria-label={triggerLabel}
         >
           {triggerIcon}

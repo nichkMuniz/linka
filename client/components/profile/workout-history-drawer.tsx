@@ -1,4 +1,5 @@
 import * as React from "react";
+import { useLanguage } from "@/lib/language-context";
 import {
   Drawer,
   DrawerContent,
@@ -29,6 +30,7 @@ export function WorkoutHistoryDrawer({
   history,
   isLoading,
 }: WorkoutHistoryDrawerProps) {
+  const { t } = useLanguage();
   const groupedByDay = React.useMemo(() => {
     const map: Record<string, WorkoutHistoryRecord[]> = {};
     history.forEach((record) => {
@@ -132,7 +134,7 @@ export function WorkoutHistoryDrawer({
             })
           ) : (
             <div className="text-center py-6 text-sm" style={{ color: "rgba(255,255,255,.5)" }}>
-              Nenhum registro de treino encontrado
+              {t("workout_history_empty")}
             </div>
           )}
         </div>

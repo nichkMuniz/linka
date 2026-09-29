@@ -22,6 +22,12 @@ import { readFileSync, existsSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 
+// Cache de 7 dias (segundos). Sem isto o objeto sobe sem cache útil e o app
+// busca cada imagem do catálogo de novo a toda exibição. Não é "imutável"
+// (1 ano) porque este script sobrescreve o MESMO caminho (upsert) ao corrigir
+// uma imagem — a versão nova precisa chegar ao aparelho em dias, não em um ano.
+const CATALOG_CACHE_CONTROL = "604800";
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const lote = process.argv[2];
 if (!lote) {
@@ -87,7 +93,7 @@ for (const r of rows) {
       .toBuffer();
 
     const path = `manual/${r.workout_id}.jpg`;
-    const up = await supabase.storage.from(BUCKET).upload(path, jpg, { upsert: true, contentType: "image/jpeg" });
+    const up = await supabase.storage.from(BUCKET).upload(path, jpg, { upsert: true, contentType: "image/jpeg", cacheControl: CATALOG_CACHE_CONTROL });
     if (up.error) throw up.error;
 
     const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);

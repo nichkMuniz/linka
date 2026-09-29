@@ -1,4 +1,5 @@
 import * as React from "react";
+import { APP_REFRESH_EVENT } from "@/lib/app-refresh";
 import {
   getConversationsDb,
   getFollowingDb,
@@ -119,11 +120,16 @@ export default function Community() {
         .catch((err) => console.error("Error refreshing conversations:", err));
     };
     refreshConversations();
+    // Refresh global (ver @/lib/app-refresh) — mesma releitura das conversas.
+    window.addEventListener(APP_REFRESH_EVENT, refreshConversations);
     const onVisible = () => {
       if (document.visibilityState === "visible") refreshConversations();
     };
     document.addEventListener("visibilitychange", onVisible);
-    return () => document.removeEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener(APP_REFRESH_EVENT, refreshConversations);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, []);
 
 

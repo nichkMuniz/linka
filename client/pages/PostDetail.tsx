@@ -23,10 +23,11 @@ import { WorkoutDetailButton } from "@/components/shared/workout-detail-dialog";
 import { formatTimeAgo, cn } from "@/lib/utils";
 import { PostIncentiveButton } from "@/components/shared/post-incentive-button";
 import { PostCommentsDialog } from "@/components/modals/post-comments-dialog";
+import { GoalDetailDrawer } from "@/components/goals/goal-detail-drawer";
 import { PostDetailSkeleton } from "@/components/shared/animated-loading";
 import { PostLikesModal } from "@/components/modals/post-likes-modal";
 import { EditPostDrawer } from "@/components/post/edit-post-drawer";
-import { getPostGradient, GLASS_TOP, GLASS_ACTION, DESC_MAX_CHARS, renderWithHashtags } from "@/lib/post-visuals";
+import { getPostGradient, GLASS_TOP, GLASS_ACTION, renderWithHashtags, isCaptionTruncatable, collapsedCaption } from "@/lib/post-visuals";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -65,6 +66,9 @@ export default function PostDetail() {
   const prepareReshare = postReshare.prepare;
   React.useEffect(() => { prepareReshare(post); }, [post, prepareReshare]);
   const [postGoal, setPostGoal] = React.useState<UserGoal | null>(null);
+  // Drawer da meta vinculada (a pílula "🎯 %" do topo). Antes a pílula era só um
+  // <span>: parecia botão e não fazia nada.
+  const [goalDrawerOpen, setGoalDrawerOpen] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
   const [likesModalOpen, setLikesModalOpen] = React.useState(false);
   const [postLikes, setPostLikes] = React.useState<Array<{ userId: string; userNickname: string; userPhoto: string | null; type: number }>>([]);
@@ -146,7 +150,7 @@ export default function PostDetail() {
         console.error("Error loading post:", err);
         toast({
           title: t("post_load_error_single"),
-          description: err?.message || "Tente novamente.",
+          description: err?.message || t("retry"),
         });
         navigate(-1);
       } finally {
@@ -158,10 +162,8 @@ export default function PostDetail() {
   const totalLikes = likeStats.apoio + likeStats.continua + likeStats.ganhador + likeStats.consegueMais + likeStats.limiteMaior + likeStats.maisAlgum;
 
   const description = post ? displayedPostDescription(post) : "";
-  const isDescTruncatable = description.includes("\n") || description.length > DESC_MAX_CHARS;
-  const truncatedDescription = description.length > DESC_MAX_CHARS
-    ? description.slice(0, DESC_MAX_CHARS).trimEnd()
-    : description.split("\n")[0] ?? "";
+  const isDescTruncatable = isCaptionTruncatable(description);
+  const truncatedDescription = collapsedCaption(description);
   const photos = post?.photos && post.photos.length > 0
     ? post.photos
     : post?.photo ? [post.photo] : null;
@@ -312,12 +314,18 @@ export default function PostDetail() {
             </button>
 
             {postGoal && (
-              <span
-                className="flex-shrink-0 text-[10.5px] font-semibold text-white px-2 py-0.5 rounded-full"
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setGoalDrawerOpen(true);
+                }}
+                className="flex-shrink-0 text-[10.5px] font-semibold text-white px-2 py-0.5 rounded-full active:scale-95 transition-transform"
                 style={{ background: "rgba(255,255,255,.16)", border: "1px solid rgba(255,255,255,.18)" }}
+                aria-label={postGoal.description}
               >
                 🎯 {Math.round(Math.min(100, Math.max(0, postGoal.perc ?? 0)))}%
-              </span>
+              </button>
             )}
           </div>
 
@@ -405,7 +413,8 @@ export default function PostDetail() {
             {description && (
               <p
                 className={cn(
-                  "text-[13px] text-white leading-snug mb-2.5 px-1",
+                  // pre-wrap: respeita as quebras de linha que a pessoa digitou.
+                  "text-[13px] text-white leading-snug mb-2.5 px-1 whitespace-pre-wrap break-words",
                   isDescTruncatable && "cursor-pointer",
                   isDescTruncatable && descExpanded && "max-h-[40vh] overflow-y-auto",
                 )}
@@ -529,6 +538,23 @@ export default function PostDetail() {
         likes={postLikes}
       />
 
+      {/* Meta vinculada ao post — somente leitura, como no perfil de outra
+        pessoa (editar/excluir/vincular rotinas vivem na tela de Metas). */}
+      <GoalDetailDrawer
+        goal={goalDrawerOpen ? postGoal : null}
+        routines={[]}
+        onClose={() => setGoalDrawerOpen(false)}
+        onEditGoal={async () => {}}
+        onDeleteGoal={async () => {}}
+        onToggleRoutineLink={async () => {}}
+        readOnly
+        replyTo={
+          post && user && post.user_id !== user.id
+            ? { userId: post.user_id, nickname: post.userNickname ?? "" }
+            : null
+        }
+      />
+
       {post.user_id !== user?.id && (
         <UserSafetyDrawer
           open={safetyOpen}
@@ -556,6 +582,7 @@ export default function PostDetail() {
         onSendToFriend={() => setSendToFriendOpen(true)}
         // "Seu flow" (dono ou marcado) e "Seu feed" (marcado) — ver usePostReshare.
         onShareToFlow={postReshare.shareToFlow}
+        onEditFlow={postReshare.editFlow}
         onRepostToFeed={postReshare.repostToFeed}
         repostedToFeed={postReshare.repostedToFeed}
       />

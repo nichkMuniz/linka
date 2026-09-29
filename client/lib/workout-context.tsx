@@ -11,6 +11,7 @@ import type {
   WorkoutPartyInvite,
   WorkoutPartySnapshot,
 } from "@/lib/ritmofit-db";
+import { tUi } from "@/lib/i18n";
 
 // ID da notificação local de "tempo de descanso terminou". Exportado para que
 // o listener genérico de notificações (use-routine-notifications) saiba
@@ -58,7 +59,7 @@ interface WorkoutContextValue {
   // Persistent workout state
   workoutSeries: Record<string, WorkoutSeriesEntry[]>;
   setWorkoutSeries: React.Dispatch<React.SetStateAction<Record<string, WorkoutSeriesEntry[]>>>;
-  workoutDuration: number;
+  // O valor do cronômetro NÃO está aqui — ver `useWorkoutClock` abaixo.
   setWorkoutDuration: React.Dispatch<React.SetStateAction<number>>;
   workoutStartTime: number | null;
   setWorkoutStartTime: (v: number | null) => void;
@@ -135,7 +136,7 @@ interface WorkoutContextValue {
   // Reset all workout state
   resetWorkoutState: () => void;
   // Rest timer (shared so FAB can display it)
-  globalRestTimerRemaining: number;
+  // Segundos restantes do descanso: via `useWorkoutClock`.
   setGlobalRestTimerRemaining: React.Dispatch<React.SetStateAction<number>>;
   globalRestTimerActive: boolean;
   setGlobalRestTimerActive: (v: boolean) => void;
@@ -156,7 +157,6 @@ const WorkoutContext = React.createContext<WorkoutContextValue>({
   setPendingReopen: () => {},
   workoutSeries: {},
   setWorkoutSeries: () => {},
-  workoutDuration: 0,
   setWorkoutDuration: () => {},
   workoutStartTime: null,
   setWorkoutStartTime: () => {},
@@ -193,7 +193,6 @@ const WorkoutContext = React.createContext<WorkoutContextValue>({
   pendingPartyJoin: null,
   setPendingPartyJoin: () => {},
   resetWorkoutState: () => {},
-  globalRestTimerRemaining: 0,
   setGlobalRestTimerRemaining: () => {},
   globalRestTimerActive: false,
   setGlobalRestTimerActive: () => {},
@@ -232,6 +231,47 @@ function loadPersistedWorkout() {
   } catch {
     return null;
   }
+}
+
+// ─── Relógio do treino (store externo com seletor) ───────────────────────────
+//
+// O cronômetro da sessão e o descanso mudam a CADA SEGUNDO. Quando moravam no
+// valor deste contexto, todo consumidor re-renderizava a cada segundo durante o
+// treino — a página de Metas inteira, o diálogo do treino (~6.600 linhas) e o
+// layout —, o que engasgava toque, rolagem e digitação dos pesos. Agora o
+// provider espelha os dois números aqui, e cada componente escolhe o que
+// observar com um seletor: o texto do cronômetro observa os segundos; a
+// estimativa de calorias, só os minutos; o fechamento do modal, só "chegou a 0".
+// `useSyncExternalStore` só re-renderiza quando o valor SELECIONADO muda.
+export type WorkoutClock = {
+  /** segundos desde o início da sessão (o mesmo `workoutDuration` de antes) */
+  durationSecs: number;
+  /** segundos restantes do descanso (o mesmo `globalRestTimerRemaining`) */
+  restRemaining: number;
+};
+
+let clockState: WorkoutClock = { durationSecs: 0, restRemaining: 0 };
+const clockListeners = new Set<() => void>();
+
+function setWorkoutClock(next: WorkoutClock) {
+  if (next.durationSecs === clockState.durationSecs && next.restRemaining === clockState.restRemaining) return;
+  clockState = next;
+  clockListeners.forEach((listener) => listener());
+}
+
+function subscribeWorkoutClock(listener: () => void) {
+  clockListeners.add(listener);
+  return () => clockListeners.delete(listener);
+}
+
+/** Leitura pontual (ex.: duração no instante de finalizar) — não re-renderiza. */
+export function getWorkoutClock(): WorkoutClock {
+  return clockState;
+}
+
+/** Observa só a parte do relógio que o componente usa. O seletor deve devolver um valor primitivo. */
+export function useWorkoutClock<T>(selector: (clock: WorkoutClock) => T): T {
+  return React.useSyncExternalStore(subscribeWorkoutClock, () => selector(clockState), () => selector(clockState));
 }
 
 export function WorkoutProvider({ children }: { children: React.ReactNode }) {
@@ -367,8 +407,8 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
       await LocalNotifications.schedule({
         notifications: [{
           id: REST_NOTIF_ID,
-          title: "Tempo de descanso terminou! 💪",
-          body: "Pronto para a próxima série?",
+          title: tUi("rest_timer_notif_title"),
+          body: tUi("rest_timer_notif_body"),
           schedule: { at: new Date(Date.now() + secondsRemaining * 1000) },
           smallIcon: "ic_stat_icon_config_sample",
           sound: "default",
@@ -487,13 +527,20 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
     setGlobalRestTimerTotal(0);
   }, [cancelRestNotification]);
 
-  return (
-    <WorkoutContext.Provider value={{
+  // Espelha no store os dois números que mudam a cada segundo (layout effect:
+  // chega antes da pintura, sem um frame com o valor anterior).
+  React.useLayoutEffect(() => {
+    setWorkoutClock({ durationSecs: workoutDuration, restRemaining: globalRestTimerRemaining });
+  }, [workoutDuration, globalRestTimerRemaining]);
+
+  // Sem o cronômetro e o descanso nas dependências: o objeto só muda quando
+  // algo que os consumidores de fato leem muda. Os setters são estáveis.
+  const contextValue = React.useMemo<WorkoutContextValue>(() => ({
       workoutModalOpen, setWorkoutModalOpen,
       workoutMinimized, setWorkoutMinimized,
       pendingReopen, setPendingReopen,
       workoutSeries, setWorkoutSeries,
-      workoutDuration, setWorkoutDuration,
+      setWorkoutDuration,
       workoutStartTime, setWorkoutStartTime,
       selectedRoutineName, setSelectedRoutineName,
       workoutExerciseRestTimes, setWorkoutExerciseRestTimes,
@@ -512,12 +559,17 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
       workoutPartyHostName, setWorkoutPartyHostName,
       pendingPartyJoin, setPendingPartyJoin,
       resetWorkoutState,
-      globalRestTimerRemaining, setGlobalRestTimerRemaining,
+      setGlobalRestTimerRemaining,
       globalRestTimerActive, setGlobalRestTimerActive,
       globalRestTimerPaused, setGlobalRestTimerPaused,
       globalRestTimerTotal, setGlobalRestTimerTotal,
       globalRestTimerKey, setGlobalRestTimerKey,
-    }}>
+  }), [
+    workoutModalOpen, setWorkoutModalOpen, workoutMinimized, setWorkoutMinimized, pendingReopen, setPendingReopen, workoutSeries, setWorkoutSeries, setWorkoutDuration, workoutStartTime, setWorkoutStartTime, selectedRoutineName, setSelectedRoutineName, workoutExerciseRestTimes, setWorkoutExerciseRestTimes, workoutExerciseNotes, setWorkoutExerciseNotes, currentWorkoutIndex, setCurrentWorkoutIndex, workoutExtraItems, setWorkoutExtraItems, workoutRemovedIds, setWorkoutRemovedIds, workoutExpandedId, setWorkoutExpandedId, maxedExerciseIds, setMaxedExerciseIds, dismissedWarmupIds, setDismissedWarmupIds, workoutOrder, setWorkoutOrder, workoutCaloriesKcal, setWorkoutCaloriesKcal, workoutPartyId, setWorkoutPartyId, workoutPartyRole, setWorkoutPartyRole, workoutPartySnapshot, setWorkoutPartySnapshot, workoutPartyHostName, setWorkoutPartyHostName, pendingPartyJoin, setPendingPartyJoin, resetWorkoutState, setGlobalRestTimerRemaining, globalRestTimerActive, setGlobalRestTimerActive, globalRestTimerPaused, setGlobalRestTimerPaused, globalRestTimerTotal, setGlobalRestTimerTotal, globalRestTimerKey, setGlobalRestTimerKey,
+  ]);
+
+  return (
+    <WorkoutContext.Provider value={contextValue}>
       {children}
     </WorkoutContext.Provider>
   );

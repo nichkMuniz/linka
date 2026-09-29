@@ -1,4 +1,5 @@
 import React from "react";
+import { useLanguage } from "@/lib/language-context";
 import {
   getDisplayBadgeDb,
   getUserBadgesDb,
@@ -23,6 +24,7 @@ interface UserInsigniasProps {
 }
 
 export function UserInsignias({ userId, showStreak = false }: UserInsigniasProps) {
+  const { t } = useLanguage();
   // Fonte única do recorte: em vez de guardar os três callsites (perfil, post
   // viewer e card do feed), a própria insígnia some. Ao religar FEATURES.badges
   // os três voltam juntos, sem risco de esquecer um.
@@ -79,7 +81,7 @@ export function UserInsignias({ userId, showStreak = false }: UserInsigniasProps
               onClick={handleClick}
               onKeyDown={(e) => e.key === "Enter" && handleClick(e as unknown as React.MouseEvent)}
               className="inline-flex items-center gap-0.5 cursor-pointer focus:outline-none"
-              aria-label={`Insígnia: ${displayBadge.name}`}
+              aria-label={t("profile_badge_aria").replace("{name}", displayBadge.name)}
             >
               <span className="text-xs leading-none align-middle">{displayBadge.emoji}</span>
               {showStreak && (

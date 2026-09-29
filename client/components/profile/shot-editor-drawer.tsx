@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Edit2, Trash2 } from "lucide-react";
 import { toast } from "@/components/ui/use-toast";
+import { useLanguage } from "@/lib/language-context";
 import { updateShotDb, deleteShotDb, type ShotWithUser } from "@/lib/ritmofit-db";
 import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
 import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
@@ -28,6 +29,7 @@ export function ShotEditorDrawer({
   onSaved,
   onDeleted,
 }: ShotEditorDrawerProps) {
+  const { t } = useLanguage();
   const [isEditing, setIsEditing] = React.useState(false);
   const [description, setDescription] = React.useState("");
   const viewportHeight = useKeyboardAwareHeight();
@@ -53,12 +55,12 @@ export function ShotEditorDrawer({
       if (success) {
         onSaved(description);
         onOpenChange(false);
-        toast({ title: "Sucesso!", description: "Shot atualizado com sucesso." });
+        toast({ title: t("shot_editor_saved") });
       } else {
-        toast({ title: "Erro ao atualizar", description: "Tente novamente.", variant: "destructive" });
+        toast({ title: t("shot_editor_save_error"), description: t("retry"), variant: "destructive" });
       }
     } catch (err: any) {
-      toast({ title: "Erro ao atualizar", description: err?.message || "Tente novamente.", variant: "destructive" });
+      toast({ title: t("shot_editor_save_error"), description: err?.message || t("retry"), variant: "destructive" });
     } finally {
       setIsSaving(false);
     }
@@ -71,9 +73,9 @@ export function ShotEditorDrawer({
       await deleteShotDb(shot.id);
       onDeleted(shot.id);
       onOpenChange(false);
-      toast({ title: "Sucesso!", description: "Shot deletado com sucesso." });
+      toast({ title: t("shot_editor_deleted") });
     } catch (err: any) {
-      toast({ title: "Erro ao deletar", description: err?.message || "Tente novamente.", variant: "destructive" });
+      toast({ title: t("shot_editor_delete_error"), description: err?.message || t("retry"), variant: "destructive" });
     } finally {
       setIsSaving(false);
     }
@@ -94,7 +96,7 @@ export function ShotEditorDrawer({
         onOpenAutoFocus={(e) => e.preventDefault()}
       >
         <DrawerHeader className="shrink-0">
-          <DrawerTitle style={{ color: "#fff" }}>{isEditing ? "Editar Shot" : "Opções do Shot"}</DrawerTitle>
+          <DrawerTitle style={{ color: "#fff" }}>{isEditing ? t("shot_editor_edit_title") : t("shot_editor_options_title")}</DrawerTitle>
         </DrawerHeader>
 
         {shot && (
@@ -113,7 +115,7 @@ export function ShotEditorDrawer({
 
             {isEditing ? (
               <div className="space-y-2">
-                <label className="text-sm font-medium" style={{ color: "#fff" }}>Descrição</label>
+                <label className="text-sm font-medium" style={{ color: "#fff" }}>{t("shot_editor_description")}</label>
                 <Textarea
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
@@ -124,20 +126,20 @@ export function ShotEditorDrawer({
               </div>
             ) : (
               <div>
-                <label className="text-xs font-medium" style={{ color: "rgba(255,255,255,.5)" }}>Descrição</label>
+                <label className="text-xs font-medium" style={{ color: "rgba(255,255,255,.5)" }}>{t("shot_editor_description")}</label>
                 <p className="text-sm mt-1" style={{ color: "#fff" }}>{shot.description}</p>
               </div>
             )}
 
             {confirmDelete && (
               <div className="rounded-2xl p-4 space-y-3" style={{ border: "1px solid rgba(239,68,68,.4)", background: "rgba(239,68,68,.08)" }}>
-                <p className="text-sm font-medium" style={{ color: "#f87171" }}>Tem certeza que deseja deletar este shot?</p>
+                <p className="text-sm font-medium" style={{ color: "#f87171" }}>{t("shot_editor_delete_confirm")}</p>
                 <div className="flex gap-2">
                   <Button variant="outline" className="flex-1" style={{ background: "rgba(255,255,255,.08)", color: "rgba(255,255,255,.7)", border: "1px solid rgba(255,255,255,.12)" }} onClick={() => setConfirmDelete(false)} disabled={isSaving}>
-                    Cancelar
+                    {t("cancel")}
                   </Button>
                   <Button variant="destructive" className="flex-1" onClick={handleDelete} disabled={isSaving}>
-                    {isSaving ? "Deletando..." : "Deletar"}
+                    {isSaving ? t("shot_editor_deleting") : t("delete")}
                   </Button>
                 </div>
               </div>
@@ -149,11 +151,11 @@ export function ShotEditorDrawer({
                   <>
                     <Button variant="outline" className="flex-1" style={{ background: "rgba(255,255,255,.08)", color: "rgba(255,255,255,.7)", border: "1px solid rgba(255,255,255,.12)" }} onClick={() => setIsEditing(true)}>
                       <Edit2 className="h-4 w-4 mr-2" />
-                      Editar
+                      {t("edit")}
                     </Button>
                     <Button variant="destructive" className="flex-1" onClick={() => setConfirmDelete(true)} disabled={isSaving}>
                       <Trash2 className="h-4 w-4 mr-2" />
-                      Deletar
+                      {t("delete")}
                     </Button>
                   </>
                 ) : (
@@ -165,10 +167,10 @@ export function ShotEditorDrawer({
                       onClick={() => { setIsEditing(false); setDescription(shot.description || ""); }}
                       disabled={isSaving}
                     >
-                      Cancelar
+                      {t("cancel")}
                     </Button>
                     <Button className="flex-1" style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }} onClick={handleSave} disabled={isSaving}>
-                      {isSaving ? "Salvando..." : "Salvar"}
+                      {isSaving ? t("saving") : t("save")}
                     </Button>
                   </>
                 )}

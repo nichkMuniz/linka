@@ -281,7 +281,7 @@ export function useDuels({ activeTab, setActiveTab }: UseDuelsOptions) {
       setCheckInComments((prev) => [...prev, newComment]);
       setCommentText("");
     } catch (err: any) {
-      toast({ title: "Erro ao comentar", description: err?.message || "Tente novamente.", variant: "destructive" });
+      toast({ title: t("duels_comment_error"), description: err?.message || t("retry"), variant: "destructive" });
     } finally {
       setIsSendingComment(false);
     }

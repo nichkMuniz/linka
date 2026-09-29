@@ -290,7 +290,10 @@ export default function Goals() {
   // Compartilhar o resumo no feed navega para "/" imediatamente — mas isso
   // desmonta a página ANTES de badge/meta pendentes conseguirem aparecer. Só
   // navega depois que os diálogos de celebração (se houver) forem fechados.
-  const [navigateToFeedAfterCelebration, setNavigateToFeedAfterCelebration] = React.useState(false);
+  // Guarda o `state` da navegação adiada (refresh do feed ou abrir o criador
+  // de flow com a mídia do resumo); `null` = nada pendente.
+  const [navigateToFeedAfterCelebration, setNavigateToFeedAfterCelebration] =
+    React.useState<Record<string, unknown> | null>(null);
 
   // ─── Recarga em FATIAS ────────────────────────────────────────────────────
   //
@@ -490,8 +493,9 @@ export default function Goals() {
       !completedGoal &&
       !goalToShare // "Compartilhar conquista" abre este drawer a partir do diálogo de meta
     ) {
-      setNavigateToFeedAfterCelebration(false);
-      navigate("/", { state: { refreshFeed: true } });
+      const state = navigateToFeedAfterCelebration;
+      setNavigateToFeedAfterCelebration(null);
+      navigate("/", { state });
     }
   }, [navigateToFeedAfterCelebration, unlockedBadges, completedGoal, goalToShare, navigate]);
 
@@ -868,7 +872,11 @@ export default function Goals() {
     const linkedUserGoal = card?.goalId
       ? userGoals.find((g) => g.goal_id === card.goalId)
       : undefined;
+    // Um único instante para o resumo e o last_summary: é a chave com que o
+    // mini frame do flow acha a sessão completa depois.
+    const completedAt = new Date().toISOString();
     setSummaryData({
+      completedAt,
       routineName: card?.name ?? t("goals_rt_exercises"),
       totalSeries: summary.totalSeries,
       totalVolume: summary.totalVolume,
@@ -916,7 +924,7 @@ export default function Goals() {
         prExercises: summary.prExercises,
         machinedExercises: summary.machinedExercises,
         caloriesKcal: summary.caloriesKcal,
-        completedAt: new Date().toISOString(),
+        completedAt,
       }).catch(() => { /* resumo persistido é best-effort */ });
     };
     persistSummary([]);
@@ -1004,6 +1012,40 @@ export default function Goals() {
   // detalhe da rotina) — mesmo overlay do fluxo de "Finalizar", só que sem
   // disparar check-in/badges/progresso de meta de novo (já aconteceram na
   // época). userGroups é resolvido de novo para refletir os duelos atuais.
+  /**
+   * Sai do resumo do treino para o Feed (post publicado ou "Compartilhar no
+   * Flow"). O flag refreshFeed faz o Index recarregar ignorando o cache, para
+   * o post recém-criado aparecer no topo; createFlowSeed abre o criador de flow.
+   *
+   * Insígnia/meta pendentes NÃO podem ser só descartadas aqui: elas viviam
+   * nesta página, e `navigate` desmonta o componente antes de qualquer diálogo
+   * conseguir aparecer — o usuário batia a meta e nunca via a comemoração. Em
+   * vez de descartar, promovemos ao mesmo estado que o fechamento normal do
+   * resumo usa (`completedGoal`/`unlockedBadges`) e só navegamos depois que o
+   * usuário fechar os diálogos (ver o efeito de `navigateToFeedAfterCelebration`).
+   */
+  const leaveSummaryToFeed = (state: Record<string, unknown>) => {
+    setSummaryData(null);
+    // Backstop: mesmo que algo volte a preencher `pendingBadges`, sem
+    // FEATURES.badges não há diálogo para esperar — a navegação para o
+    // feed não pode ficar refém dele.
+    const hasCelebration =
+      (FEATURES.badges && pendingBadges.length > 0) || !!pendingGoal;
+    if (pendingBadges.length > 0) {
+      setUnlockedBadges(pendingBadges);
+      setPendingBadges([]);
+    }
+    if (pendingGoal) {
+      setCompletedGoal(pendingGoal);
+      setPendingGoal(null);
+    }
+    if (hasCelebration) {
+      setNavigateToFeedAfterCelebration(state);
+    } else {
+      navigate("/", { state });
+    }
+  };
+
   const handleViewRoutineSummary = (card: RoutineCard) => {
     if (!card.lastSummary) return;
     // Resolve a meta vinculada AGORA (o snapshot persistido não guarda o vínculo,
@@ -1599,38 +1641,10 @@ export default function Goals() {
         <WorkoutSummaryOverlay
           data={summaryData}
           onPartyRoutineSaved={() => { void reloadRoutines(); }}
-          onSharedToFeed={() => {
-            // Publicou no feed → fecha o resumo e leva ao feed para ver o post. O
-            // flag refreshFeed faz o Index recarregar ao montar, ignorando o cache,
-            // para que a publicação recém-criada já apareça no topo.
-            //
-            // Insígnia/meta pendentes NÃO podem ser só descartadas aqui: elas
-            // viviam nesta página, e `navigate` desmonta o componente antes de
-            // qualquer diálogo conseguir aparecer — o usuário batia a meta e
-            // nunca via a comemoração. Em vez de descartar, promovemos ao mesmo
-            // estado que o fechamento normal do resumo usa (`completedGoal`/
-            // `unlockedBadges`) e só navegamos depois que o usuário fechar os
-            // diálogos (ver o efeito de `navigateToFeedAfterCelebration`).
-            setSummaryData(null);
-            // Backstop: mesmo que algo volte a preencher `pendingBadges`, sem
-            // FEATURES.badges não há diálogo para esperar — a navegação para o
-            // feed não pode ficar refém dele.
-            const hasCelebration =
-              (FEATURES.badges && pendingBadges.length > 0) || !!pendingGoal;
-            if (pendingBadges.length > 0) {
-              setUnlockedBadges(pendingBadges);
-              setPendingBadges([]);
-            }
-            if (pendingGoal) {
-              setCompletedGoal(pendingGoal);
-              setPendingGoal(null);
-            }
-            if (hasCelebration) {
-              setNavigateToFeedAfterCelebration(true);
-            } else {
-              navigate("/", { state: { refreshFeed: true } });
-            }
-          }}
+          onSharedToFeed={() => leaveSummaryToFeed({ refreshFeed: true })}
+          // Não publica nada aqui: o criador de flow mora no Feed, que abre
+          // direto na legenda com a mídia do resumo.
+          onShareToFlow={(seed) => leaveSummaryToFeed({ createFlowSeed: seed })}
           onClose={() => {
             setSummaryData(null);
             // Agora que o resumo saiu, exibe os diálogos que estavam pendentes.

@@ -70,6 +70,7 @@ Como a tela sempre exibe exatamente **1 post**, ela não tem scroll de página �
 - Avatar + nickname + selo de verificado + tempo relativo, dentro de uma pill com efeito vidro (`GLASS_TOP` de `client/lib/post-visuals.tsx`)
 - Toque no avatar/nome → navega para `/usuario/:userId`
 - Badge 🎯 com percentual da meta vinculada (`postGoal.perc`), quando o post tem `user_goal_id`
+  - **Tocável (corrigido 29/09/2026):** era um `<span>` — parecia botão e não fazia nada. Agora abre o `GoalDetailDrawer` compartilhado em modo **somente leitura** (o mesmo do perfil de outra pessoa: sem editar/excluir/vincular rotinas, que vivem em Metas). Em post alheio aparece o "Responder" (`replyTo`) — o texto vai por mensagem privada com a meta anexada
 
 ### Menu de Opções (⋮) — topo-direita, sobreposto
 - Botão circular translúcido (`backdrop-blur`), **visível para todos os usuários** (antes era exclusivo do dono)
@@ -80,7 +81,8 @@ Como a tela sempre exibe exatamente **1 post**, ela não tem scroll de página �
 
 ### Descrição (com truncamento — igual ao feed)
 - Sobreposta na parte inferior da foto, texto branco com `textShadow` para legibilidade
-- Trunca em **80 caracteres** (ou na primeira quebra de linha) com botão "ver mais" (`feed_description_more`)
+- Trunca em **80 caracteres** (ou na primeira quebra de linha) com botão "ver mais" (`feed_description_more`) — o recolhido é sempre só a primeira linha (`collapsedCaption`)
+- Quebras de linha digitadas pela pessoa são respeitadas (`whitespace-pre-wrap`, 29/09/2026)
 - Ao expandir, o texto completo ganha um fundo `glass` (`rgba(0,0,0,.45)` + blur) e botão "ver menos" (`feed_description_less`) para recolher
 - Hashtags (`#token`) são destacadas em azul claro (`renderWithHashtags`, `client/lib/post-visuals.tsx`) — mesma função usada no feed. **Clicáveis:** tocar numa hashtag navega para `/tag/:tag` (ver `docs/16-hashtag.md`). `renderWithHashtags` aceita um callback opcional `onHashtagClick(tag)`; feed e PostDetail passam `(tag) => navigate('/tag/'+tag)`. Só a parte `#tag` do token é clicável (pontuação final fica fora do link)
 - Constante `DESC_MAX_CHARS = 80` compartilhada com o `PostCard` via `client/lib/post-visuals.tsx`
@@ -97,6 +99,7 @@ Como a tela sempre exibe exatamente **1 post**, ela não tem scroll de página �
 - **Post que é repost** (`post.repostOf`): o `RepostAttribution` (`client/components/post/repost-attribution.tsx`) aparece no topo do overlay inferior ("🔁 Repost de {autor}", com avatar e selo). O toque abre o **post original**. A legenda exibida é a do original quando o repost não tem legenda própria (`displayedPostDescription`).
 - **Compartilhar** (menu ⋮): o `ShareDrawer` recebe as ações do hook `usePostReshare`:
   - **"Seu flow"**: para o **dono** e, agora, para quem foi **marcado**.
+    - Tocar abre a escolha **Postar agora** / **Editar antes de postar** (29/09/2026). Editar leva ao Feed com o criador de flow aberto e a moldura do post colada (ver `docs/01-feed.md`).
   - **"Seu feed"** (`Repeat2`): só para quem foi **marcado** e não é o dono. Chama `repostPostDb`. Se o usuário já repostou, o botão aparece como "Repostado" (verde, desabilitado), conferido via `getRepostedPostIdsDb`.
   - Nenhuma das duas aparece num post que já é repost.
 

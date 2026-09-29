@@ -1,5 +1,5 @@
 import * as React from "react";
-import { ChevronLeft, ChevronRight, RotateCcw, UserRoundPlus, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, CirclePlus, RotateCcw, UserRoundPlus, X } from "lucide-react";
 import { HighlightTextarea, SHADCN_TEXTAREA_CLASS } from "@/components/shared/highlight-textarea";
 import { useLanguage } from "@/lib/language-context";
 import { toast } from "@/components/ui/use-toast";
@@ -27,6 +27,9 @@ import { addNetworkStatusListener, getNetworkStatus } from "@/lib/network-status
 import { reportHandledError } from "@/lib/monitoring";
 import { formatRunTime, formatRunPace, type RunPoint, type RunSplit } from "@/lib/run-tracker";
 import type { PostWorkoutSummary } from "@/lib/workout-summary-types";
+import type { FlowCreationSeed } from "@/components/modals/flow-creation-dialog";
+import { MAX_STICKER_EXERCISES } from "@/components/shared/flow-workout-sticker";
+import type { StoryWorkoutSticker } from "@/lib/ritmofit-db";
 import {
   formatCardioKm,
   formatCardioMinutes,
@@ -59,6 +62,7 @@ import {
   drawCanvasStatPanels,
 } from "@/lib/canvas-card";
 import { FEATURES } from "@/lib/feature-flags";
+import { tUi, type TranslationKey } from "@/lib/i18n";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -91,6 +95,13 @@ export type WorkoutSummaryData = {
   // é check-in, não post) não preenchem. NÃO incrementa o progresso da meta — o
   // check-in do treino já fez isso ao finalizar (evita contar 2x).
   userGoalId?: string | null;
+  /**
+   * ISO de quando a sessão terminou — o MESMO valor gravado em
+   * `routines.last_summary.completedAt`. O mini frame do flow usa como `date`,
+   * que é a chave com que o drawer "Ver treino" do flow acha a sessão completa.
+   * Ausente em resumos antigos → cai em "agora".
+   */
+  completedAt?: string;
   completedExercises: Array<{
     name: string;
     // ID no catálogo `workouts`, usado pela comparação de treino para casar o
@@ -167,7 +178,8 @@ function formatSummaryDuration(secs: number): string {
 
 function formatVolumeKg(kg: number): string {
   if (kg >= 1000) {
-    return `${(kg / 1000).toFixed(1).replace(".", ",")} t`;
+    const t1 = (kg / 1000).toFixed(1);
+    return `${tUi("card_number_locale") === "pt-BR" ? t1.replace(".", ",") : t1} t`;
   }
   return `${kg}kg`;
 }
@@ -252,18 +264,25 @@ function isWeightPr(pr: WorkoutSummaryData["prExercises"][number]): boolean {
   return !pr.kind || pr.kind === "weight";
 }
 
-function generateDefaultDescription(data: WorkoutSummaryData): string {
+// A legenda nasce no idioma do app (a pessoa ainda pode editá-la). `t` vem do
+// componente — a função fica fora dele porque também roda no "Usar descrição
+// automática".
+function generateDefaultDescription(
+  data: WorkoutSummaryData,
+  t: (key: TranslationKey) => string,
+): string {
   const duration = formatSummaryDuration(data.durationSecs);
+  const setsWord = t("goals_summary_sets_label");
   const volumeStr = data.totalVolume > 0 ? ` • ${data.totalVolume}kg` : "";
   const kcalStr = (data.caloriesKcal ?? 0) > 0 ? ` • ${Math.round(data.caloriesKcal!)} kcal` : "";
-  const baseStats = `${duration} • ${data.totalSeries} séries${volumeStr}${kcalStr}`;
+  const baseStats = `${duration} • ${data.totalSeries} ${setsWord}${volumeStr}${kcalStr}`;
 
   if (data.machinedExercises.length > 0) {
     const top = data.machinedExercises[0];
     const extras = data.machinedExercises.slice(1).map((m) => `${m.name}: ${m.kg}kg`).join(" • ");
-    let text = `🔥 MÁQUINA ZERADA! ${top.kg}kg no ${top.name}!`;
+    let text = `🔥 ${t("goals_caption_machine").replace("{kg}", String(top.kg)).replace("{name}", top.name)}`;
     if (extras) text += `\n${extras}`;
-    text += `\n\nTreino de ${data.routineName} finalizado em ${baseStats}\n\n#maquinazerada #fitness #linka`;
+    text += `\n\n${t("goals_caption_finished_in").replace("{routine}", data.routineName).replace("{stats}", baseStats)}\n\n${t("goals_caption_tags_machine")}`;
     return text;
   }
 
@@ -271,7 +290,7 @@ function generateDefaultDescription(data: WorkoutSummaryData): string {
     const prLines = data.prExercises
       .map((p) => `🏆 ${p.name}: ${formatPrValue(p, true)}`)
       .join("\n");
-    return `${prLines}\n\nTreino de ${data.routineName} concluído em ${baseStats}\n\n#pr #recordepessoal #fitness #linka`;
+    return `${prLines}\n\n${t("goals_caption_completed_in").replace("{routine}", data.routineName).replace("{stats}", baseStats)}\n\n${t("goals_caption_tags_pr")}`;
   }
 
   const exNames = data.completedExercises.slice(0, 3).map((e) => e.name).join(", ");
@@ -288,7 +307,7 @@ function generateDefaultDescription(data: WorkoutSummaryData): string {
     .filter((g) => !(runLine && g.kind === "run"))
     .map((g) => `\n${formatCardioLine(g)}`)
     .join("");
-  return `Treino de ${data.routineName} concluído! ✅\n\n⏱ ${duration} | 💪 ${data.totalSeries} séries${data.totalVolume > 0 ? ` | 🏋️ ${data.totalVolume}kg` : ""}${kcalStr ? ` | 🔥 ${Math.round(data.caloriesKcal!)} kcal` : ""}${runLine}${cardioLine ? `\n${cardioLine}` : ""}${exLine}\n\n#treino #fitness #linka`;
+  return `${t("goals_caption_completed").replace("{routine}", data.routineName)} ✅\n\n⏱ ${duration} | 💪 ${data.totalSeries} ${setsWord}${data.totalVolume > 0 ? ` | 🏋️ ${data.totalVolume}kg` : ""}${kcalStr ? ` | 🔥 ${Math.round(data.caloriesKcal!)} kcal` : ""}${runLine}${cardioLine ? `\n${cardioLine}` : ""}${exLine}\n\n${t("goals_caption_tags_default")}`;
 }
 
 // ─── Persisted payload (posts.workout_summary) ──────────────────────────────
@@ -332,6 +351,31 @@ function buildPostWorkoutSummary(
     machinedExercises: data.machinedExercises.length > 0 ? data.machinedExercises : undefined,
     badges: data.badges.length > 0 ? data.badges : undefined,
     caloriesKcal: (data.caloriesKcal ?? 0) > 0 ? Math.round(data.caloriesKcal!) : undefined,
+  };
+}
+
+// ─── Flow (mini frame de treino) ─────────────────────────────────────────────
+
+// Mesmo snapshot que o seletor de treino do flow monta a partir de
+// `routines.last_summary` (ver `sessionToSticker`), só que direto do resumo
+// aberto — sem esperar a gravação best-effort do last_summary.
+function buildFlowWorkoutSticker(data: WorkoutSummaryData): StoryWorkoutSticker {
+  const shown = data.completedExercises.slice(0, MAX_STICKER_EXERCISES);
+  return {
+    name: data.routineName,
+    date: data.completedAt ?? new Date().toISOString(),
+    totalSeries: data.totalSeries,
+    totalVolume: data.totalVolume,
+    durationSecs: data.durationSecs,
+    prCount: data.prExercises.length || undefined,
+    caloriesKcal: (data.caloriesKcal ?? 0) > 0 ? Math.round(data.caloriesKcal!) : undefined,
+    exercises: shown.map((ex) => ({
+      name: ex.name,
+      sets: ex.totalSets,
+      kg: ex.bestKg,
+      isCardio: ex.isCardio || undefined,
+    })),
+    extraCount: data.completedExercises.length - shown.length || undefined,
   };
 }
 
@@ -406,15 +450,15 @@ function drawCanvasStats(
   const hideSeries = cardioOnly && cardioKm > 0;
   return drawCanvasStatPanels(ctx, W, y, [
     showCardioTime
-      ? { l: "TEMPO", v: formatCardioMinutes(cardioMin) }
-      : { l: "DURACAO", v: formatSummaryDuration(data.durationSecs) },
-    ...(cardioKm > 0 ? [{ l: "DISTANCIA", v: `${formatCardioKm(cardioKm)} km` }] : []),
-    ...(hideSeries ? [] : [{ l: "SERIES", v: String(data.totalSeries) }]),
-    ...(data.totalVolume > 0 ? [{ l: "VOLUME", v: formatVolumeKg(data.totalVolume) }] : []),
+      ? { l: tUi("card_stat_time"), v: formatCardioMinutes(cardioMin) }
+      : { l: tUi("card_stat_duration"), v: formatSummaryDuration(data.durationSecs) },
+    ...(cardioKm > 0 ? [{ l: tUi("card_stat_distance"), v: `${formatCardioKm(cardioKm)} km` }] : []),
+    ...(hideSeries ? [] : [{ l: tUi("card_stat_sets"), v: String(data.totalSeries) }]),
+    ...(data.totalVolume > 0 ? [{ l: tUi("card_stat_volume"), v: formatVolumeKg(data.totalVolume) }] : []),
     // Calorias entram como mais um painel quando a sessão registrou o dado.
     // Rótulo sem acento, como os demais deste card (fonte do canvas).
     ...((data.caloriesKcal ?? 0) > 0
-      ? [{ l: "CALORIAS", v: `${Math.round(data.caloriesKcal!)} kcal` }]
+      ? [{ l: tUi("card_stat_calories"), v: `${Math.round(data.caloriesKcal!)} kcal` }]
       : []),
   ], accent);
 }
@@ -427,7 +471,7 @@ function drawCanvasExercises(
   ctx.fillStyle = "rgba(255,255,255,0.25)";
   ctx.font = `600 9px ${FONT}`;
   ctx.textAlign = "left";
-  ctx.fillText("EXERCICIOS", 28, y);
+  ctx.fillText(tUi("card_exercises"), 28, y);
   y += 15;
 
   const max = Math.min(4, data.completedExercises.length);
@@ -469,7 +513,7 @@ function drawCanvasExercises(
     ctx.fillStyle = "rgba(255,255,255,0.25)";
     ctx.font = `500 11px ${FONT}`;
     ctx.textAlign = "left";
-    ctx.fillText(`+${data.completedExercises.length - max} mais`, 28, y);
+    ctx.fillText(tUi("card_more").replace("{n}", String(data.completedExercises.length - max)), 28, y);
     y += 18;
   }
   return y;
@@ -522,7 +566,7 @@ function drawStandardCanvas(
   ctx.fillStyle = "#ffffff";
   ctx.font = `900 22px ${FONT}`;
   ctx.textAlign = "center";
-  ctx.fillText("Treino Concluido!", W / 2, y);
+  ctx.fillText(tUi("card_workout_done"), W / 2, y);
   y += 28;
 
   ctx.fillStyle = "rgba(255,255,255,0.40)";
@@ -572,8 +616,8 @@ function drawPRCanvas(
   roundRectPath(ctx, 20, y, W - 40, bH, 12);
   ctx.clip();
   const pBannerTxt = data.prExercises.length === 1
-    ? `NOVO RECORDE: ${data.prExercises[0].name} — ${formatPrValue(data.prExercises[0], false)}`
-    : `${data.prExercises.length} NOVOS RECORDES PESSOAIS`;
+    ? tUi("card_pr_banner_one").replace("{name}", data.prExercises[0].name).replace("{value}", formatPrValue(data.prExercises[0], false))
+    : tUi("card_pr_banner_many").replace("{n}", String(data.prExercises.length));
   ctx.fillText(pBannerTxt, W / 2, y + 25);
   ctx.restore();
   y += bH + 18;
@@ -626,7 +670,7 @@ function drawPRCanvas(
     ctx.fillStyle = "rgba(255,255,255,0.35)";
     ctx.font = `500 11px ${FONT}`;
     ctx.textAlign = "center";
-    ctx.fillText(`+${data.prExercises.length - maxPR} mais`, W / 2, y);
+    ctx.fillText(tUi("card_more").replace("{n}", String(data.prExercises.length - maxPR)), W / 2, y);
     y += 18;
   }
   y += 8;
@@ -678,7 +722,7 @@ function drawMachineMaxCanvas(
   ctx.fillStyle = ACCENT;
   ctx.font = `900 15px ${FONT}`;
   ctx.textAlign = "center";
-  ctx.fillText("MAQUINA ZERADA", W / 2, y + 29);
+  ctx.fillText(tUi("card_machine_maxed"), W / 2, y + 29);
   y += bH + 18;
 
   // Big kg number
@@ -722,30 +766,58 @@ function drawMachineMaxCanvas(
 // ─── Creative template helpers ───────────────────────────────────────────────
 
 function fmtInt(n: number): string {
-  return Math.round(n).toLocaleString("pt-BR");
+  return Math.round(n).toLocaleString(tUi("card_number_locale"));
+}
+
+// Grupo muscular do catálogo (sempre em PT no banco) → rótulo no idioma do app.
+// Grupo fora do mapa sai como está.
+const CARD_MUSCLE_KEYS: Record<string, TranslationKey> = {
+  "Pernas": "card_muscle_legs",
+  "Costas": "card_muscle_back",
+  "Peito": "card_muscle_chest",
+  "Ombros": "card_muscle_shoulders",
+  "Alongamento": "card_muscle_stretching",
+  "Abdômen": "card_muscle_abs",
+  "Tríceps": "card_muscle_triceps",
+  "Bíceps": "card_muscle_biceps",
+  "Braços": "card_muscle_arms",
+  "Cardio": "card_muscle_cardio",
+  "Core": "card_muscle_core",
+  "Antebraço": "card_muscle_forearms",
+  "Gluteos": "card_muscle_glutes",
+  "Glúteos": "card_muscle_glutes",
+  "Panturrilha": "card_muscle_calves",
+  "Full body": "card_muscle_fullbody",
+  "Mobilidade": "card_muscle_mobility",
+};
+
+function cardMuscleLabel(group: string): string {
+  const key = CARD_MUSCLE_KEYS[group];
+  return key ? tUi(key) : group;
 }
 
 // Objetos de comparação do card "Equivalência" — ordenados do mais pesado ao
 // mais leve; a seleção pega o mais pesado cuja contagem fica >= ~1 (punchline
 // tipo "≈ 2 elefantes" em vez de "≈ 340 melancias").
+// `singular`/`plural` são chaves de tradução — o nome sai no idioma do app.
 const COMPARISON_ITEMS: Array<{
-  kg: number; emoji: string; singular: string; plural: string;
+  kg: number; emoji: string; singular: TranslationKey; plural: TranslationKey;
 }> = [
-  { kg: 140000, emoji: "🐳", singular: "baleia-azul", plural: "baleias-azuis" },
-  { kg: 42000, emoji: "✈️", singular: "avião de passageiros", plural: "aviões de passageiros" },
-  { kg: 30000, emoji: "🐋", singular: "baleia-jubarte", plural: "baleias-jubarte" },
-  { kg: 13000, emoji: "🚌", singular: "ônibus", plural: "ônibus" },
-  { kg: 9000, emoji: "🚚", singular: "caminhão", plural: "caminhões" },
-  { kg: 5000, emoji: "🐘", singular: "elefante", plural: "elefantes" },
-  { kg: 2500, emoji: "🛻", singular: "caminhonete", plural: "caminhonetes" },
-  { kg: 1500, emoji: "🦛", singular: "hipopótamo", plural: "hipopótamos" },
-  { kg: 1100, emoji: "🚗", singular: "carro popular", plural: "carros populares" },
-  { kg: 700, emoji: "🐄", singular: "vaca", plural: "vacas" },
-  { kg: 400, emoji: "🎹", singular: "piano de cauda", plural: "pianos de cauda" },
-  { kg: 190, emoji: "🦁", singular: "leão", plural: "leões" },
-  { kg: 90, emoji: "🧊", singular: "geladeira", plural: "geladeiras" },
-  { kg: 70, emoji: "🧍", singular: "pessoa adulta", plural: "pessoas adultas" },
-  { kg: 8, emoji: "🍉", singular: "melancia", plural: "melancias" },
+  { kg: 140000, emoji: "🐳", singular: "card_cmp_blue_whale_one", plural: "card_cmp_blue_whale_many" },
+  { kg: 42000, emoji: "✈️", singular: "card_cmp_airliner_one", plural: "card_cmp_airliner_many" },
+  { kg: 30000, emoji: "🐋", singular: "card_cmp_humpback_one", plural: "card_cmp_humpback_many" },
+  { kg: 13000, emoji: "🚌", singular: "card_cmp_bus_one", plural: "card_cmp_bus_many" },
+  { kg: 9000, emoji: "🚚", singular: "card_cmp_truck_one", plural: "card_cmp_truck_many" },
+  { kg: 5000, emoji: "🐘", singular: "card_cmp_elephant_one", plural: "card_cmp_elephant_many" },
+  { kg: 2500, emoji: "🛻", singular: "card_cmp_pickup_one", plural: "card_cmp_pickup_many" },
+  { kg: 1500, emoji: "🦛", singular: "card_cmp_hippo_one", plural: "card_cmp_hippo_many" },
+  { kg: 1100, emoji: "🚗", singular: "card_cmp_car_one", plural: "card_cmp_car_many" },
+  { kg: 700, emoji: "🐄", singular: "card_cmp_cow_one", plural: "card_cmp_cow_many" },
+  { kg: 400, emoji: "🎹", singular: "card_cmp_piano_one", plural: "card_cmp_piano_many" },
+  { kg: 190, emoji: "🦁", singular: "card_cmp_lion_one", plural: "card_cmp_lion_many" },
+  { kg: 90, emoji: "🧊", singular: "card_cmp_fridge_one", plural: "card_cmp_fridge_many" },
+  { kg: 70, emoji: "🧍", singular: "card_cmp_adult_one", plural: "card_cmp_adult_many" },
+  { kg: 8, emoji: "🍉", singular: "card_cmp_watermelon_one", plural: "card_cmp_watermelon_many" },
 ];
 
 // Comparações válidas para o volume (contagem >= ~1), da mais "pesada" para a
@@ -759,15 +831,16 @@ function getComparisonOptions(volumeKg: number) {
 function formatComparisonCount(n: number): string {
   const r = Math.round(n);
   if (n >= 10 || Math.abs(n - r) <= 0.12) return String(Math.max(1, r));
-  return n.toFixed(1).replace(".", ",");
+  const s = n.toFixed(1);
+  return tUi("card_number_locale") === "pt-BR" ? s.replace(".", ",") : s;
 }
 
 function impactTier(volumeKg: number): string {
-  if (volumeKg >= 15000) return "FORCA SOBRE-HUMANA";
-  if (volumeKg >= 8000) return "MODO TITA";
-  if (volumeKg >= 3000) return "MODO MONSTRO";
-  if (volumeKg >= 1000) return "FORCA BRUTA";
-  return "PESO PESADO";
+  if (volumeKg >= 15000) return tUi("card_tier_superhuman");
+  if (volumeKg >= 8000) return tUi("card_tier_titan");
+  if (volumeKg >= 3000) return tUi("card_tier_monster");
+  if (volumeKg >= 1000) return tUi("card_tier_brute");
+  return tUi("card_tier_heavy");
 }
 
 // Nome da rotina centralizado no rodapé dos cards pôster (acima do domínio).
@@ -808,7 +881,7 @@ function drawComparisonCanvas(
   ctx.fillStyle = "rgba(56,189,248,0.70)";
   ctx.font = `700 11px ${FONT}`;
   ctx.textAlign = "center";
-  ctx.fillText("VOCE MOVEU", W / 2, 106);
+  ctx.fillText(tUi("card_you_moved"), W / 2, 106);
 
   // Volume gigante com brilho
   const volText = fitFontSize(ctx, `${fmtInt(data.totalVolume)} kg`, W - 90, 54);
@@ -820,7 +893,7 @@ function drawComparisonCanvas(
 
   ctx.fillStyle = "rgba(255,255,255,0.35)";
   ctx.font = `700 11px ${FONT}`;
-  ctx.fillText("ISSO EQUIVALE A", W / 2, 206);
+  ctx.fillText(tUi("card_equals"), W / 2, 206);
 
   // Fileira de emojis (até 5 repetidos; acima disso, 1 emoji + multiplicador)
   const rounded = Math.max(1, Math.round(count));
@@ -833,14 +906,14 @@ function drawComparisonCanvas(
 
   // "≈ 2 elefantes"
   const label = fitFontSize(
-    ctx, `≈ ${countText} ${countText === "1" ? item.singular : item.plural}`, W - 70, 24, 800,
+    ctx, `≈ ${countText} ${tUi(countText === "1" ? item.singular : item.plural)}`, W - 70, 24, 800,
   );
   ctx.fillStyle = "#ffffff";
   ctx.fillText(label, W / 2, 318);
 
   ctx.fillStyle = "rgba(255,255,255,0.40)";
   ctx.font = `500 12px ${FONT}`;
-  ctx.fillText("Tudo isso movido pelos seus músculos hoje. 💪", W / 2, 346);
+  ctx.fillText(tUi("card_moved_by_muscles"), W / 2, 346);
 
   drawCanvasStats(ctx, W, 380, data, ACCENT);
   drawCanvasDivider(ctx, W, 458);
@@ -885,7 +958,7 @@ function drawImpactCanvas(
 
   ctx.fillStyle = "rgba(239,68,68,0.70)";
   ctx.font = `700 11px ${FONT}`;
-  ctx.fillText("VOCE MOVEU", W / 2, 158);
+  ctx.fillText(tUi("card_you_moved"), W / 2, 158);
 
   // Número gigante com brilho vermelho
   const volText = fitFontSize(ctx, `${fmtInt(data.totalVolume)} kg`, W - 80, 64);
@@ -901,7 +974,7 @@ function drawImpactCanvas(
     const kgPerMin = data.totalVolume / (data.durationSecs / 60);
     ctx.fillStyle = "rgba(255,255,255,0.75)";
     ctx.font = `700 14px ${FONT}`;
-    ctx.fillText(`⚡ ${fmtInt(kgPerMin)} kg por minuto`, W / 2, y);
+    ctx.fillText(`⚡ ${tUi("card_kg_per_min").replace("{n}", fmtInt(kgPerMin))}`, W / 2, y);
     y += 26;
   }
 
@@ -912,7 +985,7 @@ function drawImpactCanvas(
   if (heaviest) {
     ctx.fillStyle = "rgba(255,255,255,0.40)";
     const line = fitFontSize(
-      ctx, `Maior carga: ${heaviest.name} — ${heaviest.bestKg}kg`, W - 70, 12, 500,
+      ctx, tUi("card_heaviest").replace("{name}", heaviest.name).replace("{kg}", String(heaviest.bestKg)), W - 70, 12, 500,
     );
     ctx.fillText(line, W / 2, y);
   }
@@ -951,27 +1024,28 @@ function drawEvolutionCanvas(
   let rows: string[];
   if (prsWithPct.length > 0) {
     const top = prsWithPct[0];
-    label = "SUPERACAO DO DIA";
-    big = `+${top.pct >= 10 ? String(Math.round(top.pct)) : top.pct.toFixed(1).replace(".", ",")}%`;
-    sub = `mais forte em ${top.name}`;
+    label = tUi("card_evo_breakthrough");
+    const pct1 = top.pct.toFixed(1);
+    big = `+${top.pct >= 10 ? String(Math.round(top.pct)) : tUi("card_number_locale") === "pt-BR" ? pct1.replace(".", ",") : pct1}%`;
+    sub = tUi("card_evo_stronger_at").replace("{name}", top.name);
     rows = data.prExercises.slice(0, 3).map((p) =>
       isWeightPr(p) && p.previousBestKg <= 0
-        ? `${p.name}  ·  ${formatPrValue(p, false)} (primeira marca)`
+        ? `${p.name}  ·  ${formatPrValue(p, false)} ${tUi("card_evo_first_mark")}`
         : `${p.name}  ·  ${formatPrValue(p, true)}`,
     );
   } else if (data.prExercises.length > 0) {
     const top = data.prExercises[0];
-    label = "NOVO RECORDE";
+    label = tUi("card_evo_new_record");
     big = formatPrValue(top, false);
-    sub = `em ${top.name}`;
+    sub = tUi("card_evo_on").replace("{name}", top.name);
     rows = data.prExercises.slice(0, 3).map((p) => `${p.name}  ·  ${formatPrValue(p, false)}`);
   } else {
     const best = data.completedExercises
       .filter((e) => e.bestKg > 0)
       .sort((a, b) => b.bestKg - a.bestKg);
-    label = "CARGA MAXIMA DO DIA";
+    label = tUi("card_evo_top_load");
     big = best[0] ? `${best[0].bestKg}kg` : formatSummaryDuration(data.durationSecs);
-    sub = best[0] ? `em ${best[0].name}` : "constância também é superação";
+    sub = best[0] ? tUi("card_evo_on").replace("{name}", best[0].name) : tUi("card_evo_consistency");
     rows = best.slice(0, 3).map((e) => `${e.name}  ·  ${e.bestKg}kg`);
   }
 
@@ -1025,7 +1099,7 @@ function drawNumbersCanvas(
   ctx.fillStyle = "#ffffff";
   ctx.font = `900 18px ${FONT}`;
   ctx.textAlign = "center";
-  ctx.fillText("SEU TREINO EM NUMEROS", W / 2, 104);
+  ctx.fillText(tUi("card_numbers_title"), W / 2, 104);
 
   // Cardio fica de fora da contagem de repetições: nesses exercícios `reps` é a
   // DISTÂNCIA em km (contrato kg=min/reps=km), e somá-la aqui estampava os km
@@ -1041,17 +1115,17 @@ function drawNumbersCanvas(
     // Mesma regra de cardio dos painéis de stat (ver drawCanvasStats): tempo
     // registrado no lugar do cronômetro da sessão, distância no lugar de séries.
     cardioOnly && cardioMin > 0
-      ? { emoji: "⏱", value: formatCardioMinutes(cardioMin), label: "TEMPO" }
-      : { emoji: "⏱", value: formatSummaryDuration(data.durationSecs), label: "TEMPO ATIVO" },
+      ? { emoji: "⏱", value: formatCardioMinutes(cardioMin), label: tUi("card_stat_time") }
+      : { emoji: "⏱", value: formatSummaryDuration(data.durationSecs), label: tUi("card_stat_active_time") },
     cardioOnly && cardioKm > 0
-      ? { emoji: "📍", value: `${formatCardioKm(cardioKm)} km`, label: "DISTANCIA" }
-      : { emoji: "💪", value: String(data.totalSeries), label: "SERIES" },
+      ? { emoji: "📍", value: `${formatCardioKm(cardioKm)} km`, label: tUi("card_stat_distance") }
+      : { emoji: "💪", value: String(data.totalSeries), label: tUi("card_stat_sets") },
     totalReps > 0
-      ? { emoji: "💥", value: fmtInt(totalReps), label: "REPETICOES" }
-      : { emoji: "🎯", value: String(data.completedExercises.length), label: "EXERCICIOS" },
+      ? { emoji: "💥", value: fmtInt(totalReps), label: tUi("card_stat_reps") }
+      : { emoji: "🎯", value: String(data.completedExercises.length), label: tUi("card_exercises") },
     data.totalVolume > 0
-      ? { emoji: "🏋️", value: formatVolumeKg(data.totalVolume), label: "VOLUME" }
-      : { emoji: "✅", value: "100%", label: "CONCLUIDO" },
+      ? { emoji: "🏋️", value: formatVolumeKg(data.totalVolume), label: tUi("card_stat_volume") }
+      : { emoji: "✅", value: "100%", label: tUi("card_stat_completed") },
   ];
 
   const gap = 10, tileW = (W - 40 - gap) / 2, tileH = 96;
@@ -1083,7 +1157,7 @@ function drawNumbersCanvas(
   // Contexto da sessão: nº de exercícios + grupo muscular predominante
   const primary = getPrimaryMuscleGroup(data.completedExercises);
   const exCount = data.completedExercises.length;
-  const context = `${exCount} exercício${exCount === 1 ? "" : "s"}${primary ? ` • foco em ${primary}` : ""}`;
+  const context = `${tUi(exCount === 1 ? "card_exercise_count_one" : "card_exercise_count_many").replace("{n}", String(exCount))}${primary ? ` • ${tUi("card_focus_on").replace("{group}", cardMuscleLabel(primary))}` : ""}`;
   ctx.fillStyle = "rgba(255,255,255,0.45)";
   ctx.font = `600 13px ${FONT}`;
   ctx.fillText(context, W / 2, 372);
@@ -1144,14 +1218,20 @@ interface WorkoutSummaryOverlayProps {
   /** Chamado após publicar no feed com sucesso — usado para navegar até o feed. */
   onSharedToFeed?: () => void;
   /**
+   * "Compartilhar no Flow": o resumo NÃO publica nada — entrega a mídia pronta
+   * e quem renderiza leva ao criador de flow (no Feed) já na etapa de legenda.
+   * Sem este callback o botão não aparece.
+   */
+  onShareToFlow?: (seed: FlowCreationSeed) => void;
+  /**
    * O convidado salvou a rotina do amigo (ver `partySaveOffer`). A tela de
    * Metas recarrega a lista para o card novo aparecer sem refresh manual.
    */
   onPartyRoutineSaved?: () => void;
 }
 
-export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed, onPartyRoutineSaved }: WorkoutSummaryOverlayProps) {
-  const { t } = useLanguage();
+export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed, onShareToFlow, onPartyRoutineSaved }: WorkoutSummaryOverlayProps) {
+  const { t, language } = useLanguage();
 
   // ── Treinar junto: salvar a rotina do amigo ────────────────────────────────
   // `idle` → o card com as duas opções; `saving` → botão travado; `done`/
@@ -1238,14 +1318,14 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed, onPartyRo
     };
   }, []);
 
-  const [description, setDescription] = React.useState(() => generateDefaultDescription(data));
+  const [description, setDescription] = React.useState(() => generateDefaultDescription(data, t));
   const [userPhotos, setUserPhotos] = React.useState<File[]>([]);
   const [userPhotoPreviews, setUserPhotoPreviews] = React.useState<string[]>([]);
   const [cropTransforms, setCropTransforms] = React.useState<Record<number, CropTransform>>({});
   const [currentSlide, setCurrentSlide] = React.useState(0);
   const [canvasPreviewUrl, setCanvasPreviewUrl] = React.useState<string | null>(null);
   const [isSharing, setIsSharing] = React.useState(false);
-  const [shareTarget, setShareTarget] = React.useState<"feed" | "duel" | null>(null);
+  const [shareTarget, setShareTarget] = React.useState<"feed" | "duel" | "flow" | null>(null);
   // Compartilhar exige internet (upload de imagem + insert do post/check-in).
   // Offline, os botões ficam desabilitados com um aviso — o treino em si já
   // foi salvo na fila offline e sincroniza sozinho.
@@ -1320,10 +1400,10 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed, onPartyRo
   // Texto preto só no dourado da máquina zerada (contraste); demais acentos usam branco.
   const accentFg = selectedTemplate === "auto" && variant === "machine" ? "#000" : "#fff";
   const headerTitle = hasMachined
-    ? "Máquina zerada! 🔥"
+    ? t("goals_summary_header_machine")
     : hasPRs
-    ? "Novo recorde! 🏆"
-    : "Treino concluído! 💪";
+    ? t("goals_summary_header_pr")
+    : t("goals_summary_header_done");
 
   // Draw off-screen canvas — recriado a cada troca de template/comparação para
   // não acumular clip/scale do desenho anterior (a criação é barata e rara).
@@ -1340,7 +1420,9 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed, onPartyRo
       setCanvasPreviewUrl(cardCanvasPreviewUrl(canvas));
     });
     return () => { cancelled = true; };
-  }, [data, selectedTemplate, comparisonIndex, cardioGroups]);
+    // `language`: os textos do card saem de `tUi()` (idioma do app) — trocar o
+    // idioma com o resumo aberto redesenha o card na língua nova.
+  }, [data, selectedTemplate, comparisonIndex, cardioGroups, language]);
 
   // Renderiza o mapa do trajeto em imagem (assíncrono: baixa tiles + desenha).
   // Blob fica no ref para o upload; a object URL alimenta o slide de preview.
@@ -1509,6 +1591,41 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed, onPartyRo
     }
   };
 
+  // Leva o slide que está na tela para o criador de flow: o card gerado (que
+  // já traz o treino inteiro) ou a foto/mapa da pessoa — nesse caso com o mini
+  // frame do treino colado por cima, para o flow não virar só uma foto.
+  const handleShareFlow = async () => {
+    if (!onShareToFlow) return;
+    setIsSharing(true);
+    setShareTarget("flow");
+    try {
+      let blob: Blob;
+      let withSticker = true;
+      if (currentSlide < userPhotoPreviews.length) {
+        const containerWidth = cropContainerWidthRef.current;
+        blob = await applyTransformToBlob(
+          userPhotoPreviews[currentSlide],
+          cropTransforms[currentSlide] || DEFAULT_TRANSFORM,
+          containerWidth,
+        );
+      } else if (hasMapSlide && currentSlide === mapSlideIndex && mapBlobRef.current) {
+        blob = mapBlobRef.current;
+      } else {
+        blob = await getCanvasBlob();
+        withSticker = false;
+      }
+      onShareToFlow({
+        mediaUrl: URL.createObjectURL(blob),
+        workoutSticker: withSticker ? buildFlowWorkoutSticker(data) : null,
+      });
+    } catch (err: any) {
+      reportHandledError(err, "workout-summary:share-flow");
+      toast({ title: t("goals_summary_share_error"), description: err?.message, variant: "destructive" });
+      setIsSharing(false);
+      setShareTarget(null);
+    }
+  };
+
   const handleShareAllDuels = async () => {
     setIsSharing(true);
     setShareTarget("duel");
@@ -1529,7 +1646,7 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed, onPartyRo
       const exercises = data.completedExercises.map((ex) => ({
         workoutId: "", workoutName: ex.name, muscleGroup: ex.muscleGroup,
         kilos: ex.bestKg || null,
-        volume: ex.totalSets > 0 ? `${ex.totalSets} séries` : null,
+        volume: ex.totalSets > 0 ? `${ex.totalSets} ${t("goals_summary_sets_label")}` : null,
       }));
       const primaryMuscleGroup = getPrimaryMuscleGroup(data.completedExercises);
 
@@ -1578,7 +1695,7 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed, onPartyRo
       const exercises = data.completedExercises.map((ex) => ({
         workoutId: "", workoutName: ex.name, muscleGroup: ex.muscleGroup,
         kilos: ex.bestKg || null,
-        volume: ex.totalSets > 0 ? `${ex.totalSets} séries` : null,
+        volume: ex.totalSets > 0 ? `${ex.totalSets} ${t("goals_summary_sets_label")}` : null,
       }));
       const primaryMuscleGroup = getPrimaryMuscleGroup(data.completedExercises);
 
@@ -1766,7 +1883,7 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed, onPartyRo
           ) : canvasPreviewUrl ? (
             <img
               src={canvasPreviewUrl}
-              alt="Resumo do treino"
+              alt={t("goals_summary_image_alt")}
               style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
             />
           ) : (
@@ -2358,7 +2475,7 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed, onPartyRo
           ) : (
             <button
               type="button"
-              onClick={() => setDescription(generateDefaultDescription(data))}
+              onClick={() => setDescription(generateDefaultDescription(data, t))}
               className="active:opacity-60"
               style={{
                 display: "inline-flex", alignItems: "center", gap: 4,
@@ -2514,6 +2631,35 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed, onPartyRo
             ? t("goals_summary_sharing_feed")
             : t("goals_summary_share_feed")}
         </button>
+
+        {/* Share to Flow — não precisa de internet aqui: só abre o criador;
+            o envio acontece lá, que já trata falha de rede. */}
+        {onShareToFlow && (
+          <button
+            onClick={handleShareFlow}
+            disabled={isSharing}
+            style={{
+              height: 52, borderRadius: 16,
+              background: CARD, border: `1px solid ${BORDER}`,
+              backdropFilter: GLASS_BLUR, WebkitBackdropFilter: GLASS_BLUR,
+              boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08)",
+              color: FG, fontSize: 15, fontWeight: 700,
+              cursor: isSharing ? "not-allowed" : "pointer",
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+              opacity: isSharing && shareTarget !== "flow" ? 0.45 : 1,
+              transition: "opacity 0.2s",
+            }}
+          >
+            {isSharing && shareTarget === "flow" ? (
+              <SpinnerIcon color={FG} />
+            ) : (
+              <CirclePlus width={16} height={16} strokeWidth={2} style={{ flexShrink: 0 }} />
+            )}
+            {isSharing && shareTarget === "flow"
+              ? t("goals_summary_preparing_flow")
+              : t("goals_summary_share_flow")}
+          </button>
+        )}
 
         {/* Share to Duel — porta de entrada escondida no v1 (FEATURES.duels).
             userGroups chega vazio com a flag off, mas o guard explícito evita

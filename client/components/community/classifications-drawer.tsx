@@ -8,6 +8,8 @@ import {
   DrawerDescription,
 } from "@/components/ui/drawer";
 import { type GroupCheckIn, type DuelScoringType, type DuelCheckInVote } from "@/lib/ritmofit-db";
+import { useLanguage } from "@/lib/language-context";
+import type { TranslationKey } from "@/lib/i18n";
 
 interface ClassificationsDrawerProps {
   open: boolean;
@@ -20,16 +22,31 @@ interface ClassificationsDrawerProps {
   onSelectMember?: (member: { userId: string; userName: string; userPhoto: string | null }) => void;
 }
 
-const SCORING_META: Record<DuelScoringType, { label: string; unit: string; format: (v: number) => string }> = {
-  active_days:   { label: "Dias ativos",           unit: "dias",    format: (v) => `${v} dia${v !== 1 ? "s" : ""}` },
-  hustle_points: { label: "Pontos de hustle",       unit: "pts",     format: (v) => `${v.toLocaleString("pt-BR")} pts` },
-  check_in_count:{ label: "Check-ins",              unit: "check-ins", format: (v) => `${v} check-in${v !== 1 ? "s" : ""}` },
-  duration:      { label: "Duração total",          unit: "min",     format: (v) => v >= 60 ? `${Math.floor(v / 60)}h ${v % 60}min` : `${v} min` },
-  distance:      { label: "Distância total",        unit: "km",      format: (v) => `${v.toFixed(1)} km` },
-  steps:         { label: "Total de passos",        unit: "passos",  format: (v) => `${v.toLocaleString("pt-BR")} passos` },
-  calories:      { label: "Calorias queimadas",     unit: "kcal",    format: (v) => `${v.toLocaleString("pt-BR")} kcal` },
-  memes:         { label: "Check-ins aprovados",    unit: "aprovados", format: (v) => `${v} aprovado${v !== 1 ? "s" : ""}` },
+// Rótulo e unidade como CHAVES de tradução — o texto sai do `t()` no render.
+// `unitOne` = forma no singular (1 dia, 1 check-in); sem ela a unidade é invariável.
+const SCORING_META: Record<DuelScoringType, { label: TranslationKey; unit: TranslationKey; unitOne?: TranslationKey }> = {
+  active_days:   { label: "duels_score_active_days", unit: "duels_unit_days", unitOne: "duels_unit_day" },
+  hustle_points: { label: "duels_score_hustle", unit: "duels_unit_pts" },
+  check_in_count:{ label: "duels_score_checkins", unit: "duels_unit_checkins", unitOne: "duels_unit_checkin" },
+  duration:      { label: "duels_score_duration", unit: "duels_unit_min" },
+  distance:      { label: "duels_score_distance", unit: "duels_unit_km" },
+  steps:         { label: "duels_score_steps", unit: "duels_metric_steps_unit" },
+  calories:      { label: "duels_score_calories", unit: "duels_unit_kcal" },
+  memes:         { label: "duels_score_memes", unit: "duels_unit_approved", unitOne: "duels_unit_approved_one" },
 };
+
+function formatScore(
+  type: DuelScoringType,
+  v: number,
+  t: (key: TranslationKey) => string,
+  locale: string,
+): string {
+  if (type === "duration") return v >= 60 ? `${Math.floor(v / 60)}h ${v % 60}min` : `${v} min`;
+  if (type === "distance") return `${v.toFixed(1)} km`;
+  const meta = SCORING_META[type];
+  const unit = t(v === 1 && meta.unitOne ? meta.unitOne : meta.unit);
+  return `${v.toLocaleString(locale)} ${unit}`;
+}
 
 function isDisqualified(checkInId: string, votes: DuelCheckInVote[]): boolean {
   const relevant = votes.filter((v) => v.checkInId === checkInId);
@@ -95,6 +112,8 @@ export function ClassificationsDrawer({
   memeRule,
   onSelectMember,
 }: ClassificationsDrawerProps) {
+  const { t, language } = useLanguage();
+  const locale = language === "en" ? "en-US" : "pt-BR";
   const meta = SCORING_META[scoringType];
 
   const rankingEntries = React.useMemo(() => {
@@ -130,11 +149,11 @@ export function ClassificationsDrawer({
         onOpenAutoFocus={(e) => e.preventDefault()}
       >
         <DrawerHeader className="shrink-0">
-          <DrawerTitle style={{ color: "#fff" }}>Classificações</DrawerTitle>
+          <DrawerTitle style={{ color: "#fff" }}>{t("duels_classifications_title")}</DrawerTitle>
           <DrawerDescription className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>
             {scoringType === "memes" && memeRule
-              ? `🎭 Regra: ${memeRule}`
-              : `Critério: ${meta.label}`}
+              ? `🎭 ${t("duels_classifications_rule").replace("{rule}", memeRule)}`
+              : t("duels_classifications_criterion").replace("{label}", t(meta.label))}
           </DrawerDescription>
         </DrawerHeader>
 
@@ -163,7 +182,7 @@ export function ClassificationsDrawer({
                       <p className="text-sm font-semibold truncate" style={{ color: "#fff" }}>{data.userName}</p>
                     )}
                     <div className="flex items-center gap-2">
-                      <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>{meta.format(data.score)}</p>
+                      <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>{formatScore(scoringType, data.score, t, locale)}</p>
                       {scoringType === "memes" && (disqualifiedPerUser[userId] || 0) > 0 && (
                         <span className="text-[10px] text-destructive bg-destructive/10 px-1.5 py-0.5 rounded-full leading-none">
                           {disqualifiedPerUser[userId]} desclassif.
@@ -174,13 +193,13 @@ export function ClassificationsDrawer({
                   <div className="text-sm font-bold shrink-0" style={{ color: "#5b8cff" }}>
                     {scoringType === "distance"
                       ? data.score.toFixed(1)
-                      : Math.round(data.score).toLocaleString("pt-BR")}
-                    <span className="text-xs font-normal ml-1" style={{ color: "rgba(255,255,255,.5)" }}>{meta.unit}</span>
+                      : Math.round(data.score).toLocaleString(locale)}
+                    <span className="text-xs font-normal ml-1" style={{ color: "rgba(255,255,255,.5)" }}>{t(meta.unit)}</span>
                   </div>
                 </div>
               ))
             ) : (
-              <p className="text-sm text-center py-8" style={{ color: "rgba(255,255,255,.5)" }}>Nenhum dado ainda</p>
+              <p className="text-sm text-center py-8" style={{ color: "rgba(255,255,255,.5)" }}>{t("duels_classifications_empty")}</p>
             )}
           </div>
         </div>

@@ -2,7 +2,7 @@ import * as React from "react";
 
 import "./global.css";
 
-import { t as translate, type Language, type TranslationKey } from "@/lib/i18n";
+import { t as translate, loadLanguage, resolveLanguage, type Language, type TranslationKey } from "@/lib/i18n";
 import {
   APP_VERSION,
   initMonitoring,
@@ -21,11 +21,7 @@ initMonitoring();
  * da mesma chave que o provider persiste — ver language-context.tsx.
  */
 function boundaryLanguage(): Language {
-  try {
-    return localStorage.getItem("ritmofit-language") === "en" ? "en" : "pt";
-  } catch {
-    return "pt";
-  }
+  return resolveLanguage();
 }
 
 /**
@@ -595,4 +591,9 @@ const existingRoot = (container as unknown as { __ritmofitRoot?: Root })
 const root = existingRoot ?? createRoot(container);
 (container as unknown as { __ritmofitRoot?: Root }).__ritmofitRoot = root;
 
-root.render(<ErrorBoundary><App /></ErrorBoundary>);
+// Quem usa o app em inglês espera o dicionário EN (arquivo local — milissegundos)
+// antes do primeiro render, para a tela não nascer em português e trocar. Em
+// português não há o que esperar: `loadLanguage("pt")` resolve na hora.
+loadLanguage(resolveLanguage()).finally(() => {
+  root.render(<ErrorBoundary><App /></ErrorBoundary>);
+});

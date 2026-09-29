@@ -1,6 +1,7 @@
 import * as React from "react";
+import { useThumbSrc } from "@/lib/thumb-cache";
 import { createPortal } from "react-dom";
-import { useWorkout } from "@/lib/workout-context";
+import { useWorkout, useWorkoutClock, getWorkoutClock, type WorkoutClock } from "@/lib/workout-context";
 import { useLanguage } from "@/lib/language-context";
 import { FEATURES } from "@/lib/feature-flags";
 import type { TranslationKey } from "@/lib/i18n";
@@ -1194,7 +1195,6 @@ export function WorkoutSessionDialog({
   const isExpert = FEATURES.expertMode && trainingMode === "expert";
   const {
     workoutSeries, setWorkoutSeries,
-    workoutDuration,
     workoutExerciseRestTimes, setWorkoutExerciseRestTimes,
     workoutExerciseNotes, setWorkoutExerciseNotes,
     workoutExtraItems, setWorkoutExtraItems,
@@ -1204,7 +1204,7 @@ export function WorkoutSessionDialog({
     dismissedWarmupIds, setDismissedWarmupIds,
     workoutOrder, setWorkoutOrder,
     workoutCaloriesKcal, setWorkoutCaloriesKcal,
-    globalRestTimerRemaining, setGlobalRestTimerRemaining,
+    setGlobalRestTimerRemaining,
     globalRestTimerActive, setGlobalRestTimerActive,
     globalRestTimerPaused, setGlobalRestTimerPaused,
     globalRestTimerTotal, setGlobalRestTimerTotal,
@@ -1875,10 +1875,14 @@ export function WorkoutSessionDialog({
   // que a pessoa pode substituir pelo número do aparelho/relógio a qualquer
   // momento — inclusive no meio do treino, ao descer da esteira. Ver
   // `client/lib/calorie-estimate.ts` para a fórmula e o que ela assume.
+  // O cronômetro é observado em MINUTOS: a estimativa não precisa de segundo a
+  // segundo, e observar os segundos re-renderizaria o diálogo inteiro a cada
+  // tique (ver `useWorkoutClock`).
+  const durationMinutes = useWorkoutClock((c) => Math.floor(c.durationSecs / 60));
   const calorieEstimate = React.useMemo(
     () =>
       estimateWorkoutCalories({
-        durationSecs: workoutDuration,
+        durationSecs: durationMinutes * 60,
         weightKg: coachProfile?.weightKg ?? null,
         exercises: allItems.map((item) => {
           const isCardio = isCardioExercise(item.muscle_group, item.workout_id);
@@ -1902,7 +1906,7 @@ export function WorkoutSessionDialog({
           };
         }),
       }),
-    [allItems, workoutSeries, workoutDuration, coachProfile?.weightKg],
+    [allItems, workoutSeries, durationMinutes, coachProfile?.weightKg],
   );
   /** kcal que valem agora: o valor confirmado pela pessoa ou, na falta, a estimativa. */
   const sessionCalories =
@@ -2377,13 +2381,10 @@ export function WorkoutSessionDialog({
   }, [globalRestTimerKey, globalRestTimerActive]);
 
   // Fecha o modal quando o descanso termina ou é pulado
+  const restHasTime = useWorkoutClock((c) => c.restRemaining > 0);
   React.useEffect(() => {
-    if (!globalRestTimerActive || globalRestTimerRemaining <= 0) setRestModalOpen(false);
-  }, [globalRestTimerActive, globalRestTimerRemaining]);
-
-  const restPct = globalRestTimerTotal > 0
-    ? (globalRestTimerRemaining / globalRestTimerTotal) * 100
-    : 0;
+    if (!globalRestTimerActive || !restHasTime) setRestModalOpen(false);
+  }, [globalRestTimerActive, restHasTime]);
 
   const skipRest = () => {
     setGlobalRestTimerActive(false);
@@ -3320,7 +3321,7 @@ export function WorkoutSessionDialog({
       onFinished({
         totalSeries,
         totalVolume: Math.round(totalVolume * 10) / 10,
-        durationSecs: workoutDuration,
+        durationSecs: getWorkoutClock().durationSecs,
         completedExercises,
         prExercises,
         machinedExercises,
@@ -4041,7 +4042,7 @@ export function WorkoutSessionDialog({
         borderBottom: `1px solid ${BORDER}`,
       }}>
         {[
-          { label: t("goals_stat_duration"),  value: fmtDur(workoutDuration), color: PRIMARY, onClick: undefined },
+          { label: t("goals_stat_duration"),  value: <ClockText select={(c) => c.durationSecs} format={fmtDur} />, color: PRIMARY, onClick: undefined },
           { label: t("goals_stat_volume"),    value: fmtVolume(stats.volume), color: FG,      onClick: undefined },
           { label: t("goals_stat_series"),    value: String(stats.totalDone), color: FG,      onClick: undefined },
           { label: t("goals_stat_exercises"), value: String(stats.doneEx),    color: FG,      onClick: undefined },
@@ -4433,11 +4434,7 @@ export function WorkoutSessionDialog({
                 }}
               >
                 {item.workoutPhoto ? (
-                  <img
-                    src={item.workoutPhoto}
-                    alt={item.workoutName || ""}
-                    style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain" }}
-                  />
+                  <SessionExercisePhoto src={item.workoutPhoto} alt={item.workoutName || ""} />
                 ) : (
                   <>
                     <div style={{
@@ -5342,7 +5339,7 @@ export function WorkoutSessionDialog({
       </div>
 
       {/* ── REST TIMER ───────────────────────────────────────── */}
-      {globalRestTimerActive && globalRestTimerRemaining > 0 && (
+      {globalRestTimerActive && restHasTime && (
         <div style={{
           flexShrink: 0,
           padding: "8px 20px",
@@ -5358,16 +5355,13 @@ export function WorkoutSessionDialog({
             flex: 1, height: 3, borderRadius: 2,
             background: SURFACE, overflow: "hidden",
           }}>
-            <div style={{
-              height: "100%", borderRadius: 2, background: PRIMARY,
-              transition: "width 1s linear", width: `${restPct}%`,
-            }} />
+            <RestProgressBar total={globalRestTimerTotal} color={PRIMARY} />
           </div>
           <span style={{
             fontWeight: 800, fontSize: 15, color: FG,
             fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap",
           }}>
-            {fmtDur(globalRestTimerRemaining)}
+            <ClockText select={(c) => c.restRemaining} format={fmtDur} />
           </span>
           <button
             onClick={skipRest}
@@ -6196,11 +6190,6 @@ export function WorkoutSessionDialog({
       {/* ── REST TIMER MODAL ─────────────────────────────────── */}
       {restModalOpen && globalRestTimerActive && (() => {
         const R = 54;
-        const CIRC = 2 * Math.PI * R;
-        const offset = CIRC * (1 - Math.min(100, Math.max(0, restPct)) / 100);
-        const mm = Math.floor(globalRestTimerRemaining / 60);
-        const ss = globalRestTimerRemaining % 60;
-        const timeLabel = `${mm}:${String(ss).padStart(2, "0")}`;
         const ringColor = globalRestTimerPaused ? MUTED_FG : PRIMARY;
 
         return (
@@ -6257,12 +6246,7 @@ export function WorkoutSessionDialog({
               <div style={{ position: "relative", width: 132, height: 132, margin: "20px 0 22px" }}>
                 <svg width="132" height="132" viewBox="0 0 132 132" style={{ transform: "rotate(-90deg)" }}>
                   <circle cx="66" cy="66" r={R} fill="none" stroke={SURFACE} strokeWidth="9" />
-                  <circle
-                    cx="66" cy="66" r={R} fill="none"
-                    stroke={ringColor} strokeWidth="9" strokeLinecap="round"
-                    strokeDasharray={CIRC} strokeDashoffset={offset}
-                    style={{ transition: "stroke-dashoffset 1s linear, stroke 0.2s" }}
-                  />
+                  <RestRingArc r={R} total={globalRestTimerTotal} color={ringColor} />
                 </svg>
                 <div style={{
                   position: "absolute", inset: 0,
@@ -6270,7 +6254,7 @@ export function WorkoutSessionDialog({
                   fontSize: 32, fontWeight: 800, color: FG,
                   fontVariantNumeric: "tabular-nums",
                 }}>
-                  {timeLabel}
+                  <ClockText select={(c) => c.restRemaining} format={fmtMinSec} />
                 </div>
               </div>
 
@@ -6624,4 +6608,66 @@ export function WorkoutSessionDialog({
   );
 
   return createPortal(content, document.body);
+}
+
+/**
+ * Foto do exercício no card do treino (área de 150px de altura, `contain`).
+ * Miniatura guardada no aparelho em vez do arquivo do catálogo (~1 MB): a lista
+ * do treino monta todos os cards de uma vez — ver @/lib/thumb-cache.
+ */
+function SessionExercisePhoto({ src, alt }: { src: string; alt: string }) {
+  const shown = useThumbSrc(src, 360);
+  return (
+    <img
+      src={shown}
+      alt={shown ? alt : ""}
+      decoding="async"
+      style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain" }}
+    />
+  );
+}
+
+// ─── Peças do relógio (re-renderizam sozinhas a cada segundo) ────────────────
+// Só estes componentes observam os segundos do cronômetro/descanso; o diálogo
+// em volta não re-renderiza a cada tique. Ver `useWorkoutClock`.
+
+function fmtMinSec(totalSecs: number): string {
+  return `${Math.floor(totalSecs / 60)}:${String(totalSecs % 60).padStart(2, "0")}`;
+}
+
+function ClockText({
+  select,
+  format,
+}: {
+  select: (clock: WorkoutClock) => number;
+  format: (secs: number) => string;
+}) {
+  const secs = useWorkoutClock(select);
+  return <>{format(secs)}</>;
+}
+
+function RestProgressBar({ total, color }: { total: number; color: string }) {
+  const remaining = useWorkoutClock((c) => c.restRemaining);
+  const pct = total > 0 ? (remaining / total) * 100 : 0;
+  return (
+    <div style={{
+      height: "100%", borderRadius: 2, background: color,
+      transition: "width 1s linear", width: `${pct}%`,
+    }} />
+  );
+}
+
+function RestRingArc({ r, total, color }: { r: number; total: number; color: string }) {
+  const remaining = useWorkoutClock((c) => c.restRemaining);
+  const circ = 2 * Math.PI * r;
+  const pct = total > 0 ? (remaining / total) * 100 : 0;
+  const offset = circ * (1 - Math.min(100, Math.max(0, pct)) / 100);
+  return (
+    <circle
+      cx="66" cy="66" r={r} fill="none"
+      stroke={color} strokeWidth="9" strokeLinecap="round"
+      strokeDasharray={circ} strokeDashoffset={offset}
+      style={{ transition: "stroke-dashoffset 1s linear, stroke 0.2s" }}
+    />
+  );
 }

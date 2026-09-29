@@ -1,4 +1,5 @@
 import * as React from "react";
+import { IMMUTABLE_CACHE_CONTROL } from "@/lib/storage-cache";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import {
@@ -347,7 +348,7 @@ export function SettingsDrawer({
         const filePath = `${userId}/profile-${Date.now()}.${extension}`;
         const { error: uploadError } = await supabase.storage
           .from("posts")
-          .upload(filePath, editPhotoFile, { contentType: editPhotoFile.type });
+          .upload(filePath, editPhotoFile, { cacheControl: IMMUTABLE_CACHE_CONTROL, contentType: editPhotoFile.type });
         if (uploadError) throw uploadError;
         const { data: { publicUrl } } = supabase.storage.from("posts").getPublicUrl(filePath);
         photoUrl = publicUrl;
@@ -475,7 +476,7 @@ export function SettingsDrawer({
       if (commercialLogoFile) {
         const ext = commercialLogoFile.name.split(".").pop() || "jpg";
         const filePath = `${userId}/business-logo-${Date.now()}.${ext}`;
-        const { error } = await supabase.storage.from("posts").upload(filePath, commercialLogoFile, { contentType: commercialLogoFile.type });
+        const { error } = await supabase.storage.from("posts").upload(filePath, commercialLogoFile, { cacheControl: IMMUTABLE_CACHE_CONTROL, contentType: commercialLogoFile.type });
         if (error) throw error;
         const { data: { publicUrl } } = supabase.storage.from("posts").getPublicUrl(filePath);
         logoUrl = publicUrl;

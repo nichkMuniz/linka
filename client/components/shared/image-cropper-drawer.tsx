@@ -1,4 +1,5 @@
 import * as React from "react";
+import { useLanguage } from "@/lib/language-context";
 import { X, ZoomIn, ZoomOut, RotateCcw, Check } from "lucide-react";
 import {
   Drawer,
@@ -57,6 +58,7 @@ export function ImageCropperDrawer({
   onConfirm,
   onCancel,
 }: ImageCropperDrawerProps) {
+  const { t } = useLanguage();
   const containerRef = React.useRef<HTMLDivElement>(null);
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
   const imgRef = React.useRef<HTMLImageElement | null>(null);
@@ -424,7 +426,7 @@ export function ImageCropperDrawer({
             <X className="h-5 w-5" />
             Cancelar
           </button>
-          <span className="text-white text-sm font-semibold">Ajustar foto</span>
+          <span className="text-white text-sm font-semibold">{t("image_cropper_title")}</span>
           <Button
             onClick={handleConfirm}
             disabled={!imageLoaded || isProcessing}

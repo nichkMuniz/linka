@@ -13,6 +13,7 @@ import {
   NativeBiometric,
   BiometryType,
 } from "@capgo/capacitor-native-biometric";
+import { tUi } from "@/lib/i18n";
 
 // Keychain entry key — one credential pair per device (single logged-in account).
 const SERVER = "com.linka.meuapp";
@@ -77,8 +78,8 @@ export async function enableBiometric(
   if (!available) return false;
 
   await NativeBiometric.verifyIdentity({
-    reason: "Confirme sua identidade para ativar o login por biometria.",
-    title: "Ativar login por biometria",
+    reason: tUi("biometric_enable_reason"),
+    title: tUi("biometric_enable_title"),
   });
 
   await NativeBiometric.setCredentials({
@@ -141,8 +142,8 @@ export async function authenticateWithBiometric(): Promise<{
   password: string;
 }> {
   await NativeBiometric.verifyIdentity({
-    reason: "Entre na sua conta com biometria.",
-    title: "Entrar no LinKa",
+    reason: tUi("biometric_login_reason"),
+    title: tUi("biometric_login_title"),
   });
 
   const credentials = await NativeBiometric.getCredentials({ server: SERVER });

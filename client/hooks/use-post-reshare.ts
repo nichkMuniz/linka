@@ -1,4 +1,5 @@
 import * as React from "react";
+import { useNavigate } from "react-router-dom";
 import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { useLanguage } from "@/lib/language-context";
@@ -9,6 +10,7 @@ import {
   repostPostDb,
   type RepostOrigin,
   type SearchUser,
+  type StoryPostSticker,
 } from "@/lib/ritmofit-db";
 
 /** O mínimo de um post para decidir e executar o recompartilhamento. */
@@ -42,6 +44,7 @@ export function usePostReshare(options: {
 }) {
   const { user } = useAuth();
   const { t } = useLanguage();
+  const navigate = useNavigate();
   const [post, setPost] = React.useState<ResharablePost | null>(null);
   const [reposted, setReposted] = React.useState(false);
   const { onFlowShared, onReposted, context } = options;
@@ -63,16 +66,19 @@ export function usePostReshare(options: {
     }
   }, [viewerId]);
 
-  const shareToFlow = canReshare && (isOwner || isTagged)
+  const canShareToFlow = canReshare && (isOwner || isTagged);
+  const buildPostSticker = (): StoryPostSticker => ({
+    postId: post!.id,
+    photo: firstPhoto!,
+    authorId: post!.user_id,
+    authorNickname: post!.userNickname ?? "",
+    authorPhoto: post!.userPhoto ?? null,
+  });
+
+  const shareToFlow = canShareToFlow
     ? async () => {
         try {
-          await sharePostToFlow({
-            postId: post!.id,
-            photo: firstPhoto!,
-            authorId: post!.user_id,
-            authorNickname: post!.userNickname ?? "",
-            authorPhoto: post!.userPhoto ?? null,
-          });
+          await sharePostToFlow(buildPostSticker());
           toast({ title: t("share_flow_success"), description: t("share_flow_success_desc") });
           onFlowShared?.();
         } catch (err) {
@@ -80,6 +86,14 @@ export function usePostReshare(options: {
           toast({ title: t("share_flow_error"), description: t("retry"), variant: "destructive" });
           throw err;
         }
+      }
+    : undefined;
+
+  // "Editar antes de postar": o criador de flow mora no Feed, que abre direto
+  // no modo texto com a moldura do post colada (FlowCreationSeed.postSticker).
+  const editFlow = canShareToFlow
+    ? () => {
+        navigate("/", { state: { createFlowSeed: { postSticker: buildPostSticker() } } });
       }
     : undefined;
 
@@ -114,5 +128,5 @@ export function usePostReshare(options: {
       }
     : undefined;
 
-  return { prepare, shareToFlow, repostToFeed, repostedToFeed: reposted };
+  return { prepare, shareToFlow, editFlow, repostToFeed, repostedToFeed: reposted };
 }

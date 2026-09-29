@@ -10,6 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/use-toast";
+import { useLanguage } from "@/lib/language-context";
 import { addMembersToGroupDb, type SearchUser } from "@/lib/ritmofit-db";
 import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
 
@@ -30,6 +31,7 @@ export function AddMembersDrawer({
   existingMemberIds,
   onMembersAdded,
 }: AddMembersDrawerProps) {
+  const { t } = useLanguage();
   const [search, setSearch] = React.useState("");
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
   const viewportHeight = useKeyboardAwareHeight();
@@ -59,16 +61,16 @@ export function AddMembersDrawer({
 
   const handleAdd = async () => {
     if (selected.size === 0) {
-      toast({ title: "Selecione membros", description: "Selecione pelo menos um membro para adicionar", variant: "destructive" });
+      toast({ title: t("duels_members_select_title"), description: t("duels_members_select_desc"), variant: "destructive" });
       return;
     }
     try {
       await addMembersToGroupDb(groupId, Array.from(selected), "invited");
-      toast({ title: "Membros adicionados!", description: `${selected.size} membro(s) adicionado(s) ao grupo.` });
+      toast({ title: t("duels_members_added_title"), description: t("duels_members_added_desc").replace("{n}", String(selected.size)) });
       onOpenChange(false);
       onMembersAdded();
     } catch (error: any) {
-      toast({ title: "Erro ao adicionar membros", description: error.message || "Tente novamente", variant: "destructive" });
+      toast({ title: t("duels_members_add_error"), description: error.message || t("retry"), variant: "destructive" });
     }
   };
 
@@ -87,15 +89,15 @@ export function AddMembersDrawer({
         onOpenAutoFocus={(e) => e.preventDefault()}
       >
         <DrawerHeader className="shrink-0">
-          <DrawerTitle style={{ color: "#fff" }}>Adicionar Membros</DrawerTitle>
-          <DrawerDescription className="sr-only">Convide pessoas para o grupo</DrawerDescription>
+          <DrawerTitle style={{ color: "#fff" }}>{t("duels_add_members")}</DrawerTitle>
+          <DrawerDescription className="sr-only">{t("duels_members_invite_sr")}</DrawerDescription>
         </DrawerHeader>
 
         <div className="flex-1 overflow-y-auto px-4 pb-4 flex flex-col">
           {followers.length > 0 && (
             <div className="mb-4">
               <Input
-                placeholder="Pesquisar seguidor..."
+                placeholder={t("duels_members_search_placeholder")}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="rounded-lg"
@@ -136,7 +138,7 @@ export function AddMembersDrawer({
               ))
             ) : (
               <p className="text-sm text-center py-4" style={{ color: "rgba(255,255,255,.5)" }}>
-                Você não segue ninguém ainda
+                {t("duels_members_following_nobody")}
               </p>
             )}
           </div>

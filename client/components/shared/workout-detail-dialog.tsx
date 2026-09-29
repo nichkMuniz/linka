@@ -1,4 +1,5 @@
 import * as React from "react";
+import { useThumbSrc } from "@/lib/thumb-cache";
 import { Dumbbell, Flame, Swords, ChevronLeft } from "lucide-react";
 import { Drawer, DrawerContent } from "@/components/ui/drawer";
 import { ExerciseImage } from "@/components/shared/exercise-image";
@@ -55,6 +56,8 @@ function ExerciseThumb({ photo, name, muscleGroup }: {
 }) {
   const [err, setErr] = React.useState(false);
   React.useEffect(() => setErr(false), [photo]);
+  // Miniatura guardada no aparelho — a foto do catálogo tem ~1 MB (ver @/lib/thumb-cache).
+  const shown = useThumbSrc(photo, 44);
   if (photo && !err) {
     return (
       <div
@@ -62,8 +65,8 @@ function ExerciseThumb({ photo, name, muscleGroup }: {
         style={{ background: "#fff" }}
       >
         <img
-          src={photo}
-          alt={name}
+          src={shown}
+          alt={shown ? name : ""}
           className="w-full h-full object-contain"
           loading="lazy"
           onError={() => setErr(true)}

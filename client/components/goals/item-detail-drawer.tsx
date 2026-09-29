@@ -244,9 +244,9 @@ export function ItemDetailDrawer({ item, onClose, onSaved, onDeleted }: ItemDeta
                 style={{ background: "rgba(255,255,255,.04)" }}
               >
                 {item.type === 1 ? (
-                  <ExerciseImage photo={shownPhoto} name={editing ? editName : item.name} className="w-full h-full" />
+                  <ExerciseImage photo={shownPhoto} name={editing ? editName : item.name} className="w-full h-full" thumbSize={400} />
                 ) : (
-                  <DietImage photo={shownPhoto} name={item.name} className="w-full h-full" />
+                  <DietImage photo={shownPhoto} name={item.name} className="w-full h-full" thumbSize={400} />
                 )}
               </div>
 

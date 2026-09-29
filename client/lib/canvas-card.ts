@@ -7,6 +7,7 @@
 // store é desenhado em CANVAS_SCALE× via ctx.scale (ver createCardCanvas).
 
 import { SHARE_DOMAIN } from "@shared/share-config";
+import { tUi } from "@/lib/i18n";
 
 export const CANVAS_W = 540;
 export const CANVAS_H = 540;
@@ -167,7 +168,7 @@ export function canvasSetup(
 
 export function drawCanvasHeader(
   ctx: CanvasRenderingContext2D, W: number, accent: string,
-  logo: HTMLImageElement | null, locale = "pt-BR",
+  logo: HTMLImageElement | null, locale = tUi("card_number_locale"),
 ) {
   // Logo oficial branco (ou fallback ao wordmark em texto se não carregar)
   if (logo && logo.width > 0 && logo.height > 0) {

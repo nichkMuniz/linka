@@ -5,22 +5,15 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-import { translations } from "./i18n";
+import { resolveLanguage, tUi } from "./i18n";
 
 /**
- * Idioma da interface lido do mesmo localStorage do language-context — as
+ * Idioma da interface (escolha salva ou aparelho — ver `resolveLanguage`). As
  * funções daqui não são componentes e não podem usar o hook.
  */
-function uiLang(): "pt" | "en" {
-  try {
-    return localStorage.getItem("ritmofit-language") === "en" ? "en" : "pt";
-  } catch {
-    return "pt";
-  }
-}
+const uiLang = resolveLanguage;
 
 export function formatTimeAgo(dateString: string): string {
-  const tr = translations[uiLang()];
   const now = new Date();
   // Supabase timestamps come without 'Z' suffix — append it so they're parsed as UTC
   const normalized = dateString.endsWith("Z") || dateString.includes("+") ? dateString : dateString + "Z";
@@ -28,7 +21,7 @@ export function formatTimeAgo(dateString: string): string {
   const diffMs = now.getTime() - date.getTime();
 
   // Clock skew or future timestamp — treat as "agora"
-  if (diffMs < 0) return tr.notif_time_now;
+  if (diffMs < 0) return tUi("notif_time_now");
 
   const diffMins = Math.floor(diffMs / 60000);
   const diffHours = Math.floor(diffMs / 3600000);
@@ -36,9 +29,9 @@ export function formatTimeAgo(dateString: string): string {
 
   // Same day
   if (diffDays === 0) {
-    if (diffMins < 1) return tr.notif_time_now;
-    if (diffMins < 60) return tr.time_ago_min.replace("{n}", String(diffMins));
-    if (diffHours < 24) return tr.time_ago_hours.replace("{n}", String(diffHours));
+    if (diffMins < 1) return tUi("notif_time_now");
+    if (diffMins < 60) return tUi("time_ago_min").replace("{n}", String(diffMins));
+    if (diffHours < 24) return tUi("time_ago_hours").replace("{n}", String(diffHours));
   }
 
   // Different day - dd/mm/yy (pt) or mm/dd/yy (en)

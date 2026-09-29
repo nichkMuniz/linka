@@ -32,7 +32,7 @@ import {
   formatElevationPct,
   getCardioKind,
 } from "@/lib/cardio-exercises";
-import type { TranslationKey } from "@/lib/i18n";
+import { tUi, type TranslationKey } from "@/lib/i18n";
 import { estimateWorkoutCalories, type CalorieEstimateExercise } from "@/lib/calorie-estimate";
 
 // `sumCardioSets` mora em `@/lib/cardio-exercises` (é só leitura do contrato
@@ -94,14 +94,14 @@ type CardioKindMeta = {
   accent: string;
   /** Chave i18n do chip do seletor de estilo. */
   labelKey: TranslationKey;
-  /** Título desenhado no card (PT, sem acentos — padrão dos cards em canvas). */
-  headline: string;
+  /** Chave do título desenhado no card (em PT sem acentos — padrão dos cards em canvas). */
+  headline: TranslationKey;
   /** "pace" = min/km (correr, caminhar, nadar); "speed" = km/h (pedalar, remar). */
   speedMetric: "pace" | "speed";
   /** Frases por marca de distância, da mais alta para a mais baixa. */
-  milestones: Array<{ km: number; text: string }>;
+  milestones: Array<{ km: number; text: TranslationKey }>;
   /** Frase usada quando não houve distância registrada (só tempo). */
-  timePhrase: string;
+  timePhrase: TranslationKey;
 };
 
 export const CARDIO_KIND_META: Record<CardioKind, CardioKindMeta> = {
@@ -109,110 +109,110 @@ export const CARDIO_KIND_META: Record<CardioKind, CardioKindMeta> = {
     emoji: "🏃",
     accent: "#f43f5e",
     labelKey: "goals_canvas_tpl_cardio_run",
-    headline: "VOCE CORREU",
+    headline: "card_cardio_run_headline",
     speedMetric: "pace",
     milestones: [
-      { km: 21.1, text: "Meia maratona no bolso. Surreal! 🤯" },
-      { km: 10, text: "Dois dígitos de distância na conta 🔥" },
-      { km: 5, text: "5K completo — e ainda sobrou gás 💨" },
-      { km: 0, text: "Cada passo conta. Bora pro próximo 👟" },
+      { km: 21.1, text: "card_cardio_run_m21_1" },
+      { km: 10, text: "card_cardio_run_m10" },
+      { km: 5, text: "card_cardio_run_m5" },
+      { km: 0, text: "card_cardio_run_m0" },
     ],
-    timePhrase: "Tempo de qualidade em movimento ⏱",
+    timePhrase: "card_cardio_run_time",
   },
   walk: {
     emoji: "🚶",
     accent: "#10b981",
     labelKey: "goals_canvas_tpl_cardio_walk",
-    headline: "VOCE CAMINHOU",
+    headline: "card_cardio_walk_headline",
     speedMetric: "pace",
     milestones: [
-      { km: 10, text: "Dez quilômetros caminhando. Respeito! 👏" },
-      { km: 5, text: "Passo firme, cabeça leve 🌿" },
-      { km: 0, text: "Caminhar também é treinar 💚" },
+      { km: 10, text: "card_cardio_walk_m10" },
+      { km: 5, text: "card_cardio_walk_m5" },
+      { km: 0, text: "card_cardio_walk_m0" },
     ],
-    timePhrase: "Movimento constante, corpo agradecido 🌿",
+    timePhrase: "card_cardio_walk_time",
   },
   bike: {
     emoji: "🚴",
     accent: "#06b6d4",
     labelKey: "goals_canvas_tpl_cardio_bike",
-    headline: "VOCE PEDALOU",
+    headline: "card_cardio_bike_headline",
     speedMetric: "speed",
     milestones: [
-      { km: 40, text: "Pedalada de cicloturista 🚀" },
-      { km: 20, text: "Pernas de ferro no pedal 🔩" },
-      { km: 10, text: "Giro completo, coração a mil ❤️" },
-      { km: 0, text: "Cada pedalada te leva mais longe 🚴" },
+      { km: 40, text: "card_cardio_bike_m40" },
+      { km: 20, text: "card_cardio_bike_m20" },
+      { km: 10, text: "card_cardio_bike_m10" },
+      { km: 0, text: "card_cardio_bike_m0" },
     ],
-    timePhrase: "Giro constante do início ao fim 🔁",
+    timePhrase: "card_cardio_bike_time",
   },
   elliptical: {
     emoji: "🌀",
     accent: "#d946ef",
     labelKey: "goals_canvas_tpl_cardio_elliptical",
-    headline: "VOCE TREINOU",
+    headline: "card_cardio_elliptical_headline",
     speedMetric: "speed",
     milestones: [
-      { km: 10, text: "Impacto zero, esforço máximo ⚡" },
-      { km: 5, text: "Ritmo constante, resultado certo 🔁" },
-      { km: 0, text: "Corpo inteiro em movimento 💫" },
+      { km: 10, text: "card_cardio_elliptical_m10" },
+      { km: 5, text: "card_cardio_elliptical_m5" },
+      { km: 0, text: "card_cardio_elliptical_m0" },
     ],
-    timePhrase: "Impacto zero, esforço máximo ⚡",
+    timePhrase: "card_cardio_elliptical_time",
   },
   rowing: {
     emoji: "🚣",
     accent: "#3b82f6",
     labelKey: "goals_canvas_tpl_cardio_rowing",
-    headline: "VOCE REMOU",
+    headline: "card_cardio_rowing_headline",
     speedMetric: "speed",
     milestones: [
-      { km: 10, text: "Remada de atleta ⚓" },
-      { km: 5, text: "Corpo inteiro puxando junto 💪" },
-      { km: 0, text: "Puxada após puxada, sem parar 🚣" },
+      { km: 10, text: "card_cardio_rowing_m10" },
+      { km: 5, text: "card_cardio_rowing_m5" },
+      { km: 0, text: "card_cardio_rowing_m0" },
     ],
-    timePhrase: "Corpo inteiro puxando junto 💪",
+    timePhrase: "card_cardio_rowing_time",
   },
   jump_rope: {
     emoji: "🪢",
     accent: "#f59e0b",
     labelKey: "goals_canvas_tpl_cardio_jump_rope",
-    headline: "VOCE PULOU",
+    headline: "card_cardio_jump_rope_headline",
     speedMetric: "speed",
-    milestones: [{ km: 0, text: "Coração acelerado do início ao fim ❤️" }],
-    timePhrase: "Coração acelerado do início ao fim ❤️",
+    milestones: [{ km: 0, text: "card_cardio_jump_rope_m0" }],
+    timePhrase: "card_cardio_jump_rope_time",
   },
   stairs: {
     emoji: "🪜",
     accent: "#84cc16",
     labelKey: "goals_canvas_tpl_cardio_stairs",
-    headline: "VOCE SUBIU",
+    headline: "card_cardio_stairs_headline",
     speedMetric: "speed",
     milestones: [
-      { km: 5, text: "Degrau após degrau, sem parar 🧗" },
-      { km: 0, text: "Subindo mais alto a cada treino 🪜" },
+      { km: 5, text: "card_cardio_stairs_m5" },
+      { km: 0, text: "card_cardio_stairs_m0" },
     ],
-    timePhrase: "Subindo mais alto a cada treino 🪜",
+    timePhrase: "card_cardio_stairs_time",
   },
   swim: {
     emoji: "🏊",
     accent: "#0ea5e9",
     labelKey: "goals_canvas_tpl_cardio_swim",
-    headline: "VOCE NADOU",
+    headline: "card_cardio_swim_headline",
     speedMetric: "pace",
     milestones: [
-      { km: 2, text: "Braçada após braçada, sem afundar 🌊" },
-      { km: 0, text: "A água é o seu território 🏊" },
+      { km: 2, text: "card_cardio_swim_m2" },
+      { km: 0, text: "card_cardio_swim_m0" },
     ],
-    timePhrase: "A água é o seu território 🏊",
+    timePhrase: "card_cardio_swim_time",
   },
   generic: {
     emoji: "💓",
     accent: "#ec4899",
     labelKey: "goals_canvas_tpl_cardio_generic",
-    headline: "VOCE FEZ CARDIO",
+    headline: "card_cardio_generic_headline",
     speedMetric: "speed",
-    milestones: [{ km: 0, text: "Coração treinado é vida mais longa ❤️" }],
-    timePhrase: "Coração treinado é vida mais longa ❤️",
+    milestones: [{ km: 0, text: "card_cardio_generic_m0" }],
+    timePhrase: "card_cardio_generic_time",
   },
 };
 
@@ -286,8 +286,8 @@ export function formatCardioLine(group: CardioGroup): string {
 
 function milestonePhrase(group: CardioGroup): string {
   const meta = CARDIO_KIND_META[group.kind];
-  if (group.km <= 0) return meta.timePhrase;
-  return meta.milestones.find((m) => group.km >= m.km)?.text ?? meta.timePhrase;
+  if (group.km <= 0) return tUi(meta.timePhrase);
+  return tUi(meta.milestones.find((m) => group.km >= m.km)?.text ?? meta.timePhrase);
 }
 
 // ─── Desenho ─────────────────────────────────────────────────────────────────
@@ -397,7 +397,7 @@ export function drawCardioCanvas(
 
   ctx.fillStyle = `rgba(${ar},${ag},${ab},0.80)`;
   ctx.font = `700 12px ${FONT}`;
-  ctx.fillText(meta.headline, W / 2, 196);
+  ctx.fillText(tUi(meta.headline), W / 2, 196);
 
   // Métrica principal: distância quando existe, senão tempo
   const hasDistance = group.km > 0;
@@ -415,7 +415,7 @@ export function drawCardioCanvas(
   // quando informada, a inclinação da esteira — que antes ocupava um painel e
   // agora cabe aqui, liberando o painel para as calorias.
   const subtitleParts = [...group.names];
-  if (group.elevationPct) subtitleParts.push(`inclinação ${formatElevationPct(group.elevationPct)}`);
+  if (group.elevationPct) subtitleParts.push(tUi("card_elevation").replace("{v}", formatElevationPct(group.elevationPct)));
   ctx.fillStyle = "rgba(255,255,255,0.40)";
   ctx.font = `500 12px ${FONT}`;
   ctx.fillText(truncateToWidth(ctx, subtitleParts.join("  •  "), W - 70), W / 2, 284);
@@ -427,11 +427,11 @@ export function drawCardioCanvas(
   const speed = meta.speedMetric === "speed" ? formatSpeed(group.minutes, group.km) : null;
   const panels: Array<{ l: string; v: string }> = [];
   if (hasDistance && group.minutes > 0) {
-    panels.push({ l: "TEMPO", v: formatCardioMinutes(group.minutes) });
-    if (pace) panels.push({ l: "RITMO", v: `${pace}/km` });
-    else if (speed) panels.push({ l: "VELOCIDADE", v: `${speed} km/h` });
+    panels.push({ l: tUi("card_stat_time"), v: formatCardioMinutes(group.minutes) });
+    if (pace) panels.push({ l: tUi("card_stat_pace"), v: `${pace}/km` });
+    else if (speed) panels.push({ l: tUi("card_stat_speed"), v: `${speed} km/h` });
   } else {
-    panels.push({ l: "SERIES", v: String(group.sets) });
+    panels.push({ l: tUi("card_stat_sets"), v: String(group.sets) });
   }
   // Terceiro painel: CALORIAS da modalidade. Antes era "SESSAO" (o cronômetro
   // do treino), que repetia o TEMPO numa sessão só de cardio — o mesmo número
@@ -439,7 +439,7 @@ export function drawCardioCanvas(
   // fileira fica só com os painéis acima: melhor um painel a menos do que um
   // número repetido.
   const kcal = cardioGroupCalories(info, group);
-  if (kcal) panels.push({ l: "CALORIAS", v: `${kcal} kcal` });
+  if (kcal) panels.push({ l: tUi("card_stat_calories"), v: `${kcal} kcal` });
   drawCanvasStatPanels(ctx, W, 332, panels, ACCENT);
 
   // Frase de conquista conforme a marca atingida

@@ -1,4 +1,5 @@
 import React from "react";
+import { IMMUTABLE_CACHE_CONTROL } from "@/lib/storage-cache";
 import { useNavigate } from "react-router-dom";
 import { HighlightTextarea, SHADCN_TEXTAREA_CLASS } from "@/components/shared/highlight-textarea";
 import { cn } from "@/lib/utils";
@@ -845,7 +846,7 @@ export default function NewPost() {
         const { error: uploadError } = await withNetworkRetry(() =>
           supabase!.storage
             .from("posts")
-            .upload(filePath, croppedFile, { contentType: "image/jpeg", upsert: false }),
+            .upload(filePath, croppedFile, { cacheControl: IMMUTABLE_CACHE_CONTROL, contentType: "image/jpeg", upsert: false }),
         );
         if (uploadError) throw new Error(`${t("newpost_upload_error_file").replace("{name}", file.name)}: ${uploadError.message}`);
         uploadedPaths.push(filePath);
@@ -919,7 +920,7 @@ export default function NewPost() {
       const { error: uploadError } = await withNetworkRetry(() =>
         supabase!.storage
           .from("posts")
-          .upload(filePath, selectedVideoFile, { contentType, upsert: false }),
+          .upload(filePath, selectedVideoFile, { cacheControl: IMMUTABLE_CACHE_CONTROL, contentType, upsert: false }),
       );
       if (uploadError) throw new Error(`${t("newpost_upload_error_video")}: ${uploadError.message}`);
       const { data: urlData } = supabase.storage.from("posts").getPublicUrl(filePath);

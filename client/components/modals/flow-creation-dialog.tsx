@@ -8,6 +8,7 @@ import { toast } from "@/components/ui/use-toast";
 import { TagPeopleDrawer, MAX_TAGGED_PEOPLE } from "@/components/shared/tag-people-drawer";
 import { MentionSuggestions, addMentionToTagged } from "@/components/shared/mention-suggestions";
 import {
+  FlowPostCard,
   FlowWorkoutSticker,
   WORKOUT_STICKER_WIDTH,
   MIN_STICKER_SCALE,
@@ -27,7 +28,8 @@ import { useLanguage } from "@/lib/language-context";
 import { saveMediaToPhotos, SaveMediaError, compressVideoBlob } from "@/lib/native-media";
 import { hapticLight } from "@/lib/haptics";
 import { motion } from "framer-motion";
-import type { SearchUser, StoryTextElement, StoryWorkoutSticker } from "@/lib/ritmofit-db";
+import type { SearchUser, StoryPostSticker, StoryTextElement, StoryWorkoutSticker } from "@/lib/ritmofit-db";
+import { POST_FLOW_BACKGROUND } from "@/lib/post-to-flow";
 import {
   X,
   Image as ImageIcon,
@@ -46,18 +48,26 @@ import {
   SlidersHorizontal,
 } from "lucide-react";
 import { FEATURES } from "@/lib/feature-flags";
+import type { TranslationKey } from "@/lib/i18n";
 
-const GRADIENT_PRESETS = [
-  { id: "pink-orange", value: "linear-gradient(135deg, #FF0080 0%, #FF8A2A 100%)", label: "Rosa" },
-  { id: "blue-purple", value: "linear-gradient(135deg, #3A8DFF 0%, #7B3FF2 100%)", label: "Azul" },
-  { id: "green-teal", value: "linear-gradient(135deg, #00C853 0%, #00BCD4 100%)", label: "Verde" },
-  { id: "purple-pink", value: "linear-gradient(135deg, #7B3FF2 0%, #FF0080 100%)", label: "Roxo" },
-  { id: "orange-yellow", value: "linear-gradient(135deg, #FF8A2A 0%, #FFD600 100%)", label: "Laranja" },
-  { id: "dark-blue", value: "linear-gradient(135deg, #0D1B2A 0%, #1A3A5C 100%)", label: "Noite" },
-  { id: "brand", value: "linear-gradient(135deg, #3A8DFF 0%, #7B3FF2 50%, #FF8A2A 100%)", label: "Marca" },
-  { id: "sunset", value: "linear-gradient(135deg, #FF512F 0%, #F09819 100%)", label: "Pôr do sol" },
-  { id: "ocean", value: "linear-gradient(135deg, #1A237E 0%, #00BCD4 100%)", label: "Oceano" },
-  { id: "forest", value: "linear-gradient(135deg, #1B5E20 0%, #66BB6A 100%)", label: "Floresta" },
+// `label` é chave de tradução — vira o aria-label de cada bolinha de fundo.
+const CAMERA_ERROR_KEY: Record<"denied" | "unsupported" | "failed", TranslationKey> = {
+  denied: "flow_camera_denied",
+  unsupported: "flow_camera_unsupported",
+  failed: "flow_camera_failed",
+};
+
+const GRADIENT_PRESETS: Array<{ id: string; value: string; label: TranslationKey }> = [
+  { id: "pink-orange", value: "linear-gradient(135deg, #FF0080 0%, #FF8A2A 100%)", label: "flow_gradient_pink" },
+  { id: "blue-purple", value: "linear-gradient(135deg, #3A8DFF 0%, #7B3FF2 100%)", label: "flow_gradient_blue" },
+  { id: "green-teal", value: "linear-gradient(135deg, #00C853 0%, #00BCD4 100%)", label: "flow_gradient_green" },
+  { id: "purple-pink", value: "linear-gradient(135deg, #7B3FF2 0%, #FF0080 100%)", label: "flow_gradient_purple" },
+  { id: "orange-yellow", value: "linear-gradient(135deg, #FF8A2A 0%, #FFD600 100%)", label: "flow_gradient_orange" },
+  { id: "dark-blue", value: "linear-gradient(135deg, #0D1B2A 0%, #1A3A5C 100%)", label: "flow_gradient_night" },
+  { id: "brand", value: "linear-gradient(135deg, #3A8DFF 0%, #7B3FF2 50%, #FF8A2A 100%)", label: "flow_gradient_brand" },
+  { id: "sunset", value: "linear-gradient(135deg, #FF512F 0%, #F09819 100%)", label: "flow_gradient_sunset" },
+  { id: "ocean", value: "linear-gradient(135deg, #1A237E 0%, #00BCD4 100%)", label: "flow_gradient_ocean" },
+  { id: "forest", value: "linear-gradient(135deg, #1B5E20 0%, #66BB6A 100%)", label: "flow_gradient_forest" },
 ];
 
 // Fontes disponíveis para legendas. Todas são fontes de sistema pré-instaladas no
@@ -801,9 +811,30 @@ function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
   });
 }
 
+/**
+ * Conteúdo com que o criador abre já pronto, pulando a câmera — usado pelo
+ * "Compartilhar no Flow" do resumo do treino e pelo "Editar antes de postar"
+ * do "Seu flow" de um post. A mídia entra como imagem da galeria (inteira, com
+ * fundo desfocado) e o mini frame, se vier, é colado como se o usuário o
+ * tivesse escolhido no seletor de treino.
+ */
+export type FlowCreationSeed = {
+  /** blob:/data: URL de uma imagem — o dialog passa a ser dono dela */
+  mediaUrl?: string | null;
+  workoutSticker?: StoryWorkoutSticker | null;
+  /**
+   * "Seu flow → Editar antes de postar" de um post do feed: sem mídia, abre o
+   * modo texto (fundo gradiente) com a moldura do post já colada — o mesmo
+   * flow que `sharePostToFlow` publica direto, só que editável.
+   */
+  postSticker?: StoryPostSticker | null;
+};
+
 interface FlowCreationDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Abre direto na etapa de legenda com esta mídia. Cada objeto novo é aplicado uma vez. */
+  seed?: FlowCreationSeed | null;
   onCreateStory: (
     mediaUrl: string,
     description: string,
@@ -823,9 +854,15 @@ export function FlowCreationDialog({
   onOpenChange,
   onCreateStory,
   isLoading = false,
+  seed = null,
 }: FlowCreationDialogProps) {
   const { t } = useLanguage();
   const [step, setStep] = React.useState<Step>("camera");
+  // Última semente já aplicada. Enquanto a atual não foi aplicada, a câmera
+  // NÃO liga — senão o flow pediria permissão/abriria o stream por um frame
+  // antes de pular para a legenda.
+  const [appliedSeed, setAppliedSeed] = React.useState<FlowCreationSeed | null>(null);
+  const awaitingSeed = open && !!seed && appliedSeed !== seed;
   const [mediaPreview, setMediaPreview] = React.useState<string | null>(null);
   const [mediaIsVideo, setMediaIsVideo] = React.useState(false);
   // Imagem veio da galeria (vs. capturada pela câmera). A da galeria é exibida
@@ -849,6 +886,14 @@ export function FlowCreationDialog({
     y: number;
     scale: number;
   } | null>(null);
+  // Moldura de um post do feed ("Seu flow → Editar antes de postar"). Só nasce
+  // pela semente e só existe no modo texto — é um flow sem mídia própria.
+  const [postSticker, setPostSticker] = React.useState<{
+    data: StoryPostSticker;
+    x: number;
+    y: number;
+    scale: number;
+  } | null>(null);
   const [workoutPickerOpen, setWorkoutPickerOpen] = React.useState(false);
   // true = o drawer abre direto na personalização do sticker já colado.
   const [workoutPickerEditing, setWorkoutPickerEditing] = React.useState(false);
@@ -866,7 +911,9 @@ export function FlowCreationDialog({
   // Flow abre sempre na câmera frontal (selfie) por padrão; o usuário pode
   // alternar para a traseira com o botão de virar câmera.
   const [facingMode, setFacingMode] = React.useState<"user" | "environment">("user");
-  const [cameraError, setCameraError] = React.useState<string | null>(null);
+  // Tipo do erro de câmera (o texto sai do `t()` na exibição — assim o
+  // `startStream` não depende do idioma e não reabre a câmera ao trocar de língua).
+  const [cameraError, setCameraError] = React.useState<"denied" | "unsupported" | "failed" | null>(null);
   const [cameraReady, setCameraReady] = React.useState(false);
   // O <video> só aparece depois que o primeiro frame foi pintado já no tamanho
   // final. No WebKit do iOS, logo após receber o `srcObject`, a camada de vídeo
@@ -1034,7 +1081,7 @@ export function FlowCreationDialog({
     const token = ++streamTokenRef.current;
     try {
       if (!navigator.mediaDevices?.getUserMedia) {
-        throw new Error("Câmera não suportada neste dispositivo");
+        throw Object.assign(new Error("camera-unsupported"), { name: "NotSupportedError" });
       }
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
@@ -1094,8 +1141,10 @@ export function FlowCreationDialog({
     } catch (err: any) {
       setCameraError(
         err?.name === "NotAllowedError"
-          ? "Permissão de câmera negada. Habilite em Ajustes."
-          : err?.message || "Não foi possível acessar a câmera",
+          ? "denied"
+          : err?.name === "NotSupportedError"
+            ? "unsupported"
+            : "failed",
       );
     }
   }, [stopStream]);
@@ -1109,13 +1158,55 @@ export function FlowCreationDialog({
   }, [open]);
 
   React.useEffect(() => {
-    if (open && step === "camera") {
+    if (open && step === "camera" && !awaitingSeed) {
       startStream(facingMode);
     } else {
       stopStream();
     }
     return () => stopStream();
-  }, [open, step, facingMode, startStream, stopStream]);
+  }, [open, step, facingMode, startStream, stopStream, awaitingSeed]);
+
+  // Semente (ex.: resumo do treino): abre já na legenda com a mídia pronta.
+  React.useEffect(() => {
+    if (!awaitingSeed || !seed) return;
+    setAppliedSeed(seed);
+    if (seed.postSticker) {
+      setMediaPreview(null);
+      setMediaIsVideo(false);
+      setMediaFromGallery(false);
+      setWorkoutSticker(null);
+      setTexts([]);
+      setSelectedGradient(POST_FLOW_BACKGROUND);
+      // Mesma posição do flow publicado direto (x 50%, y 46%).
+      setPostSticker({
+        data: seed.postSticker,
+        x: window.innerWidth / 2,
+        y: window.innerHeight * 0.46,
+        scale: 1,
+      });
+      setStep("create");
+      return;
+    }
+    if (!seed.mediaUrl) return;
+    setPostSticker(null);
+    setMediaIsVideo(false);
+    setMediaFromGallery(true);
+    setMediaPreview(seed.mediaUrl);
+    setWorkoutSticker(
+      seed.workoutSticker
+        ? {
+            data: seed.workoutSticker,
+            full: seed.workoutSticker,
+            // Mais para baixo que o padrão do seletor: a mídia aqui costuma
+            // ser uma foto da pessoa, e o card não deve cobrir o rosto.
+            x: window.innerWidth / 2,
+            y: window.innerHeight * 0.66,
+            scale: 0.9,
+          }
+        : null,
+    );
+    setStep("caption");
+  }, [awaitingSeed, seed]);
 
   React.useEffect(() => {
     if (!open) return;
@@ -1605,8 +1696,8 @@ export function FlowCreationDialog({
 
     if (file.size > MAX_MEDIA_BYTES) {
       toast({
-        title: "Arquivo muito grande",
-        description: "Máximo de 100MB",
+        title: t("flow_file_too_large"),
+        description: t("flow_file_too_large_desc"),
         variant: "destructive",
       });
       return;
@@ -1682,7 +1773,7 @@ export function FlowCreationDialog({
       };
       probe.onloadedmetadata = () => {
         if (Number.isFinite(probe.duration) && probe.duration > MAX_VIDEO_DURATION_S + 1) {
-          reject("Vídeo muito longo", "O flow aceita vídeos de até 1 minuto");
+          reject(t("flow_video_too_long"), t("flow_video_too_long_desc"));
           return;
         }
         accept();
@@ -1711,8 +1802,8 @@ export function FlowCreationDialog({
     reader.onerror = () => {
       finishPreparing();
       toast({
-        title: "Erro ao abrir a imagem",
-        description: "Tente novamente",
+        title: t("flow_image_open_error"),
+        description: t("retry"),
         variant: "destructive",
       });
     };
@@ -1922,6 +2013,7 @@ export function FlowCreationDialog({
     setDescription("");
     setTaggedUsers([]);
     setWorkoutSticker(null);
+    setPostSticker(null);
     setTexts([]);
     setEditingId(null);
     setEditingValue("");
@@ -2086,6 +2178,16 @@ export function FlowCreationDialog({
         workout: workoutSticker.data,
       });
     }
+    if (postSticker) {
+      els.push({
+        kind: "post",
+        text: "",
+        x: Math.round((postSticker.x / window.innerWidth) * 1000) / 10,
+        y: Math.round((postSticker.y / window.innerHeight) * 1000) / 10,
+        scale: Math.round(postSticker.scale * 100) / 100,
+        post: postSticker.data,
+      });
+    }
     return els.length > 0 ? els : null;
   };
 
@@ -2095,35 +2197,35 @@ export function FlowCreationDialog({
     try {
       let mediaToShare = mediaPreview;
       let mediaTransformPayload: MediaTransform | null = null;
-      const t = transformRef.current;
+      const tf = transformRef.current;
       const frame = captionFrameRef.current;
       const fw = frame?.clientWidth || window.innerWidth;
       const fh = frame?.clientHeight || window.innerHeight;
       // Enquadramento em % (translate relativo ao tamanho do elemento → resolução-independente)
       const percentTransform: MediaTransform = {
-        scale: Math.round(t.scale * 1000) / 1000,
-        x: Math.round((t.x / fw) * 1000) / 10,
-        y: Math.round((t.y / fh) * 1000) / 10,
+        scale: Math.round(tf.scale * 1000) / 1000,
+        x: Math.round((tf.x / fw) * 1000) / 10,
+        y: Math.round((tf.y / fh) * 1000) / 10,
       };
       if (mediaIsVideo) {
         // Vídeo não pode ser recomposto no cliente → persiste o enquadramento (só
         // quando houve pinça/arraste; sem transform o viewer usa object-cover puro).
-        if (isMediaTransformed(t)) mediaTransformPayload = percentTransform;
+        if (isMediaTransformed(tf)) mediaTransformPayload = percentTransform;
       } else if (mediaFromGallery) {
         // Imagem da galeria: SEMPRE compõe no frame 9:16 (imagem inteira via "contain"
         // + fundo desfocado nas bordas), mesmo sem pinça/zoom. Assim o resultado postado
         // é idêntico ao preview e nada é cortado — o viewer só dá object-cover sobre um
         // frame que já tem o aspecto certo. Se a composição falhar, cai para o original.
-        const baked = await bakeTransformedImage(mediaPreview, fw, fh, t, "contain");
+        const baked = await bakeTransformedImage(mediaPreview, fw, fh, tf, "contain");
         if (baked) {
           mediaToShare = baked;
-        } else if (isMediaTransformed(t)) {
+        } else if (isMediaTransformed(tf)) {
           mediaTransformPayload = percentTransform;
         }
-      } else if (isMediaTransformed(t)) {
+      } else if (isMediaTransformed(tf)) {
         // Imagem da câmera: full-bleed (object-cover). Só recompõe se houve pinça/arraste;
         // sem transform o original já preenche a tela via object-cover no viewer.
-        const baked = await bakeTransformedImage(mediaPreview, fw, fh, t, "cover");
+        const baked = await bakeTransformedImage(mediaPreview, fw, fh, tf, "cover");
         if (baked) {
           mediaToShare = baked;
         } else {
@@ -2137,13 +2239,13 @@ export function FlowCreationDialog({
       resetForm();
       onOpenChange(false);
       toast({
-        title: "Flow criado!",
-        description: "Seu flow foi compartilhado com seus seguidores",
+        title: t("flow_created"),
+        description: t("flow_created_desc"),
       });
     } catch (err: any) {
       toast({
-        title: "Erro ao criar flow",
-        description: err?.message || "Tente novamente",
+        title: t("flow_create_error"),
+        description: err?.message || t("retry"),
         variant: "destructive",
       });
     } finally {
@@ -2152,10 +2254,9 @@ export function FlowCreationDialog({
   };
 
   const handleSubmitCreate = async () => {
-    if (texts.length === 0 && !workoutSticker) {
+    if (texts.length === 0 && !workoutSticker && !postSticker) {
       toast({
-        title: "Erro",
-        description: "Adicione pelo menos uma frase ao seu flow",
+        title: t("flow_add_phrase_required"),
         variant: "destructive",
       });
       return;
@@ -2171,13 +2272,13 @@ export function FlowCreationDialog({
       resetForm();
       onOpenChange(false);
       toast({
-        title: "Flow criado!",
-        description: "Seu flow foi compartilhado com seus seguidores",
+        title: t("flow_created"),
+        description: t("flow_created_desc"),
       });
     } catch (err: any) {
       toast({
-        title: "Erro ao criar flow",
-        description: err?.message || "Tente novamente",
+        title: t("flow_create_error"),
+        description: err?.message || t("retry"),
         variant: "destructive",
       });
     } finally {
@@ -2202,6 +2303,7 @@ export function FlowCreationDialog({
     setDescription("");
     setTaggedUsers([]);
     setWorkoutSticker(null);
+    setPostSticker(null);
     setSelectedGradient(GRADIENT_PRESETS[0].value);
     setTexts([]);
     setEditingId(null);
@@ -2355,7 +2457,9 @@ export function FlowCreationDialog({
      O sticker fica ACIMA da camada de gestos da mídia e trata os próprios
      ponteiros (1 dedo arrasta, 2 pinçam) — por isso arrastá-lo nunca reenquadra
      a foto nem cria uma frase nova. */
+  type StickerTarget = "workout" | "post";
   const stickerGestureRef = React.useRef<{
+    target: StickerTarget;
     pointers: Map<number, { x: number; y: number }>;
     origX: number;
     origY: number;
@@ -2365,13 +2469,21 @@ export function FlowCreationDialog({
     startDist: number;
   } | null>(null);
 
+  // A moldura do post segue as mesmas regras de gesto do mini frame de treino.
+  const stickerOf = (target: StickerTarget) => (target === "post" ? postSticker : workoutSticker);
+  const patchSticker = (target: StickerTarget, patch: { x?: number; y?: number; scale?: number }) => {
+    if (target === "post") setPostSticker((prev) => (prev ? { ...prev, ...patch } : prev));
+    else setWorkoutSticker((prev) => (prev ? { ...prev, ...patch } : prev));
+  };
+
   const rebaseStickerGesture = () => {
     const g = stickerGestureRef.current;
-    if (!g || !workoutSticker) return;
+    const current = g ? stickerOf(g.target) : null;
+    if (!g || !current) return;
     const pts = Array.from(g.pointers.values());
-    g.origX = workoutSticker.x;
-    g.origY = workoutSticker.y;
-    g.origScale = workoutSticker.scale;
+    g.origX = current.x;
+    g.origY = current.y;
+    g.origScale = current.scale;
     if (pts.length >= 2) {
       g.startDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1;
     } else if (pts.length === 1) {
@@ -2380,17 +2492,22 @@ export function FlowCreationDialog({
     }
   };
 
-  const handleStickerPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!workoutSticker) return;
+  const handleStickerPointerDown = (target: StickerTarget) => (e: React.PointerEvent<HTMLDivElement>) => {
+    const current = stickerOf(target);
+    if (!current) return;
     e.stopPropagation();
-    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
     let g = stickerGestureRef.current;
+    // Um dedo em cada card não vira pinça entre os dois: o gesto é de quem
+    // foi tocado primeiro.
+    if (g && g.target !== target) return;
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
     if (!g) {
       g = {
+        target,
         pointers: new Map(),
-        origX: workoutSticker.x,
-        origY: workoutSticker.y,
-        origScale: workoutSticker.scale,
+        origX: current.x,
+        origY: current.y,
+        origScale: current.scale,
         anchorX: 0,
         anchorY: 0,
         startDist: 0,
@@ -2414,11 +2531,11 @@ export function FlowCreationDialog({
         MAX_STICKER_SCALE,
         Math.max(MIN_STICKER_SCALE, g.origScale * ratio),
       );
-      setWorkoutSticker((prev) => (prev ? { ...prev, scale: nextScale } : prev));
+      patchSticker(g.target, { scale: nextScale });
     } else {
       const nx = g.origX + (pts[0].x - g.anchorX);
       const ny = g.origY + (pts[0].y - g.anchorY);
-      setWorkoutSticker((prev) => (prev ? { ...prev, x: nx, y: ny } : prev));
+      patchSticker(g.target, { x: nx, y: ny });
     }
   };
 
@@ -2559,7 +2676,7 @@ export function FlowCreationDialog({
                 : "#fff",
             border: "1px solid rgba(255,255,255,0.3)",
           }}
-          aria-label="Fundo da legenda"
+          aria-label={t("flow_caption_background")}
         >
           A
         </button>
@@ -2665,7 +2782,7 @@ export function FlowCreationDialog({
         transform: `translate(-50%, -50%) scale(${workoutSticker.scale})`,
         transformOrigin: "center",
       }}
-      onPointerDown={handleStickerPointerDown}
+      onPointerDown={handleStickerPointerDown("workout")}
       onPointerMove={handleStickerPointerMove}
       onPointerUp={handleStickerPointerUp}
       onPointerCancel={handleStickerPointerUp}
@@ -2699,6 +2816,38 @@ export function FlowCreationDialog({
     </div>
   ) : null;
 
+  // Moldura do post do feed — só no modo texto (ver `postSticker`).
+  const postStickerLayer = postSticker ? (
+    <div
+      className="absolute z-[8] touch-none select-none"
+      style={{
+        left: postSticker.x,
+        top: postSticker.y,
+        transform: `translate(-50%, -50%) scale(${postSticker.scale})`,
+        transformOrigin: "center",
+      }}
+      onPointerDown={handleStickerPointerDown("post")}
+      onPointerMove={handleStickerPointerMove}
+      onPointerUp={handleStickerPointerUp}
+      onPointerCancel={handleStickerPointerUp}
+    >
+      <div className="relative">
+        <FlowPostCard data={postSticker.data} />
+        <button
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            setPostSticker(null);
+          }}
+          className="absolute -top-2 -right-2 h-6 w-6 rounded-full bg-black/80 border border-white/25 flex items-center justify-center text-white active:opacity-70"
+          aria-label={t("flow_post_remove")}
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    </div>
+  ) : null;
+
   // Botão que abre o seletor de treino — mesmo visual nas duas etapas.
   // Anular a constante cobre os dois pontos de uso de uma vez (a barra da
   // captura e a da revisão), em vez de repetir a guarda em cada um.
@@ -2727,7 +2876,7 @@ export function FlowCreationDialog({
         style={{ height: "100dvh", width: "100vw" }}
         role="dialog"
         aria-modal="true"
-        aria-label="Criar novo flow"
+        aria-label={t("flow_create_new")}
       >
         {/* Indicador enquanto a mídia da galeria é preparada (some ao abrir o preview).
             Cobre tudo para o usuário saber que o vídeo está carregando, e não parecer
@@ -2735,7 +2884,7 @@ export function FlowCreationDialog({
         {isPreparingMedia && (
           <div className="absolute inset-0 z-[120] flex flex-col items-center justify-center gap-4 bg-black/85 backdrop-blur-sm">
             <Loader2 className="h-10 w-10 text-white animate-spin" />
-            <p className="text-white/90 text-sm font-medium">Preparando mídia…</p>
+            <p className="text-white/90 text-sm font-medium">{t("flow_preparing_media")}</p>
           </div>
         )}
 
@@ -2753,14 +2902,14 @@ export function FlowCreationDialog({
               {cameraError ? (
                 <div className="h-full w-full flex flex-col items-center justify-center text-white text-center px-6 gap-4">
                   <CameraIcon className="h-12 w-12 text-white/60" />
-                  <p className="text-sm text-white/80 max-w-xs">{cameraError}</p>
+                  <p className="text-sm text-white/80 max-w-xs">{t(CAMERA_ERROR_KEY[cameraError])}</p>
                   <Button
                     variant="secondary"
                     onClick={() => fileInputRef.current?.click()}
                     className="rounded-full"
                   >
                     <ImageIcon className="h-4 w-4 mr-2" />
-                    Escolher da galeria
+                    {t("flow_pick_gallery")}
                   </Button>
                 </div>
               ) : (
@@ -2798,7 +2947,7 @@ export function FlowCreationDialog({
               <button
                 onClick={handleClose}
                 className="h-10 w-10 rounded-full bg-black/40 backdrop-blur flex items-center justify-center text-white"
-                aria-label="Fechar"
+                aria-label={t("close")}
               >
                 <X className="h-5 w-5" />
               </button>
@@ -2806,7 +2955,7 @@ export function FlowCreationDialog({
                 <button
                   onClick={() => setStep("create")}
                   className="h-10 px-3 rounded-full bg-black/40 backdrop-blur flex items-center justify-center text-white text-sm font-semibold"
-                  aria-label="Criar com texto"
+                  aria-label={t("flow_create_with_text")}
                 >
                   <Type className="h-4 w-4 mr-1" />
                   Aa
@@ -2814,7 +2963,7 @@ export function FlowCreationDialog({
                 <button
                   onClick={handleFlipCamera}
                   className="h-10 w-10 rounded-full bg-black/40 backdrop-blur flex items-center justify-center text-white"
-                  aria-label="Trocar câmera"
+                  aria-label={t("flow_flip_camera")}
                   disabled={!!cameraError}
                 >
                   <SwitchCamera className="h-5 w-5" />
@@ -2853,10 +3002,10 @@ export function FlowCreationDialog({
               <div className="relative z-10 flex items-center justify-center pb-3 px-6">
                 <p className="text-white/70 text-xs text-center">
                   {!isRecording
-                    ? "Toque para foto • Segure para gravar vídeo"
+                    ? t("flow_hint_idle")
                     : isRecordingLocked
-                      ? "Gravando sem as mãos • toque no botão para parar"
-                      : "Arraste para cima 🔒 para gravar sem segurar"}
+                      ? t("flow_hint_locked")
+                      : t("flow_hint_recording")}
                 </p>
               </div>
             )}
@@ -2871,7 +3020,7 @@ export function FlowCreationDialog({
                 className={`h-12 w-12 rounded-2xl bg-white/15 backdrop-blur flex items-center justify-center text-white transition-opacity ${
                   isRecording ? "opacity-0 pointer-events-none" : "opacity-100"
                 }`}
-                aria-label="Galeria"
+                aria-label={t("flow_gallery")}
                 disabled={isRecording}
               >
                 <ImageIcon className="h-6 w-6" />
@@ -2886,7 +3035,7 @@ export function FlowCreationDialog({
                 disabled={!cameraReady}
                 className="h-20 w-20 rounded-full bg-white/20 backdrop-blur flex items-center justify-center disabled:opacity-50 select-none touch-none"
                 style={{ touchAction: "none" }}
-                aria-label="Toque para foto, segure ou arraste para cima para gravar vídeo"
+                aria-label={t("flow_shutter_aria")}
               >
                 {isRecording ? (
                   <span className="relative flex items-center justify-center h-20 w-20">
@@ -2970,14 +3119,18 @@ export function FlowCreationDialog({
             {/* Mini frame do treino citado */}
             {!isEditingText && workoutStickerLayer}
 
-            {/* Hint when there is no text yet */}
-            {!isEditingText && texts.length === 0 && (
+            {/* Moldura do post do feed ("Editar antes de postar") */}
+            {!isEditingText && postStickerLayer}
+
+            {/* Hint when there is no text yet — some com um card na tela, que
+                ocuparia o mesmo lugar */}
+            {!isEditingText && texts.length === 0 && !workoutSticker && !postSticker && (
               <div
                 className="absolute inset-x-0 z-[2] flex items-center justify-center px-6 pointer-events-none"
                 style={{ top: "50%", transform: "translateY(-50%)" }}
               >
                 <p className="text-white/70 text-center font-semibold text-2xl">
-                  Toque em qualquer lugar para digitar
+                  {t("flow_tap_to_type")}
                 </p>
               </div>
             )}
@@ -3045,13 +3198,19 @@ export function FlowCreationDialog({
             >
               <button
                 onClick={() => {
+                  // Veio de um post ("Editar antes de postar"): voltar para a
+                  // câmera não faz sentido — o X desiste do flow.
+                  if (postSticker) {
+                    handleClose();
+                    return;
+                  }
                   setStep("camera");
                   setTexts([]);
                   setEditingId(null);
                   setEditingValue("");
                 }}
                 className="h-10 w-10 rounded-full bg-black/40 backdrop-blur flex items-center justify-center text-white"
-                aria-label="Voltar"
+                aria-label={t("back")}
               >
                 <X className="h-5 w-5" />
               </button>
@@ -3060,7 +3219,7 @@ export function FlowCreationDialog({
                   onClick={commitEditing}
                   className="h-10 px-4 rounded-full bg-white text-black text-sm font-semibold"
                 >
-                  Pronto
+                  {t("flow_text_done")}
                 </button>
               ) : (
                 <div className="flex items-center gap-2">
@@ -3068,7 +3227,7 @@ export function FlowCreationDialog({
                   <button
                     onClick={beginNewText}
                     className="h-10 px-3 rounded-full bg-black/40 backdrop-blur flex items-center text-white text-sm font-semibold gap-1"
-                    aria-label="Adicionar texto"
+                    aria-label={t("flow_add_text")}
                   >
                     <Type className="h-4 w-4" />
                     + Aa
@@ -3108,7 +3267,7 @@ export function FlowCreationDialog({
                         background: preset.value,
                         borderColor: selectedGradient === preset.value ? "white" : "rgba(255,255,255,0.4)",
                       }}
-                      aria-label={preset.label}
+                      aria-label={t(preset.label)}
                     >
                       {selectedGradient === preset.value && (
                         <div className="absolute inset-0 flex items-center justify-center">
@@ -3123,12 +3282,14 @@ export function FlowCreationDialog({
                     e.stopPropagation();
                     handleSubmitCreate();
                   }}
-                  disabled={(texts.length === 0 && !workoutSticker) || isSubmitting || isLoading}
+                  disabled={(texts.length === 0 && !workoutSticker && !postSticker) || isSubmitting || isLoading}
                   className="w-full rounded-full"
                 >
                   {isSubmitting || isLoading ? t("sending") : t("flow_share_button")}
                 </Button>
-                {(texts.length > 0 || workoutSticker) && saveDraftButton}
+                {/* Sem rascunho com a moldura do post: a foto dela vem de outro
+                    domínio e o canvas não a desenha (sairia sem o post). */}
+                {(texts.length > 0 || workoutSticker) && !postSticker && saveDraftButton}
               </div>
             )}
           </>
@@ -3152,7 +3313,7 @@ export function FlowCreationDialog({
               <button
                 onClick={handleRetake}
                 className="h-10 w-10 rounded-full bg-black/50 backdrop-blur flex items-center justify-center text-white"
-                aria-label="Refazer"
+                aria-label={t("flow_retake")}
               >
                 <X className="h-5 w-5" />
               </button>
@@ -3160,7 +3321,7 @@ export function FlowCreationDialog({
                 onClick={() => setStep("caption")}
                 className="h-10 px-4 rounded-full bg-white text-black font-semibold text-sm"
               >
-                Avançar
+                {t("flow_next")}
               </button>
             </div>
 
@@ -3253,7 +3414,7 @@ export function FlowCreationDialog({
                     onClick={commitEditing}
                     className="h-10 px-4 rounded-full bg-white text-black text-sm font-semibold"
                   >
-                    Pronto
+                    {t("flow_text_done")}
                   </button>
                 </div>
                 <div
@@ -3321,7 +3482,7 @@ export function FlowCreationDialog({
                 <button
                   onClick={handleRetake}
                   className="h-10 w-10 rounded-full bg-black/50 backdrop-blur flex items-center justify-center text-white"
-                  aria-label="Refazer"
+                  aria-label={t("flow_retake")}
                 >
                   <X className="h-5 w-5" />
                 </button>
@@ -3345,7 +3506,7 @@ export function FlowCreationDialog({
                   <button
                     onClick={beginNewText}
                     className="h-10 px-3 rounded-full bg-black/40 backdrop-blur flex items-center text-white text-sm font-semibold gap-1"
-                    aria-label="Adicionar texto"
+                    aria-label={t("flow_add_text")}
                   >
                     <Type className="h-4 w-4" />
                     + Aa

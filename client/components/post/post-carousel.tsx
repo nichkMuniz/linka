@@ -1,6 +1,7 @@
 import React from "react";
 import { ChevronLeft, ChevronRight, Trash2 } from "lucide-react";
 import { cdnImg } from "@/lib/image-url";
+import { useLanguage } from "@/lib/language-context";
 
 // Post photos are bounded by the post card width (max ~600px CSS on web,
 // ~430px on phones). Cap at 900px source so the WebView doesn't download the
@@ -59,6 +60,12 @@ function getPinchOrigin(touches: React.TouchList | TouchList, rect: DOMRect) {
 // precisa ficar abaixo disso para o card de treino nunca ser cortado.
 const ADAPTIVE_FIT_LOG_THRESHOLD = 0.18;
 
+// Fotos que já carregaram nesta sessão → o enquadramento decidido no onLoad.
+// Ao voltar para uma tela, a foto já está no cache do WebView e aparece na hora:
+// sem isto ela recomeçava invisível (fade de entrada) e em "cover" até o onLoad
+// disparar de novo — um piscar e um salto de enquadramento a cada navegação.
+const loadedPhotoFit = new Map<string, "cover" | "contain">();
+
 function ZoomableImage({
   src,
   alt,
@@ -78,21 +85,31 @@ function ZoomableImage({
   const [scale, setScale] = React.useState(1);
   const [origin, setOrigin] = React.useState({ x: 50, y: 50 });
   const [isPinching, setIsPinching] = React.useState(false);
-  const [fitMode, setFitMode] = React.useState<"cover" | "contain">("cover");
-  const [loaded, setLoaded] = React.useState(false);
+  const [fitMode, setFitMode] = React.useState<"cover" | "contain">(
+    () => loadedPhotoFit.get(src) ?? "cover",
+  );
+  const [loaded, setLoaded] = React.useState(() => loadedPhotoFit.has(src));
   const pinch = React.useRef({ active: false, startDist: 0, baseScale: 1 });
   const containerRef = React.useRef<HTMLDivElement>(null);
 
   const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
     setLoaded(true);
-    if (!adaptiveFit) return;
+    if (!adaptiveFit) {
+      if (!loadedPhotoFit.has(src)) loadedPhotoFit.set(src, "cover");
+      return;
+    }
     const img = e.currentTarget;
     const rect = containerRef.current?.getBoundingClientRect();
-    if (!rect || !rect.width || !rect.height || !img.naturalWidth || !img.naturalHeight) return;
+    if (!rect || !rect.width || !rect.height || !img.naturalWidth || !img.naturalHeight) {
+      if (!loadedPhotoFit.has(src)) loadedPhotoFit.set(src, "cover");
+      return;
+    }
     const imageRatio = img.naturalWidth / img.naturalHeight;
     const frameRatio = rect.width / rect.height;
     const deviation = Math.abs(Math.log(imageRatio / frameRatio));
-    setFitMode(deviation > ADAPTIVE_FIT_LOG_THRESHOLD ? "contain" : "cover");
+    const fit = deviation > ADAPTIVE_FIT_LOG_THRESHOLD ? "contain" : "cover";
+    loadedPhotoFit.set(src, fit);
+    setFitMode(fit);
   };
 
   // O callback vive numa ref para o efeito abaixo depender só de `isPinching`:
@@ -220,6 +237,7 @@ export function PostCarousel({
   priority,
   onZoomChange,
 }: PostCarouselProps) {
+  const { t } = useLanguage();
   const [currentIndex, setCurrentIndex] = React.useState(0);
 
   React.useEffect(() => {
@@ -350,7 +368,7 @@ export function PostCarousel({
         <button
           onClick={() => goTo(currentIndex - 1)}
           className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 p-2 rounded-full transition-colors opacity-0 group-hover:opacity-100"
-          aria-label="Foto anterior"
+          aria-label={t("post_carousel_prev")}
         >
           <ChevronLeft className="h-5 w-5 text-white" />
         </button>
@@ -359,7 +377,7 @@ export function PostCarousel({
         <button
           onClick={() => goTo(currentIndex + 1)}
           className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 p-2 rounded-full transition-colors opacity-0 group-hover:opacity-100"
-          aria-label="Próxima foto"
+          aria-label={t("post_carousel_next")}
         >
           <ChevronRight className="h-5 w-5 text-white" />
         </button>
@@ -371,7 +389,7 @@ export function PostCarousel({
           onClick={() => onRemovePhoto(photos[currentIndex], currentIndex)}
           disabled={removingPhoto}
           className="absolute top-2 right-2 bg-destructive/90 hover:bg-destructive text-white rounded-full p-1.5 transition-colors disabled:opacity-50"
-          title="Remover esta foto"
+          title={t("post_carousel_remove")}
         >
           <Trash2 className="h-4 w-4" />
         </button>
@@ -380,7 +398,7 @@ export function PostCarousel({
       {/* Pill counter — top-right, never overlaps user info */}
       {!hideCounter && (
         <div className="absolute top-3 right-3 pointer-events-none">
-          <span className="text-white text-xs font-semibold bg-black/50 backdrop-blur-sm px-2.5 py-1 rounded-full">
+          <span className="text-white text-xs font-semibold bg-black/60 px-2.5 py-1 rounded-full">
             {currentIndex + 1}/{photos.length}
           </span>
         </div>

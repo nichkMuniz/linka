@@ -279,17 +279,18 @@ style={{
 
 ## 11. Internacionalização / Traduções (Obrigatório)
 
-O app suporta PT e EN via `client/lib/i18n.ts` + `client/lib/language-context.tsx`. **Toda string visível ao usuário deve usar o sistema de tradução** — nunca texto hardcoded em português ou inglês diretamente no JSX ou em chamadas de `toast()`.
+O app suporta PT e EN via `client/lib/i18n.ts` (português) + `client/lib/i18n-en.ts` (inglês, carregado sob demanda) + `client/lib/language-context.tsx`. **Toda string visível ao usuário deve usar o sistema de tradução** — nunca texto hardcoded em português ou inglês diretamente no JSX ou em chamadas de `toast()`.
 
 ### Como funciona
 
-- Todas as chaves ficam em `client/lib/i18n.ts`, nos objetos `translations.pt` e `translations.en`
+- As chaves ficam no objeto `pt` de `client/lib/i18n.ts` (fonte dos tipos) e no objeto `en` de `client/lib/i18n-en.ts` — o `en` é `Record<TranslationKey, string>`, então chave faltando em inglês é erro de compilação
+- Fora do React (notificação, canvas, erros do `ritmofit-db`): `tUi("chave")`; idioma atual: `resolveLanguage()` — nunca ler `localStorage` direto
 - Nos componentes: `const { t } = useLanguage()` → `t("chave")`
 - Nos toasts: `toast({ title: t("chave"), description: t("outra_chave") })`
 
 ### Regras obrigatórias
 
-1. **Nova tela ou feature** → adicionar todas as strings novas em `i18n.ts` nas duas línguas (pt e en) antes de implementar
+1. **Nova tela ou feature** → adicionar todas as strings novas nas duas línguas (`i18n.ts` e `i18n-en.ts`) antes de implementar
 2. **Tela existente sem tradução** → ao tocar na tela por qualquer motivo, verificar se há strings hardcoded e traduzi-las na mesma tarefa
 3. **Nunca** escrever texto em PT ou EN diretamente em JSX — qualquer string que o usuário veja deve ter uma chave em `i18n.ts`
 4. **Nomes de chaves**: usar prefixo da tela/contexto (ex: `profile_`, `goals_`, `feed_`, `shots_`, `settings_`, `community_`)
@@ -299,7 +300,7 @@ O app suporta PT e EN via `client/lib/i18n.ts` + `client/lib/language-context.ts
 
 ```
 - [ ] Todos os textos visíveis ao usuário usam t("chave")?
-- [ ] As chaves foram adicionadas tanto em translations.pt quanto em translations.en?
+- [ ] As chaves foram adicionadas tanto em `i18n.ts` (pt) quanto em `i18n-en.ts` (en)?
 - [ ] Toasts de sucesso e erro usam t()?
 - [ ] Placeholders de inputs usam t()?
 - [ ] Títulos de dialogs/drawers usam t()?

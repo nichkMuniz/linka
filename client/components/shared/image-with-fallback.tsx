@@ -1,6 +1,7 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 import { cdnImg } from "@/lib/image-url";
+import { useThumbSrc } from "@/lib/thumb-cache";
 
 interface ImageWithFallbackProps
   extends React.ImgHTMLAttributes<HTMLImageElement> {
@@ -14,6 +15,15 @@ interface ImageWithFallbackProps
   cdnQuality?: number;
   /** Resize mode when both width and height are set. */
   cdnResize?: "cover" | "contain" | "fill";
+  /**
+   * Maior lado exibido, em px CSS. Com ele a imagem vira uma MINIATURA gerada e
+   * guardada no aparelho (`@/lib/thumb-cache`) em vez do arquivo original de
+   * centenas de KB. Sem a prop, vale `cdnWidth`/`cdnHeight` — que já descrevem
+   * o tamanho de exibição — enquanto as transformações da Supabase estiverem
+   * desligadas. Use em miniaturas (avatar, grade, lista), nunca em foto que
+   * ocupa a tela inteira.
+   */
+  thumbSize?: number;
 }
 
 /**
@@ -36,6 +46,7 @@ export const ImageWithFallback = React.forwardRef<
       cdnHeight,
       cdnQuality,
       cdnResize,
+      thumbSize,
       ...props
     },
     ref,
@@ -53,19 +64,30 @@ export const ImageWithFallback = React.forwardRef<
       return src;
     }, [src, cdnWidth, cdnHeight, cdnQuality, cdnResize]);
 
-    const [imageSrc, setImageSrc] = React.useState<string | undefined>(transformedSrc);
+    // Miniatura só quando a URL não foi transformada pela CDN (transformação
+    // ligada já entrega o tamanho certo).
+    const thumbPx =
+      thumbSize ??
+      (transformedSrc === src && (cdnWidth || cdnHeight)
+        ? Math.max(cdnWidth ?? 0, cdnHeight ?? 0)
+        : undefined);
+    const displaySrc = useThumbSrc(transformedSrc, thumbPx);
+
     const [hasError, setHasError] = React.useState(false);
 
     React.useEffect(() => {
-      setImageSrc(transformedSrc);
       setHasError(false);
     }, [transformedSrc]);
+
+    const imageSrc = hasError ? fallback : displaySrc;
+    // Miniatura ainda sendo resolvida: sem `src`, e sem `alt` para o WebKit não
+    // desenhar o texto alternativo no lugar da imagem nesse instante.
+    const resolving = !hasError && !!transformedSrc && displaySrc === undefined;
 
     const handleError = (e: React.SyntheticEvent<HTMLImageElement>) => {
       if (!hasError) {
         console.warn(`[ImageWithFallback] Failed to load image: ${src}`);
         setHasError(true);
-        setImageSrc(fallback);
       }
       onError?.(e);
     };
@@ -79,9 +101,12 @@ export const ImageWithFallback = React.forwardRef<
       <img
         ref={ref}
         src={imageSrc}
-        alt={alt}
+        alt={resolving ? "" : alt}
         onError={handleError}
         loading="lazy"
+        // Decodifica fora da thread principal: com várias fotos entrando juntas
+        // (grade do perfil, lista de exercícios) a troca de tela não engasga.
+        decoding="async"
         className={cn(className)}
         {...props}
       />

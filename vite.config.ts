@@ -61,6 +61,15 @@ export default defineConfig(async () => {
     expressDevMiddleware(),
     react(),
     VitePWA({
+      // SW DESLIGADO (29/09/2026). O app é nativo (Capacitor): no WKWebView com
+      // scheme `capacitor://` service worker não roda, então o registro era só
+      // custo na abertura. Na versão web ele atrapalhava — o fallback de
+      // navegação engolia páginas estáticas (ver a denylist abaixo, que precisava
+      // ser lembrada a cada página nova). `selfDestroying` publica um sw.js que
+      // se DESREGISTRA e limpa os caches de quem já tinha o antigo instalado;
+      // remover o plugin de vez deixaria esse SW antigo vivo nos navegadores.
+      // Pode sair por completo depois que os visitantes antigos tiverem voltado.
+      selfDestroying: true,
       registerType: "autoUpdate",
       workbox: {
         // Sem esta lista, o NavigationRoute do Workbox responde TODA navegação
@@ -149,6 +158,13 @@ export default defineConfig(async () => {
             if (id.includes("framer-motion") || id.includes("motion-dom") || id.includes("motion-utils")) {
               return "vendor-motion";
             }
+            // O core do Capacitor PRECISA de chunk próprio: o @sentry/capacitor
+            // depende dele, e sem esta regra o Rollup o colocava DENTRO do
+            // vendor-sentry. Como o app inteiro usa o Capacitor desde a
+            // abertura, a entrada importava o vendor-sentry estaticamente — os
+            // ~495 KB do Sentry eram pré-carregados antes da primeira tela,
+            // anulando o import dinâmico do monitoring.ts (corrigido 29/09/2026).
+            if (/[\\/]node_modules[\\/]@capacitor[\\/]core[\\/]/.test(id)) return "vendor-capacitor";
             // Já chega por import dinâmico (ver client/lib/monitoring.ts); o
             // chunk nomeado só o mantém fora dos chunks de tela.
             if (id.includes("@sentry")) return "vendor-sentry";

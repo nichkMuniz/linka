@@ -1,5 +1,6 @@
 import * as React from "react";
 import { Dumbbell } from "lucide-react";
+import { useThumbSrc } from "@/lib/thumb-cache";
 
 const MUSCLE_GROUP_COLORS: Record<string, string> = {
   "Peito": "from-red-500/20 to-red-600/10",
@@ -31,16 +32,24 @@ interface ExerciseImageProps {
   name: string;
   muscleGroup?: string | null;
   className?: string;
+  /**
+   * Maior lado exibido (px CSS) — a foto vira miniatura guardada no aparelho
+   * (ver `@/lib/thumb-cache`). O padrão cobre as listas; quem mostra a foto
+   * grande (detalhe do item) passa o tamanho real.
+   */
+  thumbSize?: number;
 }
 
-export function ExerciseImage({ photo, name, muscleGroup, className = "h-14 w-14 rounded-lg" }: ExerciseImageProps) {
+export function ExerciseImage({ photo, name, muscleGroup, className = "h-14 w-14 rounded-lg", thumbSize = 64 }: ExerciseImageProps) {
   const [imgError, setImgError] = React.useState(false);
+  const shownSrc = useThumbSrc(photo, thumbSize);
+  React.useEffect(() => setImgError(false), [photo]);
 
   if (photo && !imgError) {
     return (
       <img
-        src={photo}
-        alt={name}
+        src={shownSrc}
+        alt={shownSrc ? name : ""}
         className={`${className} object-cover flex-shrink-0 bg-muted`}
         onError={() => setImgError(true)}
         loading="lazy"
