@@ -899,6 +899,7 @@ export default function Notifications() {
                                 >
                                   <FollowButton
                                     targetUserId={notification.userId}
+                                    targetName={notification.userNickname}
                                     initialIsFollowing={followingIds.has(notification.userId)}
                                   />
                                 </span>

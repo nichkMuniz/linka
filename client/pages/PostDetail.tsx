@@ -27,7 +27,7 @@ import { GoalDetailDrawer } from "@/components/goals/goal-detail-drawer";
 import { PostDetailSkeleton } from "@/components/shared/animated-loading";
 import { PostLikesModal } from "@/components/modals/post-likes-modal";
 import { EditPostDrawer } from "@/components/post/edit-post-drawer";
-import { getPostGradient, GLASS_TOP, GLASS_ACTION, renderWithHashtags, isCaptionTruncatable, collapsedCaption } from "@/lib/post-visuals";
+import { getPostGradient, GLASS_TOP, GLASS_ACTION, GLASS_TEXT_SHADOW, renderWithHashtags, isCaptionTruncatable, collapsedCaption } from "@/lib/post-visuals";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -307,11 +307,11 @@ export default function PostDetail() {
               className="min-w-0 text-left active:opacity-70 transition-opacity"
               onClick={() => navigate(`/usuario/${post.user_id}`)}
             >
-              <div className="text-[13px] font-semibold text-white flex items-center gap-1 leading-tight" style={{ maxWidth: "160px" }}>
+              <div className="text-[13px] font-semibold text-white flex items-center gap-1 leading-tight" style={{ maxWidth: "160px", textShadow: GLASS_TEXT_SHADOW }}>
                 <span className="truncate min-w-0">{post.userNickname}</span>
                 {post.isVerified && <VerifiedBadge size="sm" tier={post.verifiedTier} />}
               </div>
-              <div className="text-[10.5px] text-white/60 leading-tight">{formatTimeAgo(post.created_at)}</div>
+              <div className="text-[10.5px] text-white/75 leading-tight" style={{ textShadow: GLASS_TEXT_SHADOW }}>{formatTimeAgo(post.created_at)}</div>
             </button>
 
             {postGoal && (

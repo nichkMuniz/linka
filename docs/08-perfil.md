@@ -574,6 +574,14 @@ valor obrigatório de **Support URL** na App Store Connect (ver
 
 **Relatar um problema (2026-08-05):** abre o `ReportProblemDrawer` (`client/components/shared/report-problem-drawer.tsx`), renderizado **fora** do `<Drawer>` de configurações — mesmo motivo dos overlays do Arquivo de Flows (o `vaul` aplica `transform` no `DrawerContent` e viraria containing block). Recebe `defaultEmail={userEmail}` para pré-preencher o contato.
 
+**Tela + motivo (2026-09-30).** O formulário deixou de ser só um texto livre:
+- **"Em qual tela aconteceu?"** é um `<select>` nativo. No iPhone ele abre a roleta do sistema e, por não ser portal, não briga com o z-index do drawer (mesmo padrão do registro de treino). As opções vêm de `REPORT_AREAS`: só as telas disponíveis hoje. Áreas atrás de feature flag desligada ficam de fora: Clipes, Vitrine, Duelos, Diário alimentar. Hashtags depende de `FEATURES.hashtags`. Fluxos sem rota própria, como "Registro de treino" e "Rotinas e exercícios", aparecem como o usuário os enxerga.
+- **"O que deu errado?"** são chips de um toque (`REPORT_REASONS`): não carrega, travou/fechou, botão não funciona, não salvou, informação errada, mídia, notificação, lento, visual quebrado e outro.
+- **Obrigatórios:** tela e motivo, com toast se faltar. O texto vira **"Detalhes (opcional)"**. Só com o motivo **"Outro"** ele volta a ser obrigatório: "O que aconteceu?", mínimo de 10 caracteres.
+- **No Sentry:** tags `report_area` e `report_reason` (ids estáveis em inglês, para filtrar) e o contexto `relato` com os rótulos como o usuário leu. Sem texto, o título do issue é "motivo — tela".
+- **Caixa "Enviado junto":** não mostra mais a linha "Tela", porque era sempre `/perfil`, de onde o drawer abre, e confundia ao lado da tela escolhida. A rota técnica continua no contexto `ambiente` do evento.
+- **i18n:** `report_problem_area_*`, `report_problem_reason_*`, `report_area_*` e `problem_reason_*`. O prefixo `report_reason_*` já era da denúncia de conteúdo.
+
 O botão é condicionado a `isMonitoringEnabled()` (`client/lib/monitoring.ts`): sem `VITE_SENTRY_DSN` configurada o formulário não teria destino, então some da lista em vez de virar UI morta. Ver `docs/13-layouts-e-componentes.md → monitoring.ts` para o restante da captura de erros.
 
 **Arquivo de Flows — compartilhar:** cada flow expirado tem uma ação de compartilhar (`Share2`, tanto no grid quanto no viewer expandido) que abre uma action sheet (`flowToShare`, bottom sheet customizado, `z-[10000]`) com duas opções:
@@ -734,6 +742,13 @@ O perfil não é uma tela que muda com frequência, então as queries de carrega
 
 - Ao reentrar na tela dentro do TTL, os dados vêm da memória sem round-trip de rede. Após o TTL expirar (mas dentro de 24h), o valor persistido em `localStorage` é exibido imediatamente enquanto uma atualização roda em segundo plano — por isso a tela nunca fica "travada" esperando a rede em revisitas.
 - `updateUserProfileDb` chama `invalidateProfileCache(userId)` para garantir que uma edição de perfil não fique presa ao cache antigo.
+- **Falha não entra no cache (2026-09-30).** Às vezes, logo após o login, o perfil não carregava ("Perfil não encontrado", sem posts ou contadores zerados) até a pessoa puxar o feed para atualizar. A leitura feita no instante do login falhava e o `cached()` guardava o resultado ruim: o `null` do perfil por 5 min, o `[]` dos posts e os zeros das contagens, na memória **e** no `localStorage`. Só o refresh global derrubava. O que mudou:
+  - `getUserProfileDb`, `getUserPostsDb` e `getUserStatsDb` agora **lançam** o erro dentro do `cached` (nada é guardado) e devolvem o mesmo fallback do lado de fora, então o contrato para quem chama não mudou.
+  - `getUserProfileDb` usa a opção nova `skipNull` do `cached()`, que não guarda `null`.
+  - **Self-heal do próprio perfil:** o dono sempre tem linha em `profiles`, então perfil vazio no batch 1 é falha. O `loadProfile` invalida as 3 chaves e tenta de novo após 0,7 s e 1,8 s. Se ainda falhar, cai na tela de erro com "Tentar novamente".
+  - **Timeout:** o batch 1 tem limite de 15 s (`PROFILE_LOAD_TIMEOUT_MS`). Antes, uma leitura travada deixava o skeleton para sempre; agora vira a tela de erro, e o erro vai ao Sentry (`reportHandledError`, contexto `Profile.loadProfile`).
+  - O snapshot em memória só é salvo com perfil presente.
+  - A foto do header (`AppLayout.loadProfilePhoto`) e a do anel "Seu flow" no feed também tentam de novo após 1,5 s e 4 s quando o próprio perfil volta vazio.
 - **`deletePostDb` invalida `userPosts`, `post:` e `userStats:{userId}`; `updatePostDb` invalida `userPosts` e `post:`** — a invalidação roda ANTES do `return` (bug corrigido em 2026-07: as chamadas estavam depois do `try/catch` com `return`, código inalcançável, e o post excluído "ressuscitava" do cache ao reentrar no perfil).
 - **`taggedPosts` é invalidado por prefixo** (todos os usuários, não só o viewer) em `createPostDb` (quando o post nasce com marcações), `setPostTagsDb` (quando o diff de marcações não é vazio) e `deletePostDb` — a lista afetada é a de **quem foi marcado**, e o cliente que faz a escrita não sabe qual perfil está em cache.
 - **`getDisplayBadgeDb` (`displayBadge:{userId}`) e `getTotalCheckInsDb` (`totalCheckIns:{userId}`) são cacheados (30s)** — o `UserInsignias` monta no header e a cada post aberto no drawer; sem cache eram 2 queries extras por post visualizado. Invalidam em `createCheckInDb` (check-in novo) e `setSelectedBadgeDb` (troca de insígnia).

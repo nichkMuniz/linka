@@ -325,10 +325,19 @@ export function sendProblemReport(input: {
   message: string;
   email?: string;
   context: ProblemReportContext;
+  /**
+   * Tela escolhida pelo usuário e o motivo (ids estáveis, em inglês — viram
+   * tags `report_area`/`report_reason` para filtrar no Sentry) + os rótulos
+   * como ele os leu. Desde 2026-09-30 o drawer pede os dois.
+   */
+  area?: { id: string; label: string };
+  reason?: { id: string; label: string };
 }): string | null {
   if (!enabled) return null;
 
-  const summary = input.message.trim().replace(/\s+/g, " ").slice(0, 80);
+  // Sem texto (motivo pronto basta), o título do issue é o próprio motivo.
+  const base = input.message.trim() || [input.reason?.label, input.area?.label].filter(Boolean).join(" — ");
+  const summary = base.replace(/\s+/g, " ").slice(0, 80);
   const reportId = newReportId();
 
   whenReady((s) =>
@@ -337,8 +346,12 @@ export function sendProblemReport(input: {
       scope.setTag("report_source", "in_app");
       scope.setTag("screen", input.context.screen);
       scope.setTag("report_id", reportId);
+      if (input.area) scope.setTag("report_area", input.area.id);
+      if (input.reason) scope.setTag("report_reason", input.reason.id);
       scope.setContext("relato", {
-        mensagem: input.message,
+        tela: input.area?.label ?? "(não informada)",
+        motivo: input.reason?.label ?? "(não informado)",
+        mensagem: input.message || "(sem detalhes)",
         email: input.email || "(não informado)",
       });
       scope.setContext("ambiente", input.context);

@@ -2,7 +2,7 @@ import * as React from "react";
 import { useLocation } from "react-router-dom";
 import { App as CapApp } from "@capacitor/app";
 import { Capacitor } from "@capacitor/core";
-import { Bug, Send } from "lucide-react";
+import { Bug, ChevronDown, Send } from "lucide-react";
 
 import {
   Drawer,
@@ -15,6 +15,8 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
 import { useLanguage } from "@/lib/language-context";
+import type { TranslationKey } from "@/lib/i18n";
+import { FEATURES } from "@/lib/feature-flags";
 import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
 import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
 import {
@@ -26,6 +28,56 @@ import {
 
 /** Abaixo disto o relato não diz nada acionável ("não funciona"). */
 const MIN_MESSAGE_LENGTH = 10;
+
+/**
+ * Telas/áreas que o usuário pode apontar (2026-09-30). Só o que existe HOJE no
+ * app: áreas guardadas atrás de feature flag entram quando a flag liga. Os ids
+ * são estáveis e em inglês — viram a tag `report_area` no Sentry.
+ * Fluxos que não têm rota própria (registro de treino, criação de flow) são
+ * listados à parte porque é assim que o usuário os enxerga.
+ */
+const REPORT_AREAS: { id: string; label: TranslationKey; enabled?: boolean }[] = [
+  { id: "feed", label: "report_area_feed" },
+  { id: "flows", label: "report_area_flows" },
+  { id: "new_post", label: "report_area_new_post" },
+  { id: "post", label: "report_area_post" },
+  { id: "goals", label: "report_area_goals" },
+  { id: "workout", label: "report_area_workout" },
+  { id: "routines", label: "report_area_routines" },
+  { id: "food_diary", label: "report_area_food_diary", enabled: FEATURES.foodDiary },
+  { id: "search", label: "report_area_search" },
+  { id: "hashtags", label: "report_area_hashtags", enabled: FEATURES.hashtags },
+  { id: "community", label: "report_area_community" },
+  { id: "duels", label: "report_area_duels", enabled: FEATURES.duels },
+  { id: "messages", label: "report_area_messages" },
+  { id: "notifications", label: "report_area_notifications" },
+  { id: "shots", label: "report_area_shots", enabled: FEATURES.shots },
+  { id: "store", label: "report_area_store", enabled: FEATURES.store },
+  { id: "profile", label: "report_area_profile" },
+  { id: "settings", label: "report_area_settings" },
+  { id: "login", label: "report_area_login" },
+  { id: "other", label: "report_area_other" },
+];
+
+/** Motivos prontos — um toque resolve a maioria dos relatos. */
+const REPORT_REASONS: { id: string; label: TranslationKey }[] = [
+  { id: "not_loading", label: "problem_reason_not_loading" },
+  { id: "crash", label: "problem_reason_crash" },
+  { id: "action_broken", label: "problem_reason_action" },
+  { id: "not_saved", label: "problem_reason_not_saved" },
+  { id: "wrong_data", label: "problem_reason_wrong_data" },
+  { id: "media", label: "problem_reason_media" },
+  { id: "notification", label: "problem_reason_notification" },
+  { id: "slow", label: "problem_reason_slow" },
+  { id: "layout", label: "problem_reason_layout" },
+  { id: "other", label: "problem_reason_other" },
+];
+
+const FIELD_STYLE: React.CSSProperties = {
+  background: "rgba(255,255,255,.07)",
+  border: "1px solid rgba(255,255,255,.12)",
+  color: "#fff",
+};
 
 interface ReportProblemDrawerProps {
   open: boolean;
@@ -57,6 +109,8 @@ export function ReportProblemDrawer({
   const viewportHeight = useKeyboardAwareHeight();
   useKeyboardInputScroll();
 
+  const [area, setArea] = React.useState("");
+  const [reason, setReason] = React.useState("");
   const [message, setMessage] = React.useState("");
   const [email, setEmail] = React.useState(defaultEmail ?? "");
   const [isSending, setIsSending] = React.useState(false);
@@ -74,6 +128,8 @@ export function ReportProblemDrawer({
   // Limpa ao reabrir — um relato já enviado não deve reaparecer no campo.
   React.useEffect(() => {
     if (open) {
+      setArea("");
+      setReason("");
       setMessage("");
       setEmail(defaultEmail ?? "");
     }
@@ -90,9 +146,29 @@ export function ReportProblemDrawer({
     viewport: `${window.innerWidth}x${window.innerHeight}`,
   });
 
+  const areas = REPORT_AREAS.filter((a) => a.enabled !== false);
+  // "Outro" é o único motivo que não diz nada sozinho — aí o texto é obrigatório.
+  const detailsRequired = reason === "other";
+
   const handleSubmit = async () => {
     const trimmed = message.trim();
-    if (trimmed.length < MIN_MESSAGE_LENGTH) {
+    if (!area) {
+      toast({
+        title: t("report_problem_area_required"),
+        description: t("report_problem_area_required_desc"),
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!reason) {
+      toast({
+        title: t("report_problem_reason_required"),
+        description: t("report_problem_reason_required_desc"),
+        variant: "destructive",
+      });
+      return;
+    }
+    if (detailsRequired && trimmed.length < MIN_MESSAGE_LENGTH) {
       toast({
         title: t("report_problem_too_short"),
         description: t("report_problem_too_short_desc"),
@@ -114,10 +190,14 @@ export function ReportProblemDrawer({
 
     setIsSending(true);
     try {
+      const areaDef = REPORT_AREAS.find((a) => a.id === area)!;
+      const reasonDef = REPORT_REASONS.find((r) => r.id === reason)!;
       const eventId = sendProblemReport({
         message: trimmed,
         email: email.trim() || undefined,
         context: buildContext(),
+        area: { id: areaDef.id, label: t(areaDef.label) },
+        reason: { id: reasonDef.id, label: t(reasonDef.label) },
       });
       if (!eventId) throw new Error("monitoring disabled");
 
@@ -177,21 +257,82 @@ export function ReportProblemDrawer({
             {t("report_problem_intro")}
           </p>
 
+          {/* Tela — <select> nativo: no iPhone abre a roleta do sistema e,
+              por não ser portal, não briga com o z-index do drawer (mesmo
+              padrão do registro de treino). */}
+          <div className="space-y-2">
+            <label htmlFor="report-area" className="text-sm font-medium" style={{ color: "#fff" }}>
+              {t("report_problem_area_label")}
+            </label>
+            <div className="relative">
+              <select
+                id="report-area"
+                value={area}
+                onChange={(e) => setArea(e.target.value)}
+                className="h-12 w-full rounded-xl pl-3.5 pr-10 text-[15px] outline-none"
+                style={{
+                  ...FIELD_STYLE,
+                  color: area ? "#fff" : "rgba(255,255,255,.45)",
+                  appearance: "none",
+                  WebkitAppearance: "none",
+                }}
+              >
+                <option value="" disabled style={{ color: "#000" }}>
+                  {t("report_problem_area_placeholder")}
+                </option>
+                {areas.map((a) => (
+                  <option key={a.id} value={a.id} style={{ color: "#000" }}>
+                    {t(a.label)}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown
+                className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2"
+                style={{ color: "rgba(255,255,255,.5)" }}
+              />
+            </div>
+          </div>
+
+          {/* Motivo — chips de um toque */}
+          <div className="space-y-2">
+            <p className="text-sm font-medium" style={{ color: "#fff" }}>
+              {t("report_problem_reason_label")}
+            </p>
+            <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={t("report_problem_reason_label")}>
+              {REPORT_REASONS.map((r) => {
+                const selected = reason === r.id;
+                return (
+                  <button
+                    key={r.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    onClick={() => setReason(r.id)}
+                    className="rounded-full px-3.5 py-2 text-[13px] font-medium transition-colors active:scale-[0.97]"
+                    style={
+                      selected
+                        ? { background: "rgba(91,140,255,.22)", border: "1px solid rgba(110,168,255,.65)", color: "#fff" }
+                        : { background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.12)", color: "rgba(255,255,255,.75)" }
+                    }
+                  >
+                    {t(r.label)}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           <div className="space-y-2">
             <label className="text-sm font-medium" style={{ color: "#fff" }}>
-              {t("report_problem_what_happened")}
+              {detailsRequired ? t("report_problem_what_happened") : t("report_problem_details_label")}
             </label>
             <Textarea
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               placeholder={t("report_problem_placeholder")}
-              className="min-h-32"
+              className="min-h-24"
               maxLength={1000}
-              style={{
-                background: "rgba(255,255,255,.07)",
-                border: "1px solid rgba(255,255,255,.12)",
-                color: "#fff",
-              }}
+              style={FIELD_STYLE}
             />
           </div>
 
@@ -228,7 +369,6 @@ export function ReportProblemDrawer({
               {t("report_problem_context_title")}
             </p>
             {infoRow(t("report_problem_context_version"), `${APP_VERSION} (${build})`)}
-            {infoRow(t("report_problem_context_screen"), location.pathname)}
             {infoRow(t("report_problem_context_platform"), Capacitor.getPlatform())}
           </div>
 

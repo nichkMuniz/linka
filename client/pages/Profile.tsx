@@ -159,6 +159,20 @@ const COVER_CONTROLS_TOP = "calc(var(--app-header-offset) + 8px)";
 // trocar de conta no aparelho não pode mostrar a visão do dono a outra pessoa.
 type ProfileSnapshot = { profile: UserProfile | null; stats: UserStats; posts: PostWithUser[] };
 const profileSnapshots = new Map<string, ProfileSnapshot>();
+
+// Leitura principal do perfil travada (rede do iPhone logo após o login ou a
+// volta do background) deixava o skeleton para sempre. Estourou → tela de erro
+// com "Tentar novamente", e o evento vai ao Sentry.
+const PROFILE_LOAD_TIMEOUT_MS = 15_000;
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const id = setTimeout(() => reject(new Error("profile load timeout")), ms);
+    p.then(
+      (v) => { clearTimeout(id); resolve(v); },
+      (e) => { clearTimeout(id); reject(e); },
+    );
+  });
+}
 const MAX_PROFILE_SNAPSHOTS = 12;
 
 function saveProfileSnapshot(key: string, snap: ProfileSnapshot) {
@@ -435,16 +449,44 @@ export default function Profile() {
 
     try {
       // Batch 1 — critical above-the-fold data: show immediately
-      const [profileData, statsData, postsData] = await batch1;
+      let [profileData, statsData, postsData] = await withTimeout(batch1, PROFILE_LOAD_TIMEOUT_MS);
       if (isStale()) return;
+      // O PRÓPRIO perfil sempre existe (o cadastro cria a linha): vazio aqui é
+      // leitura que falhou no instante do login. Antes a tela ficava em "Perfil
+      // não encontrado" até alguém puxar o feed para atualizar (2026-09-30).
+      // Tenta de novo sozinho, lendo do banco; se ainda assim não vier, cai na
+      // tela de erro com "Tentar novamente".
+      if (!profileData && !isViewingOtherProfile) {
+        for (const delay of [700, 1800]) {
+          await new Promise((r) => setTimeout(r, delay));
+          if (isStale()) return;
+          invalidateProfileCache(profileUserId);
+          invalidateQueryCache(`userStats:${profileUserId}`);
+          invalidateQueryCache(`userPosts:${profileUserId}`);
+          [profileData, statsData, postsData] = await withTimeout(
+            Promise.all([
+              getUserProfileDb(profileUserId),
+              getUserStatsDb(profileUserId),
+              getUserPostsDb(profileUserId),
+            ]),
+            PROFILE_LOAD_TIMEOUT_MS,
+          );
+          if (isStale()) return;
+          if (profileData) break;
+        }
+        if (!profileData) throw new Error("own profile unavailable after retries");
+      }
       setProfile(profileData);
       setStats(statsData);
       setPosts(postsData);
       setLoading(false); // unblock UI as soon as critical data arrives
-      if (snapshotKey) saveProfileSnapshot(snapshotKey, { profile: profileData, stats: statsData, posts: postsData });
+      // Snapshot sem perfil faria a próxima abertura pintar "não encontrado".
+      if (snapshotKey && profileData) saveProfileSnapshot(snapshotKey, { profile: profileData, stats: statsData, posts: postsData });
     } catch (err: any) {
       if (isStale()) return;
       console.error("Error loading profile:", err);
+      // catch + toast não chega ao Sentry sozinho.
+      reportHandledError(err, "Profile.loadProfile", { own: !isViewingOtherProfile });
       toast({
         title: t("profile_toast_load_error"),
         description: t("retry"),
@@ -1317,6 +1359,7 @@ export default function Profile() {
               <div className="flex gap-2 items-center">
                 <FollowButton
                   targetUserId={profileUserId!}
+                  targetName={profile?.nickname}
                   onFollowChange={(isNowFollowing) => {
                     // Reflete na hora nas regras de privacidade (posts ocultos
                     // para não-seguidores) — sem esperar recarregar o perfil

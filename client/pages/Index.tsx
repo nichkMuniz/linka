@@ -691,12 +691,27 @@ export default function Index() {
       localStorage.removeItem("force_profile_reload");
       invalidateProfileCache(user.id);
     }
-    getUserProfileDb(user.id)
-      .then((profile) => {
-        if (profile?.photo) setCurrentUserPhoto(profile.photo);
-        if (profile?.nickname) setCurrentUserNickname(profile.nickname);
-      })
-      .catch((err) => console.error("Erro ao carregar foto do perfil:", err));
+    // Leitura no instante do login pode falhar (null): tenta de novo — o
+    // próprio perfil sempre existe (mesmo padrão do header no AppLayout).
+    let cancelled = false;
+    (async () => {
+      for (const delay of [0, 1500, 4000]) {
+        if (delay) await new Promise((r) => setTimeout(r, delay));
+        if (cancelled) return;
+        try {
+          const profile = await getUserProfileDb(user.id);
+          if (cancelled) return;
+          if (profile) {
+            if (profile.photo) setCurrentUserPhoto(profile.photo);
+            if (profile.nickname) setCurrentUserNickname(profile.nickname);
+            return;
+          }
+        } catch (err) {
+          console.error("Erro ao carregar foto do perfil:", err);
+        }
+      }
+    })();
+    return () => { cancelled = true; };
   }, [user?.id]);
 
   React.useEffect(() => {
@@ -1491,7 +1506,7 @@ export default function Index() {
                             {u.bio && <p className="text-xs text-white/50 truncate">{u.bio}</p>}
                           </div>
                         </button>
-                        <FollowButton targetUserId={u.id} />
+                        <FollowButton targetUserId={u.id} targetName={u.nickname} />
                       </div>
                     ))}
                   </div>

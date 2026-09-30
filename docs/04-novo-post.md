@@ -147,14 +147,14 @@ Logo abaixo da `Textarea`, três atalhos que inserem texto **na posição do cur
 ### Marcar Pessoas (somente POST) — estilo Instagram
 Seção "MARCAR PESSOAS · OPCIONAL" logo abaixo da seção de metas, para marcar quem está junto no post:
 
-- Botão tracejado **"Marcar"** (ícone `UserRoundPlus`) abre o **`TagPeopleDrawer`** (`client/components/shared/tag-people-drawer.tsx`): lista quem o usuário segue (`getFollowingDb`) e, ao digitar na busca, também procura qualquer pessoa do app (`searchUsersDb`, debounce de 300ms, resultados mesclados sem duplicatas e sem o próprio usuário). Seleção por toque (check com gradiente da marca), botão "Concluir" fecha o drawer
+- Botão tracejado **"Marcar"** (ícone `UserRoundPlus`) abre o **`TagPeopleDrawer`** (`client/components/shared/tag-people-drawer.tsx`): lista **só quem o usuário segue** (`getFollowingDb`); a busca filtra essa lista por nome ou @ — desde 2026-09-30 não há busca global: só se marca quem se segue, em todas as telas. Seleção por toque (check com gradiente da marca), botão "Concluir" fecha o drawer
 - Máximo de **10 pessoas por post** (`MAX_TAGGED_PEOPLE`); ao exceder, toast destrutivo (`tag_people_max_title`/`tag_people_max_desc`)
 - Quem ainda **não segue ninguém** vê no drawer o botão **"Encontrar pessoas"**, que leva à tela Buscar para procurar e seguir gente; o rascunho do post é mantido e, na volta, os recém-seguidos já aparecem no drawer (ver `TagPeopleDrawer` em `docs/13-layouts-e-componentes.md`)
 - Cada pessoa selecionada vira um **chip** (avatar + nickname + `X` para remover) ao lado do botão "Marcar"
 - A seleção persiste na sessão (`newpost_tagged_users`) junto com o restante do rascunho e é limpa ao publicar
 - Ao publicar, os IDs vão no 5º parâmetro de `createPostDb`, que insere em `post_tags` **após** criar o post (falha na marcação não derruba o post). A trigger `trg_notify_post_tag` gera notificação **type 9** ("marcou você em uma publicação") para cada marcado — ver `docs/14-database-schema.md` e `docs/10-notificacoes.md`
 - Não disponível para SHOT
-- **Marcar digitando "@" (2026-09-27):** na legenda, digitar `@` abre o `MentionSuggestions` abaixo do campo (quem o usuário segue + busca global). Escolher alguém insere `@handle` no texto **e** adiciona a pessoa aos marcados (mesma lista/limite do botão "Marcar" → notificação type 9). Na legenda de SHOT o `@` também é sugerido, mas só vira texto (shot não tem marcação). Ver `docs/13-layouts-e-componentes.md`
+- **Marcar digitando "@" (2026-09-27):** na legenda, digitar `@` abre o `MentionSuggestions` abaixo do campo (**só quem o usuário segue**, 2026-09-30 — aqui escolher marca a pessoa). Escolher alguém insere `@handle` no texto **e** adiciona a pessoa aos marcados (mesma lista/limite do botão "Marcar" → notificação type 9). Na legenda de SHOT o `@` também é sugerido, mas só vira texto (shot não tem marcação). Ver `docs/13-layouts-e-componentes.md`
 
 ### Botão Publicar
 - Fixo no rodapé com `env(safe-area-inset-bottom)`
@@ -208,7 +208,6 @@ Campos automaticamente salvos na sessão:
 |---|---|
 | Metas do usuário | `getUserGoalsDb()` |
 | Pessoas que o usuário segue (drawer de marcação) | `getFollowingDb()` |
-| Busca global de pessoas (drawer de marcação) | `searchUsersDb(query)` |
 
 ---
 

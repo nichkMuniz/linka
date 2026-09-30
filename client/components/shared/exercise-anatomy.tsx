@@ -3,7 +3,7 @@ import { AlertTriangle, Copy } from "lucide-react";
 import { MuscleMap, buildMuscleIntensity, type MuscleMapView } from "@/components/shared/muscle-map";
 import { useLanguage } from "@/lib/language-context";
 import { useAuthContext } from "@/lib/auth-context";
-import { isAdminUser, anatomySqlSnippet } from "@/lib/admin";
+import { useIsAdmin, anatomySqlSnippet } from "@/lib/admin";
 import { copyToClipboard } from "@/lib/clipboard";
 import { toast } from "@/components/ui/use-toast";
 import { getWorkoutMusclesDb, type WorkoutMuscle } from "@/lib/ritmofit-db";
@@ -71,6 +71,7 @@ function roleLabelKey(m: WorkoutMuscle): "primary" | "secondary" | "stabilizer" 
 export function ExerciseAnatomy({ workoutId, workoutName }: ExerciseAnatomyProps) {
   const { t } = useLanguage();
   const { user } = useAuthContext();
+  const isAdmin = useIsAdmin(user?.id) === true;
   const [muscles, setMuscles] = React.useState<WorkoutMuscle[] | null>(null);
   // Vista escolhida pelo usuário; `null` = automática (a que tem mais estímulo).
   const [pickedView, setPickedView] = React.useState<MuscleMapView | null>(null);
@@ -107,7 +108,7 @@ export function ExerciseAnatomy({ workoutId, workoutName }: ExerciseAnatomyProps
   if (!workoutId || !muscles) return null;
   // Sem anatomia: silêncio para o usuário, aviso acionável para o admin.
   if (muscles.length === 0) {
-    return isAdminUser(user?.id)
+    return isAdmin
       ? <AnatomyGapNotice workoutId={workoutId} workoutName={workoutName} />
       : null;
   }

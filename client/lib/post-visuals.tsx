@@ -15,21 +15,34 @@ export function getPostGradient(postId: string) {
   return POST_GRADIENTS[hash % POST_GRADIENTS.length];
 }
 
+// Vidro QUASE TRANSPARENTE sobre a foto do post (2026-09-30). Com blur de
+// 10–12px a pílula do autor virava um borrão fosco e apagava o que estava
+// atrás — em selfie, o rosto da pessoa. Agora o desfoque é só um toque (2–4px)
+// com um véu escuro bem leve: a foto aparece através, o contorno + o brilho
+// interno ainda desenham a peça, e a legibilidade do texto branco vem da
+// sombra (`GLASS_TEXT_SHADOW`), não de esconder a foto. Blur menor também é
+// mais barato para o WebKit rolar o feed (ver docs/15 §0.3).
 export const GLASS_TOP: React.CSSProperties = {
-  background: "linear-gradient(rgba(255,255,255,.07),rgba(255,255,255,.02))",
-  backdropFilter: "blur(10px) saturate(130%)",
-  WebkitBackdropFilter: "blur(10px) saturate(130%)",
-  border: "1px solid rgba(255,255,255,.10)",
+  background: "linear-gradient(rgba(0,0,0,.10),rgba(0,0,0,.14))",
+  backdropFilter: "blur(2px)",
+  WebkitBackdropFilter: "blur(2px)",
+  border: "1px solid rgba(255,255,255,.16)",
   boxShadow: "inset 0 1px 0 rgba(255,255,255,.14)",
 };
 
+// A barra de incentivos fica sobre o degradê escuro do rodapé do post, então
+// aguenta ser leve também; um pouco mais de véu que a pílula porque os ícones
+// coloridos precisam de fundo uniforme para serem lidos.
 export const GLASS_ACTION: React.CSSProperties = {
-  background: "linear-gradient(rgba(255,255,255,.08),rgba(255,255,255,.03))",
-  backdropFilter: "blur(12px) saturate(140%)",
-  WebkitBackdropFilter: "blur(12px) saturate(140%)",
-  border: "1px solid rgba(255,255,255,.12)",
-  boxShadow: "inset 0 1px 0 rgba(255,255,255,.16)",
+  background: "linear-gradient(rgba(0,0,0,.12),rgba(0,0,0,.20))",
+  backdropFilter: "blur(4px)",
+  WebkitBackdropFilter: "blur(4px)",
+  border: "1px solid rgba(255,255,255,.14)",
+  boxShadow: "inset 0 1px 0 rgba(255,255,255,.14)",
 };
+
+/** Sombra do texto branco sobre o vidro leve — mantém nome/tempo legíveis em foto clara. */
+export const GLASS_TEXT_SHADOW = "0 1px 3px rgba(0,0,0,.6), 0 0 1px rgba(0,0,0,.4)";
 
 // Caption description truncation — same limit used everywhere a post caption renders
 export const DESC_MAX_CHARS = 80;

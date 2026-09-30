@@ -8,11 +8,14 @@ Tela interna de moderação, métricas e gestão de usuários. **Não é traduzi
 
 | Camada | Onde | O que faz |
 |---|---|---|
-| Guarda de rota | `ADMIN_USER_IDS` em `client/lib/admin.ts` | Esconde a tela; redireciona para `/` quem não está na lista. **Não autoriza nada** |
-| Guarda de UI | `isAdminUser(userId)`, mesmo arquivo | Indicadores de curadoria embutidos em telas normais (ver "Anatomia dos exercícios") |
-| Autorização real | Tabela `app_admins` + `is_app_admin(auth.uid())` | Checada dentro das RPCs `SECURITY DEFINER` que leem/escrevem dados de terceiros |
+| Guarda de rota | `useIsAdmin(userId)` em `client/lib/admin.ts` (usado pelo `RequireAdmin`) | Admin = `ADMIN_USER_IDS` **ou** selo oficial (`verified_tier = 'official'`). Redireciona para `/` quem não é. **Não autoriza nada** |
+| Guarda de UI | `useIsAdmin`, mesmo arquivo | Botão "Admin" do perfil (só selo oficial) e indicadores de curadoria embutidos em telas normais (ver "Anatomia dos exercícios") |
+| Autorização real | `is_app_admin(auth.uid())` = tabela `app_admins` **ou** selo oficial | Checada dentro das RPCs `SECURITY DEFINER` que leem/escrevem dados de terceiros |
 
-> Promover alguém a admin = inserir nos **dois** lugares (ver `docs/migrations/20260729-admin-premium.sql`).
+> **Selo oficial = admin (2026-09-30, migração `20260930-official-is-admin.sql`).** Regra de produto: toda conta com o selo **oficial** (roseta dourada) tem o painel liberado. O selo **verificado** (azul, `notable`) **não** tem. Antes o botão "Admin" já aparecia para o oficial, mas a rota só aceitava a lista fixa: a pessoa caía no feed, e as RPCs devolviam `NOT_ADMIN`.
+> - **Promover a admin:** dar o selo oficial pelo painel ("Contas Verificadas" → Oficial). `app_admins` e `ADMIN_USER_IDS` continuam valendo para os donos.
+> - **Segurança:** ninguém se autopromove. `verified_tier` só muda por admin ou service_role, porque o trigger `freeze_verified_tier` desfaz o UPDATE da própria pessoa.
+> - **Enquanto a migração não rodar:** o oficial abre o painel, mas as ações do servidor (banir, premium, selo, moderação) seguem recusando.
 
 ## Seções (na ordem da tela)
 

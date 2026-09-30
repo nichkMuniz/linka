@@ -67,7 +67,7 @@ Como a tela sempre exibe exatamente **1 post**, ela não tem scroll de página �
 - Overlay de gradiente escuro (`transparent` no meio → `rgba(0,0,0,.65)` embaixo) para garantir contraste do texto branco
 
 ### Pill de Identidade (topo-esquerda, sobreposta)
-- Avatar + nickname + selo de verificado + tempo relativo, dentro de uma pill com efeito vidro (`GLASS_TOP` de `client/lib/post-visuals.tsx`)
+- Avatar + nickname + selo de verificado + tempo relativo, dentro de uma pill com efeito vidro **quase transparente** (`GLASS_TOP` de `client/lib/post-visuals.tsx`: blur de 2px e véu leve desde 2026-09-30, para não esconder a foto). O texto usa `GLASS_TEXT_SHADOW`
 - Toque no avatar/nome → navega para `/usuario/:userId`
 - Badge 🎯 com percentual da meta vinculada (`postGoal.perc`), quando o post tem `user_goal_id`
   - **Tocável (corrigido 29/09/2026):** era um `<span>` — parecia botão e não fazia nada. Agora abre o `GoalDetailDrawer` compartilhado em modo **somente leitura** (o mesmo do perfil de outra pessoa: sem editar/excluir/vincular rotinas, que vivem em Metas). Em post alheio aparece o "Responder" (`replyTo`) — o texto vai por mensagem privada com a meta anexada

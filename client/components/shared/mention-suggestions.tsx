@@ -1,10 +1,6 @@
 import * as React from "react";
 import { UserAvatar } from "@/components/shared/user-avatar";
-import {
-  getFollowingDb,
-  searchMentionUsersDb,
-  type SearchUser,
-} from "@/lib/ritmofit-db";
+import { getFollowingDb, type SearchUser } from "@/lib/ritmofit-db";
 
 const MAX_SUGGESTIONS = 5;
 
@@ -28,8 +24,10 @@ interface MentionSuggestionsProps {
 }
 
 /**
- * Autocomplete de menção: ao digitar "@", sugere pessoas (quem o usuário segue
- * primeiro, depois a busca global) e troca o "@termo" por "@handle ".
+ * Autocomplete de menção: ao digitar "@", sugere **só quem o usuário segue**
+ * (2026-09-30, em todos os campos — legendas, comentários, resposta de flow,
+ * clipes) e troca o "@termo" por "@handle ". Não há busca global: mencionar
+ * ou marcar alguém exige segui-lo.
  *
  * O pai precisa ser `relative` — a lista é posicionada em relação a ele.
  * O campo NÃO perde o foco ao tocar numa sugestão (touchend/mousedown com
@@ -46,7 +44,6 @@ export function MentionSuggestions({
   const [caret, setCaret] = React.useState<number | null>(null);
   const [dismissedAt, setDismissedAt] = React.useState<number | null>(null);
   const [following, setFollowing] = React.useState<SearchUser[] | null>(null);
-  const [remote, setRemote] = React.useState<SearchUser[]>([]);
 
   // Cursor acompanha digitação, toque e setas — `value` sozinho não diz onde ele está.
   React.useEffect(() => {
@@ -83,21 +80,7 @@ export function MentionSuggestions({
     getFollowingDb().then(setFollowing).catch(() => setFollowing([]));
   }, [active, following]);
 
-  // Busca global com debounce — alcança quem ele não segue.
   const term = active?.term ?? "";
-  React.useEffect(() => {
-    if (!active || !term) {
-      setRemote([]);
-      return;
-    }
-    let cancelled = false;
-    const id = setTimeout(() => {
-      searchMentionUsersDb(term)
-        .then((r) => { if (!cancelled) setRemote(r); })
-        .catch(() => { if (!cancelled) setRemote([]); });
-    }, 250);
-    return () => { cancelled = true; clearTimeout(id); };
-  }, [term, !!active]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const suggestions = React.useMemo(() => {
     if (!active) return [];
@@ -107,10 +90,10 @@ export function MentionSuggestions({
       return u.handle.toLowerCase().startsWith(term) || u.nickname.toLowerCase().includes(term);
     });
     const seen = new Set<string>();
-    return [...fromFollowing, ...remote]
+    return fromFollowing
       .filter((u) => u.handle && !seen.has(u.id) && seen.add(u.id))
       .slice(0, MAX_SUGGESTIONS);
-  }, [active, following, remote, term]);
+  }, [active, following, term]);
 
   const pick = (u: SearchUser) => {
     if (!active || caret == null || !u.handle) return;

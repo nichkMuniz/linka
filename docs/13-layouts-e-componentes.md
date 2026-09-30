@@ -140,8 +140,11 @@ Dialog para criar um novo story:
   - **Editando texto:** topo com alinhamento (um botão que alterna esquerda/centro/direita), fundo do texto e "Pronto" — sem o X ao lado do "Pronto"; **cores e fontes acima do teclado** (`editingBottomControls`, `bottom: calc(var(--keyboard-height) + …)`), cores com alvo de 44px e fontes com **nome em português** (`FONT_OPTIONS[].labelKey` → `flow_font_*`).
   - **Publicar:** modo texto com botão principal **branco** "Compartilhar flow"; na legenda, **rodapé compacto** — descrição que começa em 1 linha e cresce até ~4 (`useLayoutEffect` ajusta a altura) + botão branco redondo de enviar.
   - Dicas traduzidas (`flow_hint_caption_idle`/`_text`, sem o "belisque"); `aria-label` das cores/alinhamento traduzidos. A etapa `preview` (nunca acionada) foi removida.
+  - **Pinça no card não mexe a foto (2026-09-30):** na legenda sobre a foto, o dono do gesto é quem foi tocado **primeiro** — mesma regra que a legenda já seguia. Se um card (treino/post) está sendo tocado, o 2º dedo que cai na foto (`handleMediaPointerDown`) entra no gesto **do card** (`stickerGestureRef`) e os `move/up` desse dedo são repassados a `handleStickerPointer*`; o inverso também vale (foto/legenda sendo mexida e o 2º dedo cai no card → vai para o gesto da foto). Antes o 2º dedo abria um gesto próprio da foto e pinçar o card movia os dois.
+  - **Fundo do texto igual na edição e no resultado (2026-09-30):** o campo de edição (`editingField`, único para modo texto e legenda) desenha o realce numa **camada espelho** idêntica ao texto confirmado (`renderTextInner`: `<span>` com `box-decoration-break: clone`, padding `0.08em 0.26em`, raio `0.28em`), na mesma célula de grid do `<textarea>` — que fica com o texto transparente e só o cursor visível. Antes o fundo ia no `<textarea>` inteiro (3 linhas, largura total) e parecia que o realce ficaria enorme. O campo agora também cresce com o texto (`rows={1}`), sem as 2 linhas vazias de antes.
+  - **Lixeira (arrastar para apagar, estilo Instagram):** ao arrastar com um dedo uma **frase** (modo texto ou sobre a foto) ou um **card** (mini frame de treino, moldura de post), aparece uma lixeira embaixo, no centro, e as barras de cima/baixo somem. Com o dedo a até 64px do centro dela, ela cresce e fica vermelha (+ vibração leve); **soltar ali apaga o elemento**. Os três caminhos de gesto (`handleTextPointer*`, `handleMediaPointer*` quando o alvo é texto, `handleStickerPointer*`) chamam `trackTrash(x, y)` ao mover e `endTrashDrag()` ao soltar. No card, a lixeira só aparece depois de um arraste de verdade (>4px), para tocar nos botões do card não acioná-la. O X dos cards continua existindo.
 - Câmera com obturador inteligente: **toque = foto**, **segurar = grava vídeo** (`MediaRecorder`, áudio opcional, máx. 30s/50MB, indicador de gravação)
-- Upload de imagem/vídeo da galeria
+- Upload de imagem/vídeo da galeria — **abre a Fototeca direto** (2026-09-30): no app nativo o botão chama `PhotoLibrary.pickMedia` (PHPicker do iOS, 1 item, foto ou vídeo, sem pedir acesso à biblioteca inteira) em `openGallery`; o arquivo copiado pelo plugin é lido e reembalado num `File` com `type` explícito e segue por `processPickedFile` (o mesmo caminho de antes: limite de tamanho, duração do vídeo, compressão 720p). Antes era um `<input type="file">`, que mostrava a folha "Fototeca / Tirar foto / Escolher arquivo"; ele ficou só como reserva no navegador de dev e se o plugin não existir no binário (`UNIMPLEMENTED`). Cancelar o seletor não faz nada.
 - Modo texto/gradiente
 - **Enquadramento da mídia na tela de compartilhar:** pinça para redimensionar + arraste para mover (estilo Instagram). Imagem → composta via canvas (`bakeTransformedImage`); vídeo → enquadramento persistido em `flow.media_transform` (%), reaplicado no `FlowViewer`. A camada de gestos também bloqueia gestos nativos do iOS sobre o `<video>`
 - Preview/legenda antes de publicar
@@ -481,7 +484,7 @@ Ver `docs/01-feed.md` (Comparar treino) e `docs/14-database-schema.md` (`posts.w
 
 ### MentionSuggestions (2026-09-27)
 
-`client/components/shared/mention-suggestions.tsx` — autocomplete de **menção "@"** para qualquer `<input>`/`<textarea>`. Ao digitar `@` (no início ou depois de espaço), lista até 5 pessoas — quem o usuário segue primeiro (`getFollowingDb`, filtrado por handle/apelido), depois a busca global (`searchMentionUsersDb`, debounce 250ms, respeita bloqueios) — e troca o `@termo` por `@handle ` mantendo o cursor.
+`client/components/shared/mention-suggestions.tsx` — autocomplete de **menção "@"** para qualquer `<input>`/`<textarea>`. Ao digitar `@` (no início ou depois de espaço), lista até 5 pessoas — **só quem o usuário segue** (`getFollowingDb`, filtrado por handle/apelido; desde 2026-09-30 não há mais busca global — `searchMentionUsersDb` foi removida) — e troca o `@termo` por `@handle ` mantendo o cursor. Vale para todo campo: legendas de post e flow, edição de post, resumo do treino, comentários, resposta de flow e legenda de clipes.
 
 - Props: `inputRef` (o campo), `value`/`onChange` (texto controlado), `onPick?(user)`, `placement` (`"above"` para docas no rodapé, `"below"` para campos no topo). O **pai precisa ser `relative`**.
 - **Não tira o foco do campo** ao tocar numa sugestão (`onTouchEnd`/`onMouseDown` com `preventDefault`) — no iOS perder o foco fecharia o teclado.
@@ -492,7 +495,9 @@ Ver `docs/01-feed.md` (Comparar treino) e `docs/14-database-schema.md` (`posts.w
 
 ### TagPeopleDrawer
 **Arquivo:** `client/components/shared/tag-people-drawer.tsx`
-**Usado em:** NewPost (Etapa 2 — "Marcar pessoas"), EditPostDrawer (seção "Pessoas marcadas" — abre por cima do drawer de edição) e WorkoutSummaryOverlay (marcar quem treinou junto antes de publicar o resumo no feed)
+**Usado em:** NewPost (Etapa 2 — "Marcar pessoas"), EditPostDrawer (seção "Pessoas marcadas" — abre por cima do drawer de edição), WorkoutSummaryOverlay (marcar quem treinou junto antes de publicar o resumo no feed) e FlowCreationDialog
+
+- **Só quem o usuário segue (2026-09-30, em TODAS as telas):** a lista é a de seguidos e a busca só filtra essa lista, por nome ou @ (placeholder "Buscar entre quem você segue...", vazio "Ninguém com esse nome entre quem você segue") — não há mais busca global (`searchUsersDb`). O `MentionSuggestions` segue a mesma regra em todos os campos (marcação e menções de comentário, resposta de flow e clipes). A regra é de interface: `post_tags`/`flow_tags` e o gatilho de menção em comentário não restringem no banco — um @handle digitado à mão, sem usar a sugestão, ainda vira texto.
 
 - **"Encontrar pessoas" para quem não segue ninguém (2026-09-27):** com a lista de seguidos vazia e sem busca digitada, o drawer mostra "Você ainda não segue ninguém. Encontre e siga pessoas para poder marcá-las." (`tag_people_no_following`) + botão **"Encontrar pessoas"** (`feed_find_people`), que fecha o drawer e leva à tela **Buscar** (`/buscar`) para procurar e seguir gente. O rascunho do Novo Post sobrevive à navegação (`sessionStorage` + `imageDraft`), e seguir alguém invalida o cache `following` — ao voltar e reabrir o drawer, os recém-seguidos já aparecem. Vale em todos os usos do drawer
 
@@ -582,9 +587,19 @@ Título de seção padrão do app: `h2` 20px bold branco (`tracking-[-0.01em]`) 
 
 Na variante `default` (perfil, busca, listas, notificações, sugestões do feed): **"Seguir"** é branco (`bg-white text-[#0a0b12]`, ação principal) e **"Seguindo"** é secundário (`bg-white/[.09] text-white/85`, sem borda). Antes: `default`/`outline` do Shadcn, em que o "Seguindo" escuro parecia o botão mais forte. A variante `overlay` (sobre foto/vídeo) não mudou.
 
+**Confirmação ao deixar de seguir (2026-09-30).** Tocar em "Seguindo" não desfaz mais o follow na hora: abre um `AlertDialog` (z-[360], acima de drawers e viewers).
+- **Título:** "Deixar de seguir {nome}?", com o nome vindo da prop opcional `targetName`. Sem ela, o título é "Deixar de seguir esta pessoa?".
+- **Descrição:** "Você pode voltar a seguir quando quiser."
+- **Botões:** "Deixar de seguir" (destrutivo) e "Cancelar".
+- **Onde passa o nome:** Buscar, sugestões do feed, notificações, perfil e `FollowListDrawer` passam `targetName`.
+- **Seguir continua direto,** sem confirmação.
+- **Único caminho de unfollow:** todo unfollow do app passa por aqui. A variante `overlay` some quando já segue, então não tem unfollow.
+- **Isolamento dos cliques:** o diálogo fica num `<span className="contents">` que para `click`/`pointerdown`. Eventos React sobem pelo portal até os pais, e sem isso tocar no diálogo acionava o card em volta (ex.: a notificação navegava).
+- **i18n:** `follow_unfollow_confirm_*`.
+
 ### FollowListDrawer (estendido para listas genéricas de usuários)
 **Arquivo:** `client/components/profile/follow-list-drawer.tsx`
-**Usado em:** Perfil (seguidores/seguindo), Feed (`PostCard`) e PostDetail (lista "Pessoas marcadas" de um post)
+**Usado em:** Perfil (seguidores/seguindo), Feed (`PostCard`), PostDetail (lista "Pessoas marcadas" de um post) e `FlowViewer` (marcados de um flow com 2+, aberto pelo chip do cabeçalho)
 
 Além do uso original com `type: "followers" | "following"`, aceita `title` e `emptyMessage` opcionais que sobrescrevem os textos derivados de `type` — é assim que o feed/detalhe reutilizam o drawer para mostrar os marcados de um post (2+ pessoas). Quando o pai não passa `followStatus` em batch, o `FollowButton` de cada linha busca o próprio status (`initialIsFollowing` fica `undefined`). Strings padrão traduzidas via `t()` (`profile_followers`, `profile_following`, `follow_list_empty_*`).
 
@@ -834,7 +849,7 @@ Catálogos locais de exercícios e refeições:
 ### admin.ts / clipboard.ts (2026-08-17)
 **Arquivos:** `client/lib/admin.ts`, `client/lib/clipboard.ts`
 
-- `admin.ts` — `ADMIN_USER_IDS` (saiu de `App.tsx` para poder ser usado fora da guarda de rota), `isAdminUser(userId)` e `anatomySqlSnippet(...)`. **Guarda de UI, não autorização**: quem autoriza escrita é `app_admins` no servidor (`docs/18-admin.md`). Consumido pelo `RequireAdmin` e pelo aviso de anatomia faltante em `ExerciseAnatomy`.
+- `admin.ts` — `ADMIN_USER_IDS`, `isAdminUser(userId)`, `useIsAdmin(userId)` e `anatomySqlSnippet(...)`. `useIsAdmin` define admin como a lista **ou** o selo oficial e devolve `null` enquanto lê o perfil; carrega o `ritmofit-db` por import dinâmico, porque o arquivo entra no chunk de entrada. **Guarda de UI, não autorização**: quem autoriza escrita é `is_app_admin()` no servidor (`docs/18-admin.md`). Consumido pelo `RequireAdmin` e pelo aviso de anatomia faltante em `ExerciseAnatomy`.
 - `clipboard.ts` — `copyToClipboard(text)` com fallback `<textarea>` + `execCommand` para o WKWebView (onde `navigator.clipboard` falha sem gesto/contexto seguro). Estava duplicado dentro de `Store.tsx`; agora é fonte única.
 
 ---

@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/use-toast";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { useNavigate } from "react-router-dom";
-import { getFollowingDb, searchUsersDb, type SearchUser } from "@/lib/ritmofit-db";
+import { getFollowingDb, type SearchUser } from "@/lib/ritmofit-db";
 import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
 import { useAuth } from "@/hooks/useAuth";
 import { useLanguage } from "@/lib/language-context";
@@ -34,9 +34,11 @@ interface TagPeopleDrawerProps {
 }
 
 /**
- * Drawer de marcação de pessoas em um post (estilo Instagram).
- * Lista quem o usuário segue e permite buscar qualquer pessoa do app;
- * a seleção é controlada pelo pai via `selected`/`onChange`.
+ * Drawer de marcação de pessoas (post, edição de post, resumo do treino e
+ * flow — estilo Instagram). **Só quem o usuário SEGUE pode ser marcado**
+ * (2026-09-30, em todas as telas): a lista é a de seguidos e a busca só filtra
+ * essa lista — não há busca global. A seleção é controlada pelo pai via
+ * `selected`/`onChange`.
  */
 export function TagPeopleDrawer({
   open, onOpenChange, selected, onChange, wrapperClassName,
@@ -47,15 +49,12 @@ export function TagPeopleDrawer({
 
   const [search, setSearch] = React.useState("");
   const [following, setFollowing] = React.useState<SearchUser[]>([]);
-  const [searchResults, setSearchResults] = React.useState<SearchUser[]>([]);
   const [isLoading, setIsLoading] = React.useState(false);
   const navigate = useNavigate();
-  const searchTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   React.useEffect(() => {
     if (!open) {
       setSearch("");
-      setSearchResults([]);
       return;
     }
     setIsLoading(true);
@@ -64,23 +63,6 @@ export function TagPeopleDrawer({
       .catch(() => setFollowing([]))
       .finally(() => setIsLoading(false));
   }, [open]);
-
-  // Busca global com debounce — permite marcar quem não é seguido
-  React.useEffect(() => {
-    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
-    if (!search.trim()) {
-      setSearchResults([]);
-      return;
-    }
-    searchTimerRef.current = setTimeout(() => {
-      searchUsersDb(search)
-        .then(setSearchResults)
-        .catch(() => setSearchResults([]));
-    }, 300);
-    return () => {
-      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
-    };
-  }, [search]);
 
   const selectedIds = React.useMemo(() => new Set(selected.map((u) => u.id)), [selected]);
 
@@ -93,22 +75,16 @@ export function TagPeopleDrawer({
     navigate("/buscar");
   };
 
-  // Seguidos filtrados pela busca + resultados globais, sem duplicatas e sem o próprio usuário
+  // Só seguidos, filtrados pela busca (nome ou @), sem o próprio usuário.
   const visibleUsers = React.useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = search.trim().toLowerCase().replace(/^@/, "");
     const base = q
-      ? following.filter((u) => u.nickname.toLowerCase().includes(q))
+      ? following.filter(
+          (u) => u.nickname.toLowerCase().includes(q) || (u.handle ?? "").toLowerCase().includes(q),
+        )
       : following;
-    const merged: SearchUser[] = [...base];
-    const seen = new Set(base.map((u) => u.id));
-    for (const u of searchResults) {
-      if (!seen.has(u.id)) {
-        merged.push(u);
-        seen.add(u.id);
-      }
-    }
-    return merged.filter((u) => u.id !== user?.id);
-  }, [following, searchResults, search, user?.id]);
+    return base.filter((u) => u.id !== user?.id);
+  }, [following, search, user?.id]);
 
   const followsNobody = !isLoading && following.length === 0 && !search.trim();
 
@@ -155,7 +131,7 @@ export function TagPeopleDrawer({
               style={{ color: "rgba(255,255,255,.4)" }}
             />
             <Input
-              placeholder={t("tag_people_search_placeholder")}
+              placeholder={t("tag_people_search_following_placeholder")}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="rounded-lg pl-9"
@@ -231,7 +207,7 @@ export function TagPeopleDrawer({
               <div className="flex flex-col items-center gap-2 py-8">
                 <UserRoundPlus className="h-7 w-7" style={{ color: "rgba(255,255,255,.3)" }} />
                 <p className="text-sm text-center" style={{ color: "rgba(255,255,255,.5)" }}>
-                  {t("tag_people_empty")}
+                  {t("tag_people_empty_following")}
                 </p>
               </div>
             )}

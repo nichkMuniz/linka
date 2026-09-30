@@ -48,8 +48,11 @@ import {
   SlidersHorizontal,
   ArrowLeft,
   ArrowUp,
+  Trash2,
 } from "lucide-react";
 import { PhotoLibrary } from "@capgo/capacitor-photo-library";
+import { Capacitor } from "@capacitor/core";
+import { reportHandledError } from "@/lib/monitoring";
 import { FEATURES } from "@/lib/feature-flags";
 import type { TranslationKey } from "@/lib/i18n";
 
@@ -1025,6 +1028,41 @@ export function FlowCreationDialog({
     midX: number;
     midY: number;
   } | null>(null);
+  // ── Lixeira (estilo Instagram, 2026-09-30) ──
+  // Enquanto uma frase ou um card (treino/post) é ARRASTADO com um dedo, aparece
+  // uma lixeira embaixo, no centro; soltar em cima apaga o elemento. As barras
+  // de cima e de baixo somem durante o arraste para a lixeira ficar à vista.
+  const [isDraggingItem, setIsDraggingItem] = React.useState(false);
+  const [overTrash, setOverTrash] = React.useState(false);
+  const overTrashRef = React.useRef(false);
+  const trashRef = React.useRef<HTMLDivElement>(null);
+  /** Marca o arraste e diz se o dedo (x,y) está sobre a lixeira. */
+  const trackTrash = (x: number, y: number) => {
+    setIsDraggingItem(true);
+    const el = trashRef.current;
+    let over = false;
+    if (el) {
+      const r = el.getBoundingClientRect();
+      const cx = r.left + r.width / 2;
+      const cy = r.top + r.height / 2;
+      // Raio generoso: o dedo cobre o ícone, e mirar exato seria frustrante.
+      over = Math.hypot(x - cx, y - cy) < 64;
+    }
+    if (over !== overTrashRef.current) {
+      overTrashRef.current = over;
+      setOverTrash(over);
+      if (over) hapticLight();
+    }
+  };
+  /** Fim do arraste — devolve true se o elemento foi solto na lixeira. */
+  const endTrashDrag = () => {
+    const wasOver = overTrashRef.current;
+    overTrashRef.current = false;
+    setOverTrash(false);
+    setIsDraggingItem(false);
+    return wasOver;
+  };
+
   // Gesto sobre uma frase já posta: 1 dedo = arrastar, 2 dedos = pinça para
   // redimensionar (fontSize), toque curto = reeditar. Rastreia múltiplos ponteiros
   // no mesmo item, estilo sticker do Instagram.
@@ -1723,11 +1761,63 @@ export function FlowCreationDialog({
     setIsPreparingMedia(false);
   }, []);
 
+  // Galeria do celular DIRETO (2026-09-30): no app nativo, o seletor da
+  // Fototeca do iOS (`PhotoLibrary.pickMedia`, PHPicker — não pede acesso à
+  // biblioteca inteira). O `<input type="file">` abria antes uma folha com
+  // "Fototeca / Tirar foto / Escolher arquivo"; ele fica só como reserva para o
+  // navegador de dev e para build sem o plugin.
+  const openGallery = async () => {
+    if (!Capacitor.isNativePlatform()) {
+      fileInputRef.current?.click();
+      return;
+    }
+    let picked;
+    try {
+      picked = await PhotoLibrary.pickMedia({
+        selectionLimit: 1,
+        includeImages: true,
+        includeVideos: true,
+      });
+    } catch (err: any) {
+      // Plugin ausente no binário → cai no seletor do sistema de antes.
+      if (err?.code === "UNIMPLEMENTED") {
+        fileInputRef.current?.click();
+        return;
+      }
+      // Cancelar resolve com lista vazia (tratado abaixo); "already in
+      // progress" é toque duplo no botão com o seletor abrindo — nenhum é erro.
+      if (/cancel|in progress/i.test(String(err?.message ?? ""))) return;
+      reportHandledError(err, "flow-creation:pick-media");
+      toast({ title: t("flow_pick_media_error"), description: t("retry"), variant: "destructive" });
+      return;
+    }
+    const asset = picked?.assets?.[0];
+    const src = asset?.file?.webPath;
+    if (!asset || !src) return; // cancelou
+    try {
+      const blob = await (await fetch(src)).blob();
+      // Tipo explícito: o Blob lido do arquivo nativo pode vir com `.type`
+      // vazio no WKWebView, e sem ele o vídeo seria tratado como imagem (mesmo
+      // bug já corrigido no upload — ver flow-gallery-video-mimetype-bug).
+      const type =
+        asset.mimeType || blob.type || (asset.type === "video" ? "video/mp4" : "image/jpeg");
+      const name = asset.fileName || (asset.type === "video" ? "flow.mp4" : "flow.jpg");
+      processPickedFile(new File([blob], name, { type }));
+    } catch (err) {
+      reportHandledError(err, "flow-creation:read-picked-media");
+      toast({ title: t("flow_pick_media_error"), description: t("retry"), variant: "destructive" });
+    }
+  };
+
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
+    processPickedFile(file);
+  };
 
+  // Foto/vídeo escolhido (seletor nativo ou `<input>`) → etapa de legenda.
+  const processPickedFile = (file: File) => {
     if (file.size > MAX_MEDIA_BYTES) {
       toast({
         title: t("flow_file_too_large"),
@@ -1920,6 +2010,17 @@ export function FlowCreationDialog({
   };
 
   const handleMediaPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    // Um card (treino/post) já está sendo tocado: este dedo, mesmo caindo na
+    // foto, é o 2º dedo da pinça DO CARD. Sem isto a foto abria um gesto
+    // próprio e pinçar o card mexia os dois (mesma regra da legenda: quem é
+    // tocado primeiro é o dono do gesto).
+    const sg = stickerGestureRef.current;
+    if (sg) {
+      (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+      sg.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      rebaseStickerGesture();
+      return;
+    }
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
     pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     // No 1º dedo, decide o alvo do gesto (regra Instagram): há legenda → controla a
@@ -1951,6 +2052,10 @@ export function FlowCreationDialog({
   };
 
   const handleMediaPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (stickerGestureRef.current?.pointers.has(e.pointerId)) {
+      handleStickerPointerMove(e);
+      return;
+    }
     if (!pointersRef.current.has(e.pointerId)) return;
     pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     // Movimento acima do limite deixa de ser toque e vira arraste/pinça.
@@ -1982,6 +2087,7 @@ export function FlowCreationDialog({
           const nx = g.origX + dx;
           const ny = g.origY + dy;
           setTexts((prev) => prev.map((t) => (t.id === id ? { ...t, x: nx, y: ny } : t)));
+          trackTrash(pts[0].x, pts[0].y);
         }
       }
       return;
@@ -2011,6 +2117,10 @@ export function FlowCreationDialog({
   };
 
   const handleMediaPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (stickerGestureRef.current?.pointers.has(e.pointerId)) {
+      handleStickerPointerUp(e);
+      return;
+    }
     if (pointersRef.current.has(e.pointerId)) {
       pointersRef.current.delete(e.pointerId);
       (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
@@ -2018,6 +2128,16 @@ export function FlowCreationDialog({
     if (pointersRef.current.size > 0) {
       // Ainda há dedo(s) — re-ancora para o próximo sub-gesto (ex.: 2→1).
       rebaseCaptionGesture();
+      return;
+    }
+    // Solta na lixeira → apaga a legenda que estava sendo arrastada.
+    const endedGesture = capGestureRef.current;
+    if (endTrashDrag() && endedGesture?.target === "text" && endedGesture.textId) {
+      const deadId = endedGesture.textId;
+      setTexts((prev) => prev.filter((t) => t.id !== deadId));
+      mediaTapRef.current = null;
+      capGestureRef.current = null;
+      gestureStartRef.current = null;
       return;
     }
     // Gesto encerrado. Toque curto sem arraste/pinça: sobre uma legenda → reedita;
@@ -2467,6 +2587,7 @@ export function FlowCreationDialog({
         setTexts((prev) =>
           prev.map((t) => (t.id === g.id ? { ...t, x: newX, y: newY } : t)),
         );
+        trackTrash(pts[0].x, pts[0].y);
       }
     }
   };
@@ -2486,6 +2607,11 @@ export function FlowCreationDialog({
     }
     const wasTap = !g.moved && !g.pinched;
     textGestureRef.current = null;
+    // Solta na lixeira → apaga a frase.
+    if (endTrashDrag()) {
+      setTexts((prev) => prev.filter((t) => t.id !== item.id));
+      return;
+    }
     if (wasTap) beginEditText(item);
   };
 
@@ -2532,6 +2658,12 @@ export function FlowCreationDialog({
     const current = stickerOf(target);
     if (!current) return;
     e.stopPropagation();
+    // O inverso: a foto (ou uma legenda) já está sendo mexida e o 2º dedo
+    // caiu no card — ele pertence ao gesto que já começou, não ao card.
+    if (!stickerGestureRef.current && pointersRef.current.size > 0) {
+      handleMediaPointerDown(e);
+      return;
+    }
     let g = stickerGestureRef.current;
     // Um dedo em cada card não vira pinça entre os dois: o gesto é de quem
     // foi tocado primeiro.
@@ -2556,7 +2688,14 @@ export function FlowCreationDialog({
 
   const handleStickerPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     const g = stickerGestureRef.current;
-    if (!g || !g.pointers.has(e.pointerId)) return;
+    if (!g || !g.pointers.has(e.pointerId)) {
+      // Dedo que o card repassou para o gesto da foto/legenda.
+      if (pointersRef.current.has(e.pointerId)) {
+        e.stopPropagation();
+        handleMediaPointerMove(e);
+      }
+      return;
+    }
     e.stopPropagation();
     g.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     const pts = Array.from(g.pointers.values());
@@ -2572,12 +2711,23 @@ export function FlowCreationDialog({
       const nx = g.origX + (pts[0].x - g.anchorX);
       const ny = g.origY + (pts[0].y - g.anchorY);
       patchSticker(g.target, { x: nx, y: ny });
+      // Só depois de um arraste de verdade (> 4px): encostar no card para
+      // tocar nos botões dele não deve mostrar a lixeira.
+      if (Math.hypot(pts[0].x - g.anchorX, pts[0].y - g.anchorY) > 4 || isDraggingItem) {
+        trackTrash(pts[0].x, pts[0].y);
+      }
     }
   };
 
   const handleStickerPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
     const g = stickerGestureRef.current;
-    if (!g || !g.pointers.has(e.pointerId)) return;
+    if (!g || !g.pointers.has(e.pointerId)) {
+      if (pointersRef.current.has(e.pointerId)) {
+        e.stopPropagation();
+        handleMediaPointerUp(e);
+      }
+      return;
+    }
     e.stopPropagation();
     (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
     g.pointers.delete(e.pointerId);
@@ -2586,6 +2736,11 @@ export function FlowCreationDialog({
       return;
     }
     stickerGestureRef.current = null;
+    // Solta na lixeira → tira o card do flow.
+    if (endTrashDrag()) {
+      if (g.target === "post") setPostSticker(null);
+      else setWorkoutSticker(null);
+    }
   };
 
   // Escolha no drawer → o mini frame nasce um pouco abaixo do centro (onde não
@@ -2710,6 +2865,80 @@ export function FlowCreationDialog({
       >
         {t("flow_text_done")}
       </button>
+    </div>
+  );
+
+  // Campo de edição do texto (modo texto e legenda sobre a foto). Com o
+  // "fundo do texto" ligado, o realce é desenhado por uma camada ESPELHO
+  // idêntica ao texto final (`renderTextInner`): um <span> por linha, colado
+  // nas letras (box-decoration-break: clone), com o mesmo padding e raio.
+  // Antes o fundo ia no <textarea> inteiro — 3 linhas, largura total — e o
+  // usuário achava que o realce ficaria daquele tamanho (2026-09-30).
+  // Espelho e campo ocupam a MESMA célula de grid com a mesma fonte, padding e
+  // quebra de linha: a altura acompanha o texto e as letras coincidem; o
+  // texto do campo fica transparente (só o cursor aparece) quando há realce.
+  const editBg = editingStyle.backgroundColor;
+  const editTextBox: React.CSSProperties = {
+    gridArea: "1 / 1",
+    fontFamily: editingStyle.fontFamily,
+    fontWeight: editingStyle.fontWeight,
+    fontSize: editingStyle.fontSize,
+    textAlign: editingStyle.align,
+    lineHeight: 1.625,
+    whiteSpace: "pre-wrap",
+    overflowWrap: "break-word",
+    padding: "0 0.26em",
+    margin: 0,
+  };
+  const editingField = (
+    <div className="grid w-full pointer-events-auto" onClick={(e) => e.stopPropagation()}>
+      <div
+        aria-hidden
+        style={{
+          ...editTextBox,
+          color: editingStyle.color,
+          visibility: editBg ? "visible" : "hidden",
+          pointerEvents: "none",
+        }}
+      >
+        <span
+          style={{
+            background: editBg ?? undefined,
+            boxDecorationBreak: "clone",
+            WebkitBoxDecorationBreak: "clone",
+            padding: "0.08em 0.26em",
+            margin: "0 -0.26em",
+            borderRadius: "0.28em",
+            opacity: editingValue ? 1 : 0.7,
+          }}
+        >
+          {editingValue || t("flow_text_placeholder")}
+        </span>
+        {/* Quebra final vazia ainda ocupa uma linha no campo — no espelho também. */}
+        {editingValue.endsWith("\n") ? "\u200b" : null}
+      </div>
+      <textarea
+        ref={textareaRef}
+        value={editingValue}
+        onChange={(e) => setEditingValue(e.target.value)}
+        onClick={(e) => e.stopPropagation()}
+        maxLength={200}
+        placeholder={t("flow_text_placeholder")}
+        className={cn(
+          "w-full bg-transparent resize-none outline-none border-0 overflow-hidden",
+          // Com realce, o placeholder já está desenhado no espelho.
+          editBg ? "placeholder:text-transparent" : "placeholder:text-white/60",
+        )}
+        style={{
+          ...editTextBox,
+          color: editBg ? "transparent" : editingStyle.color,
+          WebkitTextFillColor: editBg ? "transparent" : undefined,
+          caretColor: editingStyle.color,
+          textShadow: editBg ? "none" : "0 1px 6px rgba(0,0,0,0.45)",
+        }}
+        rows={1}
+        autoFocus
+      />
     </div>
   );
 
@@ -3042,7 +3271,7 @@ export function FlowCreationDialog({
                   <p className="text-sm text-white/80 max-w-xs">{t(CAMERA_ERROR_KEY[cameraError])}</p>
                   <Button
                     variant="secondary"
-                    onClick={() => fileInputRef.current?.click()}
+                    onClick={() => void openGallery()}
                     className="rounded-full"
                   >
                     <ImageIcon className="h-4 w-4 mr-2" />
@@ -3131,7 +3360,7 @@ export function FlowCreationDialog({
             <div className="relative z-10 grid grid-cols-3 items-center justify-items-center px-6">
               {/* Galeria — miniatura da última foto do rolo (ícone se não houver) */}
               <button
-                onClick={() => fileInputRef.current?.click()}
+                onClick={() => void openGallery()}
                 className={`h-12 w-12 overflow-hidden rounded-xl border-2 border-white bg-white/15 backdrop-blur flex items-center justify-center text-white shadow-lg transition-opacity ${
                   isRecording ? "opacity-0 pointer-events-none" : "opacity-100"
                 }`}
@@ -3306,28 +3535,7 @@ export function FlowCreationDialog({
                   transition: "transform 0.25s ease-out",
                 }}
               >
-                <textarea
-                  ref={textareaRef}
-                  value={editingValue}
-                  onChange={(e) => setEditingValue(e.target.value)}
-                  onClick={(e) => e.stopPropagation()}
-                  maxLength={200}
-                  placeholder={t("flow_text_placeholder")}
-                  className="w-full bg-transparent leading-relaxed placeholder:text-white/60 resize-none outline-none border-0 pointer-events-auto"
-                  style={{
-                    textShadow: editingStyle.backgroundColor ? "none" : "0 1px 6px rgba(0,0,0,0.45)",
-                    fontFamily: editingStyle.fontFamily,
-                    fontWeight: editingStyle.fontWeight,
-                    fontSize: editingStyle.fontSize,
-                    textAlign: editingStyle.align,
-                    color: editingStyle.color,
-                    background: editingStyle.backgroundColor ?? undefined,
-                    borderRadius: editingStyle.backgroundColor ? "0.4em" : undefined,
-                    padding: editingStyle.backgroundColor ? "0.1em 0.35em" : undefined,
-                  }}
-                  rows={3}
-                  autoFocus
-                />
+                {editingField}
                 {/* "@" no texto do flow (T + Aa) → sugestões; a pessoa escolhida entra
                     nas marcações do flow (flow_tags → notificação type 16). */}
                 <MentionSuggestions
@@ -3351,7 +3559,10 @@ export function FlowCreationDialog({
               editingTopBar
             ) : (
               <div
-                className="relative z-[10] flex items-center justify-between px-4"
+                className={cn(
+                  "relative z-[10] flex items-center justify-between px-4 transition-opacity duration-150",
+                  isDraggingItem && "opacity-0 pointer-events-none",
+                )}
                 style={{ paddingTop: "max(0.5rem, env(safe-area-inset-top))" }}
               >
                 <button
@@ -3381,7 +3592,10 @@ export function FlowCreationDialog({
             {/* Bottom: gradient strip + share (hidden when keyboard up) */}
             {!isEditingText && (
               <div
-                className="relative z-[10] px-4 space-y-3"
+                className={cn(
+                  "relative z-[10] px-4 space-y-3 transition-opacity duration-150",
+                  isDraggingItem && "opacity-0 pointer-events-none",
+                )}
                 style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
               >
                 <div
@@ -3517,28 +3731,7 @@ export function FlowCreationDialog({
                   transition: "transform 0.25s ease-out",
                 }}
                 >
-                  <textarea
-                    ref={textareaRef}
-                    value={editingValue}
-                    onChange={(e) => setEditingValue(e.target.value)}
-                    onClick={(e) => e.stopPropagation()}
-                    maxLength={200}
-                    placeholder={t("flow_text_placeholder")}
-                    className="w-full bg-transparent leading-relaxed placeholder:text-white/60 resize-none outline-none border-0 pointer-events-auto"
-                    style={{
-                      textShadow: editingStyle.backgroundColor ? "none" : "0 1px 6px rgba(0,0,0,0.45)",
-                      fontFamily: editingStyle.fontFamily,
-                      fontWeight: editingStyle.fontWeight,
-                      fontSize: editingStyle.fontSize,
-                      textAlign: editingStyle.align,
-                      color: editingStyle.color,
-                      background: editingStyle.backgroundColor ?? undefined,
-                      borderRadius: editingStyle.backgroundColor ? "0.4em" : undefined,
-                      padding: editingStyle.backgroundColor ? "0.1em 0.35em" : undefined,
-                    }}
-                    rows={3}
-                    autoFocus
-                  />
+                  {editingField}
                   {/* "@" no texto do flow (T + Aa) → sugestões; a pessoa escolhida entra
                       nas marcações do flow (flow_tags → notificação type 16). */}
                   <MentionSuggestions
@@ -3559,7 +3752,10 @@ export function FlowCreationDialog({
 
             {!isEditingText && (
               <div
-                className="relative z-10 flex items-center justify-between px-4"
+                className={cn(
+                  "relative z-10 flex items-center justify-between px-4 transition-opacity duration-150",
+                  isDraggingItem && "opacity-0 pointer-events-none",
+                )}
                 style={{ paddingTop: "max(0.5rem, env(safe-area-inset-top))" }}
               >
                 {/* Voltar pergunta antes: descartaria foto, textos, marcações e treino */}
@@ -3608,7 +3804,7 @@ export function FlowCreationDialog({
               </div>
             )}
             {/* Dica de gesto no texto (aparece quando há frase e não se está editando) */}
-            {!isEditingText && texts.length > 0 && (
+            {!isEditingText && texts.length > 0 && !isDraggingItem && (
               <div className="relative z-10 flex justify-center pt-2 pointer-events-none">
                 <span className="text-white/85 text-[12.5px] font-medium bg-black/35 backdrop-blur rounded-full px-3 py-1.5">
                   {t("flow_hint_caption_text")}
@@ -3620,7 +3816,10 @@ export function FlowCreationDialog({
 
             {!isEditingText && (
               <div
-                className="relative z-10 px-4 space-y-3"
+                className={cn(
+                  "relative z-10 px-4 space-y-3 transition-opacity duration-150",
+                  isDraggingItem && "opacity-0 pointer-events-none",
+                )}
                 style={{
                   paddingBottom: "max(1.5rem, env(safe-area-inset-bottom))",
                   // Sobe junto com o teclado iOS para a descrição/CTA não ficarem
@@ -3694,6 +3893,31 @@ export function FlowCreationDialog({
               </div>
             )}
           </>
+        )}
+
+        {/* Lixeira — só durante o arraste de uma frase ou card */}
+        {isDraggingItem && (
+          <div
+            className="pointer-events-none absolute inset-x-0 z-[30] flex justify-center animate-in fade-in zoom-in-75 duration-150"
+            style={{ bottom: "calc(max(1.5rem, env(safe-area-inset-bottom)) + 12px)" }}
+          >
+            <div
+              ref={trashRef}
+              role="img"
+              aria-label={t("flow_trash_aria")}
+              className="flex h-14 w-14 items-center justify-center rounded-full text-white transition-all duration-150"
+              style={{
+                transform: overTrash ? "scale(1.25)" : "scale(1)",
+                background: overTrash ? "#ff3b30" : "rgba(0,0,0,.45)",
+                border: overTrash ? "2px solid #ff3b30" : "2px solid rgba(255,255,255,.75)",
+                backdropFilter: "blur(10px)",
+                WebkitBackdropFilter: "blur(10px)",
+                boxShadow: overTrash ? "0 0 0 8px rgba(255,59,48,.25)" : "0 6px 20px rgba(0,0,0,.35)",
+              }}
+            >
+              <Trash2 className="h-6 w-6" strokeWidth={2.2} />
+            </div>
+          </div>
         )}
 
         {discardDialog}

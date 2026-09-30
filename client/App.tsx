@@ -171,7 +171,7 @@ import { usePushNotifications } from "@/hooks/use-push-notifications";
 import { initKeyboardTracker } from "@/lib/keyboard";
 import { APP_STORE_URL, parseDeepLinkUrl } from "@/lib/share-url";
 import { needsSocialSignupCompletion } from "@/lib/social-signup-state";
-import { ADMIN_USER_IDS } from "@/lib/admin";
+import { useIsAdmin } from "@/lib/admin";
 
 // Teclado iOS (Keyboard resize:'none'): publica --keyboard-height/kb-open no
 // <html> a partir dos eventos nativos. Singleton de app — inicia no bootstrap.
@@ -465,10 +465,13 @@ function RequireAuth() {
 function RequireAdmin() {
   const location = useLocation();
   const { user, loading } = useAuth();
+  // Lista fixa OU selo oficial (o azul não entra) — ver `useIsAdmin`.
+  const isAdmin = useIsAdmin(user?.id);
 
   if (loading) return <AuthLoadingScreen />;
   if (!user) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
-  if (!ADMIN_USER_IDS.includes(user.id)) return <Navigate to="/" replace />;
+  if (isAdmin === null) return <AuthLoadingScreen />;
+  if (!isAdmin) return <Navigate to="/" replace />;
 
   return <Outlet />;
 }

@@ -1,6 +1,16 @@
 import * as React from "react";
 import { UserPlus, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { toast } from "@/components/ui/use-toast";
 import { followUserDb, unfollowUserDb, isFollowingDb } from "@/lib/ritmofit-db";
 import { useAuth } from "@/hooks/useAuth";
@@ -16,6 +26,8 @@ interface FollowButtonProps {
   /** "default" usa Button do Shadcn (perfil). "overlay" usa estilo pill sobre vídeo (shots). */
   variant?: "default" | "overlay";
   onFollowChange?: (isFollowing: boolean) => void;
+  /** Nome exibido na confirmação de deixar de seguir ("Deixar de seguir {nome}?"). */
+  targetName?: string;
 }
 
 export function FollowButton({
@@ -23,11 +35,16 @@ export function FollowButton({
   initialIsFollowing,
   variant = "default",
   onFollowChange,
+  targetName,
 }: FollowButtonProps) {
   const { user } = useAuth();
   const { t } = useLanguage();
   const [isFollowing, setIsFollowing] = React.useState(initialIsFollowing ?? false);
   const [isLoading, setIsLoading] = React.useState(false);
+  // Deixar de seguir pede confirmação (2026-09-30): "Seguindo" fica ao lado de
+  // nomes e cards tocáveis, e um toque sem querer desfazia o follow na hora.
+  // Seguir continua direto — é a ação barata e fácil de desfazer.
+  const [confirmUnfollowOpen, setConfirmUnfollowOpen] = React.useState(false);
 
   // Se initialIsFollowing não foi passado, busca o status automaticamente
   React.useEffect(() => {
@@ -41,18 +58,8 @@ export function FollowButton({
       .catch(() => {});
   }, [targetUserId, initialIsFollowing, user]);
 
-  const handleClick = React.useCallback(
-    async (e: React.MouseEvent) => {
-      e.stopPropagation();
-
-      if (!user) {
-        toast({
-          title: t("follow_login_title"),
-          description: t("follow_login_desc"),
-        });
-        return;
-      }
-
+  const toggleFollow = React.useCallback(
+    async () => {
       if (isLoading) return;
 
       const wasFollowing = isFollowing;
@@ -87,7 +94,65 @@ export function FollowButton({
         setIsLoading(false);
       }
     },
-    [user, isFollowing, isLoading, targetUserId, onFollowChange, t]
+    [isFollowing, isLoading, targetUserId, onFollowChange, t]
+  );
+
+  const handleClick = React.useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+
+      if (!user) {
+        toast({
+          title: t("follow_login_title"),
+          description: t("follow_login_desc"),
+        });
+        return;
+      }
+
+      if (isLoading) return;
+      if (isFollowing) {
+        setConfirmUnfollowOpen(true);
+        return;
+      }
+      void toggleFollow();
+    },
+    [user, isFollowing, isLoading, toggleFollow, t]
+  );
+
+  // O diálogo vai num portal, mas eventos React sobem pela árvore de
+  // componentes: sem este `contents`, tocar no diálogo (ou no fundo escuro)
+  // disparava o onClick do card em volta — ex.: a notificação navegava.
+  const confirmDialog = (
+    <span
+      className="contents"
+      onClick={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      <AlertDialog open={confirmUnfollowOpen} onOpenChange={setConfirmUnfollowOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {targetName
+                ? t("follow_unfollow_confirm_title").replace("{name}", targetName)
+                : t("follow_unfollow_confirm_title_generic")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>{t("follow_unfollow_confirm_desc")}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setConfirmUnfollowOpen(false);
+                void toggleFollow();
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {t("follow_unfollow_confirm_cta")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </span>
   );
 
   if (variant === "overlay") {
@@ -108,6 +173,7 @@ export function FollowButton({
   // (branco); "Seguindo" é estado, então vira secundário (vidro) — antes o
   // outline escuro parecia o botão mais forte da linha.
   return (
+    <>
     <Button
       onClick={handleClick}
       disabled={isLoading}
@@ -130,5 +196,7 @@ export function FollowButton({
         </>
       )}
     </Button>
+    {confirmDialog}
+    </>
   );
 }

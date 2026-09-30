@@ -62,7 +62,6 @@ import {
   Check,
   ChevronUp,
   Loader2,
-  AtSign,
   Repeat2,
   MessageCircle,
   MoreVertical,
@@ -88,6 +87,7 @@ import { Input } from "@/components/ui/input";
 import { motion, AnimatePresence } from "framer-motion";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { UserAvatar } from "@/components/shared/user-avatar";
+import { FollowListDrawer } from "@/components/profile/follow-list-drawer";
 import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
 import { FEATURES } from "@/lib/feature-flags";
 import { cdnImg } from "@/lib/image-url";
@@ -249,6 +249,8 @@ export default function FlowViewer({ embedded }: { embedded?: FlowViewerEmbedded
   const currentStoryIdRef = React.useRef<string | null>(null);
   // Pessoas marcadas no flow atual + estado do repost (para quem foi marcado).
   const [taggedUsers, setTaggedUsers] = React.useState<SearchUser[]>([]);
+  // Lista completa dos marcados (2+) — aberta pelo toque nas miniaturas do topo.
+  const [taggedListOpen, setTaggedListOpen] = React.useState(false);
   const [isReposting, setIsReposting] = React.useState(false);
   const [reportDrawerOpen, setReportDrawerOpen] = React.useState(false);
   const [reportType, setReportType] = React.useState<"user" | "flow">("flow");
@@ -1184,24 +1186,80 @@ export default function FlowViewer({ embedded }: { embedded?: FlowViewerEmbedded
                     initial={{ opacity: 0, x: -10 }}
                     animate={{ opacity: 1, x: 0 }}
                     exit={{ opacity: 0, x: 10 }}
-                    className="flex items-center gap-3"
+                    className="flex min-w-0 items-center gap-3"
                   >
                     <button
                       onClick={() => { handleClose(); navigate(`/usuario/${story.user_id}`); }}
-                      className="flex items-center gap-3 text-left active:opacity-70 transition-opacity"
+                      className="shrink-0 active:opacity-70 transition-opacity"
+                      aria-label={story.userNickname}
                     >
                       <Avatar className="h-10 w-10 border-2 border-white/20 shadow-lg">
                         <AvatarImage src={story.userPhoto} />
                         <AvatarFallback>{story.userNickname?.charAt(0)}</AvatarFallback>
                       </Avatar>
-                      <div className="flex flex-col">
-                        <span className="text-white text-sm font-bold drop-shadow-md inline-flex items-center gap-1">
-                          {story.userNickname}
+                    </button>
+                    <div className="flex min-w-0 flex-col">
+                      <button
+                        onClick={() => { handleClose(); navigate(`/usuario/${story.user_id}`); }}
+                        className="min-w-0 text-left active:opacity-70 transition-opacity"
+                      >
+                        <span className="text-white text-sm font-bold drop-shadow-md inline-flex min-w-0 max-w-full items-center gap-1">
+                          <span className="truncate">{story.userNickname}</span>
                           {story.verifiedTier && <VerifiedBadge size="sm" tier={story.verifiedTier} />}
                         </span>
-                        <span className="text-white/70 text-[10px] drop-shadow-md">{formatTimeAgo(story.created_at)}</span>
+                      </button>
+                      {/* 2ª linha: tempo + marcações ("com @fulano e +1" com as
+                          miniaturas) — logo abaixo do nome, ao lado da foto
+                          (2026-09-30; antes eram chips acima da doca). Uma pessoa
+                          → abre o perfil dela; 2+ → lista com todas. */}
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        <span className="shrink-0 text-white/70 text-[10px] drop-shadow-md">{formatTimeAgo(story.created_at)}</span>
+                        {taggedUsers.length > 0 && (() => {
+                          const first = taggedUsers[0];
+                          const firstName = first.handle ? `@${first.handle}` : first.nickname;
+                          const more = taggedUsers.length - 1;
+                          return (
+                            <button
+                              onClick={() => {
+                                if (more === 0) {
+                                  handleClose();
+                                  navigate(`/usuario/${first.id}`);
+                                  return;
+                                }
+                                setIsPaused(true);
+                                isPausedRef.current = true;
+                                setTaggedListOpen(true);
+                              }}
+                              aria-label={
+                                more === 0
+                                  ? `${t("flow_tagged_with")} ${firstName}`
+                                  : t("flow_tagged_count").replace("{n}", String(taggedUsers.length))
+                              }
+                              className="flex min-w-0 items-center gap-1 rounded-full py-px pl-px pr-2 active:opacity-70 transition-opacity"
+                              style={{ background: "rgba(0,0,0,.35)", border: "1px solid rgba(255,255,255,.15)" }}
+                            >
+                              <span className="flex shrink-0 -space-x-1">
+                                {taggedUsers.slice(0, 3).map((u) => (
+                                  <UserAvatar
+                                    key={u.id}
+                                    photo={u.photo}
+                                    nickname={u.nickname}
+                                    className="h-4 w-4 ring-1 ring-black/50"
+                                  />
+                                ))}
+                              </span>
+                              <span className="shrink-0 text-[10.5px] text-white/75">{t("flow_tagged_with")}</span>
+                              <span className="min-w-0 truncate text-[10.5px] font-semibold text-white">{firstName}</span>
+                              {more > 0 && (
+                                <span className="shrink-0 text-[10.5px] font-semibold text-white">
+                                  {t("flow_tagged_more").replace("{n}", String(more))}
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })()}
                       </div>
-                    </button>
+                    </div>
                   </motion.div>
                 </AnimatePresence>
 
@@ -1516,28 +1574,6 @@ export default function FlowViewer({ embedded }: { embedded?: FlowViewerEmbedded
                 >
                   {story.description}
                 </p>
-              )}
-
-              {/* Pessoas marcadas no flow — toque abre o perfil */}
-              {taggedUsers.length > 0 && (
-                <div className="flex items-center gap-2 px-1.5 mb-2.5 flex-wrap">
-                  <AtSign className="h-3.5 w-3.5 text-white/70 shrink-0" />
-                  {taggedUsers.slice(0, 3).map((u) => (
-                    <button
-                      key={u.id}
-                      onClick={() => { handleClose(); navigate(`/usuario/${u.id}`); }}
-                      className="pointer-events-auto flex items-center gap-1.5 rounded-full bg-black/40 backdrop-blur border border-white/15 pl-1 pr-2.5 py-0.5 active:opacity-70"
-                    >
-                      <UserAvatar photo={u.photo} nickname={u.nickname} className="h-5 w-5" />
-                      <span className="text-[11px] font-semibold text-white">{u.nickname}</span>
-                    </button>
-                  ))}
-                  {taggedUsers.length > 3 && (
-                    <span className="text-[11px] font-medium text-white/70">
-                      +{taggedUsers.length - 3}
-                    </span>
-                  )}
-                </div>
               )}
 
               {/* Repost — só para quem foi marcado (estilo Instagram "adicionar ao seu flow") */}
@@ -1881,6 +1917,23 @@ export default function FlowViewer({ embedded }: { embedded?: FlowViewerEmbedded
       </Drawer>
 
       {/* Viewers Drawer */}
+      {/* Todas as pessoas marcadas no flow (2+) — toque no nome abre o perfil */}
+      <FollowListDrawer
+        open={taggedListOpen}
+        onOpenChange={(o) => {
+          setTaggedListOpen(o);
+          if (!o) {
+            setIsPaused(false);
+            isPausedRef.current = false;
+          }
+        }}
+        type="following"
+        title={t("post_tagged_title")}
+        emptyMessage={t("post_tagged_title")}
+        users={taggedUsers}
+        isLoading={false}
+      />
+
       <Drawer open={viewersDrawerOpen} onOpenChange={setViewersDrawerOpen}>
         <DrawerContent className="max-h-[85vh]" onOpenAutoFocus={(e) => e.preventDefault()}>
           <DrawerHeader>

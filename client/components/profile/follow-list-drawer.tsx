@@ -107,6 +107,7 @@ export function FollowListDrawer({
                     {/* Sem status em batch → undefined deixa o FollowButton buscar sozinho */}
                     <FollowButton
                       targetUserId={u.id}
+                      targetName={u.nickname}
                       initialIsFollowing={followStatus[u.id]}
                     />
                   </div>

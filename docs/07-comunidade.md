@@ -240,7 +240,10 @@ Exibe:
 - Mensagens do usuário logado alinhadas à direita (estilo bolha)
 - Mensagens do contato alinhadas à esquerda
 - Indicador de leitura: `Check` / `CheckCheck`
-- Timestamp em cada mensagem
+- Timestamp em cada mensagem (hora no idioma do app: `pt-BR` ou `en-US`)
+- **Separador de dia (2026-09-30):** um pill centralizado (vidro `rgba(255,255,255,.07)`, texto 11px) antes da primeira mensagem de cada dia, com `role="separator"`. Antes a bolha só tinha a hora, e uma conversa de ontem parecia de hoje.
+  - **Rótulo:** "Hoje", "Ontem" (`community_chat_today` / `community_chat_yesterday`), o dia da semana nos últimos 7 dias ("Domingo") e a data depois disso ("6 de setembro"). O ano só aparece se for outro ano.
+  - **Dia usado:** o dia LOCAL do aparelho (`localDayKey` / `dayLabel` em `conversation-view.tsx`).
 - **Reações emoji** em cada mensagem (emoji picker ao segurar/clicar)
 
 **Campo de Envio (estilo Instagram):**

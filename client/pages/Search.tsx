@@ -20,7 +20,7 @@ import {
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/components/ui/use-toast";
 import { ChevronDown, ChevronUp, Copy, Dumbbell, Users, Salad, Search as SearchIcon, SearchX, Hash, Video } from "lucide-react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useNavigationType, useSearchParams } from "react-router-dom";
 import { useLanguage } from "@/lib/language-context";
 import { FEATURES } from "@/lib/feature-flags";
 import { UserAvatar } from "@/components/shared/user-avatar";
@@ -35,6 +35,27 @@ import { ShotThumb } from "@/components/shared/shot-thumb";
 // para quem abre a aba sem saber o que buscar (levantado via consulta na base em
 // 2026-07-16). Lista estática: é um empurrão inicial, não um ranking ao vivo.
 const SUGGESTED_HASHTAGS = ["linka", "fitness", "recordepessoal", "treino", "caminhada"];
+
+// Cards das listas SEM backdrop-filter (2026-09-30): são até 100 cards, e um
+// blur+saturate em cada um estourava o WebKit do iPhone — ao voltar de um
+// perfil a lista aparecia pela metade (ou vazia) até rolar a tela. O fundo
+// atrás deles é a aura parada, então o blur não mudava nada no visual.
+const LIST_CARD_STYLE: React.CSSProperties = {
+  background: "linear-gradient(rgba(255,255,255,.09),rgba(255,255,255,.03))",
+  border: "1px solid rgba(255,255,255,.10)",
+  boxShadow: "inset 0 1px 0 rgba(255,255,255,.18)",
+};
+
+// Última lista de "Pessoas" e o ponto do scroll ao abrir um perfil. Voltar
+// (POP) remonta a tela: com isso ela reaparece inteira na hora, no mesmo
+// lugar, e só atualiza em segundo plano — em vez de piscar vazia/skeleton.
+let peopleSnapshot: {
+  userId: string;
+  users: SearchUser[];
+  followingIds: string[];
+  copiedKeys: Set<string>;
+} | null = null;
+let peopleScrollY = 0;
 
 type RoutineCardProps = {
   routine: RoutineResult;
@@ -76,16 +97,7 @@ function RoutineCard({
   onGoToRoutines,
 }: RoutineCardProps) {
   return (
-    <div
-      className="rounded-xl p-4"
-      style={{
-        background: "linear-gradient(rgba(255,255,255,.09),rgba(255,255,255,.03))",
-        backdropFilter: "blur(20px) saturate(170%)",
-        WebkitBackdropFilter: "blur(20px) saturate(170%)",
-        border: "1px solid rgba(255,255,255,.10)",
-        boxShadow: "inset 0 1px 0 rgba(255,255,255,.18)",
-      }}
-    >
+    <div className="rounded-xl p-4" style={LIST_CARD_STYLE}>
         {/* Routine name — prominent */}
         <p className="font-semibold text-sm mb-2">{routine.routineName ?? unnamedText}</p>
 
@@ -169,6 +181,7 @@ const SEARCH_TABS = [
 export default function Search() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const navigationType = useNavigationType();
   const { t } = useLanguage();
   // Aba e busca vivem também na URL (?tab=&q=, com replace): abrir um post e
   // voltar remonta esta tela, e sem isso ela caía sempre em "Pessoas" com a
@@ -181,18 +194,28 @@ export default function Search() {
   const [searchQuery, setSearchQuery] = React.useState(() => searchParams.get("q") ?? "");
   const searchQueryRef = React.useRef(searchQuery);
   searchQueryRef.current = searchQuery;
-  const [allUsers, setAllUsers] = React.useState<SearchUser[]>([]);
-  const [searchUsers, setSearchUsers] = React.useState<SearchUser[]>([]);
+  // Snapshot só vale para a mesma conta (trocar de conta não herda a lista).
+  const [snapshot] = React.useState(() =>
+    peopleSnapshot && peopleSnapshot.userId === user?.id ? peopleSnapshot : null,
+  );
+  const [allUsers, setAllUsers] = React.useState<SearchUser[]>(() => snapshot?.users ?? []);
+  const [searchUsers, setSearchUsers] = React.useState<SearchUser[]>(() =>
+    snapshot && !searchQuery.trim() ? snapshot.users : [],
+  );
   const [searchWorkouts, setSearchWorkouts] = React.useState<RoutineResult[]>([]);
   const [allWorkouts, setAllWorkouts] = React.useState<RoutineResult[]>([]);
   const [searchDiets, setSearchDiets] = React.useState<RoutineResult[]>([]);
   const [allDiets, setAllDiets] = React.useState<RoutineResult[]>([]);
-  const [isLoadingPeople, setIsLoadingPeople] = React.useState(false);
+  // Sem snapshot, já nasce carregando: antes o 1º frame mostrava o estado
+  // vazio ("Nenhuma pessoa") antes do skeleton.
+  const [isLoadingPeople, setIsLoadingPeople] = React.useState(() => !snapshot);
   const [isLoadingWorkouts, setIsLoadingWorkouts] = React.useState(false);
   const [isLoadingDiets, setIsLoadingDiets] = React.useState(false);
   const [hashtagItems, setHashtagItems] = React.useState<HashtagItem[]>([]);
   const [isLoadingHashtags, setIsLoadingHashtags] = React.useState(false);
-  const [followingIds, setFollowingIds] = React.useState<Set<string>>(new Set());
+  const [followingIds, setFollowingIds] = React.useState<Set<string>>(
+    () => new Set(snapshot?.followingIds ?? []),
+  );
 
   // Expanded dropdown state: key = "userId::routineName"
   const [expandedKeys, setExpandedKeys] = React.useState<Set<string>>(new Set());
@@ -200,13 +223,15 @@ export default function Search() {
   const [itemsCache, setItemsCache] = React.useState<Map<string, RoutineItemRow[]>>(new Map());
   const [itemsLoading, setItemsLoading] = React.useState<Set<string>>(new Set());
   const [copyingKeys, setCopyingKeys] = React.useState<Set<string>>(new Set());
-  const [copiedKeys, setCopiedKeys] = React.useState<Set<string>>(new Set());
+  const [copiedKeys, setCopiedKeys] = React.useState<Set<string>>(
+    () => new Set(snapshot?.copiedKeys ?? []),
+  );
   const searchDebounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Load all users on mount
+  // Load all users on mount (com snapshot, atualiza por trás sem skeleton)
   React.useEffect(() => {
     if (!user) return;
-    setIsLoadingPeople(true);
+    if (!snapshot) setIsLoadingPeople(true);
     Promise.all([getAllUsersDb(user.id), getFollowingIdsDb(), getCopiedRoutineKeysDb(user.id)])
       .then(([users, followingIdsList, copiedKeys]) => {
         setAllUsers(users);
@@ -214,10 +239,25 @@ export default function Search() {
         if (!searchQueryRef.current.trim()) setSearchUsers(users);
         setFollowingIds(new Set(followingIdsList));
         setCopiedKeys(copiedKeys);
+        peopleSnapshot = { userId: user.id, users, followingIds: followingIdsList, copiedKeys };
       })
       .catch((err) => console.error("Error loading users:", err))
       .finally(() => setIsLoadingPeople(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
+
+  // Voltou de um perfil (POP) com a lista já na tela → mesmo ponto do scroll.
+  // Layout effect: antes do 1º paint, sem pular do topo para o lugar.
+  React.useLayoutEffect(() => {
+    if (navigationType !== "POP" || !snapshot || searchQuery.trim() || activeTab !== "people") return;
+    window.scrollTo(0, peopleScrollY);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const openProfile = (id: string) => {
+    peopleScrollY = window.scrollY;
+    navigate(`/usuario/${id}`);
+  };
 
   // Load all routines when switching to workouts/diets tabs
   React.useEffect(() => {
@@ -476,13 +516,7 @@ export default function Search() {
             <div
               key={u.id}
               className="rounded-xl p-4 transition-all active:opacity-80"
-              style={{
-                background: "linear-gradient(rgba(255,255,255,.09),rgba(255,255,255,.03))",
-                backdropFilter: "blur(20px) saturate(170%)",
-                WebkitBackdropFilter: "blur(20px) saturate(170%)",
-                border: "1px solid rgba(255,255,255,.10)",
-                boxShadow: "inset 0 1px 0 rgba(255,255,255,.18)",
-              }}
+              style={LIST_CARD_STYLE}
             >
                 <div className="flex items-start gap-3 justify-between">
                   <div className="flex items-start gap-3 flex-1">
@@ -494,7 +528,7 @@ export default function Search() {
                     />
                     <div className="flex-1 min-w-0">
                       <button
-                        onClick={() => navigate(`/usuario/${u.id}`)}
+                        onClick={() => openProfile(u.id)}
                         className="font-medium text-sm hover:text-brand transition-colors text-left inline-flex items-center gap-1"
                       >
                         {u.nickname}
@@ -506,6 +540,7 @@ export default function Search() {
                   {u.id !== user?.id && (
                     <FollowButton
                       targetUserId={u.id}
+                      targetName={u.nickname}
                       initialIsFollowing={followingIds.has(u.id)}
                     />
                   )}

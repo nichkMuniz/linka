@@ -419,6 +419,13 @@ async function cached<T>(
      */
     skipEmpty?: boolean;
     /**
+     * Não guardar `null`/`undefined`. Para leituras em que "não achei" quase
+     * sempre é falha passageira (ex.: o perfil lido no instante do login) — um
+     * null guardado virava "Perfil não encontrado" pelo TTL inteiro, e só um
+     * refresh global (puxar o feed) derrubava (2026-09-30).
+     */
+    skipNull?: boolean;
+    /**
      * Ignora o que está em cache (memória E localStorage) e vai à rede, mas
      * continua GRAVANDO o resultado. Para telas em que servir dado velho é o
      * mesmo que estar quebrado — ex.: a aba de Solicitações da Comunidade,
@@ -444,6 +451,7 @@ async function cached<T>(
       .then((data) => {
         if (_discardedInflight.has(p)) return data;
         if (opts?.skipEmpty && Array.isArray(data) && data.length === 0) return data;
+        if (opts?.skipNull && data == null) return data;
         _queryCache.set(key, { data, expiry: Date.now() + ttl, ttl });
         persistWrite(key, data, ttl);
         return data;
@@ -1024,20 +1032,23 @@ export async function getCommentCountsBatchDb(
  */
 export async function getProfilesBatchDb(
   userIds: string[],
-): Promise<Map<string, { nickname: string; photo: string | null; is_verified: boolean; verified_tier: VerifiedTier | null }>> {
-  const result = new Map<string, { nickname: string; photo: string | null; is_verified: boolean; verified_tier: VerifiedTier | null }>();
+): Promise<Map<string, { nickname: string; photo: string | null; handle: string | null; is_verified: boolean; verified_tier: VerifiedTier | null }>> {
+  const result = new Map<string, { nickname: string; photo: string | null; handle: string | null; is_verified: boolean; verified_tier: VerifiedTier | null }>();
   if (!userIds.length || !hasSupabaseConfig || !supabase) return result;
 
   const uniqueIds = [...new Set(userIds)];
   const { data } = await supabase
     .from("profiles")
-    .select("user_id, nickname, photo, is_verified, verified_tier")
+    .select("user_id, nickname, photo, handle, is_verified, verified_tier")
     .in("user_id", uniqueIds);
 
   for (const row of data ?? []) {
     result.set(row.user_id, {
       nickname: row.nickname ?? tUi("user_fallback_name"),
       photo: row.photo ?? null,
+      // O @ (sem o "@") — usado onde a pessoa aparece como "@fulano"
+      // (ex.: "com @fulano" nas marcações do flow).
+      handle: row.handle ? String(row.handle).replace(/^@/, "") : null,
       is_verified: row.is_verified === true,
       verified_tier: verifiedTierOf(row),
     });
@@ -1877,6 +1888,8 @@ export async function getUserProfileDb(
   if (!hasSupabaseConfig || !supabase) return null;
   assertUUID(userId, "ID do usuário");
 
+  // Erro sai do `cached` como exceção (nada é guardado) e vira `null` aqui
+  // fora — o contrato para quem chama continua o mesmo.
   return cached(`userProfile:${userId}`, CACHE_TTL_LONG, async () => {
     const { data, error } = await supabase!
       .from("profiles")
@@ -1888,7 +1901,7 @@ export async function getUserProfileDb(
       const errorMsg = error?.message || String(error);
       const errorCode = error?.code || "UNKNOWN";
       console.error(`Error fetching user profile [${errorCode}]:`, errorMsg);
-      return null;
+      throw error;
     }
 
     if (!data) return null;
@@ -1915,7 +1928,7 @@ export async function getUserProfileDb(
     };
 
     return profile;
-  });
+  }, { skipNull: true }).catch(() => null);
 }
 
 // ── Premium (subscriptions) ─────────────────────────────────────────────────
@@ -2318,7 +2331,10 @@ export async function getUserPostsDb(userId: string): Promise<PostWithUser[]> {
     const errorMsg = error?.message || String(error);
     const errorCode = error?.code || "UNKNOWN";
     console.error(`Error fetching user posts [${errorCode}]:`, errorMsg);
-    return [];
+    // Lança (em vez de `return []`) para o `cached` NÃO guardar a lista vazia:
+    // o perfil lido logo após o login ficava "sem posts" até um refresh
+    // global. O `[]` para quem chama sai no catch do fim.
+    throw error;
   }
 
   const userNickname = userProfile?.nickname || tUi("user_fallback_name");
@@ -2351,7 +2367,7 @@ export async function getUserPostsDb(userId: string): Promise<PostWithUser[]> {
     repostOf: repostMap.get(String(row.id)) ?? null,
   }));
 
-  });
+  }).catch(() => [] as PostWithUser[]);
 }
 
 export async function getPostByIdDb(postId: string): Promise<PostWithUser | null> {
@@ -3288,6 +3304,9 @@ export async function getUserStatsDb(userId: string): Promise<UserStats> {
 
   if (countsRes.error) {
     console.error(`Error fetching profile counts:`, countsRes.error?.message);
+    // Sem cachear zeros (ver getUserPostsDb) — o fallback sai no catch de fora.
+    // (O `ranking` sem linha é normal para conta nova e não conta como erro.)
+    throw countsRes.error;
   }
 
   const counts = countsRes.data as
@@ -3305,7 +3324,7 @@ export async function getUserStatsDb(userId: string): Promise<UserStats> {
     level,
   };
 
-  });
+  }).catch(() => ({ postsCount: 0, followersCount: 0, followingCount: 0, points: 0, level: 1 }));
 }
 
 // Routine type constants
@@ -5701,41 +5720,6 @@ export async function searchUsersDb(query: string): Promise<SearchUser[]> {
 /** Caracteres válidos de um @usuário (mesmo conjunto de `cleanHandle`). */
 export const MENTION_HANDLE_CHARS = "a-z0-9._-";
 
-/**
- * Sugestões do autocomplete de "@": busca por handle OU apelido. O termo é o
- * pedaço digitado depois do "@" — sanitizado para os caracteres de handle,
- * o que também o torna seguro dentro do filtro `or()` do PostgREST. Só volta
- * quem tem handle (é o handle que vai para o texto) e respeita bloqueios.
- */
-export async function searchMentionUsersDb(term: string): Promise<SearchUser[]> {
-  if (!hasSupabaseConfig || !supabase) return [];
-  const q = term.toLowerCase().replace(new RegExp(`[^${MENTION_HANDLE_CHARS}]`, "g"), "");
-  if (!q) return [];
-  const viewer = await getViewer();
-  const [{ data, error }, blockedIds] = await Promise.all([
-    supabase
-      .from("profiles")
-      .select("user_id, nickname, photo, handle")
-      .or(`handle.ilike.${q}%,nickname.ilike.%${q}%`)
-      .not("handle", "is", null)
-      .limit(8),
-    getBlockedIdsDb(),
-  ]);
-  if (error) {
-    console.error("Erro na busca de menção:", error.message);
-    return [];
-  }
-  const blocked = new Set(blockedIds);
-  return (data ?? [])
-    .filter((row: any) => row.handle && !blocked.has(String(row.user_id)) && String(row.user_id) !== viewer?.id)
-    .map((row: any) => ({
-      id: String(row.user_id),
-      nickname: String(row.nickname ?? tUi("user_fallback_name")),
-      photo: row.photo ? String(row.photo) : null,
-      handle: String(row.handle),
-    }));
-}
-
 /** Resolve um @usuário (com ou sem "@") para o id — toque numa menção abre o perfil. */
 export async function getUserIdByHandleDb(handle: string): Promise<string | null> {
   if (!hasSupabaseConfig || !supabase) return null;
@@ -6948,7 +6932,7 @@ export async function getFlowTagsDb(flowId: string): Promise<SearchUser[]> {
     const out: SearchUser[] = [];
     for (const row of data) {
       const p = profilesMap.get(String(row.user_id));
-      if (p) out.push({ id: String(row.user_id), nickname: p.nickname, photo: p.photo });
+      if (p) out.push({ id: String(row.user_id), nickname: p.nickname, photo: p.photo, handle: p.handle });
     }
     return out;
   } catch (err) {

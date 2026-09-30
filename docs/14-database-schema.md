@@ -1435,7 +1435,7 @@ Fonte de verdade **do servidor** sobre quem é admin. Criada em `docs/migrations
 
 ### Função `is_app_admin(uid uuid) → boolean`
 
-`SECURITY DEFINER`, `STABLE`. Usada pelas RPCs de admin. **A lista `ADMIN_USER_IDS` em `client/App.tsx` não autoriza nada** — é só guarda de rota; ao promover alguém a admin, inserir nos **dois** lugares.
+`SECURITY DEFINER`, `STABLE`. Usada pelas RPCs de admin e pelos triggers de trava (`freeze_is_verified`, `freeze_verified_tier`, `freeze_is_banned`). **Desde 2026-09-30 (`20260930-official-is-admin.sql`) devolve `true` para quem está em `app_admins` OU tem `profiles.verified_tier = 'official'`**. Selo oficial = admin; o selo `notable` não conta. É seguro porque `verified_tier` é travado contra auto-promoção. A lista `ADMIN_USER_IDS` do app não autoriza nada: é só guarda de UI, e o app usa a mesma regra em `useIsAdmin` (`client/lib/admin.ts`).
 
 ---
 

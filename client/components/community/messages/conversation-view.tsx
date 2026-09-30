@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import * as ReactDOM from "react-dom";
 import { useNavigate } from "react-router-dom";
 import {
@@ -32,6 +32,33 @@ import { UserSafetyDrawer } from "@/components/shared/user-safety-drawer";
 
 import { QUICK_EMOJIS, type MessagesController } from "./use-messages";
 
+/** Dia LOCAL da mensagem (não UTC) — agrupa pelo dia que a pessoa viveu. */
+function localDayKey(d: Date) {
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+
+/**
+ * Rótulo do separador de dia (2026-09-30): "Hoje", "Ontem", o dia da semana
+ * nos últimos 7 dias e a data depois disso (com o ano só se for outro ano).
+ * Antes a bolha só tinha a hora — uma conversa de ontem parecia de hoje.
+ */
+function dayLabel(d: Date, locale: string, today: string, yesterday: string) {
+  const startOf = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const now = new Date();
+  const diffDays = Math.round((startOf(now) - startOf(d)) / 86_400_000);
+  if (diffDays === 0) return today;
+  if (diffDays === 1) return yesterday;
+  const label =
+    diffDays > 1 && diffDays < 7
+      ? d.toLocaleDateString(locale, { weekday: "long" })
+      : d.toLocaleDateString(locale, {
+          day: "numeric",
+          month: "long",
+          ...(d.getFullYear() !== now.getFullYear() ? { year: "numeric" } : {}),
+        });
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
 /**
  * Conversa privada em tela cheia. Renderizada num **portal** para o `body`, fora
  * do fluxo da tela de Comunidade.
@@ -45,8 +72,9 @@ import { QUICK_EMOJIS, type MessagesController } from "./use-messages";
  */
 export function ConversationView({ ctl }: { ctl: MessagesController }) {
   const { user } = useAuth();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const navigate = useNavigate();
+  const dateLocale = language === "en" ? "en-US" : "pt-BR";
 
   // Antes do early return: hook não pode ficar atrás de condicional.
   const [safetyOpen, setSafetyOpen] = useState(false);
@@ -174,8 +202,12 @@ export function ConversationView({ ctl }: { ctl: MessagesController }) {
         </div>
 
         {ctl.messages.length > 0 ? (
-          ctl.messages.map((message) => {
+          ctl.messages.map((message, index) => {
             const isOwn = message.user_id === user?.id;
+            // Separador quando o dia muda em relação à mensagem anterior.
+            const sentAt = new Date(message.created_at);
+            const prev = index > 0 ? ctl.messages[index - 1] : null;
+            const showDay = !prev || localDayKey(new Date(prev.created_at)) !== localDayKey(sentAt);
             // Detect reply prefix: lines starting with "↩ "
             const replyMatch = message.text.match(/^↩ (.+?)\n\n([\s\S]*)$/);
             const replyQuote = replyMatch ? replyMatch[1] : null;
@@ -183,8 +215,21 @@ export function ConversationView({ ctl }: { ctl: MessagesController }) {
             const flowReply = parseFlowReply(mainText);
             const goalReply = flowReply ? null : parseGoalReply(mainText);
             return (
+              <React.Fragment key={message.id}>
+              {showDay && (
+                <div className="flex justify-center pt-1" role="separator">
+                  <span
+                    className="rounded-full px-3 py-1 text-[11px] font-medium text-white/65"
+                    style={{
+                      background: "rgba(255,255,255,.07)",
+                      border: "1px solid rgba(255,255,255,.08)",
+                    }}
+                  >
+                    {dayLabel(sentAt, dateLocale, t("community_chat_today"), t("community_chat_yesterday"))}
+                  </span>
+                </div>
+              )}
               <div
-                key={message.id}
                 className={`flex ${isOwn ? "justify-end" : "justify-start"}`}
               >
                 <SwipeableMessageBubble
@@ -253,7 +298,7 @@ export function ConversationView({ ctl }: { ctl: MessagesController }) {
                     )}
                     <div className="flex items-center justify-between gap-2">
                       <p className={`text-xs ${isOwn ? "text-white/70" : "text-white/50"}`}>
-                        {new Date(message.created_at).toLocaleTimeString("pt-BR", {
+                        {sentAt.toLocaleTimeString(dateLocale, {
                           hour: "2-digit",
                           minute: "2-digit",
                         })}
@@ -278,6 +323,7 @@ export function ConversationView({ ctl }: { ctl: MessagesController }) {
                   )}
                 </SwipeableMessageBubble>
               </div>
+              </React.Fragment>
             );
           })
         ) : (

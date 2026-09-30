@@ -51,7 +51,7 @@ Tela de descoberta. Permite ao usuário encontrar outros usuários para seguir e
 ### Tabs (segmented control)
 
 As abas usam o **segmented control de vidro**, padronizado com a tela de Comunidade (`docs/07-comunidade.md`):
-- Container `rounded-xl` com fundo glass (`linear-gradient` + `backdrop-filter blur(20px) saturate(160%)`) e borda `rgba(255,255,255,.10)`
+- Container `rounded-xl` com fundo glass (`linear-gradient` + `backdrop-filter blur(20px) saturate(160%)`) e borda `rgba(255,255,255,.10)` — é UM elemento, então o blur fica; os cards das listas não têm blur (ver "Voltar de um perfil")
 - Cada aba é um `<button>` com ícone Lucide + label
 - Aba ativa: `bg-brand text-white`; inativa: `text-white/50 hover:text-white/80`
 - Ícones: `Users` (Pessoas), `Dumbbell` (Exercícios), `Salad` (Dietas), `Hash` (Tags)
@@ -110,6 +110,15 @@ Todas as abas usam **skeleton**, nunca o texto "Carregando…" (exigência do de
   - Aba Dietas: "Busque por dietas"
 - Ao digitar, filtra usuários via `searchUsersDb(query)`
 - Lista inicial carregada com todos os usuários via `getAllUsersDb()`
+- **Voltar de um perfil (2026-09-30):** abrir um perfil e voltar remonta a tela, e no iPhone a lista aparecia pela metade ou vazia até rolar. Eram duas causas:
+  - **Blur em cada card.** Até 100 cards tinham `backdrop-filter: blur+saturate`, e o WebKit não pintava todas as camadas.
+  - **Tela zerada no remount.** A tela remontava vazia e passava por skeleton antes de a lista voltar.
+
+  Correções:
+  - Os cards de lista (usuário e rotina) usam `LIST_CARD_STYLE`: o mesmo gradiente, borda e brilho interno, **sem** `backdrop-filter` (design system §0.3).
+  - Um snapshot em módulo (`peopleSnapshot`: lista, seguidos, rotinas copiadas, por conta) faz a tela reaparecer **inteira no 1º frame**. A atualização roda em segundo plano, sem skeleton.
+  - Numa navegação `POP` com a aba Pessoas e sem busca, o scroll volta ao ponto em que o perfil foi aberto (`peopleScrollY`, gravado em `openProfile`, restaurado num `useLayoutEffect` antes do paint).
+  - Sem snapshot, `isLoadingPeople` já nasce `true`. Antes, o 1º frame mostrava o estado vazio "Nenhuma pessoa".
 
 ### Card de Usuário
 
@@ -120,7 +129,7 @@ Cada usuário exibe:
 |---|---|
 | Avatar | Foto de perfil (fallback: div cinza) |
 | Nome / Nickname | Clicável — navega para `/usuario/:userId`. Exibe `VerifiedBadge` (dourado = oficial, azul = verificado) quando `verifiedTier` vem preenchido de `searchUsersDb`/`getAllUsersDb` |
-| Botão Follow/Unfollow | Toggle de seguimento |
+| Botão Follow/Unfollow | Toggle de seguimento. Deixar de seguir pede confirmação ("Deixar de seguir {nome}?") — ver `FollowButton` em `13-layouts-e-componentes.md` |
 
 **Botão Follow:**
 - Ícone `UserPlus` (não seguindo) → chama `followUserDb`

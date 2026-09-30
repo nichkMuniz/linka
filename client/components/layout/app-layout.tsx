@@ -538,13 +538,21 @@ export function AppLayout() {
 
   const loadProfilePhoto = React.useCallback(async () => {
     if (!user) return;
-    try {
-      const profile = await getUserProfileDb(user.id);
-      if (profile?.photo) {
-        setProfilePhoto(profile.photo);
+    // A leitura do perfil no instante do login às vezes falha (volta null) —
+    // e o header ficava com o avatar genérico até um refresh global. O próprio
+    // perfil sempre existe, então null aqui é falha: tenta mais duas vezes.
+    // (O null não é mais guardado no cache, ver `skipNull` em ritmofit-db.)
+    for (const delay of [0, 1500, 4000]) {
+      if (delay) await new Promise((r) => setTimeout(r, delay));
+      try {
+        const profile = await getUserProfileDb(user.id);
+        if (profile) {
+          if (profile.photo) setProfilePhoto(profile.photo);
+          return;
+        }
+      } catch (err) {
+        console.error("Error loading profile photo:", err);
       }
-    } catch (err) {
-      console.error("Error loading profile photo:", err);
     }
   }, [user]);
 

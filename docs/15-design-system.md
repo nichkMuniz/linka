@@ -32,6 +32,13 @@ Ou seja: a regra "nunca hardcode cor" (§15) continua valendo para **tudo que n�
 - **Não** empilhe blur decorativo: brilhos de fundo ("auras", "orbs") devem ser `radial-gradient` pintado direto, **nunca** um `div` com `filter: blur(65px)`. Feed, Metas e Notificações já foram convertidos (2026-07-13)
 - Reserve `backdrop-filter` para o que precisa mesmo do efeito de vidro sobre conteúdo em movimento: header, bottom nav, barras de ação e drawers
 - `saturate()` junto do `blur()` aproximadamente dobra o custo do filtro — use com parcimônia
+- **Vidro SOBRE FOTO é quase transparente (2026-09-30).** A pílula do autor (`GLASS_TOP`) e a barra de incentivos (`GLASS_ACTION`), ambas em `post-visuals.tsx`, ficam sobre a foto do post. Com blur de 10–12px a pílula virava um borrão fosco e escondia o que havia atrás (numa selfie, o rosto). Valores atuais:
+  - `GLASS_TOP`: blur de **2px**, véu escuro `rgba(0,0,0,.10→.14)`.
+  - `GLASS_ACTION`: blur de **4px**, véu `rgba(0,0,0,.12→.20)`.
+  - Ambos mantêm a borda `rgba(255,255,255,.14–.16)` e o brilho interno, que continuam desenhando a peça.
+  - **Legibilidade vem da sombra do texto, não de esconder a foto:** nome e tempo usam `GLASS_TEXT_SHADOW` (`0 1px 3px rgba(0,0,0,.6)`).
+  - **Regra:** nada que fica por cima do conteúdo do usuário deve borrá-lo a ponto de escondê-lo.
+- **Listas longas: card sem `backdrop-filter`.** Mantenha o gradiente, a borda e o brilho interno, e tire só o blur. Em Buscar, 100 cards com blur faziam o WebKit deixar a lista pela metade ou vazia ao voltar de um perfil, até a pessoa rolar a tela (2026-09-30, `LIST_CARD_STYLE` em `Search.tsx`). Sobre a aura parada, o blur não muda nada no visual.
 
 ---
 
