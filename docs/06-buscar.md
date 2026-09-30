@@ -102,6 +102,8 @@ Todas as abas usam **skeleton**, nunca o texto "Carregando…" (exigência do de
 ## Tab: Usuários
 
 ### Campo de Busca
+- **Brilho de fundo (2026-09-30):** `ScreenAura variant="neutral"`, fora do `space-y-4` (num fragment) para não empurrar o campo.
+- **Lupa dentro do campo (2026-09-30):** ícone `Search` (18px, `text-white/45`) à esquerda, `pl-11` no `Input` — mesmo padrão da busca de conversas da Comunidade.
 - Input de texto com debounce e placeholder dinâmico por aba:
   - Aba Pessoas: "Busque por pessoas"
   - Aba Treinos: "Busque por treinos"
@@ -110,6 +112,8 @@ Todas as abas usam **skeleton**, nunca o texto "Carregando…" (exigência do de
 - Lista inicial carregada com todos os usuários via `getAllUsersDb()`
 
 ### Card de Usuário
+
+> **Seguir / Seguindo (2026-09-30):** o `FollowButton` (variante `default`, compartilhada com perfil, listas de seguidores, notificações e sugestões do feed) segue a hierarquia de botões do design system: **"Seguir" = branco** (ação principal, texto `#0a0b12`) e **"Seguindo" = secundário** (vidro `rgba(255,255,255,.09)`, texto branco/85, sem borda). Antes o "Seguindo" era um outline escuro que parecia o botão mais forte da linha.
 
 Cada usuário exibe:
 | Elemento | Descrição |

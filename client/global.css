@@ -50,6 +50,9 @@
     --brand-2: 28 100% 58%;  /* #FF8A2A laranja */
     --brand-3: 263 89% 60%;  /* #7B3FF2 roxo */
 
+    /* Contador de não lidas — cor ÚNICA em todo o app (sino, menu, conversas) */
+    --unread: 13 100% 67%;   /* #ff7a59 coral */
+
     --sidebar-background: 0 0% 100%;
     --sidebar-foreground: 222 24% 18%;
     --sidebar-primary: 214 100% 61%;
@@ -97,6 +100,8 @@
     --brand-2: 28 100% 58%;  /* #ff8a2a laranja */
     --brand-3: 263 70% 65%;  /* #9d6bff roxo */
 
+    --unread: 13 100% 67%;   /* #ff7a59 coral — ver :root */
+
     --sidebar-background: 230 33% 3%;
     --sidebar-foreground: 0 0% 96%;
     --sidebar-primary: 221 100% 67%;
@@ -118,6 +123,11 @@
     scrollbar-gutter: stable;
     /* Sidebar width token — used to offset fixed-positioned modals in desktop */
     --sidebar-w: 0px;
+    /* Faixa reservada no topo do <main> para o header flutuante (vidro):
+       topo seguro + 52px do header + 12px de respiro. Fonte única — o AppLayout
+       usa como padding-top, e telas que querem um fundo POR TRÁS do header
+       (capa do Perfil) sobem esse mesmo valor com margem negativa. */
+    --app-header-offset: calc(max(14px, env(safe-area-inset-top) + 6px) + 52px + 12px);
     /* Disables native elastic bounce — WKWebView detaches/misplaces position:fixed
        elements (header/bottom nav) mid-bounce, worse on tall-safe-area devices.
        Our own pull-to-refresh (Index.tsx) drives its own transform instead. */

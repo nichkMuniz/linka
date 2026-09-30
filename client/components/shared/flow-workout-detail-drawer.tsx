@@ -21,6 +21,7 @@ import {
 import {
   formatStickerDate,
   formatStickerDuration,
+  formatStickerExercise,
   formatStickerVolume,
   isStickerFieldShown,
 } from "@/components/shared/flow-workout-sticker";
@@ -84,8 +85,7 @@ export function FlowWorkoutDetailDrawer({
     return () => { alive = false; };
   }, [workout, authorId, user?.id, isOwner]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const formatSession = (ex: StoryWorkoutSticker["exercises"][number]) =>
-    ex.isCardio ? `${ex.kg} min` : ex.kg > 0 ? `${ex.sets}× ${ex.kg}kg` : `${ex.sets}×`;
+  const formatSession = formatStickerExercise;
 
   const routineAvailable = !!session?.found;
   const fullSession = session?.exercises ?? null;

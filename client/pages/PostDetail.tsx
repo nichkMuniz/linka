@@ -285,7 +285,8 @@ export default function PostDetail() {
             style={{ background: "linear-gradient(to bottom,rgba(0,0,0,.1) 0%,transparent 28%,transparent 55%,rgba(0,0,0,.65) 100%)", ...holdHiddenStyle }}
           />
 
-          {/* Compact pill — user identity (top-left) */}
+          {/* Compact pill — user identity (top-left). Meta e treino (halter, só
+              ícone) são selos DENTRO da pílula — mesmo layout do PostCard. */}
           <div
             className="absolute top-3 left-3 inline-flex items-center gap-2 pointer-events-auto z-10"
             style={{ height: "44px", borderRadius: "22px", padding: "0 12px 0 6px", ...GLASS_TOP, ...holdHiddenStyle }}
@@ -307,7 +308,7 @@ export default function PostDetail() {
               onClick={() => navigate(`/usuario/${post.user_id}`)}
             >
               <div className="text-[13px] font-semibold text-white flex items-center gap-1 leading-tight" style={{ maxWidth: "160px" }}>
-                <span className="truncate">{post.userNickname}</span>
+                <span className="truncate min-w-0">{post.userNickname}</span>
                 {post.isVerified && <VerifiedBadge size="sm" tier={post.verifiedTier} />}
               </div>
               <div className="text-[10.5px] text-white/60 leading-tight">{formatTimeAgo(post.created_at)}</div>
@@ -326,6 +327,17 @@ export default function PostDetail() {
               >
                 🎯 {Math.round(Math.min(100, Math.max(0, postGoal.perc ?? 0)))}%
               </button>
+            )}
+
+            {/* "Ver treino" — os dados do autor habilitam o "Comparar" DENTRO do drawer. */}
+            {FEATURES.workoutDetailOnPost && post.workoutSummary && (
+              <WorkoutDetailButton
+                summary={post.workoutSummary}
+                authorId={post.user_id}
+                authorNickname={post.userNickname ?? null}
+                authorPhoto={post.userPhoto ?? null}
+                variant="icon"
+              />
             )}
           </div>
 
@@ -380,6 +392,22 @@ export default function PostDetail() {
 
           {/* Bottom: description + glass action bar */}
           <div className="absolute bottom-3 left-3 right-3 z-10 pointer-events-auto" style={holdHiddenStyle}>
+            {/* Carousel indicator — ACIMA da legenda (2026-09-30) */}
+            {photos && photos.length > 1 && (
+              <div className="flex justify-center gap-1 mb-2.5 pointer-events-none">
+                {photos.map((_, index) => (
+                  <div
+                    key={index}
+                    className={cn(
+                      "h-1.5 rounded-full transition-all duration-200",
+                      carouselIndex === index ? "w-4 bg-white" : "w-1.5 bg-white/50",
+                    )}
+                    style={{ boxShadow: "0 1px 4px rgba(0,0,0,.45)" }}
+                  />
+                ))}
+              </div>
+            )}
+
             {/* Repost — crédito do autor original; o toque abre o post dele */}
             {post.repostOf && (
               <div className="mb-2">
@@ -458,35 +486,6 @@ export default function PostDetail() {
                   </>
                 )}
               </p>
-            )}
-
-            {/* Workout summary — "Ver treino" abre o detalhe; os dados do autor
-                habilitam o botão "Comparar" DENTRO do drawer. */}
-            {FEATURES.workoutDetailOnPost && post.workoutSummary && (
-              <div className="mb-2.5 px-1">
-                <WorkoutDetailButton
-                  summary={post.workoutSummary}
-                  authorId={post.user_id}
-                  authorNickname={post.userNickname ?? null}
-                  authorPhoto={post.userPhoto ?? null}
-                />
-              </div>
-            )}
-
-            {/* Carousel indicator — sits right above the incentive action bar */}
-            {photos && photos.length > 1 && (
-              <div className="flex justify-center gap-1 mb-2.5 pointer-events-none">
-                {photos.map((_, index) => (
-                  <div
-                    key={index}
-                    className={cn(
-                      "h-1.5 rounded-full transition-all duration-200",
-                      carouselIndex === index ? "w-4 bg-white" : "w-1.5 bg-white/50",
-                    )}
-                    style={{ boxShadow: "0 1px 4px rgba(0,0,0,.45)" }}
-                  />
-                ))}
-              </div>
             )}
 
             {/* Glass action bar */}

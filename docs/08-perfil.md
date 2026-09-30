@@ -84,21 +84,25 @@ Página de perfil do usuário. Exibe informações pessoais, estatísticas, cont
 
 > **Atualização (Glass design):** O cabeçalho foi equalizado ao design "LinKa Glass".
 > - **Banner gradiente** no topo: `radial-gradient(120% 100% at 60% 0%,#d8567a,#7b3ff2 55%,#1a1438 90%)` com fade para `#06070c`.
+> - **Capa por trás do header (2026-09-30):** o bloco do cabeçalho sobe com `marginTop: calc(-1 * var(--app-header-offset))` — a faixa que o `AppLayout` reserva para o header flutuante — então a capa começa no topo da tela, por trás do vidro, sem a faixa preta que havia entre header e capa (o inline também anula o `mt-6` do `space-y-6`). Altura = `COVER_HEIGHT` (`calc(210px + var(--app-header-offset))`: os mesmos 210px visíveis abaixo do header). O conteúdo desce na mesma medida (`paddingTop: calc(80px + offset)`) e os botões sobre a capa (trocar/remover, voltar) usam `COVER_CONTROLS_TOP` (logo abaixo do header).
+> - **Esmaecer sem corte (2026-09-30):** o degradê para `#06070c` agora tem **a mesma altura da capa** e chega à cor exata do fundo no fim dela. Antes ele tinha 270px sobre uma capa de 210px, e a capa terminava num corte seco atrás do nome.
 > - **Avatar à esquerda** (88px) com anel `conic-gradient(from 200deg,#ff8a2a,#d8567a,#7b3ff2,#3a8dff,#ff8a2a)` e borda interna `3px solid #06070c`.
-> - **Ações à direita** na mesma linha do avatar: próprio perfil → botão circular de engrenagem (42px) + pílula branca "Editar perfil"; outro perfil → `FollowButton` + botões circulares de mensagem e compartilhar.
+> - **Ações à direita** na mesma linha do avatar: próprio perfil → só o botão circular de engrenagem (42px); outro perfil → `FollowButton` + botões circulares de mensagem e compartilhar.
+> - **Editar e Compartilhar lado a lado (2026-09-30, próprio perfil):** linha própria logo abaixo da bio, dois botões com o **mesmo peso** (secundários, `flex-1`, 40px, `rgba(255,255,255,.09)`): "Editar perfil" (abre o `SettingsDrawer` na edição) e "Compartilhar perfil" (abre o `ShareDrawer` com `profileShareUrl(user.id)` e o texto `profile_share_own`). Antes era uma pílula branca "Editar perfil" ao lado do avatar e não havia como compartilhar o próprio perfil daqui.
 > - **Nome/handle/bio alinhados à esquerda** (nome 21px peso 740, handle 13px branco .5, bio 13.5px branco .82).
 > - **Stats em 3 cards** (Posts, Seguidores, Seguindo) com `rounded-18px`, fundo `rgba(255,255,255,.05)`, número 17px peso 740.
 > - **Tabs em estilo underline** (transparente, indicador `border-b-2` branco no ativo) em vez do `TabsList` boxed. Com as abas **Treinos** e **Marcações** são até 5 abas, que não cabem na largura do iPhone — o `TabsList` ganhou `overflow-x-auto no-scrollbar` (gap reduzido para `gap-5`) e cada `TabsTrigger` é `shrink-0 whitespace-nowrap`, então a linha **rola na horizontal** em vez de comprimir/quebrar os rótulos.
 >   **O scroll é condicional desde 2026-09-14** (`visibleTabCount > 1`): no recorte v1 sobra só "Publicações", e a faixa continuava arrastando / dando rubber-band no WKWebView sem ter nada escondido — uma tira que se mexe à toa parece defeito. Com uma aba só não se declara overflow nenhum (e não `overflow-hidden`, que recortaria o sublinhado da aba ativa, desenhado com `-mb-px` por cima da borda da lista). Religar as flags devolve o scroll sozinho. `visibleTabCount` fica logo antes do `return` e precisa ser atualizado junto com qualquer aba nova.
-> - **Grids de posts/shots** em 3 colunas, `gap-[5px]`, itens `rounded-[14px]`.
+> - **Grids de posts/treinos/shots/marcações** quase encostadas (2026-09-30): 3 colunas, `gap-[3px]`, tiles com **cantos de 12px** e só 4px de margem até a borda da tela (`-mx-3` dentro do `px-4` das Tabs) — rente à borda, o canto arredondado parecia cortado. Antes: `gap-[5px]`, `rounded-[14px]` e a margem inteira de 16px.
 > - **Back chip** circular no topo-esquerdo apenas ao visualizar o perfil de outro usuário.
 > - O trigger do `SettingsDrawer` agora é externo (props `open`/`onOpenChange`/`hideTrigger`); a engrenagem e o botão "Editar perfil" abrem o mesmo drawer.
 
 ### Foto e Banner
-- **Banner:** por padrão é um gradiente colorido radial. No próprio perfil, dois botões circulares "glass" no canto superior direito permitem personalizá-lo:
-  - **Editar capa** (ícone `ImagePlus`) → abre seletor de imagem → `ImageCropperDrawer` (aspecto 16/9) → upload para o bucket `posts` (`covers/{userId}-{timestamp}.jpg`) → salvo em `profiles.cover_photo` via `updateUserProfileDb`
+- **Banner:** por padrão é um gradiente colorido radial. No próprio perfil, **um** botão circular "glass" no canto superior direito (logo abaixo do header) permite personalizá-lo — **sem capa**: `ImagePlus` abre direto o seletor; **com capa** (2026-09-30): `…` (`MoreHorizontal`, `aria-label` "Opções da capa") abre um `DropdownMenu` com **Trocar capa** e **Remover capa** (em vermelho). Antes eram dois círculos lado a lado (lixeira + imagem):
+  - **Editar capa** (ícone `ImagePlus`) → abre seletor de imagem → o banner entra em **modo de ajuste no próprio frame** (sem tela de crop separada): `InlineCropPreview` ocupa o banner inteiro (`COVER_HEIGHT`, incluindo a faixa por trás do header) — arrastar reposiciona, pinça dá zoom (1×–5×), grade de terços como guia. Chip "Arraste e pince para ajustar" à esquerda; à direita **Cancelar** (`X`, descarta) e **Salvar** (`Check`) → `applyTransformToBlob` recorta com as medidas do próprio banner (o enquadramento é exatamente o que aparece depois) → upload para o bucket `posts` (`covers/{userId}-{timestamp}.jpg`) → salvo em `profiles.cover_photo` via `updateUserProfileDb`. Em erro o modo de ajuste continua aberto para tentar de novo
+  - Durante o ajuste o cabeçalho (avatar, botões, bio) fica `pointer-events-none`: continua visível sobre a foto (prévia fiel), mas o gesto chega ao banner por baixo
   - **Remover capa** (ícone `Trash2`, só aparece quando há capa) → confirmação → volta ao gradiente padrão (`cover_photo = null`)
-  - Quando `profile.cover_photo` está preenchido, a imagem (via `ImageWithFallback`, `object-cover`, altura 210px) substitui o gradiente; o fade inferior para `#06070c` é mantido para legibilidade do texto
+  - Quando `profile.cover_photo` está preenchido, a imagem (via `ImageWithFallback`, `object-cover`, altura `COVER_HEIGHT`) substitui o gradiente. Capas salvas antes de 2026-09-30 foram recortadas para um banner mais baixo; no banner novo (mais alto) o `object-cover` corta um pouco das laterais até a pessoa reenviar a capa; o fade inferior para `#06070c` é mantido para legibilidade do texto
   - Botões visíveis apenas no próprio perfil; no perfil de outro usuário a capa é somente exibida
 - **Avatar:** foto de perfil circular, clicável para ampliar ou editar
 
@@ -109,6 +113,19 @@ Página de perfil do usuário. Exibe informações pessoais, estatísticas, cont
 | Bio | Descrição pessoal |
 | Segmentos | Interesses fitness selecionados no onboarding |
 | Data de criação | "Membro desde..." |
+
+### Publicações em tela cheia — `ProfilePostsViewer` (2026-09-30)
+
+Tocar numa miniatura (abas Publicações, Treinos e Marcações) abre uma **tela cheia** com as publicações daquela aba em sequência, **rolada até o post tocado** — no lugar do drawer próprio que o Perfil tinha (título "Post", foto encaixada sobre preto, legenda cortada em 30 caracteres com "...." duplicado, data em fonte monoespaçada, incentivos soltos e botões Editar/Deletar sempre à vista). Arquivo: `client/components/profile/profile-posts-viewer.tsx`.
+
+- **Cada post é o `PostCard` do feed** — pílula do autor com meta e halter, legenda sobre a foto, barra de incentivos com contador, comentários. O post é idêntico no feed, no "Ver post" e no Perfil.
+- **Barra própria:** voltar + título da aba ("Publicações" / "Treinos" / "Marcações") + `@handle`. O header e o menu do `AppLayout` somem via `data-fullscreen-step` enquanto está aberta; a rolagem da página por trás é travada.
+- **`z-[45]`**: acima da página e **abaixo** dos drawers/diálogos (`z-50`) que o card abre — comentários, compartilhar, editar, denunciar.
+- **Dados:** os posts da aba (`feedPosts`/`workoutPosts`/`taggedPosts`, com autor, meta, marcações, resumo de treino e repost **embutidos**) entram na hora; incentivos e contagem de comentários chegam em lote por `withPostStats` (`client/services/post.service.ts`, as mesmas 2 consultas do feed). No próprio perfil, `ownerGoals` preenche o selo da meta **privada** do dono (o `userGoal` embutido só vem para meta pública).
+- **Ações do ⋮ (as do feed):** Compartilhar → `ShareDrawer` do Perfil + `usePostReshare` (inclui "Seu feed"/"Seu flow" para quem está marcado — substitui o antigo botão "Recompartilhar"); Editar → `EditPostDrawer` (legenda, meta, marcações e remover foto do carrossel); Excluir → confirmação; Denunciar/Bloquear em posts de outra pessoa. Meta → `GoalDetailDrawer` somente leitura (igual ao PostDetail).
+- **Perfil é avisado** de exclusão (`onPostDeleted`: tira da grade e do contador) e edição (`onPostEdited`: legenda/marcações na grade). Bloquear fecha a tela e volta (`navigate(-1)`).
+
+> As seções abaixo sobre o "viewer de post"/"Post Viewer" descrevem o **drawer antigo** (removido em 2026-09-30) e ficam como histórico das regras que o `ProfilePostsViewer` preserva: permissões pelo dono do **post** (o `PostCard` usa `post.user_id === currentUserId`), marcações com lista 2+, meta privada do dono.
 
 ### Recompartilhar e reposts no viewer de post (2026-09-28)
 - **Botão "Recompartilhar"** (`Repeat2`) no viewer de post quando o usuário logado está **marcado** num post de **outra pessoa** (`canReshareSelectedPost`). Abre o `ShareDrawer` do perfil, agora configurável por `shareDrawerTitle`, com "Seu feed" e "Seu flow" (hook `usePostReshare`). "Seu flow" pergunta **Postar agora** ou **Editar antes de postar** (29/09/2026); editar leva ao Feed com o criador de flow aberto. O compartilhar do perfil chama `postReshare.prepare(null)`, então esses botões não aparecem lá.
@@ -154,8 +171,9 @@ Página de perfil do usuário. Exibe informações pessoais, estatísticas, cont
 ### Botões de Ação
 
 **Perfil próprio:**
-- `Editar perfil` → Drawer de edição
-- `Configurações` → Drawer de configurações
+- `Editar perfil` → Drawer de edição (linha abaixo da bio)
+- `Compartilhar perfil` → `ShareDrawer` com o link do próprio perfil (mesma linha, mesmo peso)
+- `Configurações` → Drawer de configurações (engrenagem ao lado do avatar)
 
 **Perfil de outro usuário:**
 - `Seguir` / `Seguindo` → toggle via `followUserDb` / `unfollowUserDb`
@@ -179,11 +197,12 @@ Grade de imagens dos posts do usuário — **exceto** os resumos de treino sem f
 
 > **Contagem no rótulo (26/08/2026):** `Posts (n)` passou a usar `feedPosts.length` (a lista já filtrada) em vez de `stats.postsCount`. O card de stats do cabeçalho continua mostrando o total de publicações — `Posts (n) + Treinos (n)` é que fecha com ele.
 
-**Layout:** Grid 3 colunas (mobile) / 4–6 colunas (telas maiores), `gap-[5px]`, itens `rounded-[14px]`
+**Layout:** Grid 3 colunas (mobile) / 4–6 colunas (telas maiores), `gap-[3px]`, itens `rounded-[12px]`, 4px da borda da tela
 
 Cada post na grade:
 - Thumbnail da primeira imagem (`loading="lazy"` + `decoding="async"` — até 100 posts não carregam todos de uma vez)
-- Ao clicar → abre o post no drawer (Post Viewer)
+- **Várias fotos:** selo `MultiPhotoBadge` no canto (pílula de vidro escuro com o ícone `GalleryHorizontalEnd` + a quantidade — 2026-09-30; antes era um quadradinho branco com emoji 📷 que destoava do app)
+- Ao clicar → abre as **Publicações em tela cheia** (`ProfilePostsViewer`) rolada até este post
 
 **Menu de contexto (próprio perfil apenas):**
 - `Editar` → Drawer com textarea para editar descrição
@@ -222,12 +241,12 @@ Grade dos **cards de resumo de treino** publicados pelo usuário — os canvas g
 
 O que decide é o campo **`userPhotoCount`** do `posts.workout_summary` — quantas fotos **da pessoa** entraram no post (o card gerado e o mapa do trajeto **não** contam), gravado por `buildPostWorkoutSummary` no momento do compartilhamento. Para posts publicados **antes de 26/08/2026** (sem o campo) vale um fallback baseado na **ordem** em que o overlay monta as URLs — fotos do usuário → mapa → canvas: se a **primeira** imagem do post é o próprio canvas (`workout_summary.imageUrl`), não havia foto do usuário. Consequência conhecida: um resumo **antigo** de corrida com mapa começa pelo mapa e permanece na aba Posts (degradação graciosa; resumos novos caem na aba certa).
 
-**Layout:** mesmo grid das outras abas — 3 colunas (mobile) / 4–6 (telas maiores), `gap-[5px]`, itens `rounded-[14px]`
+**Layout:** mesmo grid das outras abas — 3 colunas (mobile) / 4–6 (telas maiores), `gap-[3px]`, itens `rounded-[12px]`
 
 Cada item na grade:
 - Thumbnail = **`workout_summary.imageUrl`** (o card gerado), com fallback para `post.photo`. Usar o `imageUrl` em vez da primeira foto importa nas corridas com GPS, em que a primeira imagem do post é o **mapa do trajeto** — a aba mostraria um mapa onde deveria mostrar o card
 - Sem indicador de carrossel: o post pode ter 2 imagens (mapa + card), mas as duas são geradas pelo app
-- Ao clicar → abre o **mesmo** Post Viewer da aba Posts (`handleViewPost`), com o pill "Ver treino" e todos os incentivos/comentários
+- Ao clicar → abre o `ProfilePostsViewer` com a lista da aba **Treinos** (título "Treinos"), rolada até o post tocado
 
 **Privacidade:** mesma regra das abas Posts, Shots e Marcações — com `hide_posts_from_non_followers` ligado, um não seguidor vê o estado bloqueado ("Publicações privadas" + cadeado).
 
@@ -287,13 +306,13 @@ Grade das publicações **de outras pessoas** em que o dono do perfil foi marcad
 
 > Exemplo: A publica uma foto no feed e marca B nela. No perfil de **B**, essa publicação de **A** aparece na aba Marcações. A aba nunca lista posts do próprio dono do perfil — ninguém pode se marcar (`createPostDb`/`setPostTagsDb` filtram o próprio id).
 
-**Layout:** Grid 3 colunas (mesmo grid dos posts), `gap-[5px]`, itens `rounded-[14px]`
+**Layout:** Grid 3 colunas (mesmo grid dos posts), `gap-[3px]`, itens `rounded-[12px]`
 
 Cada item na grade:
 - Thumbnail da primeira imagem (`loading="lazy"` + `decoding="async"`)
-- Indicador de carrossel (📷 + contagem) quando o post tem mais de uma foto — igual à aba Posts
+- Indicador de carrossel (`MultiPhotoBadge`: pílula de vidro escuro com ícone de carrossel + contagem) quando o post tem mais de uma foto — igual à aba Posts
 - **Chip do autor no rodapé do tile** (avatar 16px + nickname sobre um gradiente preto). Diferente das abas Posts e Shots, a foto **não é do dono do perfil** — sem o chip não dá para saber de quem é a publicação sem abri-la
-- Ao clicar → abre o **mesmo** Post Viewer da aba Posts (`handleViewPost`)
+- Ao clicar → abre o `ProfilePostsViewer` com a lista da aba **Marcações**, rolada até o post tocado
 
 **Privacidade:** segue a mesma regra das abas Posts e Shots — com `hide_posts_from_non_followers` ligado, um não seguidor vê o estado bloqueado ("Marcações privadas" + cadeado).
 
@@ -437,6 +456,10 @@ Agora é `handleChangeEmail`, com quatro correções:
 2. **Cada motivo com sua mensagem** — email inválido, já cadastrado, sessão expirada (401/`session_not_found`: pedir de novo não adianta, precisa entrar de novo), teto de envio (429/`over_email_send_rate_limit` — o SMTP embutido do Supabase é de poucos emails por hora) e offline. O que sobra mostra **a mensagem real do servidor** e chama `reportHandledError("settings:change-email")`, conforme a regra de que `catch` + toast sozinho nunca é capturado.
 3. **A mensagem de sucesso deixou de ser um chute.** Antes afirmava sempre "confirmação enviada, verifique seu novo email" — mas o envio do link depende da configuração do projeto, e prometer um email que nunca chega é indistinguível de falha. Agora o resultado é **lido da resposta**: `data.user.email` já trocado → "Email alterado"; `data.user.new_email` preenchido → "Confirmação enviada". Resposta 200 que não reflete nem um nem outro é reportada, não comemorada.
 4. **O endereço exibido atualiza.** `userEmail` vem de `user.email` do `auth-context`, onde `setUserIfChanged` só troca o objeto quando muda o **id** (de propósito: um refresh de token não pode invalidar os memos do app inteiro). O efeito colateral é que `USER_UPDATED` não propaga o email novo — a troca dava certo e o campo continuava mostrando o antigo. O drawer guarda o valor em `changedEmail` e usa `currentEmail = changedEmail ?? userEmail`.
+
+**Recusa do servidor ≠ formato inválido (2026-09-29).** `isValidEmail` aceita `.com.br`, `.gov.br`, `.br` etc. — se o endereço passou nele e o GoTrue ainda responde `email_address_invalid`/`validation_failed`, quem recusou foi o **Supabase Auth** (tipicamente domínio que não recebe email ou domínio bloqueado). Antes isso mostrava o mesmo toast de formato inválido, e parecia que o app barrava `.com.br`. Agora tem mensagem própria (`settings_email_rejected`, com o `message` literal do servidor entre parênteses) e vai ao Sentry como `settings:change-email-rejected` com **só o domínio** no contexto (nunca o email inteiro).
+
+**Confirmação em dois links (2026-09-29).** O projeto usa o **"Secure email change"** do Supabase (Auth → Providers → Email), ligado por padrão: o GoTrue manda um link para o email **atual** e outro para o **novo**, e a troca só vale depois dos dois. Clicar só em um redireciona com `#message=Confirmation link accepted. Please proceed to confirm link sent to the other email` — mas `public/email-confirmado.html` dizia "Email confirmado" sempre, e parecia que a troca falhava. A página agora lê o fragmento: `access_token` → concluído; `message` sem token → estado "Falta só mais um passo (1/2)"; `error`/`error_description` → link vencido/usado. **Decisão (mesma data): "Secure email change" foi DESLIGADO no painel, de propósito** — quem troca de email muitas vezes perdeu acesso ao antigo, então exigir o link na caixa antiga travava justamente esse caso. Agora só o link do email **novo** é enviado, e o toast de envio (`settings_email_confirm_desc`) avisa apenas isso. O estado "1/2" da página continua lá, mas só aparece se a opção for religada.
 
 O helper `isValidEmail` saiu do `Login.tsx` para `client/lib/ritmofit-db.ts`, ao lado de `checkEmailExistsDb` — as duas telas que aceitam email precisam das duas checagens sempre juntas.
 
@@ -667,6 +690,7 @@ Exibida entre o card de perfil e as tabs, **apenas quando o usuário tem metas**
 | Funcionalidade | Próprio | Outro usuário |
 |---|---|---|
 | Editar perfil | ✅ | ❌ |
+| Compartilhar perfil | ✅ (botão ao lado de Editar) | ✅ (botão circular) |
 | Configurações | ✅ | ❌ |
 | Excluir posts/shots | ✅ | ❌ |
 | Editar posts/shots | ✅ | ❌ |

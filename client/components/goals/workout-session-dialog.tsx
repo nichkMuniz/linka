@@ -1201,6 +1201,7 @@ export function WorkoutSessionDialog({
     workoutRemovedIds, setWorkoutRemovedIds,
     workoutExpandedId: expandedId, setWorkoutExpandedId: setExpandedId,
     maxedExerciseIds, setMaxedExerciseIds,
+    machineDeclinedKg, setMachineDeclinedKg,
     dismissedWarmupIds, setDismissedWarmupIds,
     workoutOrder, setWorkoutOrder,
     workoutCaloriesKcal, setWorkoutCaloriesKcal,
@@ -2124,8 +2125,10 @@ export function WorkoutSessionDialog({
   // acima de MACHINE_MAXED_KG (120kg). Diferente do `notice` (só informativo),
   // este pede uma decisão: confirmar marca o exercício como máquina zerada
   // (borda dourada no card + entra no machinedExercises do resumo). Fica só um
-  // exercício por vez; auto-some após um tempo maior, mas re-pergunta a cada
-  // série pesada enquanto não for marcado (dá margem para dispensar sem querer).
+  // exercício por vez; auto-some após um tempo maior. Se ele SUMIR SOZINHO
+  // (sem resposta), volta na próxima série pesada — dá margem para quem não viu.
+  // Se a pessoa responder "Ainda não", a carga fica guardada em
+  // `machineDeclinedKg` e o convite só volta naquele exercício com carga MAIOR.
   const [machinePrompt, setMachinePrompt] = React.useState<
     { workoutId: string; name: string; kg: number } | null
   >(null);
@@ -2140,6 +2143,17 @@ export function WorkoutSessionDialog({
     setMachinePrompt(null);
   };
   React.useEffect(() => () => { if (machinePromptTimer.current) clearTimeout(machinePromptTimer.current); }, []);
+  // "Ainda não": guarda a carga respondida — o mesmo exercício com a mesma
+  // carga (ou menor) não pergunta de novo; só uma carga maior pergunta.
+  const declineMachineMaxed = () => {
+    if (machinePrompt) {
+      const { workoutId, kg } = machinePrompt;
+      setMachineDeclinedKg((prev) =>
+        (prev[workoutId] ?? 0) >= kg ? prev : { ...prev, [workoutId]: kg },
+      );
+    }
+    dismissMachinePrompt();
+  };
   const confirmMachineMaxed = () => {
     if (!machinePrompt) return;
     const id = machinePrompt.workoutId;
@@ -2816,7 +2830,12 @@ export function WorkoutSessionDialog({
         // "Zerou a máquina?" — série completa acima de 120kg convida a marcar o
         // exercício como máquina zerada. Tem prioridade sobre o aviso de PR (é o
         // flex maior) e não reaparece depois de o exercício já estar marcado.
-        if (kg > MACHINE_MAXED_KG && !maxedExerciseIds.includes(workoutId)) {
+        // Depois de um "Ainda não", só volta se a carga passar da respondida.
+        if (
+          kg > MACHINE_MAXED_KG &&
+          !maxedExerciseIds.includes(workoutId) &&
+          kg > (machineDeclinedKg[workoutId] ?? 0)
+        ) {
           showMachinePrompt({ workoutId, name, kg });
         } else if (best > 0 && kg > best) {
           showNotice({
@@ -3930,7 +3949,7 @@ export function WorkoutSessionDialog({
                 {t("goals_machine_prompt_confirm")}
               </button>
               <button
-                onClick={dismissMachinePrompt}
+                onClick={declineMachineMaxed}
                 style={{
                   padding: "3px 10px", borderRadius: 10, border: "none", cursor: "pointer",
                   fontSize: 11, fontWeight: 600, color: "rgba(255,255,255,0.6)",

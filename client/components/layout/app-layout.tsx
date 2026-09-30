@@ -863,9 +863,12 @@ export function AppLayout() {
 
   const allSidebarItems = [...mainNavItems, ...sidebarExtraItems];
 
+  // `isolate`: abre um stacking context aqui. Sem ele, os brilhos de fundo das
+  // telas (`fixed inset-0 -z-10`, Feed e Notificações) eram pintados ATRÁS do
+  // bg-background deste container e ficavam invisíveis.
   return (
     <div
-      className="min-h-dvh bg-background"
+      className="min-h-dvh bg-background isolate"
       style={{ "--sidebar-width": typeof window !== "undefined" && window.innerWidth >= 768 ? (sidebarExpanded ? "244px" : "68px") : "0px" } as React.CSSProperties}
     >
 
@@ -929,7 +932,7 @@ export function AppLayout() {
                   <span className="relative flex-shrink-0">
                     <Icon className="h-6 w-6" />
                     {item.badge && item.badge > 0 ? (
-                      <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold">
+                      <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-unread text-white text-[10px] font-bold">
                         {item.badge > 9 ? "9+" : item.badge}
                       </span>
                     ) : null}
@@ -1087,8 +1090,8 @@ export function AppLayout() {
               <Bell className="h-[18px] w-[18px]" />
               {unreadNotificationsCount > 0 && (
                 <span
-                  className="absolute -top-0.5 -right-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1 text-[10px] font-bold text-white"
-                  style={{ background: "#ff7a59", border: "1.5px solid #06070c" }}
+                  className="absolute -top-0.5 -right-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-unread px-1 text-[10px] font-bold text-white"
+                  style={{ border: "1.5px solid #06070c" }}
                 >
                   {unreadNotificationsCount > 9 ? "9+" : unreadNotificationsCount}
                 </span>
@@ -1127,7 +1130,7 @@ export function AppLayout() {
           )}
           style={
             !isFullscreenPage && location.pathname !== "/shots"
-              ? { paddingTop: "calc(max(14px, env(safe-area-inset-top) + 6px) + 52px + 12px)" }
+              ? { paddingTop: "var(--app-header-offset)" }
               : undefined
           }
         >
@@ -1202,8 +1205,8 @@ export function AppLayout() {
                     <Icon className={isCenter ? "h-5 w-5 text-white" : "h-[22px] w-[22px]"} />
                     {item.badge && item.badge > 0 ? (
                       <span
-                        className="absolute -top-0.5 -right-0.5 flex h-[17px] min-w-[17px] items-center justify-center rounded-full px-1 text-[10px] font-bold text-white"
-                        style={{ background: "#5b8cff", border: "1.5px solid #0a0b12" }}
+                        className="absolute -top-0.5 -right-0.5 flex h-[17px] min-w-[17px] items-center justify-center rounded-full bg-unread px-1 text-[10px] font-bold text-white"
+                        style={{ border: "1.5px solid #0a0b12" }}
                       >
                         {item.badge > 9 ? "9+" : item.badge}
                       </span>

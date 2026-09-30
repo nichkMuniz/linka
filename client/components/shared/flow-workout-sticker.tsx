@@ -80,6 +80,20 @@ export function formatStickerDuration(secs: number): string {
 }
 
 /**
+ * Valor à direita de cada exercício do frame: cardio = tempo ("39 min",
+ * "1h 10m"); musculação = "3× 80kg". Fonte única para o frame (React), o
+ * rascunho desenhado em canvas e o drawer "Ver treino" do flow.
+ *
+ * Cardio com 0 minutos só existe em flows postados antes da correção de
+ * 2026-09-30 (o frame levava o bestKg, sempre 0 no cardio): mostra as séries
+ * em vez de um "0 min" falso.
+ */
+export function formatStickerExercise(ex: StoryWorkoutSticker["exercises"][number]): string {
+  if (ex.isCardio) return ex.kg > 0 ? formatStickerDuration(ex.kg * 60) : `${ex.sets}×`;
+  return ex.kg > 0 ? `${ex.sets}× ${ex.kg}kg` : `${ex.sets}×`;
+}
+
+/**
  * "Hoje" / "Ontem" / dd/mm. `date` é ISO com `Z` (gravado por `toISOString()`
  * ao finalizar o treino), então a comparação é feita em dia LOCAL.
  */
@@ -219,11 +233,7 @@ export function FlowWorkoutSticker({ data, scale = 1, className, interactive = f
                 className="shrink-0"
                 style={{ fontSize: 10.5, fontWeight: 700, color: "rgba(255,255,255,.6)" }}
               >
-                {ex.isCardio
-                  ? `${ex.kg} min`
-                  : ex.kg > 0
-                    ? `${ex.sets}× ${ex.kg}kg`
-                    : `${ex.sets}×`}
+                {formatStickerExercise(ex)}
               </span>
             </div>
           ))}

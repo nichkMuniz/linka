@@ -287,15 +287,15 @@ export const FEATURES = {
   /**
    * Login por Face ID / Touch ID.
    *
-   * Adiado: superfície nativa a mais, com valor perto de zero no dia 1 — o
-   * usuário acabou de digitar a senha que criou.
+   * Religado em 2026-09-29 (estava adiado no recorte do v1.0). Só vale para
+   * quem entra com email/senha: as credenciais ficam no Keychain e o Face ID
+   * as libera. Conta criada por Google/Apple não tem senha — para ela o
+   * atalho é o próprio botão do provedor.
    *
-   * ⚠️ `NSFaceIDUsageDescription` **continua** no `Info.plist` e deve
-   * continuar: o `CapgoCapacitorNativeBiometric` está linkado no binário
-   * (ITMS-90683 apareceu quando a chave foi removida). Com a flag desligada a
-   * API nunca é chamada e o iOS nunca pede Face ID.
+   * ⚠️ `NSFaceIDUsageDescription` no `Info.plist` é obrigatório (o
+   * `CapgoCapacitorNativeBiometric` está linkado no binário — ITMS-90683).
    */
-  biometricLogin: false,
+  biometricLogin: true,
 
   /**
    * Push proativo de re-engajamento (agendado).

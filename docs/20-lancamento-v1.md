@@ -94,7 +94,7 @@ meta, e seus amigos incentivam com os 6 tipos.
 | `profileTaggedTab` | ✅ | **Religada em 28/09/2026.** Aba "Marcações": publicações de outras pessoas em que o dono do perfil foi marcado. É por ela que quem foi marcado chega ao "Recompartilhar" |
 | `profileWorkoutsTab` | ✅ | **Religada em 28/09/2026.** Aba "Treinos" separada das demais: tira de Publicações os posts de resumo de treino sem foto do usuário. Tem conteúdo desde o primeiro treino compartilhado |
 | `signupSuggestions` | ❌ | Já estava fora do fluxo; a flag registra a decisão |
-| `biometricLogin` | ❌ | Superfície nativa a mais; o usuário acabou de digitar a senha que criou |
+| `biometricLogin` | ✅ | Religado em 2026-09-29 (só contas com senha) |
 | `reengagementPush` | ❌ | Push não solicitado na 1ª semana gera opt-out irreversível. **Não controla nada no cliente** — o interruptor real é não agendar a edge function |
 
 ---

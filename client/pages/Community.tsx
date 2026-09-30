@@ -14,6 +14,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/components/ui/use-toast";
 import { MessageCircle, Users, Swords, BarChart2 } from "lucide-react";
 import { CommunitySkeleton } from "@/components/shared/animated-loading";
+import { ScreenAura } from "@/components/shared/screen-aura";
 import { useLanguage } from "@/lib/language-context";
 import { RankingTab } from "@/components/community/ranking-tab";
 import { FEATURES } from "@/lib/feature-flags";
@@ -153,6 +154,8 @@ export default function Community() {
           "calc(100dvh - 64px - env(safe-area-inset-top) - 1.5rem - 4.75rem - env(safe-area-inset-bottom))",
       }}
     >
+      {/* Brilho de fundo — padrão único das telas (ScreenAura). */}
+      <ScreenAura variant="neutral" />
       {/* Tabs — segmented control style (igual à tela de Loja).
           Com Duelos e Ranking guardados, sobra uma aba só: uma barra de
           navegação com um único destino é ruído, então a barra inteira some e
@@ -215,7 +218,7 @@ export default function Community() {
               style={activeTab !== "requests" ? { border: "1px solid rgba(255,255,255,.10)" } : undefined}
             >
               <Users className="h-4 w-4" />
-              <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-destructive text-white text-[10px] flex items-center justify-center ring-2 ring-background font-bold">
+              <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-unread text-white text-[10px] flex items-center justify-center ring-2 ring-background font-bold">
                 {pendingRequestCount}
               </span>
             </button>

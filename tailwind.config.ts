@@ -40,6 +40,8 @@ export default {
           2: "hsl(var(--brand-2))",
           3: "hsl(var(--brand-3))",
         },
+        // Contador de não lidas: uma cor só no app inteiro (docs/15 §1.1).
+        unread: "hsl(var(--unread))",
         primary: {
           DEFAULT: "hsl(var(--primary))",
           foreground: "hsl(var(--primary-foreground))",

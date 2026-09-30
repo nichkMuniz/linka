@@ -42,6 +42,8 @@
       line-height: 72px;
       margin: 0 auto 24px;
     }
+    .check.half { background: #fff4e0; color: #b26a00; font-size: 1.3rem; font-weight: 700; }
+    .check.error { background: #fdecea; color: #c62828; font-weight: 700; }
     h2 { font-size: 1.35rem; margin-bottom: 10px; color: #111; }
     p { margin-bottom: 14px; color: #444; }
     .cta {
@@ -80,24 +82,74 @@
 </header>
 
 <main>
-  <div class="check" aria-hidden="true">✓</div>
+  <!-- O GoTrue devolve o resultado no fragmento (#) da URL:
+       · #access_token=…&type=email_change → troca concluída
+       · #message=Confirmation link accepted… → "Secure email change" ligado no
+         projeto: este foi só UM dos dois links (email atual + novo); a troca
+         só vale depois do outro
+       · #error=…&error_description=… → link vencido/usado/inválido
+       Antes a página dizia "confirmado" sempre, e a pessoa que clicou só no
+       link do email novo achava que a troca não funcionava. -->
+  <section id="state-done">
+    <div class="check" aria-hidden="true">✓</div>
+    <h2>Email confirmado</h2>
+    <p>Seu novo endereço de email já está valendo. Use ele para entrar no Linka da próxima vez.</p>
+    <!-- Custom scheme (CFBundleURLSchemes do Info.plist): o Universal Link não
+         serve aqui, porque esta página É o destino dele — abrir o app precisa do
+         scheme. Em quem não tem o app instalado o toque simplesmente não faz
+         nada, por isso a linha de aviso logo abaixo. -->
+    <a class="cta" href="com.linka.meuapp://">Abrir o Linka</a>
+    <p class="note">Se o botão não abrir o aplicativo, volte para ele manualmente.</p>
 
-  <h2>Email confirmado</h2>
-  <p>Seu novo endereço de email já está valendo. Use ele para entrar no Linka da próxima vez.</p>
-  <!-- Custom scheme (CFBundleURLSchemes do Info.plist): o Universal Link não
-       serve aqui, porque esta página É o destino dele — abrir o app precisa do
-       scheme. Em quem não tem o app instalado o toque simplesmente não faz
-       nada, por isso a linha de aviso logo abaixo. -->
-  <a class="cta" href="com.linka.meuapp://">Abrir o Linka</a>
-  <p class="note">Se o botão não abrir o aplicativo, volte para ele manualmente.</p>
+    <hr class="lang-divider" />
 
-  <hr class="lang-divider" />
+    <h2>Email confirmed</h2>
+    <p>Your new email address is now active. Use it to sign in to Linka next time.</p>
+    <a class="cta" href="com.linka.meuapp://">Open Linka</a>
+    <p class="note">If the button doesn't open the app, switch back to it manually.</p>
+  </section>
 
-  <h2>Email confirmed</h2>
-  <p>Your new email address is now active. Use it to sign in to Linka next time.</p>
-  <a class="cta" href="com.linka.meuapp://">Open Linka</a>
-  <p class="note">If the button doesn't open the app, switch back to it manually.</p>
+  <section id="state-half" hidden>
+    <div class="check half" aria-hidden="true">1/2</div>
+    <h2>Falta só mais um passo</h2>
+    <p>Este link foi confirmado. Por segurança, enviamos outro link para o <strong>outro endereço</strong> (o email atual ou o novo). Abra esse segundo email e clique em confirmar — a troca só vale depois dos dois.</p>
+
+    <hr class="lang-divider" />
+
+    <h2>One more step</h2>
+    <p>This link was confirmed. For security, we also sent a link to the <strong>other address</strong> (your current or your new email). Open that second email and confirm — the change only takes effect after both.</p>
+  </section>
+
+  <section id="state-error" hidden>
+    <div class="check error" aria-hidden="true">!</div>
+    <h2>Não foi possível confirmar</h2>
+    <p>O link venceu ou já foi usado. Peça a troca de email de novo no app, em Configurações → Conta e Segurança.</p>
+
+    <hr class="lang-divider" />
+
+    <h2>Couldn't confirm</h2>
+    <p>The link has expired or was already used. Request the email change again in the app, under Settings → Account &amp; Security.</p>
+    <p class="note" id="error-detail"></p>
+  </section>
 </main>
+<script>
+  (function () {
+    var raw = (location.hash || "").replace(/^#/, "") || (location.search || "").replace(/^\?/, "");
+    var params = new URLSearchParams(raw);
+    var show = function (id) {
+      ["state-done", "state-half", "state-error"].forEach(function (s) {
+        document.getElementById(s).hidden = s !== id;
+      });
+    };
+    if (params.get("error") || params.get("error_code")) {
+      show("state-error");
+      var detail = params.get("error_description");
+      if (detail) document.getElementById("error-detail").textContent = detail;
+    } else if (params.get("message") && !params.get("access_token")) {
+      show("state-half");
+    }
+  })();
+</script>
 
 <footer>
   Linka · linkafit.com.br

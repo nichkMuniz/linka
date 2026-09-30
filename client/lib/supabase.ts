@@ -1,3 +1,4 @@
+import { Capacitor } from "@capacitor/core";
 import {
   createClient,
   type SupabaseClient,
@@ -70,7 +71,15 @@ export const supabase: SupabaseClient | null = hasSupabaseConfig
     auth: {
       persistSession: true,
       autoRefreshToken: true,
-      detectSessionInUrl: false,
+      // Web: o retorno do OAuth (Google/Apple) chega como `?code=` e pode cair
+      // em qualquer rota — a do Redirect URL permitido ou a Site URL. Detectar
+      // aqui, na inicialização, troca o code pela sessão antes de qualquer
+      // guarda de rota (antes, se o retorno não caísse exatamente em /login, o
+      // RequireAuth redirecionava para /login descartando o ?code= e o usuário
+      // "voltava para o login" sem conta). Só age se houver o code-verifier do
+      // PKCE salvo por este navegador, e limpa o ?code= da URL depois.
+      // Nativo: o retorno vem pelo custom scheme e o Login.tsx faz a troca.
+      detectSessionInUrl: !Capacitor.isNativePlatform(),
       flowType: "pkce",
     },
     global: {

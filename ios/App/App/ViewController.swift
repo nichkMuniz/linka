@@ -6,5 +6,6 @@ class ViewController: CAPBridgeViewController {
     // capacitor.config.json, então precisam ser registrados na mão aqui.
     override func capacitorDidLoad() {
         bridge?.registerPluginInstance(EditedMediaPlugin())
+        bridge?.registerPluginInstance(GoogleAuthPlugin())
     }
 }

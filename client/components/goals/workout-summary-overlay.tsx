@@ -35,6 +35,7 @@ import {
   formatCardioMinutes,
   formatElevationPct,
   type CardioKind,
+  cardioTotalMinutes,
 } from "@/lib/cardio-exercises";
 import {
   CARDIO_KIND_META,
@@ -372,7 +373,9 @@ function buildFlowWorkoutSticker(data: WorkoutSummaryData): StoryWorkoutSticker 
     exercises: shown.map((ex) => ({
       name: ex.name,
       sets: ex.totalSets,
-      kg: ex.bestKg,
+      // Cardio: `kg` do frame = MINUTOS totais (somados das séries); o bestKg
+      // do cardio é sempre 0.
+      kg: ex.isCardio ? cardioTotalMinutes(ex.sets) : ex.bestKg,
       isCardio: ex.isCardio || undefined,
     })),
     extraCount: data.completedExercises.length - shown.length || undefined,

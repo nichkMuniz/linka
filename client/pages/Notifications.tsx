@@ -2,12 +2,13 @@ import * as React from "react";
 import { requestAppRefresh, useAppRefresh } from "@/lib/app-refresh";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
-import { MessageCircle, MessagesSquare, UserPlus, Zap, Swords, SmilePlus, ChevronLeft, AtSign, Send, Dumbbell, Heart, Clock, CheckCircle2, XCircle, Repeat2 } from "lucide-react";
+import { MessageCircle, MessagesSquare, UserPlus, Zap, Swords, SmilePlus, ChevronLeft, AtSign, Send, Dumbbell, Heart, Clock, CheckCircle2, XCircle, Repeat2, Bell } from "lucide-react";
 import { INCENTIVE_CONFIG } from "@/lib/incentive-config";
 import { getNotificationsDb, markNotificationsAsReadDb, clearNotificationsDb, getFollowingIdsDb, invalidateQueryCache, type NotificationItem } from "@/lib/ritmofit-db";
 import { notificationBody } from "@/lib/notification-copy";
 import { supabase } from "@/lib/supabase";
 import { UserAvatar } from "@/components/shared/user-avatar";
+import { ScreenAura } from "@/components/shared/screen-aura";
 import { FollowButton } from "@/components/shared/follow-button";
 import { NotificationsSkeleton } from "@/components/shared/animated-loading";
 import {
@@ -727,14 +728,20 @@ export default function Notifications() {
           <span style={{ fontSize: "16px", fontWeight: 700, color: "#fff" }}>
             {t("nav_notifications") ?? "Notificações"}
           </span>
-          <button
-            onClick={() => setClearDialogOpen(true)}
-            disabled={isClearing}
-            className="active:opacity-60 transition-opacity"
-            style={{ fontSize: "13px", fontWeight: 600, color: "rgba(255,255,255,.6)", padding: "6px 12px" }}
-          >
-            {t("notif_page_clear")}
-          </button>
+          {/* "Limpar" só existe quando há o que limpar. Sem ele, um espaço do
+              tamanho do botão de voltar mantém o título centralizado. */}
+          {!loading && notifications.length > 0 ? (
+            <button
+              onClick={() => setClearDialogOpen(true)}
+              disabled={isClearing}
+              className="active:opacity-60 transition-opacity"
+              style={{ fontSize: "13px", fontWeight: 600, color: "rgba(255,255,255,.6)", padding: "6px 12px" }}
+            >
+              {t("notif_page_clear")}
+            </button>
+          ) : (
+            <span aria-hidden className="w-10" />
+          )}
         </header>,
         document.body
       )}
@@ -746,12 +753,8 @@ export default function Notifications() {
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
       >
-        {/* Ambient aura — gradiente pintado direto, sem filter: blur (ver Index.tsx) */}
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 top-0 h-[420px]"
-          style={{ background: "radial-gradient(300px 300px at 8% 20%, rgba(216,86,122,.24), transparent 70%)" }}
-        />
+        {/* Brilho de fundo — padrão único das telas (ScreenAura). */}
+        <ScreenAura variant="notifications" />
 
         {/* Pull-to-refresh indicator — altura/rotação escritas direto no DOM pelos handlers */}
         <div
@@ -770,15 +773,24 @@ export default function Notifications() {
           {loading ? (
             <NotificationsSkeleton />
           ) : notifications.length === 0 ? (
-            <div
-              className="flex flex-col items-center justify-center py-16 mt-4"
-              style={{ borderRadius: "22px", border: "1px dashed rgba(255,255,255,.14)" }}
-            >
-              <Zap className="h-10 w-10 mb-3" style={{ color: "rgba(255,255,255,.2)" }} />
-              <p className="text-sm font-semibold text-white/70">{t("notif_page_empty")}</p>
-              <p className="text-xs mt-1 text-center" style={{ color: "rgba(255,255,255,.4)" }}>
+            // Estado vazio padrão (docs/15 §10.3): ícone do assunto, título,
+            // texto e UMA ação — sem a caixa tracejada.
+            <div className="flex flex-col items-center justify-center px-6 pt-24 pb-10 text-center">
+              <div className="flex h-[72px] w-[72px] items-center justify-center rounded-full bg-white/[.07] text-white/80">
+                <Bell className="h-[30px] w-[30px]" strokeWidth={1.8} />
+              </div>
+              <p className="mt-5 text-[19px] font-bold text-white">{t("notif_page_empty")}</p>
+              <p className="mt-2 max-w-[280px] text-[15px] leading-relaxed text-white/55">
                 {t("notif_page_empty_sub")}
               </p>
+              <button
+                type="button"
+                onClick={() => { hapticLight(); navigate("/buscar"); }}
+                className="mt-6 inline-flex h-11 items-center gap-2 rounded-full bg-white/[.09] px-5 text-[15px] font-semibold text-white active:scale-[0.98] transition-transform"
+              >
+                <UserPlus className="h-[18px] w-[18px]" />
+                {t("notif_page_empty_cta")}
+              </button>
             </div>
           ) : (
             <div className="space-y-5">

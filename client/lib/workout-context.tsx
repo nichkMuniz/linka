@@ -85,6 +85,13 @@ interface WorkoutContextValue {
   // machinedExercises do resumo. Array (não Set) para serializar no localStorage.
   maxedExerciseIds: string[];
   setMaxedExerciseIds: React.Dispatch<React.SetStateAction<string[]>>;
+  // Carga (kg) em que o usuário respondeu "Ainda não" ao "Zerou a máquina?",
+  // por exercício (workout_id). O convite só volta naquele exercício quando uma
+  // série concluída passar DESSA carga — repetir 130kg depois de dizer "ainda
+  // não" em 130kg não pergunta de novo; subir para 140kg pergunta. Persistido
+  // junto com o resto da sessão (minimizar/reload não re-perguntam).
+  machineDeclinedKg: Record<string, number>;
+  setMachineDeclinedKg: React.Dispatch<React.SetStateAction<Record<string, number>>>;
   // Exercícios (workout_id) onde o usuário dispensou o convite de aquecimento
   // por rampa com um swipe para a esquerda. Escopo = exercício: dispensar no
   // supino não esconde no bíceps. Persistido para o convite não voltar ao
@@ -176,6 +183,8 @@ const WorkoutContext = React.createContext<WorkoutContextValue>({
   setWorkoutExpandedId: () => {},
   maxedExerciseIds: [],
   setMaxedExerciseIds: () => {},
+  machineDeclinedKg: {},
+  setMachineDeclinedKg: () => {},
   dismissedWarmupIds: [],
   setDismissedWarmupIds: () => {},
   workoutOrder: [],
@@ -220,6 +229,7 @@ function loadPersistedWorkout() {
       workoutRemovedIds?: string[];
       workoutExpandedId?: string | null;
       maxedExerciseIds?: string[];
+      machineDeclinedKg?: Record<string, number>;
       dismissedWarmupIds?: string[];
       workoutOrder?: string[];
       workoutCaloriesKcal?: number | null;
@@ -312,6 +322,9 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
   const [maxedExerciseIds, setMaxedExerciseIds] = React.useState<string[]>(
     () => persisted?.maxedExerciseIds ?? []
   );
+  const [machineDeclinedKg, setMachineDeclinedKg] = React.useState<Record<string, number>>(
+    () => persisted?.machineDeclinedKg ?? {}
+  );
   const [dismissedWarmupIds, setDismissedWarmupIds] = React.useState<string[]>(
     () => persisted?.dismissedWarmupIds ?? []
   );
@@ -355,6 +368,7 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
         workoutRemovedIds,
         workoutExpandedId,
         maxedExerciseIds,
+        machineDeclinedKg,
         dismissedWarmupIds,
         workoutOrder,
         workoutCaloriesKcal,
@@ -364,7 +378,7 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
         workoutPartyHostName,
       }));
     }
-  }, [workoutSeries, workoutStartTime, selectedRoutineName, workoutExerciseRestTimes, workoutExerciseNotes, workoutExtraItems, workoutRemovedIds, workoutExpandedId, maxedExerciseIds, dismissedWarmupIds, workoutOrder, workoutCaloriesKcal, workoutPartyId, workoutPartyRole, workoutPartySnapshot, workoutPartyHostName, workoutModalOpen, workoutMinimized]);
+  }, [workoutSeries, workoutStartTime, selectedRoutineName, workoutExerciseRestTimes, workoutExerciseNotes, workoutExtraItems, workoutRemovedIds, workoutExpandedId, maxedExerciseIds, machineDeclinedKg, dismissedWarmupIds, workoutOrder, workoutCaloriesKcal, workoutPartyId, workoutPartyRole, workoutPartySnapshot, workoutPartyHostName, workoutModalOpen, workoutMinimized]);
 
   // Workout duration timer — calculates from startTime so background/lock doesn't break it
   React.useEffect(() => {
@@ -509,6 +523,7 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
     setWorkoutRemovedIds([]);
     setWorkoutExpandedId(null);
     setMaxedExerciseIds([]);
+    setMachineDeclinedKg({});
     setDismissedWarmupIds([]);
     setWorkoutOrder([]);
     setWorkoutCaloriesKcal(null);
@@ -550,6 +565,7 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
       workoutRemovedIds, setWorkoutRemovedIds,
       workoutExpandedId, setWorkoutExpandedId,
       maxedExerciseIds, setMaxedExerciseIds,
+      machineDeclinedKg, setMachineDeclinedKg,
       dismissedWarmupIds, setDismissedWarmupIds,
       workoutOrder, setWorkoutOrder,
       workoutCaloriesKcal, setWorkoutCaloriesKcal,
@@ -565,7 +581,7 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
       globalRestTimerTotal, setGlobalRestTimerTotal,
       globalRestTimerKey, setGlobalRestTimerKey,
   }), [
-    workoutModalOpen, setWorkoutModalOpen, workoutMinimized, setWorkoutMinimized, pendingReopen, setPendingReopen, workoutSeries, setWorkoutSeries, setWorkoutDuration, workoutStartTime, setWorkoutStartTime, selectedRoutineName, setSelectedRoutineName, workoutExerciseRestTimes, setWorkoutExerciseRestTimes, workoutExerciseNotes, setWorkoutExerciseNotes, currentWorkoutIndex, setCurrentWorkoutIndex, workoutExtraItems, setWorkoutExtraItems, workoutRemovedIds, setWorkoutRemovedIds, workoutExpandedId, setWorkoutExpandedId, maxedExerciseIds, setMaxedExerciseIds, dismissedWarmupIds, setDismissedWarmupIds, workoutOrder, setWorkoutOrder, workoutCaloriesKcal, setWorkoutCaloriesKcal, workoutPartyId, setWorkoutPartyId, workoutPartyRole, setWorkoutPartyRole, workoutPartySnapshot, setWorkoutPartySnapshot, workoutPartyHostName, setWorkoutPartyHostName, pendingPartyJoin, setPendingPartyJoin, resetWorkoutState, setGlobalRestTimerRemaining, globalRestTimerActive, setGlobalRestTimerActive, globalRestTimerPaused, setGlobalRestTimerPaused, globalRestTimerTotal, setGlobalRestTimerTotal, globalRestTimerKey, setGlobalRestTimerKey,
+    workoutModalOpen, setWorkoutModalOpen, workoutMinimized, setWorkoutMinimized, pendingReopen, setPendingReopen, workoutSeries, setWorkoutSeries, setWorkoutDuration, workoutStartTime, setWorkoutStartTime, selectedRoutineName, setSelectedRoutineName, workoutExerciseRestTimes, setWorkoutExerciseRestTimes, workoutExerciseNotes, setWorkoutExerciseNotes, currentWorkoutIndex, setCurrentWorkoutIndex, workoutExtraItems, setWorkoutExtraItems, workoutRemovedIds, setWorkoutRemovedIds, workoutExpandedId, setWorkoutExpandedId, maxedExerciseIds, setMaxedExerciseIds, machineDeclinedKg, setMachineDeclinedKg, dismissedWarmupIds, setDismissedWarmupIds, workoutOrder, setWorkoutOrder, workoutCaloriesKcal, setWorkoutCaloriesKcal, workoutPartyId, setWorkoutPartyId, workoutPartyRole, setWorkoutPartyRole, workoutPartySnapshot, setWorkoutPartySnapshot, workoutPartyHostName, setWorkoutPartyHostName, pendingPartyJoin, setPendingPartyJoin, resetWorkoutState, setGlobalRestTimerRemaining, globalRestTimerActive, setGlobalRestTimerActive, globalRestTimerPaused, setGlobalRestTimerPaused, globalRestTimerTotal, setGlobalRestTimerTotal, globalRestTimerKey, setGlobalRestTimerKey,
   ]);
 
   return (

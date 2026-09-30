@@ -82,6 +82,7 @@ import {
 } from "@/components/goals/goals-helpers";
 import { SEQUENTIAL_OPEN_PARAM } from "@/hooks/use-routine-notifications";
 import { GoalsSkeleton } from "@/components/shared/animated-loading";
+import { ScreenAura } from "@/components/shared/screen-aura";
 import { addNetworkStatusListener, getNetworkStatus } from "@/lib/network-status";
 import { OUTBOX_SYNCED_EVENT } from "@/lib/offline-outbox";
 import { WifiOff } from "lucide-react";
@@ -1344,17 +1345,10 @@ export default function Goals() {
 
   return (
     <div className="relative min-h-[60vh]">
-      {/* auras de fundo — gradientes pintados direto (sem filter: blur), que o
-          WebKit não precisa re-compor a cada frame de scroll */}
-      <div
-        aria-hidden
-        className="absolute inset-0 overflow-hidden pointer-events-none"
-        style={{
-          background:
-            "radial-gradient(320px 320px at 8% 12%, rgba(255,122,60,.28), transparent 70%)," +
-            "radial-gradient(300px 300px at 96% 48%, rgba(63,127,230,.28), transparent 70%)",
-        }}
-      />
+      {/* Brilho de fundo — padrão único das telas (ScreenAura). Era `absolute`
+          neste container, que começa abaixo do header: sobrava uma faixa preta
+          em cima, com o brilho cortado numa linha reta. */}
+      <ScreenAura variant="goals" />
 
       <div className="relative px-4 pb-4 space-y-5">
         {isOffline && (

@@ -15,13 +15,7 @@ import {
   getUserShotsDb,
   getTaggedPostsDb,
   getUserGoalsByUserIdDb,
-  deletePostDb,
-  updatePostDb,
   updateUserProfileDb,
-  removePostPhotoDb,
-  getPostLikeUsersDb,
-  flushPendingIncentivesDb,
-  getPostCommentsDb,
   getCommercialProfileDb,
   getCommercialOffersByUserIdDb,
   incrementOfferClickDb,
@@ -29,7 +23,6 @@ import {
   getUserActiveStoriesDb,
   getMyViewedFlowUserIdsDb,
   FLOW_CREATED_EVENT,
-  getUserPostLikesDb,
   deleteAllUserDataDb,
   type UserProfile,
   type PostWithUser,
@@ -41,7 +34,6 @@ import {
   type ServicePlan,
   getCommercialPlansDb,
   type StoryWithUser,
-  type PostIncentiveType,
   updateUserGoalDb,
   deleteUserGoalDb,
   getHiddenProfileGoalIdsDb,
@@ -49,7 +41,7 @@ import {
   invalidateQueryCache,
   invalidateProfileCache,
 } from "@/lib/ritmofit-db";
-import { formatTimeAgo, cn } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { reportHandledError } from "@/lib/monitoring";
 import { GLASS_SHEET_PROPS, GLASS_SHEET_STYLE } from "@/lib/glass-styles";
 import { openExternalUrl, isSafeExternalUrl } from "@/lib/safe-url";
@@ -67,23 +59,20 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ImageWithFallback } from "@/components/shared/image-with-fallback";
 import { UserAvatar } from "@/components/shared/user-avatar";
-import { PostLikesModal } from "@/components/modals/post-likes-modal";
-import { PostCommentsDialog } from "@/components/modals/post-comments-dialog";
 import { UserInsignias } from "@/components/profile/user-insignias";
 import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
-import { PostCarousel } from "@/components/post/post-carousel";
-import { WorkoutDetailButton } from "@/components/shared/workout-detail-dialog";
 import { isWorkoutCanvasPost } from "@/lib/workout-summary-types";
 // O MESMO viewer da rota /flows/:id (modo embutido) — um componente só para
 // feed e perfil. Lazy: é o mesmo chunk que a rota já carrega.
 const FlowViewer = React.lazy(() => import("@/pages/FlowViewer"));
-import { PostIncentiveButton } from "@/components/shared/post-incentive-button";
 import { FollowButton } from "@/components/shared/follow-button";
 import { FollowListDrawer } from "@/components/profile/follow-list-drawer";
 import { SettingsDrawer } from "@/components/profile/settings-drawer";
 import { ShotEditorDrawer } from "@/components/profile/shot-editor-drawer";
 import { GoalDetailDrawer } from "@/components/goals/goal-detail-drawer";
-import { togglePostLike } from "../services/post.service";
+import { ProfilePostsViewer } from "@/components/profile/profile-posts-viewer";
+import { MultiPhotoBadge } from "@/components/shared/multi-photo-badge";
+import type { PostWithStats } from "@/services/post.service";
 import {
   Dialog,
   DialogContent,
@@ -97,6 +86,12 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
@@ -105,17 +100,17 @@ import { ShareDrawer } from "@/components/shared/share-drawer";
 import { UserSafetyDrawer } from "@/components/shared/user-safety-drawer";
 import { BlockUserDialog } from "@/components/shared/block-user-dialog";
 import { FEATURES } from "@/lib/feature-flags";
-import { ImageCropperDrawer } from "@/components/shared/image-cropper-drawer";
+import {
+  InlineCropPreview,
+  applyTransformToBlob,
+  DEFAULT_TRANSFORM,
+  type CropTransform,
+} from "@/components/shared/inline-crop-preview";
 import { profileShareUrl, postShareUrl } from "@/lib/share-url";
 import { requestAppRefresh, useAppRefresh } from "@/lib/app-refresh";
 import { usePostReshare } from "@/hooks/use-post-reshare";
-import { useOpenProfileByHandle } from "@/hooks/use-open-profile-by-handle";
-import { renderWithHashtags } from "@/lib/post-visuals";
-import { HighlightTextarea, SHADCN_TEXTAREA_CLASS } from "@/components/shared/highlight-textarea";
-import { RepostAttribution, displayedPostDescription } from "@/components/post/repost-attribution";
 import { ShotThumb } from "@/components/shared/shot-thumb";
 import {
-  Edit2,
   ArrowLeft,
   Check,
   Tag,
@@ -132,11 +127,10 @@ import {
   CheckCircle2,
   ShieldCheck,
   ImagePlus,
+  X,
   Lock,
   Play,
-  UsersRound,
   Ban,
-  Repeat2,
   Eye,
   EyeOff,
 } from "lucide-react";
@@ -151,6 +145,13 @@ import { pickFlowEntry } from "@/lib/flow-entry";
 // Lado da miniatura na grade do perfil (px CSS). 3 colunas num iPhone ≈ 120px
 // por célula; com folga para as larguras maiores (sm/md usam 4–5 colunas).
 const GRID_THUMB_PX = 160;
+
+// Capa do perfil: 210px visíveis ABAIXO do header flutuante + a faixa que o
+// header ocupa (a capa começa no topo da tela, por trás do vidro). O mesmo
+// valor dimensiona o frame de ajuste, então o recorte salvo bate com a exibição.
+const COVER_HEIGHT = "calc(210px + var(--app-header-offset))";
+// Botões sobre a capa (trocar/remover, voltar) ficam logo abaixo do header.
+const COVER_CONTROLS_TOP = "calc(var(--app-header-offset) + 8px)";
 
 // Último perfil exibido (dados do "batch 1"), por visitante + perfil. Reabrir um
 // perfil já visto nasce preenchido e atualiza por trás (recarga soft), em vez
@@ -175,8 +176,6 @@ export default function Profile() {
   const location = useLocation();
   const { userId } = useParams<{ userId?: string }>();
   const { t } = useLanguage();
-  // @menção/#hashtag na legenda do viewer de post abrem perfil/página da tag.
-  const openProfileByHandle = useOpenProfileByHandle();
   // Drawer de editar post (legenda mid-scroll) — mantém o campo acima do teclado.
   useKeyboardInputScroll();
 
@@ -222,24 +221,9 @@ export default function Profile() {
   // Posts de OUTRAS pessoas em que este perfil foi marcado (aba "Marcações")
   const [taggedPosts, setTaggedPosts] = React.useState<PostWithUser[]>([]);
   const [routines, setRoutines] = React.useState<Routine[]>([]);
-  const [selectedPost, setSelectedPost] = React.useState<PostWithUser | null>(null);
-  const [postDescExpanded, setPostDescExpanded] = React.useState(false);
-  const [isPostViewerOpen, setIsPostViewerOpen] = React.useState(false);
-  // Lista de marcações do post aberto no viewer (2+ pessoas)
-  const [postTaggedOpen, setPostTaggedOpen] = React.useState(false);
-  const [isEditingPost, setIsEditingPost] = React.useState(false);
-  const [editPostDescription, setEditPostDescription] = React.useState("");
-  const [editPostGoalId, setEditPostGoalId] = React.useState<string>("");
-  const [isUpdatingPost, setIsUpdatingPost] = React.useState(false);
-  const [removingPhoto, setRemovingPhoto] = React.useState(false);
-  const [postLikes, setPostLikes] = React.useState<any[]>([]);
-  const [postCommentCount, setPostCommentCount] = React.useState(0);
-  const [postUserLikes, setPostUserLikes] = React.useState<PostIncentiveType[]>([]);
-  const postUserLikesRef = React.useRef<PostIncentiveType[]>([]);
-  // Sequência da sincronização de incentivos — descarta respostas fora de ordem
-  const incentiveSyncSeqRef = React.useRef(0);
-  const [isLoadingPostData, setIsLoadingPostData] = React.useState(false);
-  const [isLikesModalOpen, setIsLikesModalOpen] = React.useState(false);
+  // Publicações em tela cheia (mesmo PostCard do feed) — substitui o drawer
+  // próprio que o Perfil tinha. `tab` decide a lista; `postId`, onde abre.
+  const [postsViewer, setPostsViewer] = React.useState<{ tab: "posts" | "treinos" | "marcacoes"; postId: string } | null>(null);
   const [selectedShot, setSelectedShot] = React.useState<ShotWithUser | null>(null);
   const [isShotEditorOpen, setIsShotEditorOpen] = React.useState(false);
   const [stats, setStats] = React.useState<UserStats>(() => initialSnapshot?.stats ?? {
@@ -357,7 +341,12 @@ export default function Profile() {
 
   // Cover photo (banner) — own profile can replace the gradient with a photo
   const coverFileInputRef = React.useRef<HTMLInputElement>(null);
-  const [coverCropSrc, setCoverCropSrc] = React.useState<string | null>(null);
+  // Enquadramento da capa direto no frame do banner (zoom/pan), sem tela de
+  // crop separada. `coverEditSrc` != null = modo de ajuste ativo.
+  const [coverEditSrc, setCoverEditSrc] = React.useState<string | null>(null);
+  const [coverTransform, setCoverTransform] = React.useState<CropTransform>(DEFAULT_TRANSFORM);
+  const coverFrameWRef = React.useRef(0);
+  const coverFrameHRef = React.useRef(0);
   const [isSavingCover, setIsSavingCover] = React.useState(false);
 
   // Delete account state (UI trigger not yet implemented)
@@ -611,155 +600,22 @@ export default function Profile() {
     if (pullSpinnerRef.current) pullSpinnerRef.current.style.opacity = "0";
   }, [loadProfile, profileUserId, user?.id]);
 
-  const handleViewPost = React.useCallback(async (post: PostWithUser) => {
-    setSelectedPost(post);
-    setPostDescExpanded(false);
-    setEditPostDescription(post.description);
-    // `user_goals.id` é bigint → chega como número; a lista de metas usa string.
-    setEditPostGoalId(post.user_goal_id != null ? String(post.user_goal_id) : "");
-    setIsPostViewerOpen(true);
-    setIsEditingPost(false);
-    setIsLoadingPostData(true);
-
-    try {
-      await flushPendingIncentivesDb(post.id);
-      const [likes, comments, userLikes] = await Promise.all([
-        getPostLikeUsersDb(post.id),
-        getPostCommentsDb(post.id),
-        getUserPostLikesDb(post.id),
-      ]);
-      setPostLikes(likes);
-      setPostCommentCount(comments.length);
-      setPostUserLikes(userLikes);
-    } catch (err) {
-      console.error("Error loading post data:", err);
-      toast({ title: t("profile_toast_post_data_error"), description: t("retry"), variant: "destructive" });
-    } finally {
-      setIsLoadingPostData(false);
-    }
-  }, []);
-
-  // O mesmo drawer de post também abre os posts da aba "Marcações", cujo autor é
-  // OUTRA pessoa — inclusive no próprio perfil. Editar/excluir e a moderação de
-  // comentários seguem o dono do POST, não o dono do perfil (`isViewingOtherProfile`).
-  const isOwnSelectedPost = !!user?.id && !!selectedPost && selectedPost.user_id === user.id;
-  // Marcado no post de OUTRA pessoa (e o post não é um repost): pode repostar.
-  const canReshareSelectedPost =
-    !!user?.id && !!selectedPost && !isOwnSelectedPost && !selectedPost.repostOf &&
-    (selectedPost.taggedUsers ?? []).some((u) => u.id === user.id);
   const postReshare = usePostReshare({
     context: "profile",
     // O repost entra na aba Posts do PRÓPRIO perfil; se é ele que está aberto, recarrega.
     onReposted: () => { if (!isViewingOtherProfile) loadProfile(); },
   });
 
-  const handleUpdatePost = React.useCallback(async () => {
-    if (!selectedPost) return;
-
-    setIsUpdatingPost(true);
-    try {
-      await updatePostDb(selectedPost.id, editPostDescription, editPostGoalId || null);
-
-      // Update local posts list
-      setPosts((prevPosts) =>
-        prevPosts.map((p) =>
-          p.id === selectedPost.id
-            ? { ...p, description: editPostDescription, user_goal_id: editPostGoalId || null }
-            : p,
-        ),
-      );
-      // O drawer volta ao modo visualização lendo selectedPost — sem isso a
-      // descrição/meta antigas continuavam na tela até fechar e reabrir o post
-      setSelectedPost((prev) =>
-        prev && prev.id === selectedPost.id
-          ? { ...prev, description: editPostDescription, user_goal_id: editPostGoalId || null }
-          : prev,
-      );
-
-      setIsEditingPost(false);
-      toast({
-        title: t("newpost_success"),
-        description: t("profile_toast_post_updated"),
-      });
-    } catch (err: any) {
-      console.error("Error updating post:", err);
-      toast({
-        title: t("profile_toast_post_update_error"),
-        description: err?.message || t("retry"),
-        variant: "destructive",
-      });
-    } finally {
-      setIsUpdatingPost(false);
-    }
-  }, [selectedPost, editPostDescription, editPostGoalId]);
-
-  const handleRemoveCarouselPhoto = React.useCallback(async (photoUrl: string) => {
-    if (!selectedPost) return;
-    setRemovingPhoto(true);
-    try {
-      const updatedPhotos = await removePostPhotoDb(selectedPost.id, photoUrl);
-      const updatedPost = { ...selectedPost, photos: updatedPhotos };
-      setSelectedPost(updatedPost);
-      setPosts((prev) => prev.map((p) => p.id === selectedPost.id ? updatedPost : p));
-      toast({ title: t("profile_toast_photo_removed") });
-    } catch (err: any) {
-      toast({ title: t("profile_toast_photo_remove_error"), description: err?.message, variant: "destructive" });
-    } finally {
-      setRemovingPhoto(false);
-    }
-  }, [selectedPost]);
-
-  // Keep ref always in sync so handleTogglePostIncentive can read current value without closure staleness
-  React.useEffect(() => { postUserLikesRef.current = postUserLikes; }, [postUserLikes]);
-
-  const handleTogglePostIncentive = React.useCallback((type: PostIncentiveType) => {
-    if (!selectedPost) return;
-    const previousLikes = postUserLikesRef.current;
-    const wasActive = previousLikes.includes(type);
-    // Otimista e não-bloqueante: a UI responde na hora e os botões continuam
-    // liberados; a escrita (debounced) e o refetch do contador rodam em
-    // segundo plano, com guard de sequência contra respostas fora de ordem.
-    setPostUserLikes(wasActive ? previousLikes.filter((t) => t !== type) : [...previousLikes, type]);
-    togglePostLike(selectedPost.id, type, !wasActive);
-    const seq = ++incentiveSyncSeqRef.current;
-    (async () => {
-      try {
-        await flushPendingIncentivesDb(selectedPost.id);
-        const updatedLikes = await getPostLikeUsersDb(selectedPost.id);
-        if (seq === incentiveSyncSeqRef.current) setPostLikes(updatedLikes);
-      } catch {
-        if (seq !== incentiveSyncSeqRef.current) return;
-        setPostUserLikes(previousLikes);
-        toast({ title: t("profile_toast_incentive_error"), description: t("retry"), variant: "destructive" });
-      }
-    })();
-  }, [selectedPost]);
-
-  const handleDeletePost = React.useCallback(() => {
-    if (!selectedPost) return;
-    showConfirm(
-      t("post_delete_title"),
-      t("post_delete_desc"),
-      async () => {
-        setIsUpdatingPost(true);
-        try {
-          await deletePostDb(selectedPost.id);
-          setPosts((prevPosts) => prevPosts.filter((p) => p.id !== selectedPost.id));
-          // Reflete no card de stats e no rótulo da tab sem esperar o cache expirar
-          setStats((prev) => ({ ...prev, postsCount: Math.max(0, prev.postsCount - 1) }));
-          setIsPostViewerOpen(false);
-          setSelectedPost(null);
-          toast({ title: t("newpost_success"), description: t("post_deleted_success") });
-        } catch (err: any) {
-          console.error("Error deleting post:", err);
-          toast({ title: t("post_delete_error"), description: err?.message || t("retry"), variant: "destructive" });
-        } finally {
-          setIsUpdatingPost(false);
-        }
-      }
-    );
-  }, [selectedPost, showConfirm]);
-
+  // Compartilhar a partir do card (⋮ → Compartilhar) — mesmo ShareDrawer do
+  // Perfil; o usePostReshare decide "Seu flow"/"Seu feed" (dono ou marcado).
+  const handleSharePostFromViewer = React.useCallback((post: PostWithStats) => {
+    const base = t("share_post_text").replace("{handle}", post.userNickname ?? "");
+    setShareDrawerText(post.description ? `${base}\n"${post.description}"` : base);
+    setShareDrawerUrl(postShareUrl(post.id));
+    setShareDrawerTitle(t("feed_share_post_title"));
+    postReshare.prepare(post);
+    setShareDrawerOpen(true);
+  }, [t, postReshare.prepare]);
 
   // Define callback functions first
   const loadFollowersData = React.useCallback(async () => {
@@ -868,10 +724,7 @@ export default function Profile() {
     prevProfileUserIdRef.current = profileUserId;
     if (prev === undefined || prev === profileUserId) return;
 
-    setIsPostViewerOpen(false);
-    setSelectedPost(null);
-    setIsEditingPost(false);
-    setIsLikesModalOpen(false);
+    setPostsViewer(null);
     setSelectedShot(null);
     setIsShotEditorOpen(false);
     setIsStoryViewerOpen(false);
@@ -1027,16 +880,30 @@ export default function Profile() {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => setCoverCropSrc(reader.result as string);
+    reader.onload = () => {
+      setCoverTransform(DEFAULT_TRANSFORM);
+      setCoverEditSrc(reader.result as string);
+    };
     reader.readAsDataURL(file);
     e.target.value = ""; // allow re-selecting the same file
   };
 
-  const handleCoverCropConfirm = async (_dataUrl: string, blob: Blob) => {
-    setCoverCropSrc(null);
-    if (!user || !supabase) return;
+  const handleCoverEditCancel = () => {
+    setCoverEditSrc(null);
+    setCoverTransform(DEFAULT_TRANSFORM);
+  };
+
+  const handleCoverEditSave = async () => {
+    if (!user || !supabase || !coverEditSrc) return;
+    const frameW = coverFrameWRef.current;
+    const frameH = coverFrameHRef.current;
+    if (frameW === 0 || frameH === 0) return;
+    hapticLight();
     setIsSavingCover(true);
     try {
+      // Recorta com as medidas do próprio banner: o que o usuário enquadrou é
+      // exatamente o que aparece depois (object-cover no mesmo frame).
+      const blob = await applyTransformToBlob(coverEditSrc, coverTransform, frameW, frameH);
       const filePath = `covers/${user.id}-${Date.now()}.jpg`;
       const { error: uploadError } = await supabase.storage
         .from("posts")
@@ -1045,9 +912,12 @@ export default function Profile() {
       const { data: { publicUrl } } = supabase.storage.from("posts").getPublicUrl(filePath);
       const updated = await updateUserProfileDb(user.id, { cover_photo: publicUrl });
       if (updated) setProfile(updated);
+      setCoverEditSrc(null);
+      setCoverTransform(DEFAULT_TRANSFORM);
       toast({ title: t("profile_cover_updated") });
     } catch (err: any) {
       console.error("Error updating cover photo:", err);
+      reportHandledError(err, "profile:update-cover", { userId: user.id });
       toast({ title: t("profile_cover_update_error"), description: err?.message || t("retry"), variant: "destructive" });
     } finally {
       setIsSavingCover(false);
@@ -1226,14 +1096,43 @@ export default function Profile() {
         />
       </div>
 
-      {/* Profile Header with banner */}
-      <div className="relative">
-        {/* Banner — user cover photo when set, gradient otherwise */}
-        {profile.cover_photo ? (
+      {/* Profile Header with banner — sobe para trás do header flutuante
+          (margem negativa = a faixa que o AppLayout reserva no topo): a capa
+          começa no topo da tela, sem a faixa preta entre header e capa. O
+          inline também anula o mt-6 do space-y-6 do container. */}
+      <div className="relative" style={{ marginTop: "calc(-1 * var(--app-header-offset))" }}>
+        {/* Banner — modo de ajuste (foto nova sendo enquadrada), foto de capa
+            salva, ou gradiente padrão. No ajuste o frame é o PRÓPRIO banner:
+            arrastar reposiciona, pinça dá zoom, e o recorte usa estas medidas. */}
+        {coverEditSrc ? (
+          <div
+            className="absolute top-0 left-0 right-0 overflow-hidden"
+            style={{ height: COVER_HEIGHT }}
+          >
+            <InlineCropPreview
+              imageSrc={coverEditSrc}
+              transform={coverTransform}
+              onTransformChange={setCoverTransform}
+              containerWidthRef={coverFrameWRef}
+              containerHeightRef={coverFrameHRef}
+            />
+            {/* Grade de terços — só guia visual do enquadramento */}
+            <div
+              aria-hidden
+              className="absolute inset-0 pointer-events-none"
+              style={{
+                backgroundImage:
+                  "linear-gradient(rgba(255,255,255,0.12) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.12) 1px, transparent 1px)",
+                backgroundSize: "33.33% 33.33%",
+                boxShadow: "inset 0 0 0 1px rgba(255,255,255,.35)",
+              }}
+            />
+          </div>
+        ) : profile.cover_photo ? (
           <div
             aria-hidden
             className="absolute top-0 left-0 right-0 overflow-hidden pointer-events-none"
-            style={{ height: "210px" }}
+            style={{ height: COVER_HEIGHT }}
           >
             <ImageWithFallback
               src={profile.cover_photo}
@@ -1245,58 +1144,111 @@ export default function Profile() {
           <div
             aria-hidden
             className="absolute top-0 left-0 right-0 pointer-events-none"
-            style={{ height: "210px", background: "radial-gradient(120% 100% at 60% 0%,#d8567a,#7b3ff2 55%,#1a1438 90%)" }}
+            style={{ height: COVER_HEIGHT, background: "radial-gradient(120% 100% at 60% 0%,#d8567a,#7b3ff2 55%,#1a1438 90%)" }}
           />
         )}
         <div
           aria-hidden
           className="absolute top-0 left-0 right-0 pointer-events-none"
-          style={{ height: "270px", background: "linear-gradient(to bottom,transparent 30%,#06070c 100%)" }}
+          // Esmaece até a cor EXATA do fundo na mesma altura da capa — antes o
+          // degradê (270px) passava da capa (210px) e ela terminava num corte seco.
+          style={{ height: COVER_HEIGHT, background: "linear-gradient(to bottom,transparent 35%,#06070c 100%)" }}
         />
 
         {/* Cover photo controls — own profile only */}
-        {!isViewingOtherProfile && (
-          <div className="absolute z-30 flex gap-2" style={{ top: "8px", right: "12px" }}>
-            {profile.cover_photo && (
+        {!isViewingOtherProfile && coverEditSrc && (
+          <>
+            <div
+              className="absolute z-30 flex items-center pointer-events-none"
+              style={{ top: COVER_CONTROLS_TOP, left: "12px", height: 40, padding: "0 14px", whiteSpace: "nowrap", borderRadius: 20, background: "rgba(0,0,0,.3)", backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)", border: "1px solid rgba(255,255,255,.18)", color: "#fff", fontSize: 12.5, fontWeight: 600 }}
+            >
+              {t("profile_cover_adjust_hint")}
+            </div>
+            <div className="absolute z-30 flex gap-2" style={{ top: COVER_CONTROLS_TOP, right: "12px" }}>
               <button
-                onClick={handleRemoveCover}
+                onClick={handleCoverEditCancel}
                 disabled={isSavingCover}
-                aria-label={t("profile_remove_cover")}
+                aria-label={t("cancel")}
                 className="flex items-center justify-center active:scale-95 transition-transform disabled:opacity-50"
                 style={{ width: 40, height: 40, borderRadius: "50%", background: "rgba(0,0,0,.3)", backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)", border: "1px solid rgba(255,255,255,.18)", color: "#fff" }}
               >
-                <Trash2 className="h-[18px] w-[18px]" />
+                <X className="h-[18px] w-[18px]" />
+              </button>
+              <button
+                onClick={handleCoverEditSave}
+                disabled={isSavingCover}
+                className="flex items-center justify-center gap-1.5 active:scale-95 transition-transform disabled:opacity-60"
+                style={{ height: 40, padding: "0 16px", borderRadius: 20, fontSize: 13.5, fontWeight: 640, color: "#0a0b12", background: "linear-gradient(rgba(255,255,255,.95),rgba(255,255,255,.82))" }}
+              >
+                {isSavingCover ? (
+                  <span className="h-4 w-4 rounded-full border-2 border-black/30 border-t-transparent animate-spin" />
+                ) : (
+                  <Check className="h-4 w-4" />
+                )}
+                {t("save")}
+              </button>
+            </div>
+          </>
+        )}
+        {!isViewingOtherProfile && !coverEditSrc && (
+          <div className="absolute z-30 flex gap-2" style={{ top: COVER_CONTROLS_TOP, right: "12px" }}>
+            {/* Com capa: um botão só ("…") com Trocar e Remover dentro — antes
+                eram dois círculos lado a lado. Sem capa: o de adicionar direto. */}
+            {profile.cover_photo ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    disabled={isSavingCover}
+                    aria-label={t("profile_cover_options")}
+                    className="flex items-center justify-center active:scale-95 transition-transform disabled:opacity-50"
+                    style={{ width: 40, height: 40, borderRadius: "50%", background: "rgba(0,0,0,.3)", backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)", border: "1px solid rgba(255,255,255,.18)", color: "#fff" }}
+                  >
+                    {isSavingCover ? (
+                      <span className="h-[18px] w-[18px] rounded-full border-2 border-white/40 border-t-transparent animate-spin" />
+                    ) : (
+                      <MoreHorizontal className="h-[18px] w-[18px]" />
+                    )}
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-44">
+                  <DropdownMenuItem onClick={() => { hapticLight(); coverFileInputRef.current?.click(); }}>
+                    <ImagePlus className="h-4 w-4 mr-2" />
+                    {t("profile_change_cover")}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={handleRemoveCover}
+                    className="text-red-500 focus:text-red-500"
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    {t("profile_remove_cover")}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              <button
+                onClick={() => { hapticLight(); coverFileInputRef.current?.click(); }}
+                disabled={isSavingCover}
+                aria-label={t("profile_edit_cover")}
+                className="flex items-center justify-center active:scale-95 transition-transform disabled:opacity-50"
+                style={{ width: 40, height: 40, borderRadius: "50%", background: "rgba(0,0,0,.3)", backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)", border: "1px solid rgba(255,255,255,.18)", color: "#fff" }}
+              >
+                {isSavingCover ? (
+                  <span className="h-[18px] w-[18px] rounded-full border-2 border-white/40 border-t-transparent animate-spin" />
+                ) : (
+                  <ImagePlus className="h-[18px] w-[18px]" />
+                )}
               </button>
             )}
-            <button
-              onClick={() => { hapticLight(); coverFileInputRef.current?.click(); }}
-              disabled={isSavingCover}
-              aria-label={t("profile_edit_cover")}
-              className="flex items-center justify-center active:scale-95 transition-transform disabled:opacity-50"
-              style={{ width: 40, height: 40, borderRadius: "50%", background: "rgba(0,0,0,.3)", backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)", border: "1px solid rgba(255,255,255,.18)", color: "#fff" }}
-            >
-              {isSavingCover ? (
-                <span className="h-[18px] w-[18px] rounded-full border-2 border-white/40 border-t-transparent animate-spin" />
-              ) : (
-                <ImagePlus className="h-[18px] w-[18px]" />
-              )}
-            </button>
           </div>
         )}
 
-        {/* Hidden file input + cropper for the cover photo */}
+        {/* Hidden file input for the cover photo (o ajuste é no próprio banner) */}
         <input
           ref={coverFileInputRef}
           type="file"
           accept="image/*"
           onChange={handleCoverFileChange}
           className="hidden"
-        />
-        <ImageCropperDrawer
-          imageSrc={coverCropSrc}
-          aspectRatio={16 / 9}
-          onConfirm={handleCoverCropConfirm}
-          onCancel={() => setCoverCropSrc(null)}
         />
 
         {/* Back chip — only when viewing another user's profile */}
@@ -1305,13 +1257,19 @@ export default function Profile() {
             onClick={() => navigate(-1)}
             aria-label={t("goals_back")}
             className="absolute z-30 flex items-center justify-center active:scale-95 transition-transform"
-            style={{ top: "8px", left: "12px", width: 40, height: 40, borderRadius: "50%", background: "rgba(0,0,0,.3)", backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)", border: "1px solid rgba(255,255,255,.18)", color: "#fff" }}
+            style={{ top: COVER_CONTROLS_TOP, left: "12px", width: 40, height: 40, borderRadius: "50%", background: "rgba(0,0,0,.3)", backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)", border: "1px solid rgba(255,255,255,.18)", color: "#fff" }}
           >
             <ArrowLeft className="h-5 w-5" />
           </button>
         )}
 
-        <div className="relative px-4" style={{ paddingTop: "80px" }}>
+        {/* No ajuste da capa o cabeçalho fica "transparente ao toque": o avatar
+            continua visível sobre a foto (prévia fiel), mas o gesto chega ao
+            banner que está por baixo. */}
+        <div
+          className={cn("relative px-4", coverEditSrc && "pointer-events-none")}
+          style={{ paddingTop: "calc(80px + var(--app-header-offset))" }}
+        >
           {/* Avatar + actions row */}
           <div className="flex items-end justify-between mb-3.5">
             {/* Avatar with conic ring */}
@@ -1343,6 +1301,8 @@ export default function Profile() {
 
             {/* Actions */}
             {!isViewingOtherProfile ? (
+              // Só as configurações ficam ao lado do avatar; "Editar perfil" e
+              // "Compartilhar perfil" descem para uma linha própria abaixo da bio.
               <div className="flex gap-2 items-center">
                 <button
                   onClick={() => setSettingsOpen(true)}
@@ -1351,13 +1311,6 @@ export default function Profile() {
                   style={{ width: 42, height: 42, borderRadius: "50%", background: "rgba(255,255,255,.08)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }}
                 >
                   <Settings className="h-[19px] w-[19px]" />
-                </button>
-                <button
-                  onClick={() => { setSettingsOpenToProfile(true); setSettingsOpen(true); }}
-                  className="active:scale-95 transition-transform"
-                  style={{ height: 42, padding: "0 18px", borderRadius: "21px", display: "flex", alignItems: "center", fontSize: "13.5px", fontWeight: 640, color: "#0a0b12", background: "linear-gradient(rgba(255,255,255,.95),rgba(255,255,255,.82))" }}
-                >
-                  {t("profile_edit_btn")}
                 </button>
               </div>
             ) : (
@@ -1473,6 +1426,36 @@ export default function Profile() {
                 <p style={{ fontSize: "13.5px", lineHeight: 1.5, color: "rgba(255,255,255,.82)" }}>
                   {profile.bio}
                 </p>
+              )}
+
+              {/* Próprio perfil: Editar e Compartilhar lado a lado, MESMO peso
+                  (os dois secundários, mesma largura) — nenhum grita mais que o
+                  outro. */}
+              {!isViewingOtherProfile && (
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => { hapticLight(); setSettingsOpenToProfile(true); setSettingsOpen(true); }}
+                    className="flex-1 h-10 rounded-full text-sm font-semibold text-white active:scale-[0.98] transition-transform"
+                    style={{ background: "rgba(255,255,255,.09)" }}
+                  >
+                    {t("profile_edit_btn")}
+                  </button>
+                  <button
+                    onClick={() => {
+                      hapticLight();
+                      const handle = (profile.handle ?? profile.nickname ?? "").replace(/^@/, "");
+                      setShareDrawerText(t("profile_share_own").replace("{handle}", handle));
+                      setShareDrawerUrl(profileShareUrl(user!.id));
+                      setShareDrawerTitle(t("profile_share_title"));
+                      postReshare.prepare(null);
+                      setShareDrawerOpen(true);
+                    }}
+                    className="flex-1 h-10 rounded-full text-sm font-semibold text-white active:scale-[0.98] transition-transform"
+                    style={{ background: "rgba(255,255,255,.09)" }}
+                  >
+                    {t("profile_share")}
+                  </button>
+                </div>
               )}
 
               {/* Stats cards */}
@@ -1856,12 +1839,16 @@ export default function Profile() {
               <p className="text-xs text-white/50">{t("profile_posts_private_desc")}</p>
             </div>
           ) : feedPosts.length > 0 ? (
-            <div className="grid gap-[5px] grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
+            // Grade quase encostada: 3px entre tiles, cantos de 12px e só 4px
+            // de margem até a borda da tela (-mx-3 dentro do px-4 das Tabs) —
+            // rente à borda, o canto arredondado parecia cortado. Mesma regra
+            // nas 4 grades desta tela.
+            <div className="-mx-3 grid gap-[3px] grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
               {feedPosts.map((post) => (
                 <button
                   key={post.id}
-                  onClick={() => handleViewPost(post)}
-                  className="group relative aspect-square overflow-hidden rounded-[14px] bg-muted transition-all cursor-pointer"
+                  onClick={() => { hapticLight(); setPostsViewer({ tab: "posts", postId: post.id }); }}
+                  className="group relative aspect-square overflow-hidden rounded-[12px] bg-muted transition-all cursor-pointer"
                 >
                   {/* Miniatura guardada no aparelho (ver @/lib/thumb-cache): a grade
                       monta dezenas de fotos de centenas de KB de uma vez. */}
@@ -1873,12 +1860,7 @@ export default function Profile() {
                   />
                   <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
                   {/* Multi-photo indicator */}
-                  {post.photos && post.photos.length > 1 && (
-                    <div className="absolute top-2 right-2 bg-white/90 rounded-md px-1.5 py-0.5 flex items-center gap-0.5">
-                      <span className="text-xs font-semibold text-black">📷</span>
-                      <span className="text-xs font-semibold text-black">{post.photos.length}</span>
-                    </div>
-                  )}
+                  {post.photos && post.photos.length > 1 && <MultiPhotoBadge count={post.photos.length} />}
                 </button>
               ))}
             </div>
@@ -1905,12 +1887,12 @@ export default function Profile() {
               <p className="text-xs text-white/50">{t("profile_posts_private_desc")}</p>
             </div>
           ) : workoutPosts.length > 0 ? (
-            <div className="grid gap-[5px] grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
+            <div className="-mx-3 grid gap-[3px] grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
               {workoutPosts.map((post) => (
                 <button
                   key={post.id}
-                  onClick={() => handleViewPost(post)}
-                  className="group relative aspect-square overflow-hidden rounded-[14px] bg-muted transition-all cursor-pointer"
+                  onClick={() => { hapticLight(); setPostsViewer({ tab: "treinos", postId: post.id }); }}
+                  className="group relative aspect-square overflow-hidden rounded-[12px] bg-muted transition-all cursor-pointer"
                 >
                   <ImageWithFallback
                     src={post.workoutSummary?.imageUrl || post.photo || undefined}
@@ -1940,11 +1922,11 @@ export default function Profile() {
               <p className="text-xs text-white/50">{t("profile_shots_private_desc")}</p>
             </div>
           ) : shots.length > 0 ? (
-            <div className="grid gap-[5px] grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
+            <div className="-mx-3 grid gap-[3px] grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
               {shots.map((shot) => (
                 <div
                   key={shot.id}
-                  className="group relative aspect-square overflow-hidden rounded-[14px] bg-black transition-all"
+                  className="group relative aspect-square overflow-hidden rounded-[12px] bg-black transition-all"
                 >
                   <button
                     onClick={() => navigate(`/shots`, { state: { shotId: shot.id } })}
@@ -2002,12 +1984,12 @@ export default function Profile() {
               <p className="text-xs text-white/50">{t("profile_tagged_private_desc")}</p>
             </div>
           ) : taggedPosts.length > 0 ? (
-            <div className="grid gap-[5px] grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
+            <div className="-mx-3 grid gap-[3px] grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
               {taggedPosts.map((post) => (
                 <button
                   key={post.id}
-                  onClick={() => handleViewPost(post)}
-                  className="group relative aspect-square overflow-hidden rounded-[14px] bg-muted transition-all cursor-pointer"
+                  onClick={() => { hapticLight(); setPostsViewer({ tab: "marcacoes", postId: post.id }); }}
+                  className="group relative aspect-square overflow-hidden rounded-[12px] bg-muted transition-all cursor-pointer"
                 >
                   {/* Miniatura guardada no aparelho (ver @/lib/thumb-cache): a grade
                       monta dezenas de fotos de centenas de KB de uma vez. */}
@@ -2019,12 +2001,7 @@ export default function Profile() {
                   />
                   <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
                   {/* Multi-photo indicator */}
-                  {post.photos && post.photos.length > 1 && (
-                    <div className="absolute top-2 right-2 bg-white/90 rounded-md px-1.5 py-0.5 flex items-center gap-0.5">
-                      <span className="text-xs font-semibold text-black">📷</span>
-                      <span className="text-xs font-semibold text-black">{post.photos.length}</span>
-                    </div>
-                  )}
+                  {post.photos && post.photos.length > 1 && <MultiPhotoBadge count={post.photos.length} />}
                   {/* Autor do post — a foto é de outra pessoa, então o tile precisa
                       dizer de quem é sem exigir que o post seja aberto. */}
                   <div className="absolute bottom-0 left-0 right-0 flex items-center gap-1 px-1.5 py-1 pointer-events-none" style={{ background: "linear-gradient(rgba(0,0,0,0),rgba(0,0,0,.6))" }}>
@@ -2173,393 +2150,46 @@ export default function Profile() {
         )}
       </Tabs>
 
-      {/* Post Viewer Drawer */}
-      <Drawer
-        open={isPostViewerOpen}
-        onOpenChange={(open) => {
-          if (!open && isEditingPost && editPostDescription !== (selectedPost?.description ?? "")) {
-            showConfirm(
-              t("profile_discard_title"),
-              t("profile_discard_desc"),
-              () => { setIsPostViewerOpen(false); setIsEditingPost(false); }
-            );
-          } else {
-            setIsPostViewerOpen(open);
-          }
+      {/* Publicações em tela cheia — mesmo PostCard do feed (ver ProfilePostsViewer) */}
+      <ProfilePostsViewer
+        open={!!postsViewer}
+        onClose={() => setPostsViewer(null)}
+        posts={
+          postsViewer?.tab === "treinos" ? workoutPosts
+            : postsViewer?.tab === "marcacoes" ? taggedPosts
+            : feedPosts
+        }
+        initialPostId={postsViewer?.postId ?? null}
+        title={
+          postsViewer?.tab === "treinos" ? t("profile_workouts")
+            : postsViewer?.tab === "marcacoes" ? t("profile_tagged")
+            : t("profile_viewer_posts")
+        }
+        handle={profile?.handle ?? null}
+        ownerGoals={!isViewingOtherProfile ? userGoals : undefined}
+        onShare={handleSharePostFromViewer}
+        onPostDeleted={(postId) => {
+          setPosts((prev) => prev.filter((p) => p.id !== postId));
+          // Reflete no card de stats e no rótulo da aba sem esperar o cache expirar
+          setStats((prev) => ({ ...prev, postsCount: Math.max(0, prev.postsCount - 1) }));
         }}
-      >
-        <DrawerContent
-          handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
-          className="max-h-[95dvh] flex flex-col modal-enter !rounded-t-[32px] !border-0"
-          style={{
-            background: "linear-gradient(rgba(20,18,30,.96),rgba(10,9,18,.98))",
-            backdropFilter: "blur(40px) saturate(180%)",
-            WebkitBackdropFilter: "blur(40px) saturate(180%)",
-            borderTop: "1px solid rgba(255,255,255,.14)",
-          }}
-          onOpenAutoFocus={(e) => e.preventDefault()}
-        >
-          {/* Header compacto com autor inline */}
-          <DrawerHeader className="shrink-0 pb-2">
-            <div className="flex items-center justify-between">
-              <DrawerTitle className="text-base" style={{ color: "#fff" }}>
-                {isEditingPost ? t("profile_edit_post") : t("profile_post_label")}
-              </DrawerTitle>
-              {selectedPost && (
-                <div className="flex items-center gap-2">
-                  <UserAvatar
-                    photo={selectedPost.userPhoto}
-                    nickname={selectedPost.userNickname}
-                    size="sm"
-                    className="h-7 w-7 ring-1 ring-white/15"
-                  />
-                  <span className="text-sm font-medium" style={{ color: "#fff" }}>{selectedPost.userNickname}</span>
-                  <UserInsignias userId={selectedPost.user_id} />
-                </div>
-              )}
-            </div>
-          </DrawerHeader>
-
-          {selectedPost && (
-            <>
-              <div className="flex-1 overflow-y-auto">
-                <div className="md:flex md:gap-0 md:h-full">
-                  {/* Imagem */}
-                  <div className="md:w-[55%] md:shrink-0 md:sticky md:top-0">
-                    {selectedPost.photos && selectedPost.photos.length > 0 ? (
-                      <div className="md:h-full">
-                        <PostCarousel
-                          photos={selectedPost.photos}
-                          alt={selectedPost.description}
-                          editMode={isEditingPost}
-                          onRemovePhoto={handleRemoveCarouselPhoto}
-                          removingPhoto={removingPhoto}
-                          objectFit="contain"
-                        />
-                      </div>
-                    ) : (
-                      <div className="w-full bg-black overflow-hidden">
-                        <img
-                          src={selectedPost.photo}
-                          alt={selectedPost.description}
-                          className="w-full h-auto block"
-                        />
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Conteúdo */}
-                  <div className="md:flex-1 md:overflow-y-auto px-4 pb-4 pt-3 space-y-3">
-                    {/* Repost — crédito do autor original; o toque abre o post dele */}
-                    {!isEditingPost && selectedPost.repostOf && (
-                      <RepostAttribution origin={selectedPost.repostOf} />
-                    )}
-
-                    {/* Pessoas marcadas — "com fulano" (1) navega ao perfil; 2+ abre a lista */}
-                    {!isEditingPost && (selectedPost.taggedUsers?.length ?? 0) > 0 && (
-                      <button
-                        type="button"
-                        className="flex items-center gap-1.5 -mb-1 active:opacity-70 transition-opacity"
-                        onClick={() => {
-                          hapticLight();
-                          const tagged = selectedPost.taggedUsers ?? [];
-                          if (tagged.length === 1) navigate(`/usuario/${tagged[0].id}`);
-                          else setPostTaggedOpen(true);
-                        }}
-                      >
-                        <UsersRound className="h-3.5 w-3.5 flex-shrink-0" style={{ color: "rgba(255,255,255,.5)" }} />
-                        <span className="text-xs" style={{ color: "rgba(255,255,255,.65)" }}>
-                          {selectedPost.taggedUsers!.length === 1
-                            ? t("post_with_person").replace("{name}", selectedPost.taggedUsers![0].nickname)
-                            : t("post_with_others")
-                                .replace("{name}", selectedPost.taggedUsers![0].nickname)
-                                .replace("{n}", String(selectedPost.taggedUsers!.length - 1))}
-                        </span>
-                      </button>
-                    )}
-
-                    {/* Description */}
-                    {isEditingPost ? (
-                      <div className="space-y-1.5">
-                        <label className="text-sm font-medium" style={{ color: "#fff" }}>{t("profile_description_label")}</label>
-                        {/* #hashtag e @menção ficam azuis enquanto digita. */}
-                        <HighlightTextarea
-                          value={editPostDescription}
-                          onChange={(e) => setEditPostDescription(e.target.value)}
-                          className={cn(SHADCN_TEXTAREA_CLASS, "resize-none")}
-                          rows={3}
-                          style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }}
-                        />
-                      </div>
-                    ) : (
-                      (() => {
-                        const desc = displayedPostDescription(selectedPost);
-                        const DESC_MAX = 30;
-                        const firstLine = desc.split("\n")[0] ?? "";
-                        const truncatable = desc.includes("\n") || desc.length > DESC_MAX;
-                        const truncated = firstLine.length > DESC_MAX
-                          ? firstLine.slice(0, DESC_MAX).trimEnd()
-                          : firstLine;
-                        return (
-                          <div className="flex items-start justify-between gap-2">
-                            <p className="text-sm leading-relaxed whitespace-pre-wrap flex-1 min-w-0" style={{ color: "rgba(255,255,255,.85)" }}>
-                              {!truncatable || postDescExpanded ? (
-                                <>
-                                  {renderWithHashtags(desc, (tag) => navigate(`/tag/${encodeURIComponent(tag)}`), openProfileByHandle)}
-                                  {truncatable && postDescExpanded && (
-                                    <>
-                                      {" "}
-                                      <button
-                                        type="button"
-                                        onClick={() => setPostDescExpanded(false)}
-                                        style={{ color: "rgba(255,255,255,.45)" }}
-                                      >
-                                        {t("feed_description_less")}
-                                      </button>
-                                    </>
-                                  )}
-                                </>
-                              ) : (
-                                <>
-                                  {renderWithHashtags(truncated, (tag) => navigate(`/tag/${encodeURIComponent(tag)}`), openProfileByHandle)}
-                                  {"... "}
-                                  <button
-                                    type="button"
-                                    onClick={() => setPostDescExpanded(true)}
-                                    style={{ color: "rgba(255,255,255,.45)" }}
-                                  >
-                                    {t("feed_description_more")}
-                                  </button>
-                                </>
-                              )}
-                            </p>
-                            <span className="text-xs font-mono shrink-0" style={{ color: "rgba(255,255,255,.35)" }}>
-                              {formatTimeAgo(selectedPost.created_at)}
-                            </span>
-                          </div>
-                        );
-                      })()
-                    )}
-
-                    {/* Workout summary — "Ver treino" abre o detalhe; os dados do
-                        autor habilitam o botão "Comparar" DENTRO do drawer. */}
-                    {FEATURES.workoutDetailOnPost && !isEditingPost && selectedPost.workoutSummary && (
-                      <WorkoutDetailButton
-                        summary={selectedPost.workoutSummary}
-                        authorId={selectedPost.user_id}
-                        authorNickname={selectedPost.userNickname ?? null}
-                        authorPhoto={selectedPost.userPhoto ?? null}
-                      />
-                    )}
-
-                    {/* Goal */}
-                    {isEditingPost ? (
-                      <div className="space-y-1.5">
-                        <label className="text-sm font-medium" style={{ color: "#fff" }}>{t("profile_linked_goal_label")}</label>
-                        {userGoals.length > 0 ? (
-                          <div className="rounded-xl overflow-hidden" style={{ border: "1px solid rgba(255,255,255,.12)" }}>
-                            {/* Meta hoje vinculada vem primeiro, com o selo "Vinculada" */}
-                            {[...userGoals]
-                              .sort((a, b) =>
-                                Number(b.id === String(selectedPost.user_goal_id ?? "")) -
-                                Number(a.id === String(selectedPost.user_goal_id ?? "")))
-                              .map((goal, idx) => {
-                              const selected = editPostGoalId === goal.id;
-                              const isLinked = goal.id === String(selectedPost.user_goal_id ?? "");
-                              return (
-                                <button
-                                  key={goal.id}
-                                  type="button"
-                                  onClick={() => setEditPostGoalId(selected ? "" : goal.id)}
-                                  className="w-full text-left px-3 py-2.5 text-sm flex items-center justify-between gap-2 transition-colors active:scale-[0.99]"
-                                  style={{
-                                    background: selected ? "rgba(91,140,255,.18)" : "rgba(255,255,255,.05)",
-                                    color: selected ? "#fff" : "rgba(255,255,255,.7)",
-                                    borderTop: idx > 0 ? "1px solid rgba(255,255,255,.07)" : undefined,
-                                  }}
-                                >
-                                  <span className="truncate flex-1">{goal.description}</span>
-                                  {isLinked && (
-                                    <span
-                                      className="shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-semibold"
-                                      style={{ background: "rgba(34,197,94,.16)", color: "#4ade80", border: "1px solid rgba(34,197,94,.35)" }}
-                                    >
-                                      {t("editpost_goal_linked_badge")}
-                                    </span>
-                                  )}
-                                  {selected && <Check className="h-4 w-4 shrink-0 text-brand" />}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        ) : (
-                          <p className="text-sm" style={{ color: "rgba(255,255,255,.5)" }}>{t("profile_no_goals_created")}</p>
-                        )}
-                      </div>
-                    ) : (() => {
-                      /* `selectedPost.userGoal` vem batelado do banco (igual ao feed em
-                         post.service.ts) e só existe quando a meta é pública — funciona
-                         para post de qualquer autor, inclusive na aba "Marcações". Para
-                         o post do PRÓPRIO dono do perfil, cai no fallback via `userGoals`
-                         (lista completa, sem filtro de visibilidade) para não esconder
-                         uma meta privada do próprio dono.
-
-                         Sem descrição de nenhum dos dois lados, o `user_goal_id` é uma
-                         referência órfã (a meta foi apagada): o bloco inteiro some, como
-                         se o post nunca tivesse tido vínculo. Avisar "meta removida" não
-                         acrescenta nada — não há mais nada para onde ir. */
-                      const goalDescription =
-                        selectedPost.userGoal?.description
-                        ?? (selectedPost.user_goal_id && selectedPost.user_id === profileUserId
-                          ? userGoals.find((g) => g.id === String(selectedPost.user_goal_id))?.description
-                          : undefined);
-                      if (!goalDescription) return null;
-                      return (
-                        <div className="flex items-center gap-2 px-3 py-2 rounded-xl" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}>
-                          <span className="text-xs" style={{ color: "rgba(255,255,255,.45)" }}>{t("profile_goal_label")}</span>
-                          <span className="text-xs font-medium truncate" style={{ color: "#fff" }}>
-                            {goalDescription}
-                          </span>
-                        </div>
-                      );
-                    })()}
-
-                    {/* Incentives + Comments */}
-                    {isLoadingPostData && !isEditingPost && (
-                      <div className="flex items-center gap-2 pt-1">
-                        {[...Array(6)].map((_, i) => (
-                          <div key={i} className="h-8 w-12 rounded-full animate-pulse" style={{ background: "rgba(255,255,255,.08)" }} />
-                        ))}
-                      </div>
-                    )}
-                    {!isLoadingPostData && !isEditingPost && (
-                      <div className="space-y-1.5 pt-1">
-                        <div className="flex items-center gap-1 flex-wrap">
-                          {([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => (
-                            <PostIncentiveButton
-                              key={type}
-                              type={type}
-                              isActive={postUserLikes.includes(type)}
-                              onClick={() => handleTogglePostIncentive(type)}
-                            />
-                          ))}
-                          {!isEditingPost && selectedPost && (
-                            <div className="ml-auto">
-                              <PostCommentsDialog
-                                postId={selectedPost.id}
-                                commentCount={postCommentCount}
-                                onCountChange={setPostCommentCount}
-                                isPostOwner={isOwnSelectedPost}
-                              />
-                            </div>
-                          )}
-                        </div>
-                        {postLikes.length > 0 && (
-                          <button
-                            onClick={() => setIsLikesModalOpen(true)}
-                            className="text-xs font-semibold px-1 transition-colors"
-                            style={{ color: "rgba(255,255,255,.7)" }}
-                          >
-                            {t("profile_incentives_label").replace("{n}", String(postLikes.length))}
-                          </button>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Recompartilhar — quem foi MARCADO no post de outra pessoa
-                        (feed/flow). Abre o mesmo ShareDrawer do feed. */}
-                    {!isEditingPost && canReshareSelectedPost && (
-                      <Button
-                        className="w-full rounded-full gap-2"
-                        style={{ background: "rgba(255,255,255,.09)", color: "#fff", border: "1px solid rgba(255,255,255,.14)" }}
-                        onClick={() => {
-                          hapticLight();
-                          const base = t("share_post_text").replace("{handle}", selectedPost.userNickname ?? "");
-                          setShareDrawerText(selectedPost.description ? `${base}
-"${selectedPost.description}"` : base);
-                          setShareDrawerUrl(postShareUrl(selectedPost.id));
-                          setShareDrawerTitle(t("feed_share_post_title"));
-                          postReshare.prepare(selectedPost);
-                          setShareDrawerOpen(true);
-                        }}
-                      >
-                        <Repeat2 className="h-4 w-4" />
-                        {t("repost_reshare_btn")}
-                      </Button>
-                    )}
-
-                    {/* Action Buttons */}
-                    {isOwnSelectedPost && (
-                      <div className="flex gap-2 pt-2" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
-                        {!isEditingPost ? (
-                          <>
-                            <Button
-                              className="flex-1 rounded-full gap-2"
-                              style={{ background: "rgba(255,255,255,.09)", color: "rgba(255,255,255,.8)", border: "1px solid rgba(255,255,255,.12)" }}
-                              onClick={() => setIsEditingPost(true)}
-                            >
-                              <Edit2 className="h-4 w-4" />
-                              {t("edit")}
-                            </Button>
-                            <Button
-                              variant="destructive"
-                              className="flex-1 rounded-full gap-2"
-                              onClick={handleDeletePost}
-                              disabled={isUpdatingPost}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                              {t("delete")}
-                            </Button>
-                          </>
-                        ) : (
-                          <>
-                            <Button
-                              className="flex-1 rounded-full"
-                              style={{ background: "rgba(255,255,255,.09)", color: "rgba(255,255,255,.7)", border: "1px solid rgba(255,255,255,.12)" }}
-                              onClick={() => setIsEditingPost(false)}
-                              disabled={isUpdatingPost}
-                            >
-                              {t("cancel")}
-                            </Button>
-                            <Button
-                              className="flex-1 rounded-full"
-                              style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}
-                              onClick={handleUpdatePost}
-                              disabled={isUpdatingPost}
-                            >
-                              {isUpdatingPost ? t("saving") : t("save")}
-                            </Button>
-                          </>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </>
-          )}
-        </DrawerContent>
-      </Drawer>
-
-      {/* Post Likes Modal */}
-      <PostLikesModal
-        open={isLikesModalOpen}
-        onOpenChange={setIsLikesModalOpen}
-        likes={postLikes}
+        onPostEdited={(postId, description, taggedUsers) => {
+          setPosts((prev) =>
+            prev.map((p) =>
+              p.id === postId
+                ? {
+                    ...p,
+                    ...(description !== undefined ? { description } : {}),
+                    ...(taggedUsers !== undefined ? { taggedUsers } : {}),
+                  }
+                : p,
+            ),
+          );
+        }}
+        // Bloquear alguém a partir do post dele: ficar no perfil de quem acabou
+        // de ser bloqueado é contraditório — volta para a tela anterior.
+        onBlocked={() => navigate(-1)}
       />
-
-      {/* Lista de pessoas marcadas no post aberto (2+) */}
-      {(selectedPost?.taggedUsers?.length ?? 0) > 1 && (
-        <FollowListDrawer
-          open={postTaggedOpen}
-          onOpenChange={setPostTaggedOpen}
-          type="following"
-          title={t("post_tagged_title")}
-          emptyMessage={t("post_tagged_title")}
-          users={selectedPost!.taggedUsers!}
-          isLoading={false}
-        />
-      )}
 
       {/* Followers Drawer */}
       <FollowListDrawer

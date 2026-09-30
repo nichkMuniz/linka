@@ -116,6 +116,14 @@ background: linear-gradient(135deg, #3A8DFF 0%, #7B3FF2 50%, #FF8A2A 100%);
 | Vestuário | Rosa | `bg-pink-500/15 text-pink-400` |
 | Serviço | Laranja | `bg-orange-500/15 text-orange-400` |
 
+#### Contador de não lidas (2026-09-30)
+
+| Token | Valor | Classes | Uso |
+|---|---|---|---|
+| `unread` | `hsl(13, 100%, 67%)` = `#ff7a59` (coral) | `bg-unread`, `text-unread` | **Todo** contador/indicador de não lidas: sino, bottom nav, sidebar, conversas, solicitações |
+
+> **Regra:** contador de não lidas tem **uma cor só** no app. Não usar `bg-red-500`, `bg-destructive`, `bg-brand` ou azul para isso — vermelho fica para erro/ação destrutiva, azul para seleção/link.
+
 > **Regra:** Opacidade `/10` ou `/15` para fundos de badges/notificações. Opacidade `/40` ou `/50` para bordas. Sempre use a versão `400` ou `500` para texto sobre fundo claro/escuro respectivamente.
 
 ### Selo de verificação (`VerifiedBadge`)
@@ -171,6 +179,12 @@ Texto de suporte:     text-sm text-muted-foreground
 Badge / Label:        text-xs font-medium
 Timestamp:            text-xs text-muted-foreground font-mono
 ```
+
+---
+
+### 2.5 Título de seção — `SectionHeader` (2026-09-30)
+
+Toda seção dentro de uma tela (ex.: "Treino de hoje", "Suas rotinas", "Metas") usa o componente `SectionHeader` (`client/components/shared/section-header.tsx`): **20px bold branco**, com **uma** ação opcional em texto azul à direita (ex.: "+ Nova meta"). Não inventar variações (rótulo em maiúsculas, 18px/740, título + etiqueta "opcional"): uma tela com três seções tem três títulos iguais. Rótulo pequeno em maiúsculas fica só para sub-rótulos **dentro** de cards.
 
 ---
 
@@ -287,6 +301,17 @@ Sem borda:            border-0 ou remover a classe border
   Excluir conta
 </Button>
 ```
+
+### 6.3.1 Hierarquia sobre o escuro (2026-09-30)
+
+| Nível | Aparência | Exemplos |
+|---|---|---|
+| Principal | Branco sólido, texto `#0a0b12`, `rounded-full` | "Entrar" (passo do e-mail), "Seguir", "Iniciar treino" |
+| Secundário | Vidro `rgba(255,255,255,.09)`, texto branco, sem borda | "Seguindo", "Editar perfil" + "Compartilhar perfil" (mesmo peso), "Encontrar pessoas" |
+| Texto | `text-primary` (azul), sem fundo | "+ Nova meta", "Esqueci a senha", "Vincular a uma rotina" |
+
+- **Um principal por tela/passo.** Estado ("Seguindo") nunca usa o estilo principal.
+- Botões com o mesmo peso ficam lado a lado com `flex-1` (mesma largura).
 
 ### 6.4 Regras
 
@@ -699,6 +724,8 @@ import { LoadingSpinner } from "@/components/shared/animated-loading";
 
 ### 10.3 Empty States
 
+> **Padrão atual (2026-09-30, Notificações):** ícone **do assunto** (nunca genérico) num círculo de 72px `bg-white/[.07]`, título 19px bold, texto de apoio 15px `text-white/55` e **uma** ação secundária que leva a um próximo passo útil. **Sem** caixa tracejada em volta. O bloco abaixo é o padrão antigo (Shadcn).
+
 ```tsx
 <div className="flex flex-col items-center justify-center gap-3 p-8 text-center">
   <IconRelevante className="h-10 w-10 text-muted-foreground" />
@@ -708,6 +735,10 @@ import { LoadingSpinner } from "@/components/shared/animated-loading";
   <Button variant="outline" size="sm">Ação sugerida</Button>
 </div>
 ```
+
+### 10.3.1 Confirmar antes de descartar (2026-09-30)
+
+Todo "voltar"/"fechar" que **apaga trabalho do usuário** (foto escolhida, textos, marcações) pergunta antes: título "Descartar este flow?", texto dizendo o que se perde, **"Continuar editando" (principal branco)** e **"Descartar"** (vermelho suave `rgba(255,90,78,.14)` / texto `#ff8a80`). Sem nada feito, o voltar age direto. Implementação de referência: `discardDialog` no `FlowCreationDialog`.
 
 ### 10.4 Estados de Botão com Loading
 
@@ -829,6 +860,13 @@ md:classe-desktop
 // Emoji picker
 <div className="grid grid-cols-8 gap-0.5">
 ```
+
+### 12.4.1 Brilho de fundo por trás do header (2026-09-30)
+
+- Aura de tela = componente **`ScreenAura`** (`client/components/shared/screen-aura.tsx`, presets `feed`/`goals`/`notifications`/`neutral`): `fixed inset-0 -z-10` com `radial-gradient` pintado direto (§0.3). Toda tela principal com o header global usa um. **Não** `absolute` no container da página: ele começa abaixo do header e o brilho sai cortado numa linha reta ali.
+- Funciona porque o raiz do `AppLayout` tem `isolate`; sem ele o `-z-10` fica atrás do `bg-background`.
+- Fundo que precisa começar **atrás** do header (capa do Perfil) sobe com `margin-top: calc(-1 * var(--app-header-offset))` e desce o conteúdo na mesma medida.
+- Degradê de saída de uma capa/banner termina **na cor exata do fundo** e **na mesma altura** da capa — senão sobra um corte seco.
 
 ### 12.5 Fundo da conversa privada (2026-09-14)
 

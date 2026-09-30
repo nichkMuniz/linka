@@ -5,10 +5,11 @@
 >   links (`Browser.open`) e a frase de tolerância zero a conteúdo abusivo. O
 >   botão fica desabilitado sem ele, e a validação do step tem backstop porque o
 >   form também submete pelo Enter do teclado iOS. Exigência da Guideline 1.2.
-> - **Login por biometria está desligado** (`FEATURES.biometricLogin`).
->   `isBiometricSupported()` nem chega a ser chamada: o suporte é zerado na
->   origem, o que apaga de uma vez o prompt de ativação, a tentativa automática
->   e o botão de Face ID.
+> - **Login por biometria religado em 2026-09-29** (`FEATURES.biometricLogin: true`).
+>   Vale só para contas com senha — conta só de Google/Apple não vê o prompt
+>   nem o toggle em Configurações (`hasPasswordIdentity`).
+> - **Login com Google e Apple religado em 2026-09-29** (tinha sido removido na
+>   faxina de 2026-06) — ver seção "Login com Google / Apple".
 > - O **Step 4 (seguir pessoas)** já estava fora do fluxo — `handleSignupStep3`
 >   conclui o cadastro direto.
 
@@ -42,16 +43,47 @@ Ao abrir `/login`, antes do formulário aparecer, é exibida por ~3.2s uma anima
 
 ## Estrutura Visual
 
+> **Redesenho de 2026-09-30:** saiu o card com borda (título "Acessar conta / Use email e senha.") e saíram as abas **Entrar / Criar conta**, que repetiam o link "Cadastre-se". A tela passou a ter dois passos: a **tela inicial** e o **passo do e-mail**. Estado: `loginWithEmail` (novo) + o `tab` que já existia.
+
+**1. Tela inicial** (`showLanding`: `tab === "login"`, sem `loginWithEmail`, sem sessão/recuperação/cadastro social em curso)
+
 ```
 ┌──────────────────────────────────┐
-│  Logo RitmoFit / LinKa           │
-├──────────────────────────────────┤
-│  Tabs: [Entrar] [Criar conta]    │
-├──────────────────────────────────┤
-│  Conteúdo da Tab ativa           │
-│  (formulário)                    │
+│                                  │  ← brilhos da marca (LANDING_AURA)
+│        [logo LinKa grande]       │
+│   Seus treinos, suas metas e a   │  ← login_tagline
+│   sua comunidade no mesmo lugar. │
+│                                  │
+│  [ Entrar com Face ID ]          │  ← só com biometria ativada
+│  [  Continuar com a Apple ]     │  ← branco (HIG, fundo escuro)
+│  [ G Continuar com o Google ]    │  ← vidro, mesmo tamanho (G. 4.8)
+│  [ ✉ Continuar com e-mail ]      │  ← vidro → passo do e-mail
 └──────────────────────────────────┘
 ```
+
+Os botões ficam **embaixo, na zona do polegar**, em largura total (52px, `LANDING_BTN`/`LANDING_BTN_GLASS`). Avisos de sem conexão / Supabase inacessível aparecem acima deles.
+
+**2. Passo do e-mail** (`loginWithEmail`), **cadastro** (`tab === "signup"`) e **recuperação de senha** — mesmo visual (2026-09-30):
+
+- Alinhados ao **topo**, **sem logo** (`isAuthStep`); o logo pequeno centralizado fica só para estados sem formulário (sessão ativa, verificando sessão).
+- Cabeçalho `AuthStepHeader`: voltar (44px, vidro) numa linha própria, título 28px extrabold e subtítulo 15px. No cadastro o voltar só aparece no passo 1 (os seguintes têm o "Voltar" de baixo).
+- Todo campo/rótulo/botão do fluxo passa pelos wrappers `AuthInput`, `AuthTextarea`, `AuthLabel` e `AuthButton` (no topo do `Login.tsx`): campo 52px, `rounded-[14px]`, vidro `bg-white/[.06]` + borda `white/12`; rótulo 13px semibold `white/70`; `AuthButton` sem variant = **principal branco**, `variant="outline"` = **secundário em vidro**, ambos 52px. A classe da chamada vence (borda vermelha de erro, `pr-10` do olho, OTP centralizado).
+- Brilhos da marca (`LANDING_AURA`) em todas as etapas, não só na tela inicial.
+
+```
+┌──────────────────────────────────┐
+│        [logo LinKa pequeno]      │
+│  (‹)  Entrar com e-mail          │  ← voltar = tela inicial
+│       Use o e-mail e a senha…    │
+│  Email  [voce@exemplo.com     ]  │
+│  Senha  [Sua senha         👁 ]  │  ← placeholder "Sua senha" (era ••••••••)
+│                  Esqueci a senha │
+│  [          Entrar            ]  │  ← ÚNICO botão principal (branco)
+│      Não tem conta? Criar conta  │  ← vai para o cadastro (tab signup)
+└──────────────────────────────────┘
+```
+
+O cadastro por e-mail ganhou cabeçalho "‹ Criar conta" no passo 1 (voltar = tela inicial) e, no fim do passo 1, "Já tem conta? **Entrar**" (volta ao passo do e-mail). Os botões Apple/Google **saíram do passo 1 do cadastro** — ficam só na tela inicial. O **checkbox de aceite dos Termos** (Guideline 1.2) continua exatamente como era, no passo 1 (e no passo 2 do cadastro social).
 
 ---
 
@@ -66,6 +98,8 @@ Ao abrir `/login`, antes do formulário aparecer, é exibida por ~3.2s uma anima
 ### Botões
 - **Entrar** — desabilitado se campos inválidos, sem conexão ou Supabase inacessível
 - **Esqueci minha senha** — abre formulário de recuperação
+- **Apple / Google** — desde 2026-09-30, botões de **largura total com o nome escrito** ("Continuar com a Apple", "Continuar com o Google") na **tela inicial**, não mais no formulário nem no Step 1 do cadastro (antes: dois círculos só com ícone abaixo de um divisor "ou")
+- **Entrar com Face ID** — também na tela inicial (acima dos provedores), quando a biometria está ativada
 
 ### Recuperação de Senha
 - Campo de email
@@ -74,6 +108,38 @@ Ao abrir `/login`, antes do formulário aparecer, é exibida por ~3.2s uma anima
 - Link para voltar ao login
 
 ---
+
+## Login com Google / Apple
+
+Religado em 2026-09-29. Lógica em `client/lib/social-auth.ts` (fluxos) e `client/lib/social-signup-state.ts` (estado leve, lido também pelo `RequireAuth` do `App.tsx`).
+
+| Provedor | iOS | Web (`pnpm dev`) |
+|---|---|---|
+| Apple | Folha nativa (`@capacitor-community/apple-sign-in`) → `identityToken` + nonce (SHA-256) → `signInWithIdToken`. Sem navegador. | `signInWithOAuth` com redirect para `/login` |
+| Google | **Plugin nativo local `GoogleAuth`** (`ios/App/App/GoogleAuthPlugin.swift`, registrado no `ViewController`): `ASWebAuthenticationSession` + PKCE com o **Client ID iOS** → `id_token` + nonce → `signInWithIdToken`. O retorno é o próprio app, então o Google mostra o nome do app em vez de "Prosseguir para …supabase.co". Sem SDK do Google (o plugin pronto `@capgo/capacitor-social-login` arrasta o SDK do Facebook). **Fallback** (Client ID vazio ou binário sem o plugin → `UNIMPLEMENTED`): `signInWithOAuth` no `Browser` → `com.linka.meuapp://login-callback?code=…` → `exchangeCodeForSession` | Redirect para `/login?code=…`; a troca é do **supabase-js na inicialização** (`detectSessionInUrl` ligado só na web, em `supabase.ts`) — funciona em qualquer rota de retorno |
+
+- Botão da Apple vem **antes** do Google e com o mesmo tamanho (Guideline 4.8): Apple em branco com texto preto (estilo "white" da HIG para fundo escuro), Google em vidro escuro com o "G" colorido. Logos em SVG inline (`AppleLogo`, `GoogleLogo` no `Login.tsx`).
+- O `DeepLinkHandler` do `App.tsx` ignora `login-callback` de propósito — quem trata é o listener `appUrlOpen` do Login. `browserFinished` só destrava o botão quando o usuário fecha o navegador sem concluir.
+- A Apple só manda o **nome** na primeira autorização: ele é gravado em `user_metadata.full_name` na hora, para não se perder se o app fechar no meio.
+- Email já cadastrado por senha + login pelo provedor com o mesmo email: o Supabase **vincula** as identidades (automatic linking) e o usuário cai na própria conta.
+
+### Conta nova por provedor → passos de perfil
+O trigger `handle_new_user` cria o perfil na hora (com um @ tirado do email), então "tem perfil" não diz se o cadastro terminou. Quem diz é `needsSocialSignupCompletion(user)`: provedor `google`/`apple` **e** sem `user_metadata.signup_completed` **e** criada a partir de 2026-09-29 (contas do login social antigo ficam de fora) **e** sem a marca local `linka_signup_completed_{id}` (o `auth-context` não propaga `user_metadata` novo — mesmo motivo do email em Configurações).
+
+- Login: em vez do feed, abre o **Step 2** — **sem as abas Entrar/Criar conta**, trocadas por um aviso "Falta pouco! Você entrou com {provedor} ({email})…" (`login_social_finish_*`). Com as abas, o passo parecia a tela de login sem os botões sociais e o usuário achava que o login tinha falhado (2026-09-29). com nome (metadata) e o @ do trigger como sugestão editável. A checagem de @ exclui o próprio id (`checkHandleExistsDb(handle, user.id)`), senão a sugestão apareceria "em uso".
+- O **aceite dos Termos** (Guideline 1.2) aparece no Step 2 neste fluxo — o Step 1 é pulado. Próximo/Pular ficam barrados sem ele.
+- "Voltar" vira **Cancelar**: desloga e volta ao login. A conta fica no auth sem `signup_completed` e volta a estes passos no próximo login.
+- `handleSignupStep3` pula `signUp`/`signInWithPassword` e grava o perfil como no cadastro por email; no fim, `markSocialSignupCompleted` (metadata + marca local) **antes** do navigate.
+- O Step 2 **só abre logo depois de um toque** num botão de provedor (marca `linka_social_signin_attempt` em sessionStorage, 10 min — sobrevive ao reload do retorno do Google na web). Qualquer outra abertura do login com sessão social incompleta (fechou o app no meio, recarregou, veio do `RequireAuth`) **encerra essa sessão** e mostra o login normal, com os botões; tocar no provedor de novo retoma o cadastro. Antes, a tela ficava presa no Step 2 e os botões "sumiam" depois do 1º uso (2026-09-29).
+- **Pré-preenchimento com o que o provedor fornece:** email (exibido no aviso), nome (`full_name`/`name`; na Apple, o nome da 1ª autorização) e **foto** (Google: `avatar_url`/`picture`, pedida em 512px). A foto é baixada e vira o `photoFile` do cadastro (sobe para o nosso Storage no fim, trocável/removível no passo 2); se o download falhar (CORS), a URL do Google vai direto para `profiles.photo`.
+- **Bug corrigido (2026-09-29, web):** com `detectSessionInUrl: false`, só o `/login` tratava o `?code=`. Se o retorno caísse em outra rota (Site URL / Redirect URL da raiz), o `RequireAuth` redirecionava para `/login` **descartando o `?code=`** e a conta nova "voltava para o login". Web precisa de `http://localhost:8080/**` (dev) em Redirect URLs, senão o Supabase manda para a Site URL.
+
+### Configuração fora do código (obrigatória)
+1. **Supabase → Auth → Providers → Apple:** ligado, com o bundle id `com.linka.meuapp` em *Client IDs* (fluxo nativo por id token).
+2. **Supabase → Auth → Providers → Google:** Client ID + Secret de um OAuth client **Web** no Google Cloud (redirect autorizado: `https://zymkndqpashqxcvttdlc.supabase.co/auth/v1/callback`).
+3. **Supabase → Auth → URL Configuration → Redirect URLs:** incluir `com.linka.meuapp://login-callback` (senão o redirect cai na Site URL).
+5. **Google Cloud → Credentials → Create OAuth client ID → iOS** (bundle `com.linka.meuapp`) → colar o Client ID em `GOOGLE_IOS_CLIENT_ID` (`client/lib/social-auth.ts`, ou `VITE_GOOGLE_IOS_CLIENT_ID`) **e** adicioná-lo em Supabase → Providers → Google → *Client IDs* (junto do Web, separados por vírgula) — senão o `signInWithIdToken` recusa a audiência do token. O nome exibido ("Prosseguir para LinKa") vem da *OAuth consent screen → Branding*.
+4. **Apple Developer → Identifiers → com.linka.meuapp:** marcar *Sign In with Apple* e **regenerar o provisioning profile** usado no Appflow — o entitlement `com.apple.developer.applesignin` voltou ao `App.entitlements` e o build falha na assinatura sem isso.
 
 ## Login por Biometria (Face ID / Touch ID)
 
@@ -93,10 +159,10 @@ Login biométrico nativo via plugin Capacitor `@capgo/capacitor-native-biometric
             └─ Agora não → entra direto
 
 Aberturas seguintes (biometria ativada)
-  └─ Ao sair o splash, sem sessão ativa, na aba "Entrar"
+  └─ Ao sair o splash, sem sessão ativa, na aba "Entrar" (tela inicial)
        └─ Dispara Face ID automaticamente (1x)
             ├─ Sucesso → getCredentials → signInWithPassword → entra
-            ├─ Cancelar/falhar → fallback: botão "Entrar com {Face ID}" + formulário manual
+            ├─ Cancelar/falhar → fallback: botão "Entrar com {Face ID}" na tela inicial (ou "Continuar com e-mail")
             └─ Senha inválida (mudou em outro device) → desativa biometria + toast + login manual
 ```
 
@@ -104,7 +170,7 @@ Aberturas seguintes (biometria ativada)
 | Ação | Onde | Efeito |
 |---|---|---|
 | Ativar Face ID | AlertDialog pós-login | `enableBiometric()` — grava credenciais no Keychain |
-| Entrar com Face ID | Botão na aba "Entrar" (só se ativado) | `authenticateWithBiometric()` → `signInWithPassword` |
+| Entrar com Face ID | Botão na tela inicial (só se ativado) | `authenticateWithBiometric()` → `signInWithPassword` |
 | Auto-login | Ao abrir a tela de login | Dispara o fluxo acima automaticamente, 1x |
 | Desativar | Configurações → Conta e Segurança (toggle) | `disableBiometric()` — limpa Keychain + flag |
 

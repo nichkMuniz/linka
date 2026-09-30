@@ -1,6 +1,7 @@
 import * as React from "react";
 import { Check, CheckCircle2, Dumbbell, Moon, Play, Salad, Target } from "lucide-react";
 import { ImageWithFallback } from "@/components/shared/image-with-fallback";
+import { SectionHeader } from "@/components/shared/section-header";
 import { useLanguage } from "@/lib/language-context";
 import { formatScheduledTime } from "@/hooks/use-routine-notifications";
 import {
@@ -377,24 +378,28 @@ export function TodayDashboard({
         )}
         {linkedGoal && (
           <span
-            className="absolute top-3.5 left-3.5 text-[11px] font-semibold px-3 py-1.5 backdrop-blur-md"
+            className="absolute top-3.5 left-3.5 inline-flex max-w-[calc(100%-1.75rem)] items-center gap-1.5 text-[11px] font-semibold px-3 py-1.5 backdrop-blur-md"
             style={{ borderRadius: "14px", background: "rgba(255,255,255,.55)", border: "1px solid rgba(255,255,255,.5)", color: TEXT_ON_GLASS }}
           >
-            🎯 {linkedGoal.description} · {Math.min(100, Math.round(linkedGoal.perc))}%
+            <Target className="h-3.5 w-3.5 shrink-0" strokeWidth={2.4} />
+            <span className="truncate">{linkedGoal.description} · {Math.min(100, Math.round(linkedGoal.perc))}%</span>
           </span>
         )}
 
-        <span
-          className="absolute top-3.5 right-3.5 text-[11px] font-bold uppercase tracking-wider"
-          style={{
-            padding: "5px 11px",
-            borderRadius: "12px",
-            color: doneToday ? "#fff" : "#0a0b12",
-            background: doneToday ? "rgba(52,211,153,.9)" : "#fff",
-          }}
-        >
-          {doneToday ? t("goals_dash_done_badge") : t("goals_today_label")}
-        </span>
+        {/* Só o selo de concluído: o "HOJE" repetia o título da seção. */}
+        {doneToday && (
+          <span
+            className="absolute top-3.5 right-3.5 text-[11px] font-bold uppercase tracking-wider"
+            style={{
+              padding: "5px 11px",
+              borderRadius: "12px",
+              color: "#fff",
+              background: "rgba(52,211,153,.9)",
+            }}
+          >
+            {t("goals_dash_done_badge")}
+          </span>
+        )}
 
         <div className="absolute left-4 right-4 bottom-3.5">
           <p className="text-[13px] font-semibold mb-0.5 truncate" style={{ color: "rgba(28,29,36,.7)", textShadow: TEXT_GLOW }}>
@@ -516,21 +521,15 @@ export function TodayDashboard({
       ? t("goals_dash_water_label")
       : (slide.card.name ?? typeTopLabel(slide.card));
 
-  // Água pendente também conta como "em foco" — senão o rótulo sumiria num dia
-  // sem rotinas, com o slide de água sozinho na tela. Só vale quando o slide
-  // está visível (ou seja, já houve registro hoje).
-  const hasPending =
-    tasks.some((c) => !isCardDoneToday(c)) || (hasWaterToday && !waterDone);
+  // Título da seção no padrão do app (SectionHeader). "Treino de hoje" quando
+  // tudo no carrossel é treino; com dieta/hábito/água junto, o genérico "Hoje".
+  const onlyWorkouts = slides.every((s) => s.kind === "routine" && s.card.type === 1);
+  const sectionTitle = onlyWorkouts ? t("goals_dash_today_workout") : t("goals_dash_today_title");
 
   return (
     <section className="space-y-3">
-      {slides.length > 0 && hasPending && (
-        <p
-          className="px-1 text-[11px] font-bold uppercase tracking-[.06em]"
-          style={{ color: "rgba(255,255,255,.45)" }}
-        >
-          {t("goals_today_focus_generic")}
-        </p>
+      {(slides.length > 0 || (tasks.length === 0 && isRestDay)) && (
+        <SectionHeader title={sectionTitle} />
       )}
 
       {/* Tarefa de hoje — única ou carrossel auto-rotativo */}

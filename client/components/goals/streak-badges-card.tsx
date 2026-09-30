@@ -1,4 +1,4 @@
-import { ChevronRight, Scale } from "lucide-react";
+import { ChevronRight, Flame, Scale } from "lucide-react";
 import { useLanguage } from "@/lib/language-context";
 import { FEATURES } from "@/lib/feature-flags";
 
@@ -18,8 +18,9 @@ interface StreakBadgesCardProps {
 }
 
 /**
- * Card de streak no estilo "LinKa Glass" (Direção A): anel conic com 🔥 +
- * contagem, título/recorde e mini-fileira de badges.
+ * Card de streak no estilo "LinKa Glass" (Direção A): anel conic com a
+ * contagem, título com o fogo ("🔥 12 dias seguidos"), recorde e mini-fileira
+ * de badges.
  * - Tocar no card principal abre o calendário de check-ins.
  * - Tocar nos ícones de badge abre o sheet de insígnias.
  * - Tocar no ⚖️ do canto superior direito abre o histórico de peso.
@@ -66,12 +67,12 @@ export function StreakBadgesCard({
           boxShadow: "0 0 30px -6px rgba(255,138,42,.5)",
         }}
       >
+        {/* Só o número no centro — o fogo mora no título (2026-09-30). */}
         <div
           className="flex flex-col items-center justify-center"
           style={{ width: "60px", height: "60px", borderRadius: "50%", background: "#0c0d12" }}
         >
-          <span style={{ fontSize: "17px", lineHeight: 1 }}>🔥</span>
-          <span className="text-white tabular-nums" style={{ fontSize: "18px", fontWeight: 760, lineHeight: 1 }}>
+          <span className="text-white tabular-nums" style={{ fontSize: "22px", fontWeight: 800, lineHeight: 1 }}>
             {streakCount}
           </span>
         </div>
@@ -79,8 +80,9 @@ export function StreakBadgesCard({
 
       {/* texto + badges */}
       <div className="flex-1 min-w-0">
-        <div className="text-white" style={{ fontSize: "15px", fontWeight: 700 }}>
-          {streakCount} {t("goals_dash_streak_caption")}
+        <div className="flex items-center gap-1.5 text-white" style={{ fontSize: "16px", fontWeight: 700 }}>
+          <Flame className="h-[18px] w-[18px] shrink-0" style={{ color: "#ff8a2a", fill: "rgba(255,138,42,.35)" }} strokeWidth={2.2} />
+          <span className="truncate">{streakCount} {t("goals_dash_streak_caption")}</span>
         </div>
         <div style={{ fontSize: "11.5px", color: "rgba(255,255,255,.5)", marginTop: "1px" }}>
           {t("goals_streak_record").replace("{n}", String(recordStreak))}

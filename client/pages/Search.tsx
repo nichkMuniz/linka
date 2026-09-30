@@ -19,11 +19,12 @@ import {
 } from "@/lib/ritmofit-db";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/components/ui/use-toast";
-import { ChevronDown, ChevronUp, Copy, Dumbbell, Users, Salad, SearchX, Hash, Video } from "lucide-react";
+import { ChevronDown, ChevronUp, Copy, Dumbbell, Users, Salad, Search as SearchIcon, SearchX, Hash, Video } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useLanguage } from "@/lib/language-context";
 import { FEATURES } from "@/lib/feature-flags";
 import { UserAvatar } from "@/components/shared/user-avatar";
+import { ScreenAura } from "@/components/shared/screen-aura";
 import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
 import { FollowButton } from "@/components/shared/follow-button";
 import { SearchResultsSkeleton, GridSkeleton } from "@/components/shared/animated-loading";
@@ -375,18 +376,26 @@ export default function Search() {
           : t("search_placeholder_diets");
 
   return (
+    <>
+    {/* Brilho de fundo — padrão único das telas (ScreenAura). Fora do
+        space-y-4: como 1º filho ele empurraria o campo de busca 16px. */}
+    <ScreenAura variant="neutral" />
     <div className="space-y-4 px-4">
-      <Input
-        placeholder={searchPlaceholder}
-        value={searchQuery}
-        onChange={(e) => {
-          const value = e.target.value;
-          setSearchQuery(value);
-          if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
-          searchDebounceRef.current = setTimeout(() => handleSearch(value), 350);
-        }}
-        className="rounded-full"
-      />
+      {/* Lupa dentro do campo — mesmo padrão da busca de conversas da Comunidade. */}
+      <div className="relative">
+        <SearchIcon className="pointer-events-none absolute left-4 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-white/45" />
+        <Input
+          placeholder={searchPlaceholder}
+          value={searchQuery}
+          onChange={(e) => {
+            const value = e.target.value;
+            setSearchQuery(value);
+            if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+            searchDebounceRef.current = setTimeout(() => handleSearch(value), 350);
+          }}
+          className="rounded-full pl-11"
+        />
+      </div>
 
       <Tabs defaultValue="people" value={activeTab} onValueChange={handleTabChange} className="w-full">
         {/* Tabs — segmented control style (igual à tela de Comunidade).
@@ -680,5 +689,6 @@ export default function Search() {
         </TabsContent>
       </Tabs>
     </div>
+    </>
   );
 }

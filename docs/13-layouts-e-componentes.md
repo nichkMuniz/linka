@@ -62,6 +62,9 @@ client/components/
 - **Hierarquia da navegação (2026-07-13):** a **Comunidade** (mensagens + duelos + ranking) ocupa o 5º slot do bottom nav; a **Vitrine**, de consulta ocasional, desceu para o header. Antes era o inverso: a superfície social mais rica do app vivia atrás de um ícone de 36px no header — que ainda por cima **some no scroll**, levando junto o acesso e o badge de mensagens não lidas
 - **Badge de mensagens não lidas:** contador numérico sobre o ícone de Comunidade **no bottom nav** (sempre visível, ao contrário do header). Era um ponto de 7px
 - **Badge de notificações:** contador numérico sobre o ícone de Notificações no header. Era um ponto de 7px
+- **Cor única dos contadores de não lidas (2026-09-30):** sino do header, ícone da Comunidade no bottom nav, sidebar, contador de cada conversa e o selo de solicitações da Comunidade usam **o mesmo coral** — token `unread` (`--unread: 13 100% 67%` = `#ff7a59`, classe `bg-unread`/`text-unread`). Antes eram quatro cores (coral no header, azul no menu, vermelho na sidebar, `bg-brand` nas conversas)
+- **`isolate` no container raiz (2026-09-30):** o `div` raiz do layout (`min-h-dvh bg-background`) abre um stacking context próprio. Sem ele, qualquer camada `fixed inset-0 -z-10` das telas (as auras do Feed e de Notificações) era pintada **atrás** do `bg-background` e nunca aparecia
+- **`--app-header-offset` (2026-09-30):** a faixa que o `<main>` reserva no topo para o header flutuante (`max(14px, safe-area-top + 6px) + 52px + 12px`) virou variável CSS em `global.css` (`html`). O `<main>` usa como `padding-top`, e telas que querem um fundo **por trás** do header sobem esse mesmo valor com margem negativa (capa do Perfil — ver `docs/08-perfil.md`). Mudar a altura do header = mudar só a variável
 - **Alvos de toque:** os ícones do header são `40×40` (eram `36×36`), aproximando-se do mínimo de 44pt da Apple HIG
 - **Toque no logo:** `navigate("/")` quando fora do feed; no feed, dispara `ritmofit-refresh-feed`. **Nunca** `window.location.href` — isso recarregava a WebView inteira (perde cache de feed, remonta a app, refaz auth), que era a maior quebra de fluidez do app
 - **Limite diário atingido:** o botão "Ignorar hoje" é `variant="ghost"` (ação terciária). Como ele derrota o propósito do limite, não pode ser o CTA em destaque — os botões de adiar (5/10/30 min) são os `outline`
@@ -130,6 +133,13 @@ Carrossel horizontal de stories (Flows).
 **Usado em:** Feed (Index)
 
 Dialog para criar um novo story:
+- **Redesenho de 2026-09-30:**
+  - **Câmera:** topo só com o fechar; embaixo, grade `galeria | obturador | virar câmera` (a galeria mostra a **miniatura da última foto do rolo** via `PhotoLibrary.getLibrary` — só consulta com permissão já concedida; sem ela, ícone) e o seletor **"Câmera · Texto"** abaixo do obturador (o modo texto saiu do "T Aa" do topo).
+  - **Voltar com confirmação:** no modo texto e na legenda o X virou **seta de voltar**; se houver algo feito, abre "Descartar este flow?" (`discardDialog`, overlay próprio em `z-[140]` — o `AlertDialog` do app ficaria atrás deste portal `z-[100]`). Antes o X apagava foto, textos, marcações e treino sem perguntar.
+  - **Barras só com ícones de 44px** (`ICON_BTN`): marcar (@ com contador), treino, um único **"Aa"** (sai o "T + Aa") e **rascunho** (download) — "Salvar rascunho" deixou de ser um 2º botão largo no rodapé.
+  - **Editando texto:** topo com alinhamento (um botão que alterna esquerda/centro/direita), fundo do texto e "Pronto" — sem o X ao lado do "Pronto"; **cores e fontes acima do teclado** (`editingBottomControls`, `bottom: calc(var(--keyboard-height) + …)`), cores com alvo de 44px e fontes com **nome em português** (`FONT_OPTIONS[].labelKey` → `flow_font_*`).
+  - **Publicar:** modo texto com botão principal **branco** "Compartilhar flow"; na legenda, **rodapé compacto** — descrição que começa em 1 linha e cresce até ~4 (`useLayoutEffect` ajusta a altura) + botão branco redondo de enviar.
+  - Dicas traduzidas (`flow_hint_caption_idle`/`_text`, sem o "belisque"); `aria-label` das cores/alinhamento traduzidos. A etapa `preview` (nunca acionada) foi removida.
 - Câmera com obturador inteligente: **toque = foto**, **segurar = grava vídeo** (`MediaRecorder`, áudio opcional, máx. 30s/50MB, indicador de gravação)
 - Upload de imagem/vídeo da galeria
 - Modo texto/gradiente
@@ -449,7 +459,7 @@ Props: `splits`, `accent` (cor das barras/destaques — quem chama passa a cor d
 **Arquivo:** `client/components/shared/workout-detail-dialog.tsx`
 **Usado em:** Feed (`PostCard`), Perfil (viewer de post), PostDetail
 
-Pill **"Ver treino"** + drawer glass **simplificado** de detalhe do treino, renderizado apenas em posts que carregam um `workout_summary` (posts de resumo de treino compartilhados no feed). Props: `summary: PostWorkoutSummary` (tipo em `client/lib/workout-summary-types.ts`), `className` (posicionamento do pill) e — desde 26/08/2026 — `authorId`/`authorNickname`/`authorPhoto`, que habilitam o botão **"Comparar com o meu treino"** dentro do drawer (ver `WorkoutCompareContent` abaixo); sem eles, ou quando o autor é o próprio usuário, o drawer segue sendo só a lista. O drawer (padrão glass §9.4) mostra **só** a lista de exercícios: cada linha com a **miniatura do exercício** (`ExerciseImage`, fallback gradiente/emoji por grupo quando sem foto), nome + grupo muscular e as **séries em chips `{kg}kg × {reps}`** — sem stats/banners (o overlay completo é o `WorkoutSummaryOverlay` na tela de Metas). **Única exceção (21/08/2026):** um chip `🔥 {n} kcal` no canto direito do cabeçalho quando o snapshot tem `caloriesKcal` — duração/séries/volume continuam de fora (estão no card gerado que acompanha o post), mas o gasto calórico é o número que as pessoas comparam e vale ter em texto, não só queimado na imagem. Optou-se por pill dedicado em vez de tornar a imagem inteira clicável, para não conflitar com o duplo-toque de incentivo, o pinch-zoom e o swipe de carrossel já existentes na imagem do post. Ver `docs/01-feed.md` (Detalhe do treino) e `docs/14-database-schema.md` (`posts.workout_summary`).
+Pill **"Ver treino"** + drawer glass **simplificado** de detalhe do treino. No Feed e no PostDetail é só o ícone, dentro da pílula do autor (`variant="icon"`, ver abaixo); renderizado apenas em posts que carregam um `workout_summary` (posts de resumo de treino compartilhados no feed). Props: `summary: PostWorkoutSummary` (tipo em `client/lib/workout-summary-types.ts`), `className` (posicionamento do pill) e — desde 26/08/2026 — `authorId`/`authorNickname`/`authorPhoto`, que habilitam o botão **"Comparar com o meu treino"** dentro do drawer (ver `WorkoutCompareContent` abaixo); sem eles, ou quando o autor é o próprio usuário, o drawer segue sendo só a lista. O drawer (padrão glass §9.4) mostra **só** a lista de exercícios: cada linha com a **miniatura do exercício** (`ExerciseImage`, fallback gradiente/emoji por grupo quando sem foto), nome + grupo muscular e as **séries em chips `{kg}kg × {reps}`** — sem stats/banners (o overlay completo é o `WorkoutSummaryOverlay` na tela de Metas). **Única exceção (21/08/2026):** um chip `🔥 {n} kcal` no canto direito do cabeçalho quando o snapshot tem `caloriesKcal` — duração/séries/volume continuam de fora (estão no card gerado que acompanha o post), mas o gasto calórico é o número que as pessoas comparam e vale ter em texto, não só queimado na imagem. Optou-se por pill dedicado em vez de tornar a imagem inteira clicável, para não conflitar com o duplo-toque de incentivo, o pinch-zoom e o swipe de carrossel já existentes na imagem do post. Ver `docs/01-feed.md` (Detalhe do treino) e `docs/14-database-schema.md` (`posts.workout_summary`).
 
 ---
 
@@ -539,6 +549,38 @@ Responder um flow **em privado**: o texto digitado na doca do viewer, em vez de 
 - **`FlowReplyMessage`** renderiza a bolha no chat: rótulo de contexto, miniatura vertical 68×104 e o texto. Ver `docs/07-comunidade.md` para os estados (flow apagado, flow expirado) e o memo de sessão que evita refetch.
 
 ---
+
+### MultiPhotoBadge (2026-09-30)
+**Arquivo:** `client/components/shared/multi-photo-badge.tsx`
+**Usado em:** Perfil (grades Posts e Marcações), Hashtag
+
+Selo "post com várias fotos" das grades: pílula de vidro escuro (`rgba(10,11,18,.55)` + borda `white/18`, **sem** `backdrop-filter` — dezenas por grade) com o ícone `GalleryHorizontalEnd` e a quantidade; `aria-label` "{n} fotos" (`post_photo_count_aria`). Substitui o quadradinho branco com emoji 📷. Toda grade nova com posts de várias fotos usa este selo.
+
+### ScreenAura (2026-09-30)
+**Arquivo:** `client/components/shared/screen-aura.tsx`
+**Usado em:** Feed (`feed`), Metas (`goals`), Notificações (`notifications`), Busca e Comunidade (`neutral`)
+
+Brilho de fundo padrão das telas: `div aria-hidden fixed inset-0 -z-10` com `radial-gradient` pintado direto. Começa no topo da tela, por trás do vidro do header, em todas as telas. **Não** criar aura `absolute` no container da página (começa abaixo do header → faixa preta com corte reto). Depende do `isolate` no raiz do `AppLayout`. Na Busca fica **fora** do `space-y-4` (como 1º filho empurraria o campo 16px).
+
+### WorkoutDetailButton — `variant="icon"` (2026-09-30)
+No Feed e no PostDetail o botão é só o halter, num selo do tamanho do "🎯 80%" da meta, **dentro** da pílula do autor (área de toque ampliada com `-m-1.5 p-1.5`). O viewer de post do Perfil segue com a pílula com rótulo (`variant="pill"`, padrão).
+
+### ProfilePostsViewer (2026-09-30)
+**Arquivo:** `client/components/profile/profile-posts-viewer.tsx`
+**Usado em:** Perfil (abas Publicações, Treinos e Marcações)
+
+Publicações em tela cheia com o **`PostCard` do feed**, rolada até o post tocado (substitui o drawer próprio do Perfil). Recebe os posts da aba (`PostWithUser`, dados embutidos) e completa incentivos/comentários com `withPostStats`. Tem os próprios `PostLikesModal`, `GoalDetailDrawer` (leitura), `ReportDrawer`, `BlockUserDialog`, `EditPostDrawer` e confirmação de exclusão; compartilhar vem do Perfil (`onShare`). `z-[45]` + `data-fullscreen-step` (ver `docs/08-perfil.md`).
+
+### SectionHeader (2026-09-30)
+**Arquivo:** `client/components/shared/section-header.tsx`
+**Usado em:** Metas (`TodayDashboard`, `RoutineTypeCards`, `LifeGoalsSection`)
+
+Título de seção padrão do app: `h2` 20px bold branco (`tracking-[-0.01em]`) + ação opcional em texto azul (`text-primary`, 14px semibold, com ícone Lucide opcional) à direita. Props: `title`, `action?: { label, onClick, icon?: LucideIcon }`, `className`. Substituiu quatro estilos soltos (rótulo "EM FOCO · HOJE" em maiúsculas, 18px/740, título + etiqueta "opcional"). Usar em qualquer seção nova — ver `docs/15-design-system.md` §2.5.
+
+### FollowButton — hierarquia Seguir/Seguindo (2026-09-30)
+**Arquivo:** `client/components/shared/follow-button.tsx`
+
+Na variante `default` (perfil, busca, listas, notificações, sugestões do feed): **"Seguir"** é branco (`bg-white text-[#0a0b12]`, ação principal) e **"Seguindo"** é secundário (`bg-white/[.09] text-white/85`, sem borda). Antes: `default`/`outline` do Shadcn, em que o "Seguindo" escuro parecia o botão mais forte. A variante `overlay` (sobre foto/vídeo) não mudou.
 
 ### FollowListDrawer (estendido para listas genéricas de usuários)
 **Arquivo:** `client/components/profile/follow-list-drawer.tsx`

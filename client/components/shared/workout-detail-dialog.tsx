@@ -91,6 +91,12 @@ interface WorkoutDetailButtonProps {
   authorId?: string | null;
   authorNickname?: string | null;
   authorPhoto?: string | null;
+  /**
+   * `icon`: só o halter, num selo do mesmo tamanho do "🎯 80%" da meta —
+   * mora DENTRO da pílula do autor no feed/PostDetail. `pill` (padrão): o
+   * botão com rótulo "Ver treino" (viewer de post do Perfil).
+   */
+  variant?: "pill" | "icon";
 }
 
 /**
@@ -107,6 +113,7 @@ export function WorkoutDetailButton({
   authorId,
   authorNickname = null,
   authorPhoto = null,
+  variant = "pill",
 }: WorkoutDetailButtonProps) {
   const { t } = useLanguage();
   const { user } = useAuthContext();
@@ -127,18 +134,36 @@ export function WorkoutDetailButton({
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => { hapticMedium(); setOpen(true); }}
-        className={cn(
-          "inline-flex items-center gap-1.5 text-[12px] font-semibold text-white rounded-full px-3 py-1.5 active:opacity-70 transition-opacity",
-          className,
-        )}
-        style={GLASS_TOP}
-      >
-        <Dumbbell className="h-3.5 w-3.5" />
-        {t("feed_workout_view")}
-      </button>
+      {variant === "icon" ? (
+        <button
+          type="button"
+          onClick={() => { hapticMedium(); setOpen(true); }}
+          aria-label={t("feed_workout_view")}
+          // Área de toque maior que o selo visível (padding + margem negativa),
+          // sem mudar o tamanho da pílula do autor.
+          className={cn("-m-1.5 flex-shrink-0 p-1.5 active:opacity-70 transition-opacity", className)}
+        >
+          <span
+            className="flex h-[22px] w-[26px] items-center justify-center rounded-full text-white"
+            style={{ background: "rgba(255,255,255,.16)", border: "1px solid rgba(255,255,255,.18)" }}
+          >
+            <Dumbbell className="h-3 w-3" />
+          </span>
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => { hapticMedium(); setOpen(true); }}
+          className={cn(
+            "inline-flex items-center gap-1.5 text-[12px] font-semibold text-white rounded-full px-3 py-1.5 active:opacity-70 transition-opacity",
+            className,
+          )}
+          style={GLASS_TOP}
+        >
+          <Dumbbell className="h-3.5 w-3.5" />
+          {t("feed_workout_view")}
+        </button>
+      )}
 
       <Drawer open={open} onOpenChange={handleOpenChange}>
         <DrawerContent

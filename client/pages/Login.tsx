@@ -4,16 +4,10 @@ import { IMMUTABLE_CACHE_CONTROL } from "@/lib/storage-cache";
 import { useNavigate } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/useAuth";
@@ -26,11 +20,21 @@ import {
   withNetworkRetry,
 } from "@/lib/network-status";
 import { getKeyboardHeight, subscribeKeyboardHeight } from "@/lib/keyboard";
-import { Upload, X, Check, ArrowLeft, Eye, EyeOff, Plus, Trash2, ScanFace } from "lucide-react";
+import { Upload, X, Check, ArrowLeft, Eye, EyeOff, Plus, Trash2, ScanFace, Mail } from "lucide-react";
 import { createOrUpdateCommercialProfileDb, saveCommercialPlansDb, type ServicePlan, checkEmailExistsDb, checkHandleExistsDb, invalidateProfileCache, isValidEmail } from "@/lib/ritmofit-db";
 import { ImageCropperDrawer, AVATAR_MAX_EXPORT } from "@/components/shared/image-cropper-drawer";
 import { LoginSplashOriginal } from "@/components/shared/login-splash-original";
 import { Browser } from "@capacitor/browser";
+import { App as CapApp } from "@capacitor/app";
+import { Capacitor } from "@capacitor/core";
+import {
+  startGoogleSignIn,
+  signInWithApple,
+  completeOAuthCallback,
+  isSocialSignInCancelled,
+} from "@/lib/social-auth";
+import { needsSocialSignupCompletion, markSocialSignupCompleted } from "@/lib/social-signup-state";
+import { reportHandledError } from "@/lib/monitoring";
 import { TERMS_URL, PRIVACY_URL } from "@/lib/share-url";
 import { FEATURES } from "@/lib/feature-flags";
 import { isStrongPassword, passwordRules } from "@/lib/password-rules";
@@ -85,13 +89,115 @@ function formatPhoneDisplay(value: string): string {
   return `(${areaCode}) ${firstPart}-${secondPart}`.trim();
 }
 
-function BrandHeader() {
+/** `lg` na tela inicial (a marca é a protagonista); `sm` nos passos seguintes. */
+function BrandHeader({ size = "lg" }: { size?: "lg" | "sm" }) {
   return (
     <div className="flex items-center justify-center">
-      <img src="/logo-horizontal-icone-branco.png" alt="LinKa" className="h-28 w-auto" />
+      <img
+        src="/logo-horizontal-icone-branco.png"
+        alt="LinKa"
+        className={size === "lg" ? "h-28 w-auto" : "h-14 w-auto"}
+      />
     </div>
   );
 }
+
+// ── Controles do fluxo de entrada (2026-09-30) ──
+// Todo campo, rótulo e botão do Login/cadastro/recuperação passa por estes
+// wrappers, para o fluxo inteiro ter o visual do passo "Entrar com e-mail":
+// campo alto em vidro, rótulo pequeno, principal branco e secundário em vidro.
+// A classe da chamada vem por último no `cn`, então ajustes locais (pr-10 do
+// olho, borda vermelha de erro, OTP centralizado) continuam valendo.
+const AUTH_FIELD =
+  "h-[52px] rounded-[14px] border-white/[.12] bg-white/[.06] px-4 text-white placeholder:text-white/35 focus-visible:ring-offset-0";
+
+const AuthInput = React.forwardRef<HTMLInputElement, React.ComponentProps<typeof Input>>(
+  ({ className, ...props }, ref) => <Input ref={ref} className={cn(AUTH_FIELD, className)} {...props} />,
+);
+AuthInput.displayName = "AuthInput";
+
+const AuthTextarea = React.forwardRef<HTMLTextAreaElement, React.ComponentProps<typeof Textarea>>(
+  ({ className, ...props }, ref) => (
+    <Textarea
+      ref={ref}
+      className={cn("rounded-[14px] border-white/[.12] bg-white/[.06] px-4 py-3 text-white placeholder:text-white/35 focus-visible:ring-offset-0", className)}
+      {...props}
+    />
+  ),
+);
+AuthTextarea.displayName = "AuthTextarea";
+
+function AuthLabel({ className, ...props }: React.ComponentProps<typeof Label>) {
+  return <Label className={cn("text-[13px] font-semibold text-white/70", className)} {...props} />;
+}
+
+/** `variant="outline"` = secundário (vidro); sem variant = principal (branco). */
+const AuthButton = React.forwardRef<HTMLButtonElement, React.ComponentProps<typeof Button>>(
+  ({ variant, className, ...props }, ref) => (
+    <Button
+      ref={ref}
+      variant="default"
+      className={cn(
+        "h-[52px] rounded-full text-[16px] font-semibold",
+        variant === "outline"
+          ? "border-0 bg-white/[.09] text-white hover:bg-white/[.14]"
+          : "bg-white text-[#0a0b12] hover:bg-white/90",
+        className,
+      )}
+      {...props}
+    />
+  ),
+);
+AuthButton.displayName = "AuthButton";
+
+/**
+ * Cabeçalho dos passos (e-mail, cadastro, recuperação): voltar numa linha
+ * própria, título grande e subtítulo — o layout do mock.
+ */
+function AuthStepHeader({
+  title,
+  subtitle,
+  onBack,
+  backLabel,
+  backDisabled,
+}: {
+  title: string;
+  subtitle?: string;
+  onBack?: () => void;
+  backLabel: string;
+  backDisabled?: boolean;
+}) {
+  return (
+    <div className="mb-7">
+      {onBack && (
+        <button
+          type="button"
+          onClick={onBack}
+          disabled={backDisabled}
+          aria-label={backLabel}
+          className="mb-6 flex h-11 w-11 items-center justify-center rounded-full bg-white/[.08] text-white active:scale-95 transition-transform disabled:opacity-50"
+        >
+          <ArrowLeft className="h-5 w-5" />
+        </button>
+      )}
+      <h1 className="text-[28px] font-extrabold leading-tight tracking-[-0.02em] text-white">{title}</h1>
+      {subtitle && <p className="mt-2 text-[15px] leading-snug text-white/55">{subtitle}</p>}
+    </div>
+  );
+}
+
+// Brilhos da tela inicial — gradientes pintados direto (sem filter: blur),
+// nas cores da marca, como nas auras do Feed/Metas.
+const LANDING_AURA =
+  "radial-gradient(420px 360px at 50% -4%, rgba(123,63,242,.34), transparent 70%)," +
+  "radial-gradient(320px 320px at -6% 34%, rgba(58,141,255,.20), transparent 70%)," +
+  "radial-gradient(320px 320px at 106% 42%, rgba(255,138,42,.14), transparent 70%)";
+
+// Botões grandes da tela inicial (Apple / Google / e-mail): largura total,
+// 52px, pílula. Apple em branco (HIG, fundo escuro); os outros em vidro.
+const LANDING_BTN =
+  "flex h-[52px] w-full items-center justify-center gap-2.5 rounded-full text-[16px] font-semibold active:scale-[0.98] transition-transform disabled:opacity-50";
+const LANDING_BTN_GLASS = `${LANDING_BTN} border border-white/15 bg-white/[.08] text-white`;
 
 // `labelKey` em vez do texto: a constante é de módulo e não alcança o `t()`,
 // que só existe dentro do componente. A tradução acontece no render.
@@ -103,6 +209,52 @@ const FITNESS_SEGMENTS = [
   { id: "yoga", labelKey: "login_seg_yoga" },
   { id: "sports", labelKey: "login_seg_sports" },
 ] as const;
+
+// Marca "o usuário acabou de tocar num botão de provedor". Em sessionStorage
+// porque na web o Google recarrega a página no retorno; expira em 10 min para
+// não sobreviver a uma tentativa abandonada.
+const SOCIAL_ATTEMPT_KEY = "linka_social_signin_attempt";
+const SOCIAL_ATTEMPT_TTL_MS = 10 * 60 * 1000;
+
+function markSocialAttempt() {
+  try {
+    sessionStorage.setItem(SOCIAL_ATTEMPT_KEY, String(Date.now()));
+  } catch {
+    // ignore
+  }
+}
+
+/** Lê e apaga a marca. true = tentativa recente (a sessão social é "desta vez"). */
+function consumeSocialAttempt(): boolean {
+  try {
+    const at = Number(sessionStorage.getItem(SOCIAL_ATTEMPT_KEY) ?? 0);
+    sessionStorage.removeItem(SOCIAL_ATTEMPT_KEY);
+    return at > 0 && Date.now() - at < SOCIAL_ATTEMPT_TTL_MS;
+  } catch {
+    return false;
+  }
+}
+
+/** Logo da Apple — exigido pela HIG no botão "Continuar com a Apple". */
+function AppleLogo({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 384 512" className={className} aria-hidden fill="currentColor">
+      <path d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zm-56.6-164.2c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.9-17.5 19.8-27.8 44.3-25.6 71.9 26.1 2 49.9-11.4 69.5-34.3z" />
+    </svg>
+  );
+}
+
+/** "G" multicolorido — padrão de marca do botão do Google. */
+function GoogleLogo({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 48 48" className={className} aria-hidden>
+      <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z" />
+      <path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z" />
+      <path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z" />
+      <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z" />
+    </svg>
+  );
+}
 
 export default function Login() {
   const navigate = useNavigate();
@@ -122,6 +274,10 @@ export default function Login() {
   }, []);
 
   const [tab, setTab] = React.useState<"login" | "signup">("login");
+  // A aba "Entrar" tem dois passos: a tela inicial (Apple / Google / e-mail) e,
+  // depois de "Continuar com e-mail", o formulário. Sem abas Entrar/Criar
+  // conta: quem não tem conta vai pelo link "Criar conta" do formulário.
+  const [loginWithEmail, setLoginWithEmail] = React.useState(false);
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
   const [confirmPassword, setConfirmPassword] = React.useState("");
@@ -181,6 +337,13 @@ export default function Login() {
   const [businessLogoPreview, setBusinessLogoPreview] = React.useState<string>("");
   const [servicePlans, setServicePlans] = React.useState<ServicePlan[]>([{ name: "", price: null, description: "" }]);
   const [isCompletingSignup, setIsCompletingSignup] = React.useState(false);
+  // Conta criada por Google/Apple: a autenticação já aconteceu, então o passo 1
+  // (email/senha) é pulado e o aceite dos Termos vai para o passo 2.
+  const [isOAuthSignup, setIsOAuthSignup] = React.useState(false);
+  const [socialBusy, setSocialBusy] = React.useState<"google" | "apple" | null>(null);
+  // Foto do provedor (Google) que não pôde ser baixada para virar arquivo
+  // (CORS) — nesse caso a URL vai direto para `profiles.photo`.
+  const [providerPhotoUrl, setProviderPhotoUrl] = React.useState<string | null>(null);
 
   // Biometric login (Face ID / Touch ID)
   const [biometricSupport, setBiometricSupport] = React.useState<BiometricSupport>({ available: false, label: "Biometria" });
@@ -280,12 +443,14 @@ export default function Login() {
     }
     setCheckingSignupHandle(true);
     const timer = setTimeout(async () => {
-      const exists = await checkHandleExistsDb(normalized);
+      // No cadastro por provedor o trigger já gravou um @ para esta conta —
+      // sem excluir o próprio id, a sugestão apareceria como "em uso".
+      const exists = await checkHandleExistsDb(normalized, isOAuthSignup ? user?.id : undefined);
       setSignupHandleExists(exists);
       setCheckingSignupHandle(false);
     }, 500);
     return () => clearTimeout(timer);
-  }, [username, tab, signupStep]);
+  }, [username, tab, signupStep, isOAuthSignup, user?.id]);
 
   // Detect password recovery session via Supabase auth event
   React.useEffect(() => {
@@ -300,11 +465,67 @@ export default function Login() {
   }, []);
 
 
+  // Entrou por Google/Apple (agora mesmo) e o cadastro ainda não terminou →
+  // passos de perfil em vez do feed.
+  const beginSocialSignup = React.useCallback(async (authUser: NonNullable<typeof user>, fullName?: string | null) => {
+    setIsOAuthSignup(true);
+    setIsCompletingSignup(true);
+    setTab("signup");
+    setSignupStep(2);
+    setEmail(authUser.email ?? "");
+    const metaName = String(authUser.user_metadata?.full_name ?? authUser.user_metadata?.name ?? "").trim();
+    const name = (fullName ?? "").trim() || metaName;
+    if (name) setDisplayName((prev) => prev || name);
+    // Foto do provedor (Google manda `avatar_url`/`picture`; a Apple não manda).
+    // Vira o arquivo do cadastro, como se o usuário a tivesse escolhido: sobe
+    // para o nosso Storage no fim, e ele pode trocar ou remover no passo 2.
+    const avatar = String(authUser.user_metadata?.avatar_url ?? authUser.user_metadata?.picture ?? "").trim();
+    if (avatar) {
+      // O Google entrega 96px; pede 512 (mesmo teto do export de avatar).
+      const bigger = avatar.replace(/=s\d+(-c)?$/, "=s512-c");
+      try {
+        const res = await fetch(bigger);
+        if (!res.ok) throw new Error(String(res.status));
+        const blob = await res.blob();
+        const file = new File([blob], "provider-avatar.jpg", { type: blob.type || "image/jpeg" });
+        setPhotoFile((prev) => prev ?? file);
+        setPhotoPreview((prev) => prev || URL.createObjectURL(file));
+      } catch {
+        setProviderPhotoUrl(bigger);
+        setPhotoPreview((prev) => prev || bigger);
+      }
+    }
+    // O trigger já deu um @ tirado do email — vira a sugestão editável.
+    if (supabase) {
+      const { data } = await supabase
+        .from("profiles")
+        .select("handle")
+        .eq("user_id", authUser.id)
+        .maybeSingle();
+      if (data?.handle) setUsername((prev) => prev || String(data.handle).replace(/^@+/, ""));
+    }
+  }, []);
+
   React.useEffect(() => {
     if (authLoading) return;
     if (!user) return;
     if (isCompletingSignup) return;
     if (showNewPassword) return;
+    if (needsSocialSignupCompletion(user)) {
+      // O passo de perfil só abre logo depois de um toque num botão de
+      // provedor. Qualquer outra abertura do login com uma sessão social
+      // incompleta (voltou depois, recarregou, veio do RequireAuth) encerra a
+      // sessão e mostra o login normal, COM os botões — antes, a tela ficava
+      // presa no passo de perfil e os botões "sumiam" depois do 1º uso.
+      if (consumeSocialAttempt()) {
+        void beginSocialSignup(user);
+      } else if (supabase) {
+        void supabase.auth.signOut().catch(() => {});
+      }
+      return;
+    }
+    // Conta já completa: a marca de tentativa não serve mais.
+    consumeSocialAttempt();
     // Keep the user on the login screen until they answer the "enable biometric?" prompt.
     if (showEnableBiometricPrompt) return;
 
@@ -315,7 +536,117 @@ export default function Login() {
     } else {
       navigate("/", { replace: true });
     }
-  }, [authLoading, user, navigate, isCompletingSignup, showNewPassword, showEnableBiometricPrompt]);
+  }, [authLoading, user, navigate, isCompletingSignup, showNewPassword, showEnableBiometricPrompt, beginSocialSignup]);
+
+  // Retorno do OAuth do Google. No iOS chega pelo custom scheme
+  // (`com.linka.meuapp://login-callback?code=…` — o DeepLinkHandler do App.tsx
+  // ignora esse caminho de propósito); na web, como `?code=` na própria /login.
+  // Trocada a sessão, o efeito acima decide entre feed e passos de perfil.
+  const handleOAuthReturn = React.useCallback(async (url: string) => {
+    try {
+      const done = await completeOAuthCallback(url);
+      if (!done) return;
+    } catch (err: any) {
+      reportHandledError(err, "login:oauth-callback");
+      toast({
+        title: t("login_social_error_title"),
+        description: err?.message || t("retry"),
+        variant: "destructive",
+      });
+    } finally {
+      setSocialBusy(null);
+    }
+  }, [t]);
+
+  React.useEffect(() => {
+    const listener = CapApp.addListener("appUrlOpen", async ({ url }) => {
+      if (!url.includes("login-callback")) return;
+      await Browser.close().catch(() => {});
+      await handleOAuthReturn(url);
+    });
+    // Web: a troca do ?code= é feita pelo próprio supabase-js na inicialização
+    // (`detectSessionInUrl` em supabase.ts). Aqui só sobra mostrar o erro que o
+    // provedor devolveu (ex.: usuário negou o acesso na tela do Google).
+    if (!Capacitor.isNativePlatform()) {
+      const params = new URLSearchParams(window.location.search);
+      const oauthError = params.get("error_description") ?? params.get("error");
+      if (oauthError) {
+        window.history.replaceState(null, "", window.location.pathname);
+        setSocialBusy(null);
+        toast({ title: t("login_social_error_title"), description: oauthError, variant: "destructive" });
+      }
+    }
+    // Fechar o navegador sem concluir não dispara callback nenhum — só destrava o botão.
+    const finished = Browser.addListener("browserFinished", () => setSocialBusy(null));
+    return () => {
+      listener.then((l) => l.remove());
+      finished.then((l) => l.remove());
+    };
+  }, [handleOAuthReturn, t]);
+
+  const handleGoogleSignIn = async () => {
+    if (socialBusy || busy) return;
+    setSocialBusy("google");
+    markSocialAttempt();
+    try {
+      const outcome = await startGoogleSignIn();
+      // Nativo: sessão pronta — o efeito de roteamento decide feed ou perfil.
+      // Navegador: segue no callback; o botão destrava lá (ou quando fecha).
+      if (outcome === "session") setSocialBusy(null);
+    } catch (err: any) {
+      setSocialBusy(null);
+      consumeSocialAttempt();
+      if (isSocialSignInCancelled(err)) return;
+      reportHandledError(err, "login:google-start");
+      toast({
+        title: t("login_social_error_title"),
+        description: err?.message || t("retry"),
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleAppleSignIn = async () => {
+    if (socialBusy || busy) return;
+    setSocialBusy("apple");
+    markSocialAttempt();
+    try {
+      const result = await signInWithApple();
+      if (!result || !supabase) return; // web: redirecionou
+      // A Apple só entrega o nome na PRIMEIRA autorização — guarda no metadata
+      // para não perdê-lo se o app fechar antes do fim do cadastro.
+      if (result.fullName) {
+        setDisplayName((prev) => prev || result.fullName!);
+        void supabase.auth.updateUser({ data: { full_name: result.fullName } });
+      }
+    } catch (err: any) {
+      consumeSocialAttempt();
+      if (isSocialSignInCancelled(err)) return;
+      reportHandledError(err, "login:apple");
+      toast({
+        title: t("login_social_error_title"),
+        description: err?.message || t("retry"),
+        variant: "destructive",
+      });
+    } finally {
+      setSocialBusy(null);
+    }
+  };
+
+  // Desistiu no meio do cadastro por provedor: sai da conta recém-autenticada.
+  // A linha já existe no auth, mas sem `signup_completed` ela volta para estes
+  // passos no próximo login pelo mesmo provedor.
+  const cancelSocialSignup = async () => {
+    setIsOAuthSignup(false);
+    setIsCompletingSignup(false);
+    setSignupStep(1);
+    setTab("login");
+    setUsername("");
+    setDisplayName("");
+    setEmail("");
+    setTermsAccepted(false);
+    if (supabase) await supabase.auth.signOut().catch(() => {});
+  };
 
   // Detect biometric hardware + opt-in status once on mount.
   React.useEffect(() => {
@@ -601,6 +932,14 @@ export default function Login() {
   };
 
   const handleSignupStep2 = () => {
+    if (isOAuthSignup && !termsAccepted) {
+      toast({
+        title: t("signup_terms_required_title"),
+        description: t("signup_terms_required_desc"),
+        variant: "destructive",
+      });
+      return;
+    }
     if (!displayName.trim()) {
       toast({
         title: t("login_toast_name_required_title"),
@@ -684,6 +1023,8 @@ export default function Login() {
         await new Promise((resolve) => setTimeout(resolve, 500));
       }
 
+      // Google/Apple: a conta e a sessão já existem — só falta gravar o perfil.
+      if (!isOAuthSignup) {
       const { error: signUpError } = await withNetworkRetry(() =>
         supabase!.auth.signUp({
           email: trimmedEmail,
@@ -719,6 +1060,7 @@ export default function Login() {
         toast({ title: t("login_toast_created_no_signin"), description: signInError.message });
         setIsCompletingSignup(false);
         return;
+      }
       }
 
       // Upload photo and save bio if provided.
@@ -789,6 +1131,7 @@ export default function Login() {
         // Era a causa real de a foto não subir para profiles.photo.
         const profilePayload: Record<string, any> = {};
         if (photoUrl) profilePayload.photo = photoUrl;
+        else if (isOAuthSignup && providerPhotoUrl && photoPreview === providerPhotoUrl) profilePayload.photo = providerPhotoUrl;
         if (displayName.trim()) profilePayload.nickname = displayName.trim();
         if (bio.trim()) profilePayload.bio = bio.trim();
         if (selectedSegments.size > 0) profilePayload.objectives = [...selectedSegments];
@@ -907,6 +1250,12 @@ export default function Login() {
 
         // Force reload user profile so photo appears immediately in feed
         await supabase.auth.getSession();
+      }
+
+      // Conta por provedor: fecha o cadastro (senão o RequireAuth a devolve
+      // para os passos de perfil). Antes do navigate do handleSignupComplete.
+      if (isOAuthSignup && authUser) {
+        await markSocialSignupCompleted(authUser.id);
       }
 
       // After Step 3 (objectives), complete signup directly instead of going to Step 4
@@ -1080,8 +1429,121 @@ export default function Login() {
     localStorage.setItem("force_profile_reload", "1");
 
     setIsCompletingSignup(false);
+    setIsOAuthSignup(false);
     navigate("/", { replace: true });
   };
+
+  // Usado no passo 1 (email/senha) e no passo 2 do cadastro por Google/Apple —
+  // quem entra por provedor pula o passo 1, mas o aceite continua obrigatório.
+  //
+  // Aceite explícito — App Store Guideline 1.2. A Apple exige que todo app com
+  // conteúdo de usuário tenha um EULA aceito na criação da conta, com política
+  // de tolerância zero a conteúdo abusivo declarada. Um rodapé informativo ("ao
+  // continuar você concorda") já foi motivo de rejeição em apps sociais; a
+  // caixa marcável não deixa margem para interpretação.
+  const termsCheckbox = (
+      <label className="mt-1 flex items-start gap-2.5 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={termsAccepted}
+          onChange={(e) => setTermsAccepted(e.target.checked)}
+          className="mt-0.5 h-4 w-4 shrink-0 rounded accent-primary"
+        />
+        <span className="text-xs leading-relaxed text-muted-foreground">
+          {(() => {
+            // A frase muda de ordem entre PT e EN, então os
+            // links são montados a partir dos placeholders em
+            // vez de concatenados na mão.
+            const parts = t("signup_terms_accept").split(/(\{terms\}|\{privacy\})/);
+            return parts.map((part, i) => {
+              if (part === "{terms}")
+                return (
+                  <button
+                    key={i}
+                    type="button"
+                    className="underline font-medium text-foreground"
+                    onClick={(e) => { e.preventDefault(); void Browser.open({ url: TERMS_URL }); }}
+                  >
+                    {t("signup_terms_link")}
+                  </button>
+                );
+              if (part === "{privacy}")
+                return (
+                  <button
+                    key={i}
+                    type="button"
+                    className="underline font-medium text-foreground"
+                    onClick={(e) => { e.preventDefault(); void Browser.open({ url: PRIVACY_URL }); }}
+                  >
+                    {t("signup_privacy_link")}
+                  </button>
+                );
+              return <span key={i}>{part}</span>;
+            });
+          })()}{" "}
+          {t("signup_terms_zero_tolerance")}
+        </span>
+      </label>
+  );
+
+  // Botões de provedor, em largura total com o nome escrito. Apple primeiro e
+  // com o mesmo tamanho do Google: a Guideline 4.8 exige que o Sign in with
+  // Apple tenha destaque equivalente ao de outro login social.
+  const socialButtons = (
+    <>
+      <button
+        type="button"
+        onClick={handleAppleSignIn}
+        disabled={!!socialBusy || busy || !networkStatus.isOnline}
+        className={`${LANDING_BTN} bg-white text-black`}
+      >
+        {socialBusy === "apple" ? (
+          <span className="h-5 w-5 rounded-full border-2 border-black/30 border-t-transparent animate-spin" />
+        ) : (
+          <AppleLogo className="h-5 w-5 -mt-0.5" />
+        )}
+        {t("login_continue_apple")}
+      </button>
+      <button
+        type="button"
+        onClick={handleGoogleSignIn}
+        disabled={!!socialBusy || busy || !networkStatus.isOnline}
+        className={LANDING_BTN_GLASS}
+      >
+        {socialBusy === "google" ? (
+          <span className="h-5 w-5 rounded-full border-2 border-white/30 border-t-transparent animate-spin" />
+        ) : (
+          <GoogleLogo className="h-5 w-5" />
+        )}
+        {t("login_continue_google")}
+      </button>
+    </>
+  );
+
+  // Tela inicial: só a marca e as três formas de entrar, com os botões na
+  // parte de baixo (zona do polegar). Aparece enquanto nenhum outro modo
+  // (sessão, recuperação de senha, cadastro, formulário de e-mail) está ativo.
+  const showLanding =
+    hasSupabaseConfig &&
+    !showNewPassword &&
+    !authLoading &&
+    !(user && !isCompletingSignup) &&
+    !showForgotPassword &&
+    !isOAuthSignup &&
+    tab === "login" &&
+    !loginWithEmail;
+
+  // Passo com formulário (e-mail, cadastro, recuperação): recebe o
+  // AuthStepHeader e fica alinhado ao topo.
+  const isAuthStep =
+    !showLanding &&
+    !showNewPassword &&
+    !authLoading &&
+    !(user && !isCompletingSignup) &&
+    (showForgotPassword || tab === "signup" || loginWithEmail);
+
+  // Nome do provedor para o aviso do cadastro por Google/Apple.
+  const socialProviderName = user?.app_metadata?.provider === "apple" ? "Apple" : "Google";
 
   if (showSplash) {
     return <LoginSplashOriginal />;
@@ -1090,8 +1552,9 @@ export default function Login() {
   return (
     <div
       ref={scrollContainerRef}
-      className="flex min-h-dvh items-center justify-center bg-background p-6 overflow-y-auto"
+      className="flex min-h-dvh flex-col bg-background px-6 overflow-y-auto"
       style={{
+        backgroundImage: LANDING_AURA,
         paddingTop: "max(1.5rem, env(safe-area-inset-top))",
         // Reserva a altura do teclado iOS (var publicada por keyboard.ts): com o
         // formulário centralizado (my-auto), isso o ergue acima do teclado e cria
@@ -1101,22 +1564,69 @@ export default function Login() {
         transition: "padding-bottom 0.25s ease",
       }}
     >
-      <div className="mx-auto grid w-full max-w-md gap-6 my-auto">
-        <BrandHeader />
+      {showLanding ? (
+        <div className="mx-auto flex w-full max-w-md flex-1 flex-col">
+          <div className="flex flex-1 flex-col items-center justify-center gap-5 py-10 text-center">
+            <BrandHeader />
+            <p className="max-w-[300px] text-[17px] leading-snug text-white/70">{t("login_tagline")}</p>
+          </div>
 
-        <Card className="border-border/60 relative">
-          {!showForgotPassword && !showNewPassword && (
-            <CardHeader className="space-y-2">
-              <CardTitle className="text-base">{t("login_card_title")}</CardTitle>
-              <CardDescription>
-                {hasSupabaseConfig
-                  ? t("login_card_desc")
-                  : t("login_no_supabase_desc")}
-              </CardDescription>
-            </CardHeader>
-          )}
+          <div className="grid gap-3 pb-2">
+            {!networkStatus.isOnline ? (
+              <div className="rounded-2xl border border-red-900/30 bg-red-950/20 p-4 text-sm text-red-200">
+                {t("login_offline_banner")}
+              </div>
+            ) : !networkStatus.isSupabaseReachable ? (
+              <div className="rounded-2xl border border-yellow-900/30 bg-yellow-950/20 p-4 text-sm text-yellow-200">
+                {t("login_supabase_unreachable")}
+              </div>
+            ) : null}
 
-          <CardContent className="space-y-4">
+            {/* Face ID: o auto-login dispara sozinho ao abrir; se a pessoa
+                cancelar, este é o caminho de volta — o mais rápido, por isso
+                vem antes dos provedores. */}
+            {biometricSupport.available && biometricEnabled && (
+              <button
+                type="button"
+                className={LANDING_BTN_GLASS}
+                disabled={biometricBusy || busy}
+                onClick={handleBiometricLogin}
+              >
+                <ScanFace className="h-5 w-5" />
+                {biometricBusy
+                  ? t("login_authenticating")
+                  : t("login_signin_with").replace("{method}", biometricSupport.label)}
+              </button>
+            )}
+
+            {socialButtons}
+
+            <button
+              type="button"
+              className={LANDING_BTN_GLASS}
+              disabled={busy || !!socialBusy}
+              onClick={() => setLoginWithEmail(true)}
+            >
+              <Mail className="h-5 w-5" />
+              {t("login_continue_email")}
+            </button>
+          </div>
+        </div>
+      ) : (
+      <div
+        className={cn(
+          "mx-auto grid w-full max-w-md gap-6",
+          // Passos com formulário: alinhados ao topo, sem logo (layout do mock).
+          // Demais estados (sessão ativa, verificando): centralizados com logo.
+          isAuthStep ? "pt-2 pb-4" : "my-auto",
+        )}
+      >
+        {!isAuthStep && <BrandHeader size="sm" />}
+
+        {/* Sem card: o formulário vive direto sobre o fundo, como tela de
+            app — o card com borda dava cara de formulário de site. */}
+        <div className="relative">
+          <div className="space-y-4">
             {showNewPassword ? (
               <div className="grid gap-4">
                 <div className="grid gap-1">
@@ -1125,9 +1635,9 @@ export default function Login() {
                 </div>
 
                 <div className="grid gap-2">
-                  <Label htmlFor="new_password">{t("login_new_password")}</Label>
+                  <AuthLabel htmlFor="new_password">{t("login_new_password")}</AuthLabel>
                   <div className="relative">
-                    <Input
+                    <AuthInput
                       id="new_password"
                       type={showNewPwd ? "text" : "password"}
                       value={newPassword}
@@ -1156,9 +1666,9 @@ export default function Login() {
                 </div>
 
                 <div className="grid gap-2">
-                  <Label htmlFor="new_password_confirm">{t("login_confirm_new_password")}</Label>
+                  <AuthLabel htmlFor="new_password_confirm">{t("login_confirm_new_password")}</AuthLabel>
                   <div className="relative">
-                    <Input
+                    <AuthInput
                       id="new_password_confirm"
                       type={showNewPwdConfirm ? "text" : "password"}
                       value={newPasswordConfirm}
@@ -1182,13 +1692,13 @@ export default function Login() {
                   )}
                 </div>
 
-                <Button
+                <AuthButton
                   className="rounded-full"
                   disabled={!isStrongPassword(newPassword) || newPassword !== newPasswordConfirm || isSavingNewPassword}
                   onClick={handleSaveNewPassword}
                 >
                   {isSavingNewPassword ? t("login_saving") : t("login_save_new_password")}
-                </Button>
+                </AuthButton>
               </div>
             ) : !networkStatus.isOnline ? (
               <div className="rounded-2xl border border-red-200/30 bg-red-50/20 p-4 text-sm text-red-700 dark:border-red-900/30 dark:bg-red-950/20 dark:text-red-200">
@@ -1228,14 +1738,14 @@ export default function Login() {
                 </div>
 
                 <div className="flex flex-wrap gap-2">
-                  <Button
+                  <AuthButton
                     type="button"
                     className="rounded-full"
                     onClick={() => navigate("/", { replace: true })}
                   >
                     {t("login_go_to_app")}
-                  </Button>
-                  <Button
+                  </AuthButton>
+                  <AuthButton
                     type="button"
                     variant="outline"
                     className="rounded-full"
@@ -1264,44 +1774,37 @@ export default function Login() {
                     }}
                   >
                     {t("login_sign_out")}
-                  </Button>
+                  </AuthButton>
                 </div>
               </div>
             ) : showForgotPassword ? (
               <div className="space-y-4">
-                <div className="flex items-center gap-3 mb-4">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (forgotStep === "otp") {
-                        setForgotStep("email");
-                        setForgotOtp("");
-                      } else {
-                        setShowForgotPassword(false);
-                        setForgotPasswordEmail("");
-                        setForgotStep("email");
-                      }
-                    }}
-                    className="p-1 hover:bg-muted rounded transition-colors"
-                    disabled={isResettingPassword}
-                  >
-                    <ArrowLeft className="h-5 w-5" />
-                  </button>
-                  <div>
-                    <h2 className="text-lg font-semibold">{t("login_forgot_title")}</h2>
-                    <p className="text-xs text-muted-foreground">
-                      {forgotStep === "email"
-                        ? t("login_forgot_email_hint")
-                        : t("login_forgot_code_sent_to").replace("{email}", forgotPasswordEmail)}
-                    </p>
-                  </div>
-                </div>
+                <AuthStepHeader
+                  title={t("login_forgot_title")}
+                  subtitle={
+                    forgotStep === "email"
+                      ? t("login_forgot_email_hint")
+                      : t("login_forgot_code_sent_to").replace("{email}", forgotPasswordEmail)
+                  }
+                  backLabel={t("login_back")}
+                  backDisabled={isResettingPassword}
+                  onBack={() => {
+                    if (forgotStep === "otp") {
+                      setForgotStep("email");
+                      setForgotOtp("");
+                    } else {
+                      setShowForgotPassword(false);
+                      setForgotPasswordEmail("");
+                      setForgotStep("email");
+                    }
+                  }}
+                />
 
                 {forgotStep === "email" ? (
                   <>
                     <div className="grid gap-2">
-                      <Label htmlFor="forgot_email">{t("login_email")}</Label>
-                      <Input
+                      <AuthLabel htmlFor="forgot_email">{t("login_email")}</AuthLabel>
+                      <AuthInput
                         id="forgot_email"
                         type="email"
                         value={forgotPasswordEmail}
@@ -1314,20 +1817,20 @@ export default function Login() {
                         <p className="text-xs text-red-600">{t("login_invalid_email_inline")}</p>
                       )}
                     </div>
-                    <Button
+                    <AuthButton
                       type="button"
                       className="rounded-full w-full"
                       onClick={handleResetPassword}
                       disabled={isResettingPassword || !isValidEmail(forgotPasswordEmail)}
                     >
                       {isResettingPassword ? t("login_sending") : t("login_send_code")}
-                    </Button>
+                    </AuthButton>
                   </>
                 ) : (
                   <>
                     <div className="grid gap-2">
-                      <Label htmlFor="forgot_otp">{t("login_otp_label")}</Label>
-                      <Input
+                      <AuthLabel htmlFor="forgot_otp">{t("login_otp_label")}</AuthLabel>
+                      <AuthInput
                         id="forgot_otp"
                         type="text"
                         inputMode="numeric"
@@ -1339,14 +1842,14 @@ export default function Login() {
                         autoComplete="one-time-code"
                       />
                     </div>
-                    <Button
+                    <AuthButton
                       type="button"
                       className="rounded-full w-full"
                       onClick={handleVerifyOtp}
                       disabled={isResettingPassword || forgotOtp.length < 6 || forgotOtp.length > 8}
                     >
                       {isResettingPassword ? t("login_verifying") : t("login_verify_code")}
-                    </Button>
+                    </AuthButton>
                     <button
                       type="button"
                       className="text-xs text-muted-foreground underline w-full text-center"
@@ -1359,32 +1862,38 @@ export default function Login() {
               </div>
             ) : (
               <Tabs value={tab} onValueChange={(v) => setTab(v as any)}>
-                <TabsList className="grid w-full grid-cols-2 rounded-full bg-muted/40 p-1 shadow-sm ring-1 ring-border/60">
-                  <TabsTrigger
-                    value="login"
-                    className="rounded-full rounded-full data-[state=active]:bg-brand-gradient data-[state=active]:text-white data-[state=active]:shadow-md"
-                  >
-                    {t("login_tab_signin")}
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="signup"
-                    className="rounded-full rounded-full data-[state=active]:bg-brand-gradient data-[state=active]:text-white data-[state=active]:shadow-md"
-                  >
-                    {t("login_tab_signup")}
-                  </TabsTrigger>
-                </TabsList>
+{isOAuthSignup ? (
+                  // Cadastro por Google/Apple: sem as abas Entrar/Criar conta —
+                  // com elas, o passo de perfil parecia a tela de login "sem os
+                  // botões do Google", e o usuário achava que o login tinha falhado.
+                  <div className="grid gap-1 rounded-2xl bg-muted/40 p-3 ring-1 ring-border/60">
+                    <p className="text-sm font-semibold">{t("login_social_finish_title")}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {t("login_social_finish_desc")
+                        .replace("{provider}", socialProviderName)
+                        .replace("{email}", email || "—")}
+                    </p>
+                  </div>
+                ) : null}
 
-                <TabsContent value="login" className="mt-4">
+                <TabsContent value="login" className="mt-0">
+                  <AuthStepHeader
+                    title={t("login_email_title")}
+                    subtitle={t("login_email_subtitle")}
+                    backLabel={t("login_back")}
+                    onBack={() => setLoginWithEmail(false)}
+                  />
+
                   <form
-                    className="grid gap-3"
+                    className="grid gap-4"
                     onSubmit={(e) => {
                       e.preventDefault();
                       submit("login");
                     }}
                   >
                     <div className="grid gap-2">
-                      <Label htmlFor="login_email">{t("login_email")}</Label>
-                      <Input
+                      <AuthLabel htmlFor="login_email">{t("login_email")}</AuthLabel>
+                      <AuthInput
                         id="login_email"
                         type="text"
                         value={email}
@@ -1399,14 +1908,14 @@ export default function Login() {
                     </div>
 
                     <div className="grid gap-2">
-                      <Label htmlFor="login_password">{t("login_password")}</Label>
+                      <AuthLabel htmlFor="login_password">{t("login_password")}</AuthLabel>
                       <div className="relative">
-                        <Input
+                        <AuthInput
                           id="login_password"
                           type={showPassword ? "text" : "password"}
                           value={password}
                           onChange={(e) => setPassword(e.target.value)}
-                          placeholder="••••••••"
+                          placeholder={t("login_password_placeholder_signin")}
                           autoComplete="current-password"
                           className="pr-10"
                         />
@@ -1421,61 +1930,61 @@ export default function Login() {
                       </div>
                       <button
                         type="button"
-                        className="text-xs font-semibold text-brand hover:underline text-left"
+                        className="justify-self-end py-1 text-sm font-semibold text-brand"
                         onClick={() => setShowForgotPassword(true)}
                       >
                         {t("login_forgot_link")}
                       </button>
                     </div>
 
-                    <Button
+                    {/* Único botão principal do passo: branco, largura total. */}
+                    <AuthButton
                       type="submit"
-                      className="mt-1 rounded-full"
+                      className="mt-2"
                       disabled={!canSubmit}
                     >
                       {busy ? t("login_signing_in") : t("login_tab_signin")}
-                    </Button>
+                    </AuthButton>
 
-                    {biometricSupport.available && biometricEnabled && (
-                      <Button
+                    <p className="text-center text-sm text-white/55">
+                      {t("login_no_account_q")}{" "}
+                      <button
                         type="button"
-                        variant="outline"
-                        className="rounded-full gap-2"
-                        disabled={biometricBusy || busy}
-                        onClick={handleBiometricLogin}
+                        className="font-semibold text-white"
+                        onClick={() => {
+                          setTab("signup");
+                          setSignupStep(1);
+                        }}
                       >
-                        <ScanFace className="h-4 w-4" />
-                        {biometricBusy
-                          ? t("login_authenticating")
-                          : t("login_signin_with").replace("{method}", biometricSupport.label)}
-                      </Button>
-                    )}
-
-                    <button
-                      type="button"
-                      className="text-left text-sm font-semibold text-brand hover:underline"
-                      onClick={() => {
-                        setTab("signup");
-                        setSignupStep(1);
-                      }}
-                    >
-                      {t("login_no_account_cta")}
-                    </button>
+                        {t("login_tab_signup")}
+                      </button>
+                    </p>
                   </form>
                 </TabsContent>
 
-                <TabsContent value="signup" className="mt-4">
+                <TabsContent value="signup" className="mt-0">
+                  {/* Passo 1 do cadastro por e-mail: título + voltar para a tela
+                      inicial (as abas Entrar/Criar conta saíram). Nos passos
+                      seguintes, cada um tem o próprio "Voltar". */}
+                  {!isOAuthSignup && (
+                    <AuthStepHeader
+                      title={t("login_tab_signup")}
+                      backLabel={t("login_back")}
+                      onBack={signupStep === 1 ? () => { setTab("login"); setLoginWithEmail(false); } : undefined}
+                    />
+                  )}
+
                   {/* Step progress indicator */}
                   {(() => {
                     const totalSteps = 4;
                     const step = signupStep === 2.5 ? 2 : signupStep === 2.8 ? 3 : signupStep === 3 ? 4 : Math.ceil(signupStep as number);
                     return (
-                      <div className="mb-4 space-y-1.5">
-                        <div className="flex justify-between text-xs text-muted-foreground">
+                      <div className="mb-6 space-y-2">
+                        <div className="flex justify-between text-[13px] font-medium text-white/55">
                           <span>{t("login_step_of").replace("{step}", String(step)).replace("{total}", String(totalSteps))}</span>
                           <span>{Math.round((step / totalSteps) * 100)}%</span>
                         </div>
-                        <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
+                        <div className="w-full bg-white/10 rounded-full h-1.5 overflow-hidden">
                           <div
                             className="h-full bg-brand rounded-full transition-all duration-300"
                             style={{ width: `${(step / totalSteps) * 100}%` }}
@@ -1495,8 +2004,8 @@ export default function Login() {
                       }}
                     >
                       <div className="grid gap-2">
-                        <Label htmlFor="signup_email">{t("login_email")}</Label>
-                        <Input
+                        <AuthLabel htmlFor="signup_email">{t("login_email")}</AuthLabel>
+                        <AuthInput
                           id="signup_email"
                           type="text"
                           value={email}
@@ -1526,9 +2035,9 @@ export default function Login() {
                       </div>
 
                       <div className="grid gap-2">
-                        <Label htmlFor="signup_password">{t("login_password")}</Label>
+                        <AuthLabel htmlFor="signup_password">{t("login_password")}</AuthLabel>
                         <div className="relative">
-                          <Input
+                          <AuthInput
                             id="signup_password"
                             type={showPassword ? "text" : "password"}
                             value={password}
@@ -1559,9 +2068,9 @@ export default function Login() {
                       </div>
 
                       <div className="grid gap-2">
-                        <Label htmlFor="signup_confirm_password">{t("login_confirm_password")}</Label>
+                        <AuthLabel htmlFor="signup_confirm_password">{t("login_confirm_password")}</AuthLabel>
                         <div className="relative">
-                          <Input
+                          <AuthInput
                             id="signup_confirm_password"
                             type={showConfirmPassword ? "text" : "password"}
                             value={confirmPassword}
@@ -1587,63 +2096,28 @@ export default function Login() {
                         )}
                       </div>
 
-                      {/* Aceite explícito — App Store Guideline 1.2.
-                          A Apple exige que todo app com conteúdo de usuário
-                          tenha um EULA aceito na criação da conta, com política
-                          de tolerância zero a conteúdo abusivo declarada. Um
-                          rodapé informativo ("ao continuar você concorda") já
-                          foi motivo de rejeição em apps sociais; a caixa
-                          marcável não deixa margem para interpretação. */}
-                      <label className="mt-1 flex items-start gap-2.5 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={termsAccepted}
-                          onChange={(e) => setTermsAccepted(e.target.checked)}
-                          className="mt-0.5 h-4 w-4 shrink-0 rounded accent-primary"
-                        />
-                        <span className="text-xs leading-relaxed text-muted-foreground">
-                          {(() => {
-                            // A frase muda de ordem entre PT e EN, então os
-                            // links são montados a partir dos placeholders em
-                            // vez de concatenados na mão.
-                            const parts = t("signup_terms_accept").split(/(\{terms\}|\{privacy\})/);
-                            return parts.map((part, i) => {
-                              if (part === "{terms}")
-                                return (
-                                  <button
-                                    key={i}
-                                    type="button"
-                                    className="underline font-medium text-foreground"
-                                    onClick={(e) => { e.preventDefault(); void Browser.open({ url: TERMS_URL }); }}
-                                  >
-                                    {t("signup_terms_link")}
-                                  </button>
-                                );
-                              if (part === "{privacy}")
-                                return (
-                                  <button
-                                    key={i}
-                                    type="button"
-                                    className="underline font-medium text-foreground"
-                                    onClick={(e) => { e.preventDefault(); void Browser.open({ url: PRIVACY_URL }); }}
-                                  >
-                                    {t("signup_privacy_link")}
-                                  </button>
-                                );
-                              return <span key={i}>{part}</span>;
-                            });
-                          })()}{" "}
-                          {t("signup_terms_zero_tolerance")}
-                        </span>
-                      </label>
+                      {termsCheckbox}
 
-                      <Button
+                      <AuthButton
                         type="submit"
                         className="mt-2 rounded-full"
                         disabled={!termsAccepted || !isValidEmail(email) || signupEmailExists !== false || checkingSignupEmail || !isStrongPassword(password) || password !== confirmPassword || busy}
                       >
                         {busy ? t("login_validating") : t("login_next")}
-                      </Button>
+                      </AuthButton>
+
+                      {/* Apple/Google ficam na tela inicial; aqui, só o caminho
+                          de volta para quem já tem conta. */}
+                      <p className="text-center text-sm text-white/55">
+                        {t("login_have_account_q")}{" "}
+                        <button
+                          type="button"
+                          className="font-semibold text-white"
+                          onClick={() => { setTab("login"); setLoginWithEmail(true); }}
+                        >
+                          {t("login_tab_signin")}
+                        </button>
+                      </p>
                     </form>
                   )}
 
@@ -1652,8 +2126,8 @@ export default function Login() {
                     <div className="grid gap-3">
 
                       <div className="grid gap-2">
-                        <Label htmlFor="signup_name">{t("login_full_name")}</Label>
-                        <Input
+                        <AuthLabel htmlFor="signup_name">{t("login_full_name")}</AuthLabel>
+                        <AuthInput
                           id="signup_name"
                           type="text"
                           value={displayName}
@@ -1664,10 +2138,10 @@ export default function Login() {
                       </div>
 
                       <div className="grid gap-2">
-                        <Label htmlFor="signup_username">{t("login_username_label")}</Label>
+                        <AuthLabel htmlFor="signup_username">{t("login_username_label")}</AuthLabel>
                         <div className="relative">
                           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm select-none">@</span>
-                          <Input
+                          <AuthInput
                             id="signup_username"
                             type="text"
                             value={username}
@@ -1704,7 +2178,7 @@ export default function Login() {
                       </div>
 
                       <div className="grid gap-2">
-                        <Label>{t("login_profile_photo")} <span className="text-xs text-muted-foreground font-normal">{t("login_optional")}</span></Label>
+                        <AuthLabel>{t("login_profile_photo")} <span className="text-xs text-muted-foreground font-normal">{t("login_optional")}</span></AuthLabel>
                         <div className="flex items-center gap-3">
                           {photoPreview ? (
                             <div className="relative w-16 h-16 shrink-0">
@@ -1734,14 +2208,14 @@ export default function Login() {
                               <Upload className="h-5 w-5 text-muted-foreground" />
                             </button>
                           )}
-                          <Button
+                          <AuthButton
                             type="button"
                             variant="outline"
                             className="rounded-full flex-1"
                             onClick={openSignupPhotoPicker}
                           >
                             {photoFile ? t("login_change_photo") : t("login_add_photo")}
-                          </Button>
+                          </AuthButton>
                           <input
                             ref={signupPhotoInputRef}
                             type="file"
@@ -1753,8 +2227,8 @@ export default function Login() {
                       </div>
 
                       <div className="grid gap-2">
-                        <Label htmlFor="signup_bio">{t("login_bio")} <span className="text-xs text-muted-foreground font-normal">{t("login_optional")}</span></Label>
-                        <Textarea
+                        <AuthLabel htmlFor="signup_bio">{t("login_bio")} <span className="text-xs text-muted-foreground font-normal">{t("login_optional")}</span></AuthLabel>
+                        <AuthTextarea
                           id="signup_bio"
                           value={bio}
                           onChange={(e) => setBio(e.target.value)}
@@ -1780,28 +2254,31 @@ export default function Login() {
                           className="w-4 h-4"
                         />
                         <div className="flex-1">
-                          <Label htmlFor="commercial_profile" className="font-medium cursor-pointer">
+                          <AuthLabel htmlFor="commercial_profile" className="font-medium cursor-pointer">
                             {t("login_has_commercial")}
-                          </Label>
+                          </AuthLabel>
                           <p className="text-xs text-muted-foreground">{t("login_commercial_hint")}</p>
                         </div>
                       </div>
                       )}
 
+                      {isOAuthSignup && termsCheckbox}
+
                       <div className="flex gap-2">
-                        <Button
+                        <AuthButton
                           type="button"
                           variant="outline"
                           className="rounded-full flex-1"
-                          onClick={() => setSignupStep(1)}
+                          onClick={() => (isOAuthSignup ? void cancelSocialSignup() : setSignupStep(1))}
                         >
-                          {t("login_back")}
-                        </Button>
-                        <Button
+                          {isOAuthSignup ? t("cancel") : t("login_back")}
+                        </AuthButton>
+                        <AuthButton
                           type="button"
                           className="rounded-full flex-1"
                           onClick={handleSignupStep2}
                           disabled={
+                            (isOAuthSignup && !termsAccepted) ||
                             !displayName.trim() ||
                             username.trim().length < 3 ||
                             checkingSignupHandle ||
@@ -1809,7 +2286,7 @@ export default function Login() {
                           }
                         >
                           {t("login_next")}
-                        </Button>
+                        </AuthButton>
                       </div>
 
                       {/* Skip option */}
@@ -1817,6 +2294,10 @@ export default function Login() {
                         type="button"
                         className="text-xs text-muted-foreground hover:text-foreground text-center transition-colors"
                         onClick={() => {
+                          if (isOAuthSignup && !termsAccepted) {
+                            toast({ title: t("signup_terms_required_title"), description: t("signup_terms_required_desc"), variant: "destructive" });
+                            return;
+                          }
                           if (!displayName.trim()) {
                             toast({ title: t("login_toast_name_required_title"), description: t("login_toast_name_required_desc"), variant: "destructive" });
                             return;
@@ -1874,7 +2355,7 @@ export default function Login() {
                       {commercialWizardStep === 1 && (
                         <div className="grid gap-3">
                           <div className="grid gap-2">
-                            <Label>{t("login_business_segment")}</Label>
+                            <AuthLabel>{t("login_business_segment")}</AuthLabel>
                             <select
                               value={commercialData.business_segment}
                               onChange={(e) =>
@@ -1894,8 +2375,8 @@ export default function Login() {
                           </div>
 
                           <div className="grid gap-2">
-                            <Label>{t("login_business_name")}</Label>
-                            <Input
+                            <AuthLabel>{t("login_business_name")}</AuthLabel>
+                            <AuthInput
                               value={commercialData.business_name}
                               onChange={(e) =>
                                 setCommercialData({ ...commercialData, business_name: e.target.value })
@@ -1905,10 +2386,10 @@ export default function Login() {
                           </div>
 
                           <div className="grid gap-2">
-                            <Label>
+                            <AuthLabel>
                               {t("login_business_logo")}{" "}
                               <span className="text-xs text-muted-foreground font-normal">{t("login_optional")}</span>
-                            </Label>
+                            </AuthLabel>
                             <div className="flex items-center gap-3">
                               {businessLogoPreview ? (
                                 <div className="relative w-16 h-16 shrink-0">
@@ -1927,20 +2408,20 @@ export default function Login() {
                                 </div>
                               )}
                               <label className="relative flex-1">
-                                <Button type="button" variant="outline" className="rounded-full w-full" asChild>
+                                <AuthButton type="button" variant="outline" className="rounded-full w-full" asChild>
                                   <span>{businessLogoFile ? t("login_change_logo") : t("login_add_logo")}</span>
-                                </Button>
+                                </AuthButton>
                                 <input type="file" accept="image/*" onChange={handleBusinessLogoChange} className="hidden" />
                               </label>
                             </div>
                           </div>
 
                           <div className="grid gap-2">
-                            <Label>
+                            <AuthLabel>
                               {t("login_description")}{" "}
                               <span className="text-xs text-muted-foreground font-normal">{t("login_optional")}</span>
-                            </Label>
-                            <Textarea
+                            </AuthLabel>
+                            <AuthTextarea
                               value={commercialData.business_description}
                               onChange={(e) =>
                                 setCommercialData({ ...commercialData, business_description: e.target.value })
@@ -1951,15 +2432,15 @@ export default function Login() {
                           </div>
 
                           <div className="flex gap-2">
-                            <Button
+                            <AuthButton
                               type="button"
                               variant="outline"
                               className="rounded-full flex-1"
                               onClick={() => setSignupStep(2)}
                             >
                               {t("login_back")}
-                            </Button>
-                            <Button
+                            </AuthButton>
+                            <AuthButton
                               type="button"
                               className="rounded-full flex-1"
                               onClick={() => {
@@ -1976,7 +2457,7 @@ export default function Login() {
                               disabled={!commercialData.business_name.trim() || !commercialData.business_segment}
                             >
                               {t("login_next")}
-                            </Button>
+                            </AuthButton>
                           </div>
                         </div>
                       )}
@@ -1985,11 +2466,11 @@ export default function Login() {
                       {commercialWizardStep === 2 && (
                         <div className="grid gap-3">
                           <div className="grid gap-2">
-                            <Label>
+                            <AuthLabel>
                               {t("login_business_phone")}{" "}
                               <span className="text-xs text-muted-foreground font-normal">{t("login_optional")}</span>
-                            </Label>
-                            <Input
+                            </AuthLabel>
+                            <AuthInput
                               type="tel"
                               value={formatPhoneDisplay(commercialData.business_phone)}
                               onChange={(e) => {
@@ -2002,11 +2483,11 @@ export default function Login() {
                           </div>
 
                           <div className="grid gap-2">
-                            <Label>
+                            <AuthLabel>
                               {t("login_business_email")}{" "}
                               <span className="text-xs text-muted-foreground font-normal">{t("login_optional")}</span>
-                            </Label>
-                            <Input
+                            </AuthLabel>
+                            <AuthInput
                               type="email"
                               value={commercialData.business_email}
                               onChange={(e) =>
@@ -2021,22 +2502,22 @@ export default function Login() {
                           </div>
 
                           <div className="flex gap-2">
-                            <Button
+                            <AuthButton
                               type="button"
                               variant="outline"
                               className="rounded-full flex-1"
                               onClick={() => setCommercialWizardStep(1)}
                             >
                               {t("login_back")}
-                            </Button>
-                            <Button
+                            </AuthButton>
+                            <AuthButton
                               type="button"
                               className="rounded-full flex-1"
                               disabled={!!(commercialData.business_email && !isValidEmail(commercialData.business_email))}
                               onClick={() => setCommercialWizardStep(3)}
                             >
                               {t("login_next")}
-                            </Button>
+                            </AuthButton>
                           </div>
 
                           <button
@@ -2053,11 +2534,11 @@ export default function Login() {
                       {commercialWizardStep === 3 && (
                         <div className="grid gap-3">
                           <div className="grid gap-2">
-                            <Label>
+                            <AuthLabel>
                               {t("login_business_website")}{" "}
                               <span className="text-xs text-muted-foreground font-normal">{t("login_optional")}</span>
-                            </Label>
-                            <Input
+                            </AuthLabel>
+                            <AuthInput
                               type="url"
                               value={commercialData.business_website}
                               onChange={(e) =>
@@ -2079,22 +2560,22 @@ export default function Login() {
                           </div>
 
                           <div className="flex gap-2">
-                            <Button
+                            <AuthButton
                               type="button"
                               variant="outline"
                               className="rounded-full flex-1"
                               onClick={() => setCommercialWizardStep(2)}
                             >
                               {t("login_back")}
-                            </Button>
-                            <Button
+                            </AuthButton>
+                            <AuthButton
                               type="button"
                               className="rounded-full flex-1"
                               disabled={!!(commercialData.business_website && !isValidUrl(commercialData.business_website))}
                               onClick={handleCommercialDataComplete}
                             >
                               {t("login_next")}
-                            </Button>
+                            </AuthButton>
                           </div>
                         </div>
                       )}
@@ -2124,8 +2605,8 @@ export default function Login() {
 
                                 {/* Nome */}
                                 <div className="grid gap-1.5">
-                                  <Label className="text-xs">{t("login_plan_name")}</Label>
-                                  <Input
+                                  <AuthLabel className="text-xs">{t("login_plan_name")}</AuthLabel>
+                                  <AuthInput
                                     value={plan.name}
                                     onChange={(e) => {
                                       const updated = [...servicePlans];
@@ -2138,13 +2619,13 @@ export default function Login() {
 
                                 {/* Preço */}
                                 <div className="grid gap-1.5">
-                                  <Label className="text-xs">
+                                  <AuthLabel className="text-xs">
                                     {t("login_price")}{" "}
                                     <span className="text-muted-foreground font-normal">{t("login_price_hint")}</span>
-                                  </Label>
+                                  </AuthLabel>
                                   <div className="relative">
                                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm select-none">R$</span>
-                                    <Input
+                                    <AuthInput
                                       type="number"
                                       inputMode="decimal"
                                       min={0}
@@ -2162,11 +2643,11 @@ export default function Login() {
 
                                 {/* Descrição */}
                                 <div className="grid gap-1.5">
-                                  <Label className="text-xs">
+                                  <AuthLabel className="text-xs">
                                     {t("login_plan_includes")}{" "}
                                     <span className="text-muted-foreground font-normal">{t("login_optional")}</span>
-                                  </Label>
-                                  <Input
+                                  </AuthLabel>
+                                  <AuthInput
                                     value={plan.description ?? ""}
                                     onChange={(e) => {
                                       const updated = [...servicePlans];
@@ -2180,7 +2661,7 @@ export default function Login() {
                             ))}
                           </div>
 
-                          <Button
+                          <AuthButton
                             type="button"
                             variant="outline"
                             className="rounded-full w-full"
@@ -2188,24 +2669,24 @@ export default function Login() {
                           >
                             <Plus className="h-4 w-4 mr-2" />
                             {t("login_add_plan")}
-                          </Button>
+                          </AuthButton>
 
                           <div className="flex gap-2">
-                            <Button
+                            <AuthButton
                               type="button"
                               variant="outline"
                               className="rounded-full flex-1"
                               onClick={() => setCommercialWizardStep(3)}
                             >
                               {t("login_back")}
-                            </Button>
-                            <Button
+                            </AuthButton>
+                            <AuthButton
                               type="button"
                               className="rounded-full flex-1"
                               onClick={handleCommercialPlansComplete}
                             >
                               {t("login_finish")}
-                            </Button>
+                            </AuthButton>
                           </div>
 
                           <button
@@ -2229,7 +2710,7 @@ export default function Login() {
                       </div>
 
                       <div className="grid gap-2">
-                        <Label>{t("login_gender")}</Label>
+                        <AuthLabel>{t("login_gender")}</AuthLabel>
                         <div className="grid grid-cols-3 gap-2">
                           {[
                             { value: "male", label: t("login_gender_male") },
@@ -2263,8 +2744,8 @@ export default function Login() {
                           <>
                             <div className="grid grid-cols-3 gap-3">
                               <div className="grid gap-1">
-                                <Label htmlFor="signup_age">{t("login_age")}</Label>
-                                <Input
+                                <AuthLabel htmlFor="signup_age">{t("login_age")}</AuthLabel>
+                                <AuthInput
                                   id="signup_age"
                                   type="number"
                                   inputMode="numeric"
@@ -2281,8 +2762,8 @@ export default function Login() {
                                 )}
                               </div>
                               <div className="grid gap-1">
-                                <Label htmlFor="signup_height">{t("login_height")}</Label>
-                                <Input
+                                <AuthLabel htmlFor="signup_height">{t("login_height")}</AuthLabel>
+                                <AuthInput
                                   id="signup_height"
                                   type="number"
                                   inputMode="numeric"
@@ -2299,8 +2780,8 @@ export default function Login() {
                                 )}
                               </div>
                               <div className="grid gap-1">
-                                <Label htmlFor="signup_weight">{t("login_weight")}</Label>
-                                <Input
+                                <AuthLabel htmlFor="signup_weight">{t("login_weight")}</AuthLabel>
+                                <AuthInput
                                   id="signup_weight"
                                   type="text"
                                   inputMode="decimal"
@@ -2316,22 +2797,22 @@ export default function Login() {
                             </div>
 
                             <div className="flex gap-2 mt-2">
-                              <Button
+                              <AuthButton
                                 type="button"
                                 variant="outline"
                                 className="rounded-full flex-1"
                                 onClick={() => setSignupStep(FEATURES.store && hasCommercialProfile ? 2.5 : 2)}
                               >
                                 {t("login_back")}
-                              </Button>
-                              <Button
+                              </AuthButton>
+                              <AuthButton
                                 type="button"
                                 className="rounded-full flex-1"
                                 disabled={hasErrors}
                                 onClick={() => setSignupStep(3)}
                               >
                                 {t("login_next")}
-                              </Button>
+                              </AuthButton>
                             </div>
 
                             {/* Atalho: sem ele, "Voltar" e "Próximo" sozinhos
@@ -2391,22 +2872,22 @@ export default function Login() {
                       </div>
 
                       <div className="flex gap-2">
-                        <Button
+                        <AuthButton
                           type="button"
                           variant="outline"
                           className="rounded-full flex-1"
                           onClick={() => setSignupStep(2.8)}
                         >
                           {t("login_back")}
-                        </Button>
-                        <Button
+                        </AuthButton>
+                        <AuthButton
                           type="button"
                           className="rounded-full flex-1"
                           onClick={handleSignupStep3}
                           disabled={busy}
                         >
                           {busy ? t("login_creating") : t("login_next")}
-                        </Button>
+                        </AuthButton>
                       </div>
 
                       {/* Último passo: o atalho conclui o cadastro sem objetivo
@@ -2428,9 +2909,10 @@ export default function Login() {
             )}
 
             </>}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
+      )}
 
       <ImageCropperDrawer
         imageSrc={pendingLoginPhotoCropSrc}

@@ -1,5 +1,6 @@
 import * as React from "react";
-import { Link2, Link2Off, Plus, Target } from "lucide-react";
+import { Link2, Plus, Target, Trophy } from "lucide-react";
+import { SectionHeader } from "@/components/shared/section-header";
 import { useLanguage } from "@/lib/language-context";
 import { FEATURES } from "@/lib/feature-flags";
 import type { Routine, UserGoal } from "@/lib/ritmofit-db";
@@ -57,38 +58,47 @@ export function LifeGoalsSection({
         onClick={() => onOpenGoal?.(goal)}
       >
         <div className="flex items-start gap-2.5 mb-3">
-          <span className="text-xl shrink-0 mt-0.5">{isCompleted ? "🏆" : "🎯"}</span>
+          {/* Ícone do mesmo conjunto (Lucide) do resto do app — antes era emoji. */}
+          <span
+            className="shrink-0 flex items-center justify-center"
+            style={{
+              width: "40px",
+              height: "40px",
+              borderRadius: "12px",
+              background: isCompleted ? "rgba(251,191,36,.16)" : "rgba(224,69,123,.16)",
+              color: isCompleted ? "#fbbf24" : "#ff7aa2",
+            }}
+          >
+            {isCompleted ? <Trophy className="h-5 w-5" /> : <Target className="h-5 w-5" />}
+          </span>
           <div className="flex-1 min-w-0">
-            <p className="text-[14.5px] font-[680] text-white truncate">{goal.description}</p>
-            <p className="text-[11.5px] mt-0.5" style={{ color: "rgba(255,255,255,.5)" }}>
+            <p className="text-[16px] font-semibold text-white truncate">{goal.description}</p>
+            <p className="text-[13px] mt-0.5" style={{ color: "rgba(255,255,255,.52)" }}>
               {goal.days_completed}/{goal.duration} {t("goals_streak_days")}
             </p>
             {/* Vínculo com rotina. É o check-in de uma rotina vinculada que soma
                 progresso automaticamente (fora dele, só um post ligado à meta
-                soma) — por isso o aviso convida a tocar: o drawer da meta tem a
+                soma) — por isso, sem vínculo, aparece o link "Vincular a uma
+                rotina": o toque cai no card, que abre o drawer da meta com a
                 lista para vincular. Meta concluída não mostra: o app solta as
                 rotinas dela. */}
-            {!isCompleted && (
+            {!isCompleted && linkedRoutines > 0 && (
               <span
                 className="mt-1.5 inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold"
-                style={
-                  linkedRoutines > 0
-                    ? { background: "rgba(34,197,94,.14)", border: "1px solid rgba(34,197,94,.32)", color: "#4ade80" }
-                    : { background: "rgba(255,255,255,.06)", border: "1px dashed rgba(255,255,255,.22)", color: "rgba(255,255,255,.55)" }
-                }
+                style={{ background: "rgba(34,197,94,.14)", border: "1px solid rgba(34,197,94,.32)", color: "#4ade80" }}
               >
-                {linkedRoutines > 0 ? (
-                  <Link2 className="h-3 w-3 shrink-0" />
-                ) : (
-                  <Link2Off className="h-3 w-3 shrink-0" />
-                )}
+                <Link2 className="h-3 w-3 shrink-0" />
                 <span className="truncate">
                   {linkedRoutines === 1 && linkedNames[0]
                     ? t("goals_linked_routine_one").replace("{name}", linkedNames[0])
-                    : linkedRoutines > 0
-                      ? t("goals_linked_routines_count").replace("{n}", String(linkedRoutines))
-                      : t("goals_no_linked_routine")}
+                    : t("goals_linked_routines_count").replace("{n}", String(linkedRoutines))}
                 </span>
+              </span>
+            )}
+            {!isCompleted && linkedRoutines === 0 && (
+              <span className="mt-2 inline-flex max-w-full items-center gap-1.5 text-[13px] font-semibold text-primary">
+                <Link2 className="h-3.5 w-3.5 shrink-0" strokeWidth={2.4} />
+                <span className="truncate">{t("goals_link_routine_cta")}</span>
               </span>
             )}
           </div>
@@ -112,27 +122,12 @@ export function LifeGoalsSection({
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-3 px-1">
-        <h2 className="text-[18px] font-bold" style={{ color: "#fff", letterSpacing: "-0.01em" }}>
-          {t("goals_dash_life_goals")}
-        </h2>
-        <span
-          className="text-[11px] font-semibold px-2 py-0.5 rounded-[9px]"
-          style={{ background: "rgba(255,255,255,.07)", color: "rgba(255,255,255,.45)" }}
-        >
-          {t("goals_optional")}
-        </span>
-        <div className="flex-1" />
-        {hasMore && (
-          <button
-            onClick={() => setExpanded((v) => !v)}
-            className="text-xs font-semibold"
-            style={{ color: "#9d6bff" }}
-          >
-            {expanded ? t("goals_dash_show_less") : t("goals_dash_view_all")}
-          </button>
-        )}
-      </div>
+      {/* "Nova meta" mora no título (antes: botão grande no fim da lista +
+          etiqueta "opcional"). Sem metas, o estado vazio já tem o CTA. */}
+      <SectionHeader
+        title={t("goals_dash_life_goals")}
+        action={userGoals.length > 0 ? { label: t("goals_add"), onClick: onCreateGoal, icon: Plus } : undefined}
+      />
 
       {userGoals.length === 0 ? (
         <div
@@ -179,26 +174,16 @@ export function LifeGoalsSection({
             </>
           )}
 
-          {/* Glass CTA to create new goal */}
-          <button
-            onClick={onCreateGoal}
-            className="w-full flex items-center justify-center gap-2 active:scale-[0.99] transition-all"
-            style={{
-              borderRadius: "18px",
-              padding: "15px",
-              background: "rgba(157,107,255,.1)",
-              border: "1px solid rgba(157,107,255,.24)",
-              color: "#b89bff",
-              fontSize: "13.5px",
-              fontWeight: 640,
-              backdropFilter: "blur(12px)",
-              WebkitBackdropFilter: "blur(12px)",
-              boxShadow: "inset 0 1px 0 rgba(255,255,255,.08)",
-            }}
-          >
-            <Plus className="h-4 w-4" strokeWidth={2.4} />
-            {t("goals_add")}
-          </button>
+          {/* "Ver todas" saiu do título (que agora só tem "Nova meta") e virou
+              um link no pé da lista. */}
+          {hasMore && (
+            <button
+              onClick={() => setExpanded((v) => !v)}
+              className="w-full h-10 text-sm font-semibold text-primary active:opacity-60 transition-opacity"
+            >
+              {expanded ? t("goals_dash_show_less") : t("goals_dash_view_all")}
+            </button>
+          )}
         </>
       )}
     </div>

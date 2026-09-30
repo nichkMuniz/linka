@@ -26,6 +26,9 @@
 
 ---
 
+
+> **Brilho de fundo (2026-09-30):** a tela ganhou o `ScreenAura variant="neutral"` (padrão das telas principais — ver `docs/13-layouts-e-componentes.md`), começando no topo, por trás do header.
+
 ## Objetivo
 
 Hub social do aplicativo. Reúne mensagens diretas, duelos em grupo (desafios coletivos) e ranking global de pontuação dos usuários.

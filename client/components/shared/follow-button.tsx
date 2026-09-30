@@ -104,13 +104,19 @@ export function FollowButton({
     );
   }
 
+  // Hierarquia de botões do app (docs/15 §6): "Seguir" é a ação principal
+  // (branco); "Seguindo" é estado, então vira secundário (vidro) — antes o
+  // outline escuro parecia o botão mais forte da linha.
   return (
     <Button
       onClick={handleClick}
       disabled={isLoading}
-      variant={isFollowing ? "outline" : "default"}
       size="sm"
-      className="rounded-full gap-2"
+      className={
+        isFollowing
+          ? "rounded-full gap-2 border-0 bg-white/[.09] text-white/85 hover:bg-white/[.14]"
+          : "rounded-full gap-2 bg-white text-[#0a0b12] hover:bg-white/90"
+      }
     >
       {isFollowing ? (
         <>

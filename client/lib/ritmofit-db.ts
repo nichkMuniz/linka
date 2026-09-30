@@ -1,4 +1,5 @@
 import { reportHandledError } from "@/lib/monitoring";
+import { cardioTotalMinutes } from "@/lib/cardio-exercises";
 import { IMMUTABLE_CACHE_CONTROL } from "@/lib/storage-cache";
 import { resolveLanguage, tUi, type TranslationKey } from "@/lib/i18n";
 import { getUserSafe, hasSupabaseConfig, supabase, registerViewerCacheInvalidator, registerAuthUserReadyHandler } from "@/lib/supabase";
@@ -3868,7 +3869,8 @@ export async function getFlowWorkoutSessionDb(
       ? (summary!.completedExercises ?? []).map((e) => ({
           name: e.name,
           sets: Number(e.totalSets ?? 0),
-          kg: Number(e.bestKg ?? 0),
+          // Cardio: minutos totais das séries (o bestKg do cardio é sempre 0).
+          kg: e.isCardio ? cardioTotalMinutes(e.sets) : Number(e.bestKg ?? 0),
           isCardio: e.isCardio || undefined,
         }))
       : null,
@@ -3897,7 +3899,8 @@ export async function getRecentWorkoutSessionsDb(
         exercises: (s.completedExercises ?? []).map((e) => ({
           name: e.name,
           sets: Number(e.totalSets ?? 0),
-          kg: Number(e.bestKg ?? 0),
+          // Cardio: minutos totais das séries (o bestKg do cardio é sempre 0).
+          kg: e.isCardio ? cardioTotalMinutes(e.sets) : Number(e.bestKg ?? 0),
           isCardio: e.isCardio || undefined,
         })),
       };

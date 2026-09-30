@@ -11,6 +11,7 @@ import {
   resolveUserGoalRef,
   USER_GOAL_REF_COLUMNS,
   type PostWithLikes,
+  type PostWithUser,
   type PostIncentiveType,
   type SearchUser,
   type RepostOrigin,
@@ -286,6 +287,36 @@ export const getDiscoverPosts = async (
   // volume para não virar isso; até lá, cronológico é mais honesto e mais
   // previsível. Removido de propósito — não é uma flag de v1.
   return posts;
+};
+
+/**
+ * Completa posts que já vieram do Perfil (`PostWithUser`: autor, meta, marcações,
+ * resumo de treino e repost EMBUTIDOS) com o que o `PostCard` precisa a mais —
+ * incentivos, os do próprio viewer e a contagem de comentários — em 2 consultas
+ * em lote, as mesmas do feed. Os dados embutidos são mantidos como vieram (não
+ * refaz a leitura que o Perfil já fez).
+ */
+export const withPostStats = async (posts: PostWithUser[]): Promise<PostWithStats[]> => {
+  if (posts.length === 0) return [];
+  const ids = posts.map((p) => p.id);
+  const [{ likesMap, userLikesMap }, commentCountsMap] = await Promise.all([
+    getPostLikesWithViewerBatchDb(ids),
+    getCommentCountsBatchDb(ids),
+  ]);
+  return posts.map((post) => {
+    const likes = likesMap.get(post.id) ?? { apoio: 0, continua: 0, ganhador: 0, consegueMais: 0, limiteMaior: 0, maisAlgum: 0 };
+    const commentCount = commentCountsMap.get(post.id) ?? 0;
+    const totalLikes = (Object.values(likes) as number[]).reduce((a, b) => a + b, 0);
+    return {
+      ...post,
+      likes,
+      userLikes: userLikesMap.get(post.id) ?? [],
+      commentCount,
+      hasActivity: totalLikes > 0 || commentCount > 0,
+      userNickname: post.userNickname || "Usuário",
+      userPhoto: post.userPhoto ?? null,
+    };
+  });
 };
 
 export const togglePostLike = async (

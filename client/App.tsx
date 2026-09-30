@@ -170,6 +170,7 @@ import { useLanguage } from "@/lib/language-context";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
 import { initKeyboardTracker } from "@/lib/keyboard";
 import { APP_STORE_URL, parseDeepLinkUrl } from "@/lib/share-url";
+import { needsSocialSignupCompletion } from "@/lib/social-signup-state";
 import { ADMIN_USER_IDS } from "@/lib/admin";
 
 // Teclado iOS (Keyboard resize:'none'): publica --keyboard-height/kb-open no
@@ -441,6 +442,13 @@ function RequireAuth() {
         state={{ from: location.pathname + location.search }}
       />
     );
+  }
+
+  // Entrou por Google/Apple e fechou o app antes de terminar o perfil (e o
+  // aceite dos Termos): vai para o Login, que encerra essa sessão incompleta e
+  // mostra a tela normal — tocar no provedor de novo retoma o cadastro.
+  if (needsSocialSignupCompletion(user)) {
+    return <Navigate to="/login" replace />;
   }
 
   if (banned) {

@@ -1,4 +1,5 @@
 import { Dumbbell, Salad, Target } from "lucide-react";
+import { SectionHeader } from "@/components/shared/section-header";
 import { useLanguage } from "@/lib/language-context";
 import type { RoutineTypeCode } from "@/lib/ritmofit-db";
 
@@ -39,11 +40,7 @@ export function RoutineTypeCards({ items, onOpen }: RoutineTypeCardsProps) {
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center px-1">
-        <h2 className="text-white" style={{ fontSize: "18px", fontWeight: 740, letterSpacing: "-0.01em" }}>
-          {t("goals_dash_your_routines")}
-        </h2>
-      </div>
+      <SectionHeader title={t("goals_dash_your_routines")} />
 
       <div className="flex flex-col gap-2.5">
         {items.map((item) => {

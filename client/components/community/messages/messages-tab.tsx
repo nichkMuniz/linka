@@ -182,7 +182,7 @@ export function MessagesTab({
                           )}
                         </div>
                         <p
-                          className={`text-xs shrink-0 ${conversation.unreadCount > 0 ? "text-brand font-medium" : "text-white/40"}`}
+                          className={`text-xs shrink-0 ${conversation.unreadCount > 0 ? "text-unread font-medium" : "text-white/40"}`}
                         >
                           {formatTimeAgo(conversation.lastMessageTime)}
                         </p>
@@ -197,7 +197,7 @@ export function MessagesTab({
                   </button>
 
                   {conversation.unreadCount > 0 && (
-                    <span className="flex items-center justify-center h-5 min-w-[20px] px-1.5 rounded-full bg-brand text-white text-[11px] font-bold shrink-0">
+                    <span className="flex items-center justify-center h-5 min-w-[20px] px-1.5 rounded-full bg-unread text-white text-[11px] font-bold shrink-0">
                       {conversation.unreadCount > 9 ? "9+" : conversation.unreadCount}
                     </span>
                   )}

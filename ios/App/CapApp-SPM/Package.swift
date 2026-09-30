@@ -12,6 +12,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/ionic-team/capacitor-swift-pm.git", exact: "7.6.2"),
+        .package(name: "CapacitorCommunityAppleSignIn", path: "..\..\..\node_modules\.pnpm\@capacitor-community+apple-_97a8a5dbecdaf55775174955233c7498\node_modules\@capacitor-community\apple-sign-in"),
         .package(name: "CapacitorApp", path: "..\..\..\node_modules\.pnpm\@capacitor+app@7.1.2_@capacitor+core@7.6.2\node_modules\@capacitor\app"),
         .package(name: "CapacitorBrowser", path: "..\..\..\node_modules\.pnpm\@capacitor+browser@7.0.5_@capacitor+core@7.6.2\node_modules\@capacitor\browser"),
         .package(name: "CapacitorGeolocation", path: "..\..\..\node_modules\.pnpm\@capacitor+geolocation@7.1.8_@capacitor+core@7.6.2\node_modules\@capacitor\geolocation"),
@@ -32,6 +33,7 @@ let package = Package(
             dependencies: [
                 .product(name: "Capacitor", package: "capacitor-swift-pm"),
                 .product(name: "Cordova", package: "capacitor-swift-pm"),
+                .product(name: "CapacitorCommunityAppleSignIn", package: "CapacitorCommunityAppleSignIn"),
                 .product(name: "CapacitorApp", package: "CapacitorApp"),
                 .product(name: "CapacitorBrowser", package: "CapacitorBrowser"),
                 .product(name: "CapacitorGeolocation", package: "CapacitorGeolocation"),

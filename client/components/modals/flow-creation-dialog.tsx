@@ -15,6 +15,7 @@ import {
   MAX_STICKER_SCALE,
   formatStickerDate,
   formatStickerDuration,
+  formatStickerExercise,
   formatStickerVolume,
   isStickerFieldShown,
   applyStickerFields,
@@ -35,7 +36,6 @@ import {
   Image as ImageIcon,
   Check,
   SwitchCamera,
-  Type,
   Camera as CameraIcon,
   AlignLeft,
   AlignCenter,
@@ -46,7 +46,10 @@ import {
   Download,
   Dumbbell,
   SlidersHorizontal,
+  ArrowLeft,
+  ArrowUp,
 } from "lucide-react";
+import { PhotoLibrary } from "@capgo/capacitor-photo-library";
 import { FEATURES } from "@/lib/feature-flags";
 import type { TranslationKey } from "@/lib/i18n";
 
@@ -73,18 +76,20 @@ const GRADIENT_PRESETS: Array<{ id: string; value: string; label: TranslationKey
 // Fontes disponíveis para legendas. Todas são fontes de sistema pré-instaladas no
 // iOS (ou keywords CSS `ui-*` suportadas no WKWebView) com fallback genérico, então
 // renderizam sem carregar nenhum arquivo de fonte externo.
+// Nome exibido traduzido (`labelKey`) desde 2026-09-30 — antes eram os nomes
+// técnicos em inglês ("Bold", "Light"…) num app em português.
 const FONT_OPTIONS = [
-  { id: "bold",       label: "Bold",    family: "system-ui, -apple-system, sans-serif",                 weight: 800 },
-  { id: "light",      label: "Light",   family: "system-ui, -apple-system, sans-serif",                 weight: 300 },
-  { id: "rounded",    label: "Rounded", family: "ui-rounded, 'SF Pro Rounded', system-ui, sans-serif",  weight: 700 },
-  { id: "condensed",  label: "Impact",  family: "'Impact', 'Haettenschweiler', system-ui, sans-serif",  weight: 900 },
-  { id: "serif",      label: "Serif",   family: "Georgia, 'Times New Roman', serif",                    weight: 700 },
-  { id: "elegant",    label: "Elegant", family: "'Didot', 'Hoefler Text', Georgia, serif",              weight: 600 },
-  { id: "script",     label: "Script",  family: "'Snell Roundhand', 'Zapfino', cursive",                weight: 700 },
-  { id: "marker",     label: "Marker",  family: "'Marker Felt', 'Chalkboard SE', 'Comic Sans MS', cursive", weight: 600 },
-  { id: "typewriter", label: "Type",    family: "'American Typewriter', 'Courier New', monospace",      weight: 600 },
-  { id: "mono",       label: "Mono",    family: "ui-monospace, 'Courier New', Courier, monospace",      weight: 500 },
-] as const;
+  { id: "bold",       labelKey: "flow_font_classic",    family: "system-ui, -apple-system, sans-serif",                 weight: 800 },
+  { id: "light",      labelKey: "flow_font_light",      family: "system-ui, -apple-system, sans-serif",                 weight: 300 },
+  { id: "rounded",    labelKey: "flow_font_rounded",    family: "ui-rounded, 'SF Pro Rounded', system-ui, sans-serif",  weight: 700 },
+  { id: "condensed",  labelKey: "flow_font_impact",     family: "'Impact', 'Haettenschweiler', system-ui, sans-serif",  weight: 900 },
+  { id: "serif",      labelKey: "flow_font_serif",      family: "Georgia, 'Times New Roman', serif",                    weight: 700 },
+  { id: "elegant",    labelKey: "flow_font_elegant",    family: "'Didot', 'Hoefler Text', Georgia, serif",              weight: 600 },
+  { id: "script",     labelKey: "flow_font_script",     family: "'Snell Roundhand', 'Zapfino', cursive",                weight: 700 },
+  { id: "marker",     labelKey: "flow_font_marker",     family: "'Marker Felt', 'Chalkboard SE', 'Comic Sans MS', cursive", weight: 600 },
+  { id: "typewriter", labelKey: "flow_font_typewriter", family: "'American Typewriter', 'Courier New', monospace",      weight: 600 },
+  { id: "mono",       labelKey: "flow_font_mono",       family: "ui-monospace, 'Courier New', Courier, monospace",      weight: 500 },
+] as const satisfies ReadonlyArray<{ id: string; labelKey: TranslationKey; family: string; weight: number }>;
 
 const TEXT_COLORS = [
   "#ffffff", "#000000", "#8E8E93", "#FF3B30",
@@ -770,11 +775,7 @@ function drawWorkoutStickerOnCanvas(
     ctx.fillRect(left, lineY, contentW, 1);
     let rowY = lineY + 1 + 8;
     for (const ex of rows) {
-      const value = ex.isCardio
-        ? `${ex.kg} min`
-        : ex.kg > 0
-          ? `${ex.sets}× ${ex.kg}kg`
-          : `${ex.sets}×`;
+      const value = formatStickerExercise(ex);
       ctx.font = `700 10.5px ${STICKER_FONT}`;
       const valueW = ctx.measureText(value).width;
       ctx.textAlign = "right";
@@ -847,7 +848,7 @@ interface FlowCreationDialogProps {
   isLoading?: boolean;
 }
 
-type Step = "camera" | "preview" | "caption" | "create";
+type Step = "camera" | "caption" | "create";
 
 export function FlowCreationDialog({
   open,
@@ -858,6 +859,39 @@ export function FlowCreationDialog({
 }: FlowCreationDialogProps) {
   const { t } = useLanguage();
   const [step, setStep] = React.useState<Step>("camera");
+  // Confirmação antes de o "voltar" apagar o que foi feito: "media" = foto/vídeo
+  // da legenda (+ textos, marcações, treino); "text" = frases do modo texto.
+  const [discardAsk, setDiscardAsk] = React.useState<null | "media" | "text">(null);
+  // Miniatura da última foto/vídeo do rolo no botão de galeria da câmera.
+  const [galleryThumb, setGalleryThumb] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    if (!open || galleryThumb) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        // Só consulta com permissão JÁ concedida — abrir a câmera do flow não
+        // deve disparar o pedido de acesso às fotos.
+        const { state } = await PhotoLibrary.checkAuthorization();
+        if (state !== "authorized" && state !== "limited") return;
+        const { assets } = await PhotoLibrary.getLibrary({
+          offset: 0,
+          limit: 1,
+          includeImages: true,
+          includeVideos: true,
+          thumbnailWidth: 120,
+          thumbnailHeight: 120,
+          thumbnailQuality: 0.7,
+        });
+        const src = assets[0]?.thumbnail?.webPath;
+        if (!cancelled && src) setGalleryThumb(src);
+      } catch {
+        // web ou plugin indisponível: fica o ícone
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, galleryThumb]);
   // Última semente já aplicada. Enquanto a atual não foi aplicada, a câmera
   // NÃO liga — senão o flow pediria permissão/abriria o stream por um frame
   // antes de pular para a legenda.
@@ -2145,14 +2179,16 @@ export function FlowCreationDialog({
         handleSaveDraft();
       }}
       disabled={isSavingDraft || isSubmitting || isLoading}
-      className="w-full h-10 rounded-full bg-white/10 backdrop-blur border border-white/20 flex items-center justify-center gap-2 text-white text-sm font-semibold disabled:opacity-50 active:opacity-70"
+      // Ícone na barra de cima (2026-09-30); antes era um 2º botão largo no
+      // rodapé, competindo com "Compartilhar flow".
+      className="h-11 w-11 shrink-0 rounded-full bg-black/40 backdrop-blur flex items-center justify-center text-white active:scale-95 transition-transform disabled:opacity-50"
+      aria-label={isSavingDraft ? t("flow_save_draft_saving") : t("flow_save_draft")}
     >
       {isSavingDraft ? (
-        <Loader2 className="h-4 w-4 animate-spin" />
+        <Loader2 className="h-5 w-5 animate-spin" />
       ) : (
-        <Download className="h-4 w-4" />
+        <Download className="h-5 w-5" />
       )}
-      {isSavingDraft ? t("flow_save_draft_saving") : t("flow_save_draft")}
     </button>
   );
 
@@ -2582,15 +2618,114 @@ export function FlowCreationDialog({
     onOpenChange(false);
   };
 
-  // Controles de estilo de texto (cor, fonte, alinhamento) — compartilhados
-  // entre o modo de texto ("create") e a legenda sobre a foto ("caption")
-  const textStyleControls = (
-    <>
-      {/* Cores — quando o realce está ligado, escolhem a cor do FUNDO (e o texto
-          vira preto/branco automaticamente); senão, escolhem a cor do texto. */}
-      <div className="flex gap-2 overflow-x-auto no-scrollbar px-1 py-1">
-        {TEXT_COLORS.map((color) => {
-          const bgActive = editingStyle.backgroundColor != null;
+  // Descrição do rodapé: começa numa linha e cresce com o texto até o max-h da
+  // classe (o espelho do HighlightTextarea acompanha: é `absolute inset-0`).
+  React.useLayoutEffect(() => {
+    const el = descriptionRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [description, step]);
+
+  // ── Botões redondos das barras (todos 44px — mínimo de toque da HIG) ──
+  const ICON_BTN =
+    "h-11 w-11 shrink-0 rounded-full bg-black/40 backdrop-blur flex items-center justify-center text-white active:scale-95 transition-transform disabled:opacity-50";
+
+  // Conteúdo que o "voltar" do modo texto apagaria.
+  const hasTextContent = texts.length > 0 || !!workoutSticker || !!postSticker;
+
+  // Sai do modo texto de verdade (depois da confirmação, se havia conteúdo).
+  const leaveTextMode = () => {
+    // Veio de um post ("Editar antes de postar"): voltar para a câmera não faz
+    // sentido — desiste do flow.
+    if (postSticker) {
+      handleClose();
+      return;
+    }
+    setStep("camera");
+    setTexts([]);
+    setWorkoutSticker(null);
+    setEditingId(null);
+    setEditingValue("");
+  };
+
+  const requestLeaveText = () => {
+    if (hasTextContent) setDiscardAsk("text");
+    else leaveTextMode();
+  };
+
+  // ── Controles de estilo de texto (compartilhados: modo texto e legenda) ──
+  // Topo: alinhamento (um botão que alterna), fundo do texto e "Pronto".
+  // Cores e fontes ficam em cima do teclado, onde o polegar já está.
+  const AlignIcon = editingStyle.align === "left" ? AlignLeft : editingStyle.align === "right" ? AlignRight : AlignCenter;
+  const bgActive = editingStyle.backgroundColor != null;
+
+  const editingTopBar = (
+    <div
+      className="absolute inset-x-0 top-0 z-[22] flex items-center justify-between px-4"
+      style={{ paddingTop: "max(0.5rem, env(safe-area-inset-top))" }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() =>
+            setEditingStyle((s) => ({
+              ...s,
+              align: s.align === "left" ? "center" : s.align === "center" ? "right" : "left",
+            }))
+          }
+          className={ICON_BTN}
+          aria-label={t("flow_align_cycle")}
+        >
+          <AlignIcon className="h-5 w-5" />
+        </button>
+        {/* Fundo da legenda (realce estilo Instagram) — liga/desliga; a cor sai da paleta */}
+        <button
+          onClick={() =>
+            setEditingStyle((s) =>
+              s.backgroundColor != null
+                ? { ...s, color: s.backgroundColor, backgroundColor: null }
+                : { ...s, backgroundColor: s.color, color: contrastText(s.color) },
+            )
+          }
+          className={ICON_BTN}
+          style={bgActive ? { background: editingStyle.backgroundColor as string } : undefined}
+          aria-label={t("flow_caption_background")}
+          aria-pressed={bgActive}
+        >
+          <span
+            className="rounded-md px-[5px] text-[15px] font-extrabold leading-5"
+            style={{
+              border: `2px solid ${bgActive ? contrastText(editingStyle.backgroundColor as string) : "#fff"}`,
+              color: bgActive ? contrastText(editingStyle.backgroundColor as string) : "#fff",
+            }}
+          >
+            A
+          </span>
+        </button>
+      </div>
+      <button
+        onClick={commitEditing}
+        className="h-11 px-5 rounded-full bg-white text-black text-[15px] font-semibold active:scale-95 transition-transform"
+      >
+        {t("flow_text_done")}
+      </button>
+    </div>
+  );
+
+  const editingBottomControls = (
+    <div
+      className="absolute inset-x-0 z-[22] space-y-2"
+      style={{
+        bottom: "calc(var(--keyboard-height, 0px) + max(12px, env(safe-area-inset-bottom)))",
+        transition: "bottom 0.25s ease-out",
+      }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      {/* Cores — com o realce ligado escolhem a cor do FUNDO (o texto vira
+          preto/branco sozinho); senão, a cor do texto. Alvo de 44px, bolinha de 30. */}
+      <div className="flex overflow-x-auto no-scrollbar px-2">
+        {TEXT_COLORS.map((color, i) => {
           const activeColor = bgActive ? editingStyle.backgroundColor : editingStyle.color;
           const isSel = activeColor === color;
           return (
@@ -2603,87 +2738,89 @@ export function FlowCreationDialog({
                     : { ...s, color },
                 )
               }
-              className="h-7 w-7 rounded-full border-2 shrink-0 transition-transform"
-              style={{
-                background: color,
-                borderColor: isSel ? "white" : "rgba(255,255,255,0.25)",
-                transform: isSel ? "scale(1.25)" : "scale(1)",
-                boxShadow: color === "#ffffff" ? "inset 0 0 0 1px rgba(0,0,0,0.2)" : undefined,
-              }}
-              aria-label={`Cor ${color}`}
-            />
+              className="h-11 w-11 shrink-0 flex items-center justify-center"
+              aria-label={t("flow_color_aria").replace("{n}", String(i + 1))}
+              aria-pressed={isSel}
+            >
+              <span
+                className="h-[30px] w-[30px] rounded-full transition-transform"
+                style={{
+                  background: color,
+                  border: `${isSel ? 3 : 2}px solid ${isSel ? "#fff" : "rgba(255,255,255,0.45)"}`,
+                  transform: isSel ? "scale(1.12)" : "scale(1)",
+                  boxShadow: "0 1px 4px rgba(0,0,0,0.3)",
+                }}
+              />
+            </button>
           );
         })}
       </div>
 
-      {/* Fontes */}
-      <div className="flex gap-1.5 overflow-x-auto no-scrollbar px-1 py-1">
+      {/* Fontes — cada chip já desenhado na própria fonte */}
+      <div className="flex gap-2 overflow-x-auto no-scrollbar px-4 pb-1">
         {FONT_OPTIONS.map((font) => {
           const isActive = editingStyle.fontFamily === font.family && editingStyle.fontWeight === font.weight;
           return (
             <button
               key={font.id}
               onClick={() => setEditingStyle((s) => ({ ...s, fontFamily: font.family, fontWeight: font.weight }))}
-              className="px-3 py-0.5 rounded-full text-sm transition-all shrink-0 whitespace-nowrap"
+              className="h-9 px-3.5 rounded-full text-[15px] transition-all shrink-0 whitespace-nowrap"
               style={{
                 fontFamily: font.family,
                 fontWeight: font.weight,
-                background: isActive ? "rgba(255,255,255,0.92)" : "rgba(0,0,0,0.45)",
+                background: isActive ? "#fff" : "rgba(0,0,0,0.45)",
                 color: isActive ? "#000" : "#fff",
               }}
             >
-              {font.label}
+              {t(font.labelKey)}
             </button>
           );
         })}
       </div>
-
-      {/* Alinhamento + realce de fundo (estilo Instagram) */}
-      <div className="flex gap-2 justify-center items-center">
-        {(["left", "center", "right"] as const).map((align) => {
-          const Icon = align === "left" ? AlignLeft : align === "center" ? AlignCenter : AlignRight;
-          const isActive = editingStyle.align === align;
-          return (
-            <button
-              key={align}
-              onClick={() => setEditingStyle((s) => ({ ...s, align }))}
-              className="h-8 w-8 rounded-full flex items-center justify-center transition-all"
-              style={{ background: isActive ? "rgba(255,255,255,0.92)" : "rgba(0,0,0,0.45)" }}
-              aria-label={`Alinhar ${align}`}
-            >
-              <Icon className="h-4 w-4" style={{ color: isActive ? "#000" : "#fff" }} />
-            </button>
-          );
-        })}
-        {/* Toggle do fundo da legenda — liga/desliga o realce; a cor sai da paleta acima */}
-        <button
-          onClick={() =>
-            setEditingStyle((s) =>
-              s.backgroundColor != null
-                ? { ...s, color: s.backgroundColor, backgroundColor: null }
-                : { ...s, backgroundColor: s.color, color: contrastText(s.color) },
-            )
-          }
-          className="h-8 min-w-8 px-2.5 rounded-full flex items-center justify-center transition-all font-extrabold text-sm"
-          style={{
-            background:
-              editingStyle.backgroundColor != null
-                ? editingStyle.backgroundColor
-                : "rgba(0,0,0,0.45)",
-            color:
-              editingStyle.backgroundColor != null
-                ? contrastText(editingStyle.backgroundColor)
-                : "#fff",
-            border: "1px solid rgba(255,255,255,0.3)",
-          }}
-          aria-label={t("flow_caption_background")}
-        >
-          A
-        </button>
-      </div>
-
-    </>
+    </div>
   );
+
+  // Pergunta antes de o "voltar" apagar o trabalho (sobre o criador inteiro —
+  // o AlertDialog do app ficaria ATRÁS deste portal, que é z-[100]).
+  const discardDialog = discardAsk ? (
+    <div
+      className="absolute inset-0 z-[140] flex items-center justify-center bg-black/60 px-8 animate-in fade-in duration-150"
+      onClick={() => setDiscardAsk(null)}
+    >
+      <div
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="flow-discard-title"
+        className="w-full max-w-[320px] rounded-3xl border border-white/10 p-6 text-center shadow-2xl"
+        style={{ background: "linear-gradient(rgba(40,40,50,.97),rgba(22,22,30,.98))" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 id="flow-discard-title" className="text-[19px] font-bold text-white">{t("flow_discard_title")}</h2>
+        <p className="mt-2 text-[15px] leading-snug text-white/60">
+          {discardAsk === "media" ? t("flow_discard_desc_media") : t("flow_discard_desc_text")}
+        </p>
+        <div className="mt-5 grid gap-2.5">
+          <button
+            onClick={() => setDiscardAsk(null)}
+            className="h-12 rounded-full bg-white text-[15px] font-semibold text-[#0a0b12] active:scale-[0.98] transition-transform"
+          >
+            {t("flow_discard_keep")}
+          </button>
+          <button
+            onClick={() => {
+              const what = discardAsk;
+              setDiscardAsk(null);
+              if (what === "media") handleRetake();
+              else leaveTextMode();
+            }}
+            className="h-12 rounded-full bg-[rgba(255,90,78,.14)] text-[15px] font-semibold text-[#ff8a80] active:scale-[0.98] transition-transform"
+          >
+            {t("flow_discard_confirm")}
+          </button>
+        </div>
+      </div>
+    </div>
+  ) : null;
 
   const renderTextInner = (item: TextItem) => {
     const hasBg = !!item.style.backgroundColor;
@@ -2857,10 +2994,10 @@ export function FlowCreationDialog({
         e.stopPropagation();
         openWorkoutPicker(false);
       }}
-      className="h-10 px-3 rounded-full bg-black/40 backdrop-blur flex items-center text-white text-sm font-semibold gap-1"
+      className="h-11 w-11 shrink-0 rounded-full bg-black/40 backdrop-blur flex items-center justify-center text-white active:scale-95 transition-transform"
       aria-label={t("flow_workout_button")}
     >
-      <Dumbbell className="h-4 w-4" />
+      <Dumbbell className="h-5 w-5" />
     </button>
   );
 
@@ -2944,31 +3081,11 @@ export function FlowCreationDialog({
               className="relative z-10 flex items-center justify-between px-4 pt-2"
               style={{ paddingTop: "max(0.5rem, env(safe-area-inset-top))" }}
             >
-              <button
-                onClick={handleClose}
-                className="h-10 w-10 rounded-full bg-black/40 backdrop-blur flex items-center justify-center text-white"
-                aria-label={t("close")}
-              >
+              {/* Topo só com o fechar: o modo texto foi para o seletor
+                  "Câmera · Texto" e o virar câmera para a direita do obturador. */}
+              <button onClick={handleClose} className={ICON_BTN} aria-label={t("close")}>
                 <X className="h-5 w-5" />
               </button>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setStep("create")}
-                  className="h-10 px-3 rounded-full bg-black/40 backdrop-blur flex items-center justify-center text-white text-sm font-semibold"
-                  aria-label={t("flow_create_with_text")}
-                >
-                  <Type className="h-4 w-4 mr-1" />
-                  Aa
-                </button>
-                <button
-                  onClick={handleFlipCamera}
-                  className="h-10 w-10 rounded-full bg-black/40 backdrop-blur flex items-center justify-center text-white"
-                  aria-label={t("flow_flip_camera")}
-                  disabled={!!cameraError}
-                >
-                  <SwitchCamera className="h-5 w-5" />
-                </button>
-              </div>
             </div>
 
             {/* Recording timer */}
@@ -3010,20 +3127,27 @@ export function FlowCreationDialog({
               </div>
             )}
 
-            {/* Bottom controls */}
-            <div
-              className="relative z-10 flex items-center justify-around px-6"
-              style={{ paddingBottom: "max(1.5rem, env(safe-area-inset-bottom))" }}
-            >
+            {/* Bottom controls: galeria | obturador | virar câmera */}
+            <div className="relative z-10 grid grid-cols-3 items-center justify-items-center px-6">
+              {/* Galeria — miniatura da última foto do rolo (ícone se não houver) */}
               <button
                 onClick={() => fileInputRef.current?.click()}
-                className={`h-12 w-12 rounded-2xl bg-white/15 backdrop-blur flex items-center justify-center text-white transition-opacity ${
+                className={`h-12 w-12 overflow-hidden rounded-xl border-2 border-white bg-white/15 backdrop-blur flex items-center justify-center text-white shadow-lg transition-opacity ${
                   isRecording ? "opacity-0 pointer-events-none" : "opacity-100"
                 }`}
                 aria-label={t("flow_gallery")}
                 disabled={isRecording}
               >
-                <ImageIcon className="h-6 w-6" />
+                {galleryThumb ? (
+                  <img
+                    src={galleryThumb}
+                    alt=""
+                    className="h-full w-full object-cover"
+                    onError={() => setGalleryThumb(null)}
+                  />
+                ) : (
+                  <ImageIcon className="h-6 w-6" />
+                )}
               </button>
 
               <button
@@ -3080,7 +3204,37 @@ export function FlowCreationDialog({
                 )}
               </button>
 
-              <div className="h-12 w-12" aria-hidden />
+              {/* Virar câmera — na zona do polegar (antes no topo). Funciona
+                  também durante a gravação (a gravação passa pelo canvas). */}
+              <button
+                onClick={handleFlipCamera}
+                className="h-12 w-12 rounded-full bg-black/40 backdrop-blur flex items-center justify-center text-white active:scale-95 transition-transform disabled:opacity-50"
+                aria-label={t("flow_flip_camera")}
+                disabled={!!cameraError}
+              >
+                <SwitchCamera className="h-6 w-6" />
+              </button>
+            </div>
+
+            {/* Seletor de modo — o modo texto deixou de ficar escondido no "Aa" do topo */}
+            <div
+              className={`relative z-10 flex justify-center gap-8 pt-4 transition-opacity ${
+                isRecording ? "opacity-0 pointer-events-none" : "opacity-100"
+              }`}
+              style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
+            >
+              <span className="flex flex-col items-center gap-1.5 text-[13px] font-extrabold uppercase tracking-[.08em] text-white">
+                {t("flow_mode_camera")}
+                <span className="h-[5px] w-[5px] rounded-full bg-white" />
+              </span>
+              <button
+                onClick={() => setStep("create")}
+                className="flex flex-col items-center gap-1.5 text-[13px] font-bold uppercase tracking-[.08em] text-white/55 active:text-white"
+                aria-label={t("flow_create_with_text")}
+              >
+                {t("flow_mode_text")}
+                <span className="h-[5px] w-[5px]" />
+              </button>
             </div>
 
             <input
@@ -3191,60 +3345,36 @@ export function FlowCreationDialog({
               </div>
             )}
 
-            {/* Top bar */}
-            <div
-              className="relative z-[10] flex items-center justify-between px-4"
-              style={{ paddingTop: "max(0.5rem, env(safe-area-inset-top))" }}
-            >
-              <button
-                onClick={() => {
-                  // Veio de um post ("Editar antes de postar"): voltar para a
-                  // câmera não faz sentido — o X desiste do flow.
-                  if (postSticker) {
-                    handleClose();
-                    return;
-                  }
-                  setStep("camera");
-                  setTexts([]);
-                  setEditingId(null);
-                  setEditingValue("");
-                }}
-                className="h-10 w-10 rounded-full bg-black/40 backdrop-blur flex items-center justify-center text-white"
-                aria-label={t("back")}
+            {/* Top bar — editando: alinhamento/fundo/Pronto (sem o X, que apagava
+                tudo ao lado do "Pronto"); fora da edição: voltar + ações. */}
+            {isEditingText ? (
+              editingTopBar
+            ) : (
+              <div
+                className="relative z-[10] flex items-center justify-between px-4"
+                style={{ paddingTop: "max(0.5rem, env(safe-area-inset-top))" }}
               >
-                <X className="h-5 w-5" />
-              </button>
-              {isEditingText ? (
                 <button
-                  onClick={commitEditing}
-                  className="h-10 px-4 rounded-full bg-white text-black text-sm font-semibold"
+                  onClick={requestLeaveText}
+                  className={ICON_BTN}
+                  aria-label={postSticker ? t("close") : t("back")}
                 >
-                  {t("flow_text_done")}
+                  {postSticker ? <X className="h-5 w-5" /> : <ArrowLeft className="h-5 w-5" />}
                 </button>
-              ) : (
                 <div className="flex items-center gap-2">
+                  {/* Sem rascunho com a moldura do post: a foto dela vem de outro
+                      domínio e o canvas não a desenha (sairia sem o post). */}
+                  {(texts.length > 0 || workoutSticker) && !postSticker && saveDraftButton}
                   {workoutStickerButton}
-                  <button
-                    onClick={beginNewText}
-                    className="h-10 px-3 rounded-full bg-black/40 backdrop-blur flex items-center text-white text-sm font-semibold gap-1"
-                    aria-label={t("flow_add_text")}
-                  >
-                    <Type className="h-4 w-4" />
-                    + Aa
+                  <button onClick={beginNewText} className={ICON_BTN} aria-label={t("flow_add_text")}>
+                    <span className="text-[16px] font-extrabold tracking-[-0.01em]">Aa</span>
                   </button>
                 </div>
-              )}
-            </div>
-
-            {/* Toolbar de estilo — visível apenas durante a edição de texto */}
-            {isEditingText && (
-              <div
-                className="relative z-[10] px-4 pt-2 pb-1 space-y-2"
-                onClick={(e) => e.stopPropagation()}
-              >
-                {textStyleControls}
               </div>
             )}
+
+            {/* Cores e fontes em cima do teclado — só durante a edição */}
+            {isEditingText && editingBottomControls}
 
             <div className="flex-1" />
 
@@ -3255,7 +3385,7 @@ export function FlowCreationDialog({
                 style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
               >
                 <div
-                  className="flex gap-2 overflow-x-auto pb-1"
+                  className="-mx-4 flex gap-2.5 overflow-x-auto no-scrollbar px-4 pb-1"
                   onClick={(e) => e.stopPropagation()}
                 >
                   {GRADIENT_PRESETS.map((preset) => (
@@ -3277,55 +3407,24 @@ export function FlowCreationDialog({
                     </button>
                   ))}
                 </div>
-                <Button
+                {/* Principal branco (padrão do app); o rascunho foi para a barra de cima. */}
+                <button
                   onClick={(e) => {
                     e.stopPropagation();
                     handleSubmitCreate();
                   }}
                   disabled={(texts.length === 0 && !workoutSticker && !postSticker) || isSubmitting || isLoading}
-                  className="w-full rounded-full"
+                  className="w-full h-[52px] rounded-full bg-white text-[#0a0b12] text-[16px] font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-50"
                 >
+                  {isSubmitting || isLoading ? (
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                  ) : (
+                    <ArrowUp className="h-5 w-5" strokeWidth={2.4} />
+                  )}
                   {isSubmitting || isLoading ? t("sending") : t("flow_share_button")}
-                </Button>
-                {/* Sem rascunho com a moldura do post: a foto dela vem de outro
-                    domínio e o canvas não a desenha (sairia sem o post). */}
-                {(texts.length > 0 || workoutSticker) && !postSticker && saveDraftButton}
+                </button>
               </div>
             )}
-          </>
-        )}
-
-        {/* Preview step (after capture or gallery pick) */}
-        {step === "preview" && mediaPreview && (
-          <>
-            <div className="absolute inset-0">
-              {mediaIsVideo ? (
-                <video src={mediaPreview} className="h-full w-full object-cover bg-black" autoPlay loop muted playsInline />
-              ) : (
-                <img src={mediaPreview} alt="Preview" className="h-full w-full object-cover bg-black" />
-              )}
-            </div>
-
-            <div
-              className="relative z-10 flex items-center justify-between px-4"
-              style={{ paddingTop: "max(0.5rem, env(safe-area-inset-top))" }}
-            >
-              <button
-                onClick={handleRetake}
-                className="h-10 w-10 rounded-full bg-black/50 backdrop-blur flex items-center justify-center text-white"
-                aria-label={t("flow_retake")}
-              >
-                <X className="h-5 w-5" />
-              </button>
-              <button
-                onClick={() => setStep("caption")}
-                className="h-10 px-4 rounded-full bg-white text-black font-semibold text-sm"
-              >
-                {t("flow_next")}
-              </button>
-            </div>
-
-            <div className="flex-1" />
           </>
         )}
 
@@ -3406,24 +3505,8 @@ export function FlowCreationDialog({
             {isEditingText && (
               <>
                 <div className="absolute inset-0 z-[20] bg-black/40" onClick={commitEditing} />
-                <div
-                  className="absolute inset-x-0 z-[22] flex items-center justify-end px-4"
-                  style={{ top: 0, paddingTop: "max(0.5rem, env(safe-area-inset-top))" }}
-                >
-                  <button
-                    onClick={commitEditing}
-                    className="h-10 px-4 rounded-full bg-white text-black text-sm font-semibold"
-                  >
-                    {t("flow_text_done")}
-                  </button>
-                </div>
-                <div
-                  className="absolute inset-x-0 z-[22] px-4 space-y-2"
-                  style={{ top: "calc(max(0.5rem, env(safe-area-inset-top)) + 3.25rem)" }}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  {textStyleControls}
-                </div>
+                {editingTopBar}
+                {editingBottomControls}
                 <div
                   className="absolute inset-x-0 z-[22] flex items-center justify-center px-6 pointer-events-none"
                   style={{
@@ -3479,12 +3562,13 @@ export function FlowCreationDialog({
                 className="relative z-10 flex items-center justify-between px-4"
                 style={{ paddingTop: "max(0.5rem, env(safe-area-inset-top))" }}
               >
+                {/* Voltar pergunta antes: descartaria foto, textos, marcações e treino */}
                 <button
-                  onClick={handleRetake}
-                  className="h-10 w-10 rounded-full bg-black/50 backdrop-blur flex items-center justify-center text-white"
+                  onClick={() => setDiscardAsk("media")}
+                  className={ICON_BTN}
                   aria-label={t("flow_retake")}
                 >
-                  <X className="h-5 w-5" />
+                  <ArrowLeft className="h-5 w-5" />
                 </button>
                 <div className="flex items-center gap-2">
                   {/* Marcar pessoas no flow — mesma feature de FEATURES.postTags.
@@ -3495,22 +3579,22 @@ export function FlowCreationDialog({
                   {FEATURES.postTags && (
                     <button
                       onClick={() => setTagPeopleOpen(true)}
-                      className="h-10 px-3 rounded-full bg-black/40 backdrop-blur flex items-center text-white text-sm font-semibold gap-1"
+                      className={cn(ICON_BTN, "relative")}
                       aria-label={t("flow_tag_people")}
                     >
-                      <AtSign className="h-4 w-4" />
-                      {taggedUsers.length > 0 ? taggedUsers.length : ""}
+                      <AtSign className="h-5 w-5" />
+                      {taggedUsers.length > 0 && (
+                        <span className="absolute -top-0.5 -right-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-white px-1 text-[10px] font-bold text-black">
+                          {taggedUsers.length}
+                        </span>
+                      )}
                     </button>
                   )}
                   {workoutStickerButton}
-                  <button
-                    onClick={beginNewText}
-                    className="h-10 px-3 rounded-full bg-black/40 backdrop-blur flex items-center text-white text-sm font-semibold gap-1"
-                    aria-label={t("flow_add_text")}
-                  >
-                    <Type className="h-4 w-4" />
-                    + Aa
+                  <button onClick={beginNewText} className={ICON_BTN} aria-label={t("flow_add_text")}>
+                    <span className="text-[16px] font-extrabold tracking-[-0.01em]">Aa</span>
                   </button>
+                  {saveDraftButton}
                 </div>
               </div>
             )}
@@ -3518,16 +3602,16 @@ export function FlowCreationDialog({
             {/* Dica de manipulação (some assim que o usuário ajusta) */}
             {!isEditingText && !isMediaTransformed(mediaTransform) && texts.length === 0 && (
               <div className="relative z-10 flex justify-center pt-2 pointer-events-none">
-                <span className="text-white/80 text-xs bg-black/35 backdrop-blur rounded-full px-3 py-1">
-                  Toque na foto para escrever • belisque para ajustar
+                <span className="text-white/85 text-[12.5px] font-medium bg-black/35 backdrop-blur rounded-full px-3 py-1.5">
+                  {t("flow_hint_caption_idle")}
                 </span>
               </div>
             )}
             {/* Dica de gesto no texto (aparece quando há frase e não se está editando) */}
             {!isEditingText && texts.length > 0 && (
               <div className="relative z-10 flex justify-center pt-2 pointer-events-none">
-                <span className="text-white/80 text-xs bg-black/35 backdrop-blur rounded-full px-3 py-1">
-                  Pinça no texto para redimensionar • arraste para mover
+                <span className="text-white/85 text-[12.5px] font-medium bg-black/35 backdrop-blur rounded-full px-3 py-1.5">
+                  {t("flow_hint_caption_text")}
                 </span>
               </div>
             )}
@@ -3563,16 +3647,23 @@ export function FlowCreationDialog({
                     </span>
                   </button>
                 )}
-                <div className="relative">
+                {/* Rodapé compacto: descrição numa linha (cresce até 4) + enviar.
+                    Antes: caixa de 80px + "Compartilhar flow" + "Salvar rascunho". */}
+                <div className="relative flex items-end gap-2.5">
                   {/* #hashtag e @menção ficam azuis enquanto digita. */}
                   <HighlightTextarea
                     ref={descriptionRef}
+                    rows={1}
                     placeholder={t("flow_description_placeholder")}
                     placeholderColor="rgba(255,255,255,.6)"
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
                     maxLength={200}
-                    className={cn(SHADCN_TEXTAREA_CLASS, "resize-none h-20 bg-black/40 backdrop-blur border-white/20 text-white")}
+                    wrapperClassName="flex-1 min-w-0"
+                    className={cn(
+                      SHADCN_TEXTAREA_CLASS,
+                      "resize-none min-h-[52px] max-h-[124px] rounded-[26px] px-5 py-[14px] leading-snug bg-black/45 backdrop-blur border-white/20 text-white",
+                    )}
                   />
                   {/* "@" na descrição → sugestão; a escolhida entra nas marcações
                       do flow (flow_tags → notificação type 16). */}
@@ -3587,19 +3678,25 @@ export function FlowCreationDialog({
                     }
                     placement="above"
                   />
+                  <button
+                    onClick={handleSubmitMedia}
+                    disabled={isSubmitting || isLoading}
+                    className="h-[52px] w-[52px] shrink-0 rounded-full bg-white text-[#0a0b12] flex items-center justify-center active:scale-95 transition-transform disabled:opacity-60"
+                    aria-label={isSubmitting || isLoading ? t("sending") : t("flow_share_button")}
+                  >
+                    {isSubmitting || isLoading ? (
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                    ) : (
+                      <ArrowUp className="h-[22px] w-[22px]" strokeWidth={2.6} />
+                    )}
+                  </button>
                 </div>
-                <Button
-                  onClick={handleSubmitMedia}
-                  disabled={isSubmitting || isLoading}
-                  className="w-full rounded-full"
-                >
-                  {isSubmitting || isLoading ? t("sending") : t("flow_share_button")}
-                </Button>
-                {saveDraftButton}
               </div>
             )}
           </>
         )}
+
+        {discardDialog}
       </div>
 
       {FEATURES.postTags && (

@@ -27,7 +27,7 @@ Central de notificações do usuário. Exibe todos os alertas e atividades relac
 
 ```
 ┌──────────────────────────────────┐
-│  Notificações         [Limpar]   │
+│  ‹   Notificações      [Limpar]  │ ← "Limpar" só com itens na lista
 ├──────────────────────────────────┤
 │  [Ícone] Usuário fez X           │
 │          há 2 horas              │
@@ -99,8 +99,14 @@ Quando o tipo é incentivo, o ícone exibido é o do incentivo específico (não
 - **Momentos em que a tela marca como lida (2026-07-21):** logo após a lista carregar (mount e pull-to-refresh), a cada notificação que chega pelo Realtime **com a tela aberta**, e no **unmount** (varredura final ao sair). Junto, o `AppLayout` ignora as atualizações de contagem do Realtime enquanto `pathname === "/notificacoes"` — assim o sinalizador de pendência nunca sobrevive à saída da tela
 - **A marcação vem DEPOIS do `getNotificationsDb()`, não em paralelo:** marcar como lido invalida o cache `notifications`, e um fetch ainda em voo regravaria por cima o payload antigo (com `read=false`)
 
+### Estado vazio (2026-09-30)
+Padrão do design system (§10.3): **ícone do assunto** (`Bell` em círculo de 72px, `bg-white/[.07]` — antes era um raio `Zap`, sem relação com notificação), título "Nenhuma notificação ainda" (19px bold), texto de apoio e **uma ação**: "Encontrar pessoas" (`notif_page_empty_cta`, botão secundário) → `/buscar`. Sem a caixa tracejada que envolvia o bloco.
+
+### Brilho de fundo (2026-09-30)
+A aura rosa é `fixed inset-0 -z-10` (antes `absolute` no container da página, que começa abaixo do header — o brilho era cortado numa linha reta ali). Agora ela começa no topo da tela, por trás do vidro do header. Só aparece porque o raiz do `AppLayout` tem `isolate` (ver `docs/13-layouts-e-componentes.md`).
+
 ### Limpar tudo
-- Botão "Limpar" no header
+- Botão "Limpar" no header — **só renderiza quando a lista tem itens** (e terminou de carregar). Sem ele, um espaço de 40px mantém o título centralizado
 - Abre `AlertDialog` de confirmação:
   - Título: "Limpar notificações"
   - Descrição: Aviso de que a ação é irreversível

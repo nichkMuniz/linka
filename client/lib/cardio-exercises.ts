@@ -87,6 +87,16 @@ export function sumCardioSets(sets?: Array<{ kg: number; reps: number }>): {
   return { minutes, km };
 }
 
+/**
+ * Minutos totais (arredondados) de um exercício de cardio — o número que o
+ * mini frame de treino do flow mostra ("Esteira · 39 min"). O resumo do treino
+ * NÃO tem esse valor pronto: `bestKg` só é calculado para musculação e fica 0
+ * no cardio, e era ele que ia para o frame (bug "0 min", 2026-09-30).
+ */
+export function cardioTotalMinutes(sets?: Array<{ kg: number; reps: number }>): number {
+  return Math.round(sumCardioSets(sets).minutes);
+}
+
 // ── Formatação ───────────────────────────────────────────────────────────────
 // Formatadores puros do contrato de cardio (MIN × KM), fora do módulo de canvas
 // para poderem ser usados também por telas comuns (ex.: o modal "Ver treino" do

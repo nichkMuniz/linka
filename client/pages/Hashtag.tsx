@@ -6,6 +6,7 @@ import { searchContentByHashtagDb, type HashtagItem } from "@/lib/ritmofit-db";
 import { getPostGradient } from "@/lib/post-visuals";
 import { ShotThumb } from "@/components/shared/shot-thumb";
 import { LoadingSpinner } from "@/components/shared/animated-loading";
+import { MultiPhotoBadge } from "@/components/shared/multi-photo-badge";
 
 /**
  * Página de uma hashtag — grade (estilo Instagram) com os posts do feed e os
@@ -129,12 +130,7 @@ export default function Hashtag() {
                   </div>
                 )}
                 {!isShot && item.photos && item.photos.length > 1 && (
-                  <div className="absolute right-2 top-2 flex items-center gap-0.5 rounded-md bg-white/90 px-1.5 py-0.5">
-                    <span className="text-xs font-semibold text-black">📷</span>
-                    <span className="text-xs font-semibold text-black">
-                      {item.photos.length}
-                    </span>
-                  </div>
+                  <MultiPhotoBadge count={item.photos.length} />
                 )}
               </button>
             );

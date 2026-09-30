@@ -53,6 +53,7 @@ import { PushNotifications } from "@capacitor/push-notifications";
 import { LocalNotifications } from "@capacitor/local-notifications";
 import { useLanguage } from "@/lib/language-context";
 import { FEATURES } from "@/lib/feature-flags";
+import { hasPasswordIdentity } from "@/lib/social-signup-state";
 import { isStrongPassword, passwordRules } from "@/lib/password-rules";
 import { videoPosterSrc } from "@/lib/video-thumb";
 import { WeightHistoryDrawer } from "@/components/shared/weight-history-drawer";
@@ -242,7 +243,12 @@ export function SettingsDrawer({
   React.useEffect(() => {
     let cancelled = false;
     (async () => {
-      const support = await isBiometricSupported();
+      // Conta só de Google/Apple não tem senha para o Keychain guardar — o
+      // toggle de Face ID não teria efeito nenhum, então nem aparece.
+      const { data } = supabase ? await supabase.auth.getUser() : { data: { user: null } };
+      const support = FEATURES.biometricLogin && hasPasswordIdentity(data.user)
+        ? await isBiometricSupported()
+        : { available: false, label: "Biometria" };
       if (cancelled) return;
       setBiometricSupport(support);
       setBiometricEnabled(support.available && isBiometricEnabled());
@@ -846,8 +852,19 @@ export function SettingsDrawer({
         toast({ title: t("settings_email_rate_limit"), description: t("settings_email_rate_limit_desc"), variant: "destructive" });
         return;
       }
+      // O formato já passou no `isValidEmail` acima — se chegou aqui, quem recusou
+      // foi o Supabase Auth (ex.: domínio sem servidor de e-mail, ou domínio
+      // bloqueado). Mensagem própria para não parecer que a regra do app barrou
+      // um `.com.br` válido. Reporta só o domínio (nunca o e-mail inteiro).
       if (code === "email_address_invalid" || code === "validation_failed") {
-        toast({ title: t("settings_email_invalid"), description: t("settings_email_invalid_desc"), variant: "destructive" });
+        reportHandledError(err, "settings:change-email-rejected", { code, status, domain: trimmed.split("@")[1] ?? "" });
+        // Mostra também o motivo literal do servidor: sem ele não dá para
+        // distinguir domínio recusado de outras validações do GoTrue.
+        toast({
+          title: t("settings_email_rejected"),
+          description: message ? `${t("settings_email_rejected_desc")} (${message})` : t("settings_email_rejected_desc"),
+          variant: "destructive",
+        });
         return;
       }
       // Desconhecido: mostra a mensagem do servidor em vez de escondê-la, e

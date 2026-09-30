@@ -40,6 +40,7 @@ import {
   getFollowingIdsDb,
 } from "@/lib/ritmofit-db";
 import { UserAvatar } from "@/components/shared/user-avatar";
+import { ScreenAura } from "@/components/shared/screen-aura";
 import { FollowButton } from "@/components/shared/follow-button";
 import { PostLikesModal } from "@/components/modals/post-likes-modal";
 import { ReportDrawer } from "@/components/shared/report-drawer";
@@ -1333,20 +1334,8 @@ export default function Index() {
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
     >
-      {/* Ambient glow — um único elemento com gradientes pintados diretamente.
-          Antes eram 3 divs com filter: blur(65px), que o WebKit precisa
-          re-compor a cada frame de scroll junto com todos os backdrop-filter
-          da tela. radial-gradient já entrega o mesmo visual sem filtro. */}
-      <div
-        aria-hidden
-        className="pointer-events-none fixed inset-0 -z-10"
-        style={{
-          background:
-            "radial-gradient(340px 340px at 10% 14%, rgba(216,86,122,.34), transparent 70%)," +
-            "radial-gradient(300px 300px at 92% 42%, rgba(63,127,230,.30), transparent 70%)," +
-            "radial-gradient(280px 280px at 26% 74%, rgba(123,63,242,.26), transparent 70%)",
-        }}
-      />
+      {/* Brilho de fundo — padrão único das telas (ScreenAura). */}
+      <ScreenAura variant="feed" />
 
       {/* Dica "puxe para atualizar" — flutua logo abaixo do header ao voltar de
           ≥5min em background. Tocar dispara o mesmo refresh do logo/home. */}
