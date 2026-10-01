@@ -16,6 +16,6 @@
 
 "NSLocationWhenInUseUsageDescription" = "LinKa uses your location only when you choose to tag the place of a post. For example: tapping the location pin while writing a caption to show that you trained at a specific gym. The location is read at that moment only and is never collected in the background.";
 
-"NSLocationAlwaysAndWhenInUseUsageDescription" = "LinKa uses your location in the background only while an outdoor run is being recorded, so the run keeps tracking with the screen locked. For example: starting an outdoor run, putting the phone in your pocket, and still getting your route, distance and pace at the end. Tracking stops the moment you finish the run.";
+"NSLocationAlwaysAndWhenInUseUsageDescription" = "LinKa uses your location in the background only while an outdoor run or walk is being recorded, so it keeps tracking with the screen locked. For example: starting an outdoor walk, putting the phone in your pocket, and still getting your route, distance and pace at the end. Tracking stops the moment you finish the activity.";
 
 "NSFaceIDUsageDescription" = "LinKa uses Face ID so you can sign back into your account without typing your password. For example: reopening the app after a few days and unlocking it with a glance instead of your e-mail and password. Your biometric data stays on the device and is never sent to LinKa.";

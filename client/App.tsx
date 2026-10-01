@@ -445,8 +445,9 @@ function RequireAuth() {
   }
 
   // Entrou por Google/Apple e fechou o app antes de terminar o perfil (e o
-  // aceite dos Termos): vai para o Login, que encerra essa sessão incompleta e
-  // mostra a tela normal — tocar no provedor de novo retoma o cadastro.
+  // aceite dos Termos): vai para o Login, que APAGA essa conta incompleta
+  // (cadastro só existe se concluído) e mostra a tela normal — tocar no
+  // provedor de novo começa um cadastro do zero.
   if (needsSocialSignupCompletion(user)) {
     return <Navigate to="/login" replace />;
   }

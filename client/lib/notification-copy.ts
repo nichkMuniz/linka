@@ -27,7 +27,56 @@ export type NotificationRow = {
   flow_id?: number | string | null;
   duel_check_in_id?: string | null;
   incentive_type?: number | null;
+  meta?: unknown;
 };
+
+// ─── Type 22: conteúdo removido pela moderação ───────────────────────────────
+
+/** Mesmos motivos do `ReportDrawer` — o admin escolhe um ao remover. */
+export const MODERATION_REASONS = ["inappropriate", "spam", "harassment", "copyright", "other"] as const;
+export type ModerationReason = (typeof MODERATION_REASONS)[number];
+export type ModerationContentKind = "post" | "shot" | "flow";
+
+/** `notifications.meta` do type 22 (gravado por `admin_delete_content`). */
+export type ModerationNotice = {
+  kind: ModerationContentKind;
+  reason: ModerationReason;
+  /** Até 80 caracteres da legenda — o conteúdo já não existe para ser aberto. */
+  preview: string | null;
+};
+
+const MODERATION_KIND_KEY: Record<ModerationContentKind, TranslationKey> = {
+  post: "moderation_kind_post",
+  shot: "moderation_kind_shot",
+  flow: "moderation_kind_flow",
+};
+
+const MODERATION_REASON_KEY: Record<ModerationReason, TranslationKey> = {
+  inappropriate: "report_reason_inappropriate",
+  spam: "report_reason_spam",
+  harassment: "report_reason_harassment",
+  copyright: "report_reason_copyright",
+  other: "moderation_reason_other",
+};
+
+/** Lê o `meta` cru do banco com defaults seguros (linha antiga ou malformada). */
+export function parseModerationNotice(meta: unknown): ModerationNotice {
+  const m = (meta && typeof meta === "object" ? meta : {}) as Record<string, unknown>;
+  const kind = m.kind === "shot" || m.kind === "flow" ? m.kind : "post";
+  const reason = (MODERATION_REASONS as readonly string[]).includes(String(m.reason))
+    ? (m.reason as ModerationReason)
+    : "other";
+  const preview = typeof m.preview === "string" && m.preview.trim() ? m.preview.trim() : null;
+  return { kind, reason, preview };
+}
+
+export function moderationKindLabel(t: Translate, kind: ModerationContentKind): string {
+  return t(MODERATION_KIND_KEY[kind]);
+}
+
+export function moderationReasonLabel(t: Translate, reason: ModerationReason): string {
+  return t(MODERATION_REASON_KEY[reason]);
+}
 
 type Translate = (key: TranslationKey) => string;
 
@@ -53,6 +102,7 @@ const TITLE_KEY_BY_TYPE: Record<number, TranslationKey> = {
   19: "notif_title_19",
   20: "notif_title_20",
   21: "notif_title_21",
+  22: "notif_title_22",
 };
 
 const INCENTIVE_KEY_BY_TYPE: Record<number, TranslationKey> = {
@@ -203,6 +253,12 @@ export function notificationBody(
     // 21 = alguém repostou uma publicação do destinatário (post_id = o repost).
     case 21:
       return t("notif_desc_post_repost").replace("{name}", name);
+    // 22 = a moderação removeu um conteúdo do destinatário. Sem `name`: o aviso
+    // é do sistema, e o autor não fica sabendo qual admin removeu.
+    case 22: {
+      const notice = parseModerationNotice(row.meta);
+      return t("notif_desc_content_removed").replace("{kind}", moderationKindLabel(t, notice.kind));
+    }
     default:
       return t("notif_body_default");
   }

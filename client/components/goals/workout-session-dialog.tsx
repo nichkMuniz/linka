@@ -11,6 +11,7 @@ import {
   type RunState, type RunPoint, type RunSplit, type StartRunLabels,
 } from "@/lib/run-tracker";
 import { RouteMap } from "@/components/shared/route-map";
+import { outdoorGpsKind, gpsTextKey, type OutdoorGpsKind } from "@/lib/outdoor-gps";
 import { RunSplitsList } from "@/components/shared/run-splits";
 import { ExerciseImage } from "@/components/shared/exercise-image";
 import { ExerciseAnatomy } from "@/components/shared/exercise-anatomy";
@@ -35,6 +36,7 @@ import {
   parseElevationPct,
   sumCardioSets,
 } from "@/lib/cardio-exercises";
+import { isMachineMaxedLoad } from "@/lib/machine-maxed";
 import { estimateWorkoutCalories } from "@/lib/calorie-estimate";
 import {
   WorkoutReorderOverlay,
@@ -167,6 +169,8 @@ export type WorkoutSessionSummary = {
     path: RunPoint[][];
     /** tempo/ritmo de cada km percorrido (o último pode ser parcial) */
     splits: RunSplit[];
+    /** corrida ou caminhada ao ar livre — muda só os textos (2026-10-01) */
+    activity: OutdoorGpsKind;
   } | null;
 };
 
@@ -203,7 +207,6 @@ const SESSION_ITEM_ID_PREFIX = "session_";
 // ganha borda dourada e o exercício entra no machinedExercises do resumo (card
 // dourado + variante "machine"). É uma conquista confirmada pelo usuário, não
 // automática.
-const MACHINE_MAXED_KG = 120;
 
 // ── Tokens — design "liquid glass" (vidro escuro translúcido) ──────────────
 // Mesma linguagem visual dos drawers glass (ver client/lib/glass-styles.ts):
@@ -419,35 +422,28 @@ function computeWeightProgress(
   return { trend, latestKg, baselineKg: baseline, source };
 }
 
-// ── Corrida ao ar livre (GPS) ───────────────────────────────────────────────
-// Só o exercício "Corrida ao Ar Livre" do catálogo ganha o painel de GPS —
-// o workoutName chega localizado (pickLocalized), então casamos PT e EN.
-const OUTDOOR_RUN_NAMES = new Set(["corrida ao ar livre", "outdoor running"]);
-// `FEATURES.gpsRun` desligada faz este predicado devolver `false` para todo
-// mundo: as ~12 ramificações de `isRunExercise` abaixo caem no caminho de
-// exercício comum, o RunTrackerPanel nunca monta e o run-tracker jamais é
-// iniciado. É o único ponto que precisa mudar — e é o que permite tirar
-// `NSLocationAlwaysAndWhenInUseUsageDescription` do Info.plist, já que o app
-// deixa de ter qualquer caminho que peça localização em segundo plano.
-const isOutdoorRun = (name?: string | null) =>
-  FEATURES.gpsRun &&
-  !!name &&
-  OUTDOOR_RUN_NAMES.has(
-    name.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim(),
-  );
+// ── Corrida / caminhada ao ar livre (GPS) ─────────────────────────────────────
+// "Corrida ao Ar Livre" e "Caminhada ao Ar Livre" ganham o painel de GPS — a
+// detecção (nomes PT/EN + FEATURES.gpsRun) mora em `lib/outdoor-gps.ts`. Com a
+// flag desligada, as ~12 ramificações de `isRunExercise` abaixo caem no caminho
+// de exercício comum e o run-tracker jamais é iniciado.
 
 // Painel de corrida GPS — renderizado no card expandido do exercício
 // "Corrida ao Ar Livre". Estados: parado (CTA iniciar) → buscando sinal →
 // correndo/pausado (stats ao vivo). Ao concluir, o dono (dialog) preenche a
 // série com MIN×KM via onFinish.
 function RunTrackerPanel({
-  workoutId, state, onFinish,
+  workoutId, kind, state, onFinish,
 }: {
   workoutId: string;
+  /** corrida ou caminhada — só troca os textos que dizem "corrida" */
+  kind: OutdoorGpsKind;
   state: RunState;
   onFinish: () => void;
 }) {
-  const { t } = useLanguage();
+  const { t: tBase } = useLanguage();
+  // Textos com a palavra "corrida" viram "caminhada" na caminhada.
+  const t = (key: TranslationKey) => tBase(gpsTextKey(kind, key));
   const isThisRun = state.workoutId === workoutId && state.status !== "idle";
   const acquiring = isThisRun && state.status === "acquiring";
   const paused = isThisRun && state.status === "paused";
@@ -2122,7 +2118,8 @@ export function WorkoutSessionDialog({
   React.useEffect(() => () => { if (noticeTimer.current) clearTimeout(noticeTimer.current); }, []);
 
   // "Zerou a máquina?" — prompt interativo que aparece ao concluir uma série
-  // acima de MACHINE_MAXED_KG (120kg). Diferente do `notice` (só informativo),
+  // pesada o bastante para a região da máquina (`isMachineMaxedLoad`: mais de
+  // 120kg em membros inferiores, a partir de 80kg em superiores). Diferente do `notice` (só informativo),
   // este pede uma decisão: confirmar marca o exercício como máquina zerada
   // (borda dourada no card + entra no machinedExercises do resumo). Fica só um
   // exercício por vez; auto-some após um tempo maior. Se ele SUMIR SOZINHO
@@ -2425,7 +2422,7 @@ export function WorkoutSessionDialog({
   // valores medidos e marca como concluída — cardio usa kg=MIN e reps=KM, o
   // mesmo contrato da tabela de séries (oculta para este exercício), então o
   // save/histórico/resumo seguem inalterados. Depois abre o resumo com o mapa.
-  const handleRunFinish = async (workoutId: string) => {
+  const handleRunFinish = async (workoutId: string, activity: OutdoorGpsKind) => {
     const result = await stopRun();
     const min = Math.round((result.elapsedMs / 60000) * 10) / 10;
     const km = Math.round(result.distanceKm * 100) / 100;
@@ -2450,6 +2447,7 @@ export function WorkoutSessionDialog({
       paceSecPerKm: result.paceSecPerKm,
       path: result.path,
       splits: result.splits,
+      activity,
     };
     setRunSummary(summary);
     lastRunRef.current = summary;
@@ -2826,13 +2824,15 @@ export function WorkoutSessionDialog({
             .reduce((m, s) => Math.max(m, (s as any).prevKg || 0), 0);
           prevBestRef.current.set(workoutId, best);
         }
-        const name = allItems.find((i) => i.workout_id === workoutId)?.workoutName ?? "";
-        // "Zerou a máquina?" — série completa acima de 120kg convida a marcar o
-        // exercício como máquina zerada. Tem prioridade sobre o aviso de PR (é o
-        // flex maior) e não reaparece depois de o exercício já estar marcado.
-        // Depois de um "Ainda não", só volta se a carga passar da respondida.
+        const item = allItems.find((i) => i.workout_id === workoutId);
+        const name = item?.workoutName ?? "";
+        // "Zerou a máquina?" — série completa pesada o bastante para a região
+        // (inferiores > 120kg, superiores >= 80kg — ver machine-maxed.ts) convida
+        // a marcar o exercício como máquina zerada. Tem prioridade sobre o aviso
+        // de PR (é o flex maior) e não reaparece depois de o exercício já estar
+        // marcado. Depois de um "Ainda não", só volta se a carga passar da respondida.
         if (
-          kg > MACHINE_MAXED_KG &&
+          isMachineMaxedLoad(kg, item?.muscle_group) &&
           !maxedExerciseIds.includes(workoutId) &&
           kg > (machineDeclinedKg[workoutId] ?? 0)
         ) {
@@ -4243,7 +4243,8 @@ export function WorkoutSessionDialog({
           const isCardio = isCardioExercise(item.muscle_group, item.workout_id);
           // Corrida ao Ar Livre: modo GPS estilo Strava — a tabela de séries
           // (MIN×KM manual) fica oculta; quem registra é o painel de corrida.
-          const isRunExercise = isOutdoorRun(item.workoutName);
+          const gpsKind = outdoorGpsKind(item.workoutName);
+          const isRunExercise = gpsKind !== null;
           // Esteira: a tabela ganha uma TERCEIRA coluna de dado — ELEV (%) —,
           // logo à direita do KM. `isCardio` junto porque a coluna só faz
           // sentido no contrato MIN × KM: um exercício fora do grupo "Cardio"
@@ -4521,7 +4522,7 @@ export function WorkoutSessionDialog({
               >
                 <span style={{ fontWeight: 700, fontSize: 13, color: isExpanded ? PRIMARY : FG }}>
                   {isRunExercise
-                    ? (isExpanded ? t("goals_run_close") : t("goals_run_view"))
+                    ? (isExpanded ? t(gpsTextKey(gpsKind, "goals_run_close")) : t(gpsTextKey(gpsKind, "goals_run_view")))
                     : (isExpanded ? t("goals_close_series") : t("goals_view_series"))}
                 </span>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -4850,8 +4851,9 @@ export function WorkoutSessionDialog({
                   {isRunExercise && (
                     <RunTrackerPanel
                       workoutId={item.workout_id}
+                      kind={gpsKind!}
                       state={runState}
-                      onFinish={() => { void handleRunFinish(item.workout_id); }}
+                      onFinish={() => { void handleRunFinish(item.workout_id, gpsKind!); }}
                     />
                   )}
 
@@ -6111,9 +6113,11 @@ export function WorkoutSessionDialog({
             }}>
               {/* Título */}
               <div style={{ textAlign: "center", marginBottom: 18 }}>
-                <div style={{ fontSize: 40, lineHeight: 1, marginBottom: 10 }}>🏃</div>
+                <div style={{ fontSize: 40, lineHeight: 1, marginBottom: 10 }}>
+                  {runSummary.activity === "walk" ? "🚶" : "🏃"}
+                </div>
                 <div style={{ fontSize: 21, fontWeight: 800, color: FG }}>
-                  {t("goals_run_done_title")}
+                  {t(gpsTextKey(runSummary.activity, "goals_run_done_title"))}
                 </div>
                 <div style={{ fontSize: 13, color: MUTED_FG, marginTop: 6, lineHeight: 1.45 }}>
                   {t("goals_run_done_desc")

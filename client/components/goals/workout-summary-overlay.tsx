@@ -1,5 +1,5 @@
 import * as React from "react";
-import { ChevronLeft, ChevronRight, CirclePlus, RotateCcw, UserRoundPlus, X } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, CirclePlus, LayoutGrid, RotateCcw, UserRoundPlus, X } from "lucide-react";
 import { HighlightTextarea, SHADCN_TEXTAREA_CLASS } from "@/components/shared/highlight-textarea";
 import { useLanguage } from "@/lib/language-context";
 import { toast } from "@/components/ui/use-toast";
@@ -21,7 +21,8 @@ import {
   applyTransformToBlob,
 } from "@/components/shared/inline-crop-preview";
 import { renderRouteMapImage } from "@/components/shared/route-map";
-import { RunSplitsList } from "@/components/shared/run-splits";
+import { RunSplitsList, renderRunSplitsImage } from "@/components/shared/run-splits";
+import { gpsTextKey, type OutdoorGpsKind } from "@/lib/outdoor-gps";
 import { useKeyboardInputScroll } from "@/hooks/use-keyboard-input-scroll";
 import { addNetworkStatusListener, getNetworkStatus } from "@/lib/network-status";
 import { reportHandledError } from "@/lib/monitoring";
@@ -164,6 +165,8 @@ export type WorkoutSummaryData = {
      * desta feature e o fluxo de duelo não têm este campo.
      */
     splits?: RunSplit[];
+    /** corrida ou caminhada ao ar livre (ausente = corrida, registros antigos) */
+    activity?: OutdoorGpsKind;
   } | null;
 };
 
@@ -299,7 +302,7 @@ function generateDefaultDescription(
   const exLine = exNames ? `\n\n${exNames}${exMore}` : "";
   // Corrida GPS da sessão → linha própria com km/tempo/ritmo (estilo Strava)
   const runLine = data.run && data.run.distanceKm > 0
-    ? `\n\n🏃 ${data.run.distanceKm.toFixed(2)} km • ${formatRunTime(data.run.elapsedMs)}${data.run.paceSecPerKm ? ` • ${formatRunPace(data.run.paceSecPerKm)}/km` : ""}`
+    ? `\n\n${data.run.activity === "walk" ? "🚶" : "🏃"} ${data.run.distanceKm.toFixed(2)} km • ${formatRunTime(data.run.elapsedMs)}${data.run.paceSecPerKm ? ` • ${formatRunPace(data.run.paceSecPerKm)}/km` : ""}`
     : "";
   // Cardio da sessão (esteira, bike, remo...) — uma linha por modalidade, com
   // distância/tempo/ritmo. A corrida GPS é pulada quando já tem a linha própria
@@ -1225,7 +1228,7 @@ interface WorkoutSummaryOverlayProps {
    * e quem renderiza leva ao criador de flow (no Feed) já na etapa de legenda.
    * Sem este callback o botão não aparece.
    */
-  onShareToFlow?: (seed: FlowCreationSeed) => void;
+  onShareToFlow?: (seed: FlowCreationSeed, opts?: { alsoPostedToFeed: boolean }) => void;
   /**
    * O convidado salvou a rotina do amigo (ver `partySaveOffer`). A tela de
    * Metas recarrega a lista para o card novo aparecer sem refresh manual.
@@ -1329,6 +1332,9 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed, onShareTo
   const [canvasPreviewUrl, setCanvasPreviewUrl] = React.useState<string | null>(null);
   const [isSharing, setIsSharing] = React.useState(false);
   const [shareTarget, setShareTarget] = React.useState<"feed" | "duel" | "flow" | null>(null);
+  // Destinos marcados — Feed E Flow podem ir juntos (antes cada botão saía do
+  // resumo, então só dava para um OU outro). Feed vem marcado: é o padrão.
+  const [shareDest, setShareDest] = React.useState<{ feed: boolean; flow: boolean }>({ feed: true, flow: false });
   // Compartilhar exige internet (upload de imagem + insert do post/check-in).
   // Offline, os botões ficam desabilitados com um aviso — o treino em si já
   // foi salvo na fila offline e sincroniza sozinho.
@@ -1379,14 +1385,20 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed, onShareTo
   // compartilhável entre as fotos do usuário e o card gerado.
   const [mapPreviewUrl, setMapPreviewUrl] = React.useState<string | null>(null);
   const mapBlobRef = React.useRef<Blob | null>(null);
+  // Parciais por km (pace de cada km) em imagem — slide logo depois do mapa.
+  const [splitsPreviewUrl, setSplitsPreviewUrl] = React.useState<string | null>(null);
+  const splitsBlobRef = React.useRef<Blob | null>(null);
 
   const variant = getCanvasVariant(data);
   const hasPRs = data.prExercises.length > 0;
   const hasMachined = data.machinedExercises.length > 0;
-  // Ordem dos slides: fotos do usuário → mapa da corrida (se houver) → canvas
+  // Ordem dos slides: fotos do usuário → mapa (se houver) → parciais por km
+  // (se houver) → canvas
   const hasMapSlide = mapPreviewUrl !== null;
   const mapSlideIndex = hasMapSlide ? userPhotoPreviews.length : -1;
-  const totalSlides = userPhotoPreviews.length + (hasMapSlide ? 1 : 0) + 1;
+  const hasSplitsSlide = splitsPreviewUrl !== null;
+  const splitsSlideIndex = hasSplitsSlide ? userPhotoPreviews.length + (hasMapSlide ? 1 : 0) : -1;
+  const totalSlides = userPhotoPreviews.length + (hasMapSlide ? 1 : 0) + (hasSplitsSlide ? 1 : 0) + 1;
 
   // Tokens "liquid glass" — tons brancos translúcidos sobre o shell escuro
   const CARD    = "rgba(255,255,255,0.06)";   // painel de vidro
@@ -1457,6 +1469,51 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed, onShareTo
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data.run]);
+
+  // Parciais por km em imagem (uma linha por km com o pace). Só com pelo menos
+  // um km FECHADO — uma linha parcial sozinha não diz nada sobre o ritmo.
+  // Redesenha ao trocar o template (a cor de destaque acompanha) ou o idioma.
+  React.useEffect(() => {
+    const run = data.run;
+    const splits = run?.splits ?? [];
+    if (!run || !splits.some((sp) => !sp.partial)) {
+      splitsBlobRef.current = null;
+      setSplitsPreviewUrl(null);
+      return;
+    }
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    renderRunSplitsImage(splits, {
+      title: t(gpsTextKey(run.activity, "goals_run_section_title")),
+      subtitle: t("goals_run_splits_title"),
+      emoji: run.activity === "walk" ? "🚶" : "🏃",
+      accent: accentHex,
+      decimalSeparator: language === "en" ? "." : ",",
+      totals: {
+        distanceKm: run.distanceKm,
+        timeText: formatRunTime(run.elapsedMs),
+        paceText: formatRunPace(run.paceSecPerKm),
+      },
+      labels: {
+        km: t("goals_run_splits_km"),
+        time: t("goals_run_time"),
+        pace: t("goals_run_pace"),
+        distance: t("goals_run_distance"),
+        partial: t("goals_run_splits_partial"),
+        fastest: t("goals_run_splits_fastest"),
+      },
+    }).then((blob) => {
+      if (cancelled || !blob) return;
+      splitsBlobRef.current = blob;
+      objectUrl = URL.createObjectURL(blob);
+      setSplitsPreviewUrl(objectUrl);
+    }).catch(() => { /* sem slide de parciais — resumo segue normal */ });
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data.run, accentHex, language]);
 
   // Cleanup photo preview URLs on unmount (revokes are also done inline on
   // add/remove; ref keeps the latest list available to the unmount cleanup).
@@ -1556,73 +1613,111 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed, onShareTo
     return blobs;
   };
 
-  const handleShareFeed = async () => {
-    setIsSharing(true);
-    setShareTarget("feed");
-    try {
-      const urls: string[] = [];
-      // User photos first (if any), já com o zoom/pan escolhido aplicado
-      const croppedPhotos = await getCroppedUserPhotoBlobs();
-      for (const photoBlob of croppedPhotos) {
-        urls.push(await uploadWorkoutImageDb(data.userId, photoBlob));
-      }
-      // Mapa do trajeto (corrida GPS) — mesmo slide/ordem exibidos no carrossel
-      if (mapBlobRef.current) {
-        urls.push(await uploadWorkoutImageDb(data.userId, mapBlobRef.current));
-      }
-      // Canvas always included (last) — its URL vira a miniatura do modal de detalhe
-      const blob = await getCanvasBlob();
-      const canvasUrl = await uploadWorkoutImageDb(data.userId, blob);
-      urls.push(canvasUrl);
-
-      await createPostDb(
-        urls,
-        description.trim() || t("goals_summary_share_default_desc"),
-        data.userGoalId ?? null,
-        buildPostWorkoutSummary(data, canvasUrl, croppedPhotos.length),
-        taggedUsers.map((u) => u.id),
-      );
-      toast({ title: t("goals_summary_shared_feed"), description: t("goals_summary_shared_feed_desc") });
-      // Leva o usuário ao feed para ver a publicação recém-criada (fallback: só fecha).
-      if (onSharedToFeed) onSharedToFeed();
-      else onClose();
-    } catch (err: any) {
-      toast({ title: t("goals_summary_share_error"), description: err?.message, variant: "destructive" });
-    } finally {
-      setIsSharing(false);
-      setShareTarget(null);
+  /** Publica o post do treino no feed. Lança em falha (quem chama avisa). */
+  const postSummaryToFeed = async () => {
+    const urls: string[] = [];
+    // User photos first (if any), já com o zoom/pan escolhido aplicado
+    const croppedPhotos = await getCroppedUserPhotoBlobs();
+    for (const photoBlob of croppedPhotos) {
+      urls.push(await uploadWorkoutImageDb(data.userId, photoBlob));
     }
+    // Mapa do trajeto (corrida GPS) — mesmo slide/ordem exibidos no carrossel
+    if (mapBlobRef.current) {
+      urls.push(await uploadWorkoutImageDb(data.userId, mapBlobRef.current));
+    }
+    // Parciais por km — logo depois do mapa, mesma ordem do carrossel
+    if (splitsBlobRef.current) {
+      urls.push(await uploadWorkoutImageDb(data.userId, splitsBlobRef.current));
+    }
+    // Canvas always included (last) — its URL vira a miniatura do modal de detalhe
+    const blob = await getCanvasBlob();
+    const canvasUrl = await uploadWorkoutImageDb(data.userId, blob);
+    urls.push(canvasUrl);
+
+    await createPostDb(
+      urls,
+      description.trim() || t("goals_summary_share_default_desc"),
+      data.userGoalId ?? null,
+      buildPostWorkoutSummary(data, canvasUrl, croppedPhotos.length),
+      taggedUsers.map((u) => u.id),
+    );
   };
 
   // Leva o slide que está na tela para o criador de flow: o card gerado (que
   // já traz o treino inteiro) ou a foto/mapa da pessoa — nesse caso com o mini
   // frame do treino colado por cima, para o flow não virar só uma foto.
-  const handleShareFlow = async () => {
-    if (!onShareToFlow) return;
+  const buildSummaryFlowSeed = async (): Promise<FlowCreationSeed> => {
+    let blob: Blob;
+    let withSticker = true;
+    if (currentSlide < userPhotoPreviews.length) {
+      const containerWidth = cropContainerWidthRef.current;
+      blob = await applyTransformToBlob(
+        userPhotoPreviews[currentSlide],
+        cropTransforms[currentSlide] || DEFAULT_TRANSFORM,
+        containerWidth,
+      );
+    } else if (hasMapSlide && currentSlide === mapSlideIndex && mapBlobRef.current) {
+      blob = mapBlobRef.current;
+    } else if (hasSplitsSlide && currentSlide === splitsSlideIndex && splitsBlobRef.current) {
+      // A imagem das parciais já traz distância/tempo/ritmo — sem mini frame por cima.
+      blob = splitsBlobRef.current;
+      withSticker = false;
+    } else {
+      blob = await getCanvasBlob();
+      withSticker = false;
+    }
+    return {
+      mediaUrl: URL.createObjectURL(blob),
+      workoutSticker: withSticker ? buildFlowWorkoutSticker(data) : null,
+    };
+  };
+
+  /**
+   * Botão principal: publica nos destinos marcados. Com os dois, o post vai
+   * PRIMEIRO (precisa de internet e é o que pode falhar) e depois o criador de
+   * flow abre no Feed com o mesmo treino — o flow é publicado de lá, onde a
+   * pessoa ainda pode escrever/marcar. Os dois caminhos saem do resumo para o Feed.
+   */
+  const handleShare = async () => {
+    const wantsFeed = shareDest.feed || !onShareToFlow;
+    const wantsFlow = shareDest.flow && !!onShareToFlow;
+    if (!wantsFeed && !wantsFlow) return;
     setIsSharing(true);
+
+    if (wantsFeed) {
+      setShareTarget("feed");
+      try {
+        await postSummaryToFeed();
+        toast({ title: t("goals_summary_shared_feed"), description: t("goals_summary_shared_feed_desc") });
+      } catch (err: any) {
+        reportHandledError(err, "workout-summary:share-feed");
+        toast({ title: t("goals_summary_share_error"), description: err?.message, variant: "destructive" });
+        setIsSharing(false);
+        setShareTarget(null);
+        return;
+      }
+      if (!wantsFlow) {
+        // Leva o usuário ao feed para ver a publicação recém-criada (fallback: só fecha).
+        if (onSharedToFeed) onSharedToFeed();
+        else onClose();
+        return;
+      }
+    }
+
     setShareTarget("flow");
     try {
-      let blob: Blob;
-      let withSticker = true;
-      if (currentSlide < userPhotoPreviews.length) {
-        const containerWidth = cropContainerWidthRef.current;
-        blob = await applyTransformToBlob(
-          userPhotoPreviews[currentSlide],
-          cropTransforms[currentSlide] || DEFAULT_TRANSFORM,
-          containerWidth,
-        );
-      } else if (hasMapSlide && currentSlide === mapSlideIndex && mapBlobRef.current) {
-        blob = mapBlobRef.current;
-      } else {
-        blob = await getCanvasBlob();
-        withSticker = false;
-      }
-      onShareToFlow({
-        mediaUrl: URL.createObjectURL(blob),
-        workoutSticker: withSticker ? buildFlowWorkoutSticker(data) : null,
-      });
+      const seed = await buildSummaryFlowSeed();
+      onShareToFlow!(seed, { alsoPostedToFeed: wantsFeed });
     } catch (err: any) {
       reportHandledError(err, "workout-summary:share-flow");
+      if (wantsFeed) {
+        // O post JÁ saiu: não deixar a pessoa no resumo achando que nada foi
+        // publicado (e postando de novo). Avisa só do flow e segue para o feed.
+        toast({ title: t("goals_summary_flow_failed_after_feed"), description: err?.message, variant: "destructive" });
+        if (onSharedToFeed) onSharedToFeed();
+        else onClose();
+        return;
+      }
       toast({ title: t("goals_summary_share_error"), description: err?.message, variant: "destructive" });
       setIsSharing(false);
       setShareTarget(null);
@@ -1644,6 +1739,9 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed, onShareTo
       // Mapa do trajeto (corrida GPS) entra junto das fotos extras do check-in
       if (mapBlobRef.current) {
         extraPhotos.push(await uploadWorkoutImageDb(data.userId, mapBlobRef.current));
+      }
+      if (splitsBlobRef.current) {
+        extraPhotos.push(await uploadWorkoutImageDb(data.userId, splitsBlobRef.current));
       }
 
       const exercises = data.completedExercises.map((ex) => ({
@@ -1693,6 +1791,9 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed, onShareTo
       // Mapa do trajeto (corrida GPS) entra junto das fotos extras do check-in
       if (mapBlobRef.current) {
         extraPhotos.push(await uploadWorkoutImageDb(data.userId, mapBlobRef.current));
+      }
+      if (splitsBlobRef.current) {
+        extraPhotos.push(await uploadWorkoutImageDb(data.userId, splitsBlobRef.current));
       }
 
       const exercises = data.completedExercises.map((ex) => ({
@@ -1881,6 +1982,13 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed, onShareTo
             <img
               src={mapPreviewUrl!}
               alt={t("goals_run_map_title")}
+              style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+            />
+          ) : hasSplitsSlide && currentSlide === splitsSlideIndex ? (
+            /* Pace de cada km — imagem já renderizada, compartilhada como slide do post */
+            <img
+              src={splitsPreviewUrl!}
+              alt={t("goals_run_splits_title")}
               style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
             />
           ) : canvasPreviewUrl ? (
@@ -2216,7 +2324,7 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed, onShareTo
             fontSize: 12, fontWeight: 700, color: MUTED,
             textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10,
           }}>
-            🏃 {t("goals_run_section_title")}
+            {data.run.activity === "walk" ? "🚶" : "🏃"} {t(gpsTextKey(data.run.activity, "goals_run_section_title"))}
           </div>
 
           {/* Distância / tempo / ritmo médio da corrida */}
@@ -2610,59 +2718,93 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed, onShareTo
           </div>
         )}
 
-        {/* Share to Feed */}
-        <button
-          onClick={handleShareFeed}
-          disabled={isSharing || isOffline}
-          style={{
-            height: 52, borderRadius: 16, border: "none",
-            background: isSharing && shareTarget === "feed" ? `${accentHex}99` : accentHex,
-            color: accentFg,
-            fontSize: 15, fontWeight: 700,
-            cursor: isSharing || isOffline ? "not-allowed" : "pointer",
-            display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-            opacity: isOffline ? 0.4 : isSharing && shareTarget !== "feed" ? 0.45 : 1,
-            transition: "opacity 0.2s",
-          }}
-        >
-          {isSharing && shareTarget === "feed" ? (
-            <SpinnerIcon color={accentFg} />
-          ) : (
-            <ShareIcon color={accentFg} />
-          )}
-          {isSharing && shareTarget === "feed"
-            ? t("goals_summary_sharing_feed")
-            : t("goals_summary_share_feed")}
-        </button>
-
-        {/* Share to Flow — não precisa de internet aqui: só abre o criador;
-            o envio acontece lá, que já trata falha de rede. */}
+        {/* Destinos: Feed e/ou Flow (marcação múltipla). Sem flow disponível,
+            sobra só o feed e a escolha não aparece. */}
         {onShareToFlow && (
-          <button
-            onClick={handleShareFlow}
-            disabled={isSharing}
-            style={{
-              height: 52, borderRadius: 16,
-              background: CARD, border: `1px solid ${BORDER}`,
-              backdropFilter: GLASS_BLUR, WebkitBackdropFilter: GLASS_BLUR,
-              boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08)",
-              color: FG, fontSize: 15, fontWeight: 700,
-              cursor: isSharing ? "not-allowed" : "pointer",
-              display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-              opacity: isSharing && shareTarget !== "flow" ? 0.45 : 1,
-              transition: "opacity 0.2s",
-            }}
-          >
-            {isSharing && shareTarget === "flow" ? (
-              <SpinnerIcon color={FG} />
-            ) : (
-              <CirclePlus width={16} height={16} strokeWidth={2} style={{ flexShrink: 0 }} />
-            )}
-            {isSharing && shareTarget === "flow"
-              ? t("goals_summary_preparing_flow")
-              : t("goals_summary_share_flow")}
-          </button>
+          <div role="group" aria-label={t("goals_summary_share_dest_label")} style={{ display: "flex", gap: 10 }}>
+            {([
+              { key: "feed" as const, label: t("goals_summary_dest_feed"), hint: t("goals_summary_dest_feed_hint"), Icon: LayoutGrid },
+              { key: "flow" as const, label: t("goals_summary_dest_flow"), hint: t("goals_summary_dest_flow_hint"), Icon: CirclePlus },
+            ]).map(({ key, label, hint, Icon }) => {
+              const on = shareDest[key];
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  role="checkbox"
+                  aria-checked={on}
+                  disabled={isSharing}
+                  onClick={() => setShareDest((prev) => ({ ...prev, [key]: !prev[key] }))}
+                  style={{
+                    flex: 1, minHeight: 64, borderRadius: 16, padding: "10px 12px",
+                    display: "flex", alignItems: "center", gap: 10, textAlign: "left",
+                    background: on ? `${accentHex}1F` : CARD,
+                    border: `1.5px solid ${on ? `${accentHex}99` : BORDER}`,
+                    backdropFilter: GLASS_BLUR, WebkitBackdropFilter: GLASS_BLUR,
+                    color: FG, cursor: isSharing ? "not-allowed" : "pointer",
+                    transition: "background 0.15s, border-color 0.15s",
+                  }}
+                >
+                  <Icon width={18} height={18} strokeWidth={2} style={{ flexShrink: 0, color: on ? accentHex : MUTED }} />
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ display: "block", fontSize: 14, fontWeight: 700 }}>{label}</span>
+                    <span style={{ display: "block", fontSize: 11, color: MUTED }}>{hint}</span>
+                  </span>
+                  <span
+                    aria-hidden
+                    style={{
+                      width: 22, height: 22, borderRadius: 7, flexShrink: 0,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      background: on ? accentHex : "transparent",
+                      border: on ? "none" : `1.5px solid ${BORDER}`,
+                    }}
+                  >
+                    {on && <Check width={14} height={14} strokeWidth={3} color={accentFg} />}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         )}
+
+        {/* Compartilhar — o rótulo acompanha os destinos marcados. Feed precisa
+            de internet; flow sozinho não (só abre o criador, que trata a rede). */}
+        {(() => {
+          const wantsFeed = shareDest.feed || !onShareToFlow;
+          const wantsFlow = shareDest.flow && !!onShareToFlow;
+          const nothing = !wantsFeed && !wantsFlow;
+          const blockedOffline = wantsFeed && isOffline;
+          const busy = isSharing && shareTarget !== "duel";
+          const disabled = isSharing || nothing || blockedOffline;
+          const label = busy
+            ? shareTarget === "flow" ? t("goals_summary_preparing_flow") : t("goals_summary_sharing_feed")
+            : nothing
+              ? t("goals_summary_share_pick_dest")
+              : wantsFeed && wantsFlow
+                ? t("goals_summary_share_both")
+                : wantsFlow
+                  ? t("goals_summary_share_flow")
+                  : t("goals_summary_share_feed");
+          return (
+            <button
+              onClick={() => void handleShare()}
+              disabled={disabled}
+              style={{
+                height: 52, borderRadius: 16, border: "none",
+                background: busy ? `${accentHex}99` : accentHex,
+                color: accentFg,
+                fontSize: 15, fontWeight: 700,
+                cursor: disabled ? "not-allowed" : "pointer",
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                opacity: blockedOffline || nothing ? 0.4 : isSharing && !busy ? 0.45 : 1,
+                transition: "opacity 0.2s",
+              }}
+            >
+              {busy ? <SpinnerIcon color={accentFg} /> : <ShareIcon color={accentFg} />}
+              {label}
+            </button>
+          );
+        })()}
 
         {/* Share to Duel — porta de entrada escondida no v1 (FEATURES.duels).
             userGroups chega vazio com a flag off, mas o guard explícito evita

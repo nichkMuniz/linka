@@ -175,3 +175,257 @@ export function RunSplitsList({ splits, accent, maxRows = 0 }: RunSplitsListProp
 function formatSplitKm(km: number): string {
   return km.toFixed(2).replace(/0+$/, "").replace(/[.,]$/, "").replace(".", ",");
 }
+
+// ── Imagem compartilhável das parciais (slide do resumo do treino) ───────────
+// Mesmo formato do slide do mapa (1080×1080 JPEG): uma linha por km com o
+// ritmo daquele km, a barra de velocidade e o tempo. Vai no carrossel do
+// resumo e nos uploads de feed/duelo/flow, como o mapa.
+
+export interface RunSplitsImageOptions {
+  /** "Corrida ao ar livre" / "Caminhada ao ar livre" */
+  title: string;
+  /** "Parciais por km" */
+  subtitle: string;
+  /** emoji da atividade (🏃 / 🚶) */
+  emoji: string;
+  /** cor de destaque em hex (#rrggbb) — barra e km mais rápido */
+  accent: string;
+  totals: { distanceKm: number; timeText: string; paceText: string };
+  /** "," em PT, "." em EN — distâncias desenhadas na imagem */
+  decimalSeparator?: string;
+  labels: {
+    km: string;
+    time: string;
+    pace: string;
+    distance: string;
+    partial: string;
+    fastest: string;
+  };
+}
+
+/** Até aqui, uma coluna; acima, duas (ver renderRunSplitsImage). */
+const ONE_COLUMN_MAX_ROWS = 12;
+/** Acima disso as linhas ficariam ilegíveis — o resto vira uma linha "+N". */
+const MAX_IMAGE_ROWS = 24;
+
+export async function renderRunSplitsImage(
+  splits: RunSplit[],
+  opts: RunSplitsImageOptions,
+  size = 1080,
+): Promise<Blob | null> {
+  if (splits.length === 0) return null;
+  try { await document.fonts.ready; } catch { /* segue com a fonte do sistema */ }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+
+  const font = "'Inter', system-ui, sans-serif";
+  const sep = opts.decimalSeparator ?? ",";
+  const P = Math.round(size * 0.07);
+  const accent = opts.accent;
+
+  // Fundo escuro com brilho do acento no canto (linguagem dos cards do app)
+  const bg = ctx.createLinearGradient(0, 0, size, size);
+  bg.addColorStop(0, "#17142a");
+  bg.addColorStop(1, "#0a0910");
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, size, size);
+  const glow = ctx.createRadialGradient(size * 0.85, size * 0.05, 0, size * 0.85, size * 0.05, size * 0.7);
+  glow.addColorStop(0, `${accent}40`);
+  glow.addColorStop(1, `${accent}00`);
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, size, size);
+
+  // Cabeçalho
+  let y = P + size * 0.03;
+  ctx.textAlign = "left";
+  ctx.fillStyle = accent;
+  ctx.font = `800 ${Math.round(size * 0.024)}px ${font}`;
+  ctx.fillText(opts.subtitle.toUpperCase(), P, y);
+  y += size * 0.065;
+  ctx.fillStyle = "#fff";
+  ctx.font = `800 ${Math.round(size * 0.054)}px ${font}`;
+  ctx.fillText(`${opts.emoji} ${opts.title}`, P, y);
+
+  // Totais
+  y += size * 0.075;
+  const totals = [
+    { label: opts.labels.distance, value: `${opts.totals.distanceKm.toFixed(2).replace(".", sep)} km` },
+    { label: opts.labels.time, value: opts.totals.timeText },
+    { label: opts.labels.pace, value: `${opts.totals.paceText} /km` },
+  ];
+  const colW = (size - P * 2) / 3;
+  totals.forEach((c, i) => {
+    const x = P + colW * i;
+    ctx.fillStyle = "rgba(255,255,255,0.55)";
+    ctx.font = `700 ${Math.round(size * 0.019)}px ${font}`;
+    ctx.fillText(c.label.toUpperCase(), x, y);
+    ctx.fillStyle = "#fff";
+    ctx.font = `800 ${Math.round(size * 0.04)}px ${font}`;
+    ctx.fillText(c.value, x, y + size * 0.05);
+  });
+  y += size * 0.085;
+
+  // Divisor + cabeçalho das colunas
+  ctx.fillStyle = "rgba(255,255,255,0.12)";
+  ctx.fillRect(P, y, size - P * 2, 2);
+  y += size * 0.04;
+
+  // Até 12 km: uma coluna com km · barra · tempo · ritmo. Acima disso, DUAS
+  // colunas (km · barra · ritmo) — numa coluna só, uma meia maratona teria
+  // linhas de ~12px no canvas, ilegíveis no post exibido no celular.
+  const twoCols = splits.length > ONE_COLUMN_MAX_ROWS;
+  const overflow = splits.length > MAX_IMAGE_ROWS;
+  const rows = overflow ? splits.slice(0, MAX_IMAGE_ROWS - 1) : splits;
+  const rowCount = rows.length + (overflow ? 1 : 0);
+  const cols = twoCols ? 2 : 1;
+  const rowsPerCol = Math.ceil(rowCount / cols);
+  const colGap = size * 0.05;
+  const colWidth = (size - P * 2 - colGap * (cols - 1)) / cols;
+
+  const footerH = size * 0.06;
+  const tableBottom = size - P - footerH;
+  const headerY = y;
+  const rowsTop = headerY + size * 0.018;
+  // Poucos km: linhas mais altas (ocupam o quadro); muitos: encolhem até caber.
+  const rowH = Math.min(size * 0.09, (tableBottom - rowsTop) / rowsPerCol);
+  const valueFont = Math.round(Math.min(size * 0.04, rowH * 0.5));
+  const tagFont = Math.round(valueFont * 0.6);
+
+  // Espaço da etiqueta "⚡ mais rápido"/"parcial" ao lado da barra: sai da
+  // largura da barra, senão a barra cheia do km mais rápido empurra a etiqueta
+  // para cima da coluna de tempo.
+  ctx.font = `700 ${tagFont}px ${font}`;
+  const tagSpace = twoCols
+    ? 0
+    : Math.max(
+        ctx.measureText(`⚡ ${opts.labels.fastest}`).width,
+        ctx.measureText(opts.labels.partial).width,
+      ) + size * 0.03;
+
+  /** Posições horizontais de uma coluna da tabela. */
+  const colLayout = (c: number) => {
+    const left = P + c * (colWidth + colGap);
+    const right = left + colWidth;
+    const paceRight = right;
+    const timeRight = twoCols ? null : paceRight - size * 0.19;
+    const barX = left + (twoCols ? size * 0.08 : size * 0.12);
+    const barEnd = twoCols ? paceRight - size * 0.15 : (timeRight as number) - size * 0.14;
+    return { left, paceRight, timeRight, barX, barMaxW: Math.max(10, barEnd - barX - tagSpace) };
+  };
+
+  // Cabeçalho das colunas (repetido em cada coluna)
+  ctx.fillStyle = "rgba(255,255,255,0.55)";
+  ctx.font = `700 ${Math.round(size * 0.018)}px ${font}`;
+  for (let c = 0; c < cols; c++) {
+    const L = colLayout(c);
+    ctx.textAlign = "left";
+    ctx.fillText(opts.labels.km.toUpperCase(), L.left, headerY);
+    ctx.textAlign = "right";
+    if (L.timeRight != null) ctx.fillText(opts.labels.time.toUpperCase(), L.timeRight, headerY);
+    ctx.fillText(opts.labels.pace.toUpperCase(), L.paceRight, headerY);
+  }
+
+  const paces = splits.map((s) => s.paceSecPerKm).filter((p) => p > 0);
+  const fastestPace = paces.length > 0 ? Math.min(...paces) : 0;
+  const fullSplits = splits.filter((s) => !s.partial);
+  const fastestFullIndex =
+    fullSplits.length > 1
+      ? fullSplits.reduce((best, s) => (s.paceSecPerKm < best.paceSecPerKm ? s : best)).index
+      : null;
+
+  rows.forEach((split, i) => {
+    const c = Math.floor(i / rowsPerCol);
+    const r = i % rowsPerCol;
+    const L = colLayout(c);
+    const cy = rowsTop + rowH * r + rowH / 2;
+    const isFastest = split.index === fastestFullIndex;
+
+    // Faixa alternada para guiar o olho na linha
+    if (r % 2 === 0) {
+      ctx.fillStyle = "rgba(255,255,255,0.035)";
+      ctx.fillRect(L.left - size * 0.012, cy - rowH / 2, colWidth + size * 0.024, rowH);
+    }
+
+    ctx.textBaseline = "middle";
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#fff";
+    ctx.font = `800 ${valueFont}px ${font}`;
+    ctx.fillText(split.partial ? formatSplitKm(split.distanceKm).replace(",", sep) : String(split.index), L.left, cy);
+
+    // Barra proporcional à VELOCIDADE do km (mais rápido = mais longa)
+    const ratio =
+      fastestPace > 0 && split.paceSecPerKm > 0
+        ? Math.max(MIN_BAR, Math.min(1, fastestPace / split.paceSecPerKm))
+        : MIN_BAR;
+    const barH = Math.max(6, rowH * 0.26);
+    const barW = L.barMaxW * ratio;
+    ctx.fillStyle = split.partial ? "rgba(255,255,255,0.25)" : isFastest ? accent : `${accent}80`;
+    roundRect(ctx, L.barX, cy - barH / 2, barW, barH, barH / 2);
+    ctx.fill();
+    // Etiqueta "⚡ mais rápido" / "parcial" — só cabe ao lado da barra numa coluna
+    if (!twoCols && (isFastest || split.partial)) {
+      ctx.fillStyle = split.partial ? "rgba(255,255,255,0.55)" : accent;
+      ctx.font = `700 ${tagFont}px ${font}`;
+      ctx.fillText(
+        split.partial ? opts.labels.partial : `⚡ ${opts.labels.fastest}`,
+        L.barX + barW + size * 0.012,
+        cy,
+      );
+    }
+
+    ctx.textAlign = "right";
+    if (L.timeRight != null) {
+      ctx.fillStyle = "rgba(255,255,255,0.75)";
+      ctx.font = `700 ${Math.round(valueFont * 0.85)}px ${font}`;
+      ctx.fillText(formatRunTime(split.durationMs), L.timeRight, cy);
+    }
+
+    ctx.fillStyle = isFastest ? accent : "#fff";
+    ctx.font = `800 ${valueFont}px ${font}`;
+    ctx.fillText(formatRunPace(split.paceSecPerKm), L.paceRight - valueFont * 1.45, cy);
+    ctx.fillStyle = "rgba(255,255,255,0.55)";
+    ctx.font = `600 ${Math.round(valueFont * 0.55)}px ${font}`;
+    ctx.fillText("/km", L.paceRight, cy);
+  });
+
+  if (overflow) {
+    const i = rows.length;
+    const L = colLayout(Math.floor(i / rowsPerCol));
+    const cy = rowsTop + rowH * (i % rowsPerCol) + rowH / 2;
+    ctx.textBaseline = "middle";
+    ctx.textAlign = "left";
+    ctx.fillStyle = "rgba(255,255,255,0.55)";
+    ctx.font = `700 ${Math.round(valueFont * 0.8)}px ${font}`;
+    ctx.fillText(`+${splits.length - rows.length} km`, L.left, cy);
+  }
+
+  // Marca
+  ctx.textBaseline = "alphabetic";
+  ctx.textAlign = "left";
+  ctx.fillStyle = "rgba(255,255,255,0.45)";
+  ctx.font = `800 ${Math.round(size * 0.026)}px ${font}`;
+  ctx.fillText("LinKa", P, size - P * 0.6);
+
+  return new Promise((resolve) => {
+    try {
+      canvas.toBlob((b) => resolve(b), "image/jpeg", 0.9);
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  const rr = Math.min(r, h / 2, w / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.arcTo(x + w, y, x + w, y + h, rr);
+  ctx.arcTo(x + w, y + h, x, y + h, rr);
+  ctx.arcTo(x, y + h, x, y, rr);
+  ctx.arcTo(x, y, x + w, y, rr);
+  ctx.closePath();
+}

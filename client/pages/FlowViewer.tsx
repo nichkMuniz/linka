@@ -37,6 +37,8 @@ import {
   deleteStoryCommentDb,
   updateStoryCommentDb,
   deleteStoryDb,
+  setFlowPinnedDb,
+  FLOW_PIN_LIMIT,
   recordFlowViewDb,
   getFlowViewersDb,
   getFlowTagsDb,
@@ -67,7 +69,10 @@ import {
   MoreVertical,
   Flag,
   Ban,
+  Pin,
 } from "lucide-react";
+import { reportHandledError } from "@/lib/monitoring";
+import { PinFlowDrawer } from "@/components/shared/pin-flow-drawer";
 import {
   renderIncentiveIcon,
   INCENTIVE_CONFIG,
@@ -196,6 +201,10 @@ export default function FlowViewer({ embedded }: { embedded?: FlowViewerEmbedded
   const [timerProgress, setTimerProgress] = React.useState(100);
   const [isTyping, setIsTyping] = React.useState(false);
   const [isDeletingStory, setIsDeletingStory] = React.useState(false);
+  // Fixar no perfil: o valor do banco vem em `story.pinned_at`; o override local
+  // reflete o toque na hora, sem esperar a lista ser recarregada.
+  const [pinOverride, setPinOverride] = React.useState<Record<string, { pinned: boolean; title: string | null }>>({});
+  const [pinDrawerOpen, setPinDrawerOpen] = React.useState(false);
   const [commentToDelete, setCommentToDelete] = React.useState<string | null>(null);
   // Confirmação de excluir o próprio flow (antes era o `confirm()` nativo do
   // WebKit — caixa cinza genérica, fora do visual do app).
@@ -542,7 +551,8 @@ export default function FlowViewer({ embedded }: { embedded?: FlowViewerEmbedded
   // que ela substituiu, um diálogo não congela o JS: sem a pausa o flow
   // avançava por baixo e a exclusão caía no flow SEGUINTE.
   const optionsHold =
-    optionsMenuOpen || reportDrawerOpen || blockDialogOpen || workoutDetail !== null || deleteStoryConfirmOpen;
+    optionsMenuOpen || reportDrawerOpen || blockDialogOpen || workoutDetail !== null || deleteStoryConfirmOpen ||
+    pinDrawerOpen; // digitando o nome do destaque, o flow não pode avançar por baixo
   const pausedByOptionsRef = React.useRef(false);
   React.useEffect(() => {
     if (optionsHold) {
@@ -1019,6 +1029,54 @@ export default function FlowViewer({ embedded }: { embedded?: FlowViewerEmbedded
     [editCommentDraft],
   );
 
+  const storyPin = story
+    ? (pinOverride[story.id] ?? { pinned: !!story.pinned_at, title: story.pinned_title ?? null })
+    : { pinned: false, title: null };
+  const isStoryPinned = storyPin.pinned;
+
+  /** Avisa o erro e relança — o PinFlowDrawer fica aberto para tentar de novo. */
+  const failPin = React.useCallback((err: any): never => {
+    if (err?.message === "PIN_LIMIT") {
+      toast({
+        title: t("flow_pin_limit_title").replace("{n}", String(FLOW_PIN_LIMIT)),
+        description: t("flow_pin_limit_desc"),
+        variant: "destructive",
+      });
+    } else {
+      reportHandledError(err, "flow:toggle-pin");
+      toast({ title: t("flow_pin_error"), description: t("retry"), variant: "destructive" });
+    }
+    throw err;
+  }, [t]);
+
+  // Fixar com nome — ou, já fixado, renomear.
+  const handleConfirmPin = React.useCallback(async (title: string | null) => {
+    if (!story) return;
+    const wasPinned = isStoryPinned;
+    try {
+      await setFlowPinnedDb(story.id, true, title);
+    } catch (err) {
+      failPin(err);
+    }
+    setPinOverride((prev) => ({ ...prev, [story.id]: { pinned: true, title } }));
+    toast(
+      wasPinned
+        ? { title: t("flow_pin_renamed_toast") }
+        : { title: t("flow_pinned_toast"), description: t("flow_pinned_toast_desc") },
+    );
+  }, [story, isStoryPinned, failPin, t]);
+
+  const handleUnpin = React.useCallback(async () => {
+    if (!story) return;
+    try {
+      await setFlowPinnedDb(story.id, false);
+    } catch (err) {
+      failPin(err);
+    }
+    setPinOverride((prev) => ({ ...prev, [story.id]: { pinned: false, title: null } }));
+    toast({ title: t("flow_unpinned_toast") });
+  }, [story, failPin, t]);
+
   const handleDeleteStory = React.useCallback(async () => {
     if (!story) return;
     setIsDeletingStory(true);
@@ -1264,6 +1322,22 @@ export default function FlowViewer({ embedded }: { embedded?: FlowViewerEmbedded
                 </AnimatePresence>
 
                 <div className="flex items-center gap-2">
+                  {/* Fixar no perfil: o flow segue expirando no feed, mas fica na
+                      faixa de fixados do perfil. Preenchido = fixado. */}
+                  {isOwner && (
+                    <motion.button
+                      onClick={() => setPinDrawerOpen(true)}
+                      aria-label={isStoryPinned ? t("flow_pin_drawer_edit_title") : t("flow_pin_action")}
+                      aria-pressed={isStoryPinned}
+                      whileTap={{ scale: 0.88 }}
+                      style={HEADER_GLASS_BTN_STYLE}
+                      className={`h-9 w-9 rounded-full flex items-center justify-center transition-colors ${
+                        isStoryPinned ? "text-amber-300" : "text-white/90 hover:text-white"
+                      }`}
+                    >
+                      <Pin className="h-[18px] w-[18px]" fill={isStoryPinned ? "currentColor" : "none"} />
+                    </motion.button>
+                  )}
                   {isOwner && (
                     <motion.button
                       onClick={() => setDeleteStoryConfirmOpen(true)}
@@ -2031,6 +2105,16 @@ export default function FlowViewer({ embedded }: { embedded?: FlowViewerEmbedded
           onClose={() => setWorkoutDetail(null)}
         />
       )}
+
+      {/* Fixar no perfil / renomear / desafixar (só o dono abre) */}
+      <PinFlowDrawer
+        open={pinDrawerOpen}
+        onOpenChange={setPinDrawerOpen}
+        pinned={isStoryPinned}
+        initialTitle={storyPin.title}
+        onConfirm={handleConfirmPin}
+        onUnpin={handleUnpin}
+      />
 
       {/* Report Drawer (denunciar usuário / denunciar flow) */}
       <ReportDrawer

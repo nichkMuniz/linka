@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/drawer";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/use-toast";
+import { reportHandledError } from "@/lib/monitoring";
 import {
   getRoutinesByGoalIdDb,
   getRoutineItemsForViewDb,
@@ -19,6 +20,8 @@ import {
   getFlowByIdDb,
   getUserProfileDb,
   createStoryDb,
+  setFlowPinnedDb,
+  FLOW_PIN_LIMIT,
   deleteOldStoriesDb,
   getMyViewedFlowUserIdsDb,
   createUserGoalDb,
@@ -732,6 +735,7 @@ export default function Index() {
       textElements?: StoryTextElement[] | null,
       mediaTransform?: { scale: number; x: number; y: number } | null,
       taggedUserIds?: string[],
+      pin?: { title: string | null } | null,
     ) => {
       setIsCreatingStory(true);
       try {
@@ -806,8 +810,28 @@ export default function Index() {
 
         const newStory = await createStoryDb(description, publicUrl, backgroundColor, textPosition, textElements, mediaTransform, taggedUserIds, null, { posterUrl, durationMs });
         if (newStory && user) {
+          // "Fixar no perfil" escolhido na criação. O flow JÁ foi publicado: uma
+          // falha aqui só avisa (dá para fixar pelo 📌 do viewer) — nunca vira
+          // "erro ao publicar", que faria a pessoa postar de novo.
+          let pinnedFields: Pick<StoryWithUser, "pinned_at" | "pinned_title"> = {};
+          if (pin) {
+            try {
+              await setFlowPinnedDb(String(newStory.id), true, pin.title);
+              pinnedFields = { pinned_at: new Date().toISOString(), pinned_title: pin.title };
+            } catch (err: any) {
+              if (err?.message !== "PIN_LIMIT") reportHandledError(err, "flow:pin-on-create");
+              toast({
+                title: err?.message === "PIN_LIMIT"
+                  ? t("flow_pin_limit_title").replace("{n}", String(FLOW_PIN_LIMIT))
+                  : t("flow_pin_post_failed_title"),
+                description: err?.message === "PIN_LIMIT" ? t("flow_pin_limit_desc") : t("flow_pin_post_failed_desc"),
+                variant: "destructive",
+              });
+            }
+          }
           const enrichedStory: StoryWithUser = {
             ...newStory,
+            ...pinnedFields,
             id: String(newStory.id),
             userNickname: currentUserNickname || user.email?.split("@")[0] || t("nav_you"),
             userPhoto: currentUserPhoto,

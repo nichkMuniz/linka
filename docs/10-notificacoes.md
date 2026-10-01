@@ -235,8 +235,16 @@ O corpo do push é montado em runtime por `buildBody()`, com os dados reais da n
 | 19 | "{nome} te chamou pra treinar agora." | `profiles` |
 | 20 | "{nome} mencionou você num comentário." | `profiles` |
 | 21 | "{nome} repostou sua publicação no feed." | `profiles` |
+| 22 | "Seu {post/shot/flow} foi removido por um administrador por violar as diretrizes da comunidade." | `notifications.meta` (sem remetente) |
 
 **Type 21 — repost (2026-09-28):** gerado pelo trigger `notify_post_repost` (migração `20260928-repost-notification.sql`) quando alguém marcado reposta uma publicação. Destinatário é o **autor do original**, `follower_id` é quem repostou e `post_id` é o **repost**: o toque (card, banner e push) abre `/post/{repost}`, e apagar o repost ou o original apaga a notificação junto. Não notifica se houver bloqueio. Na lista: ícone `Repeat2` violeta, miniatura da foto e agrupamento por usuário (`isUserBased`).
+
+**Type 22 — conteúdo removido pela moderação (2026-10-01):** gravado **pelo servidor** dentro de `admin_delete_content` (migração `20261001-moderation-removal-notice.sql`), na mesma transação do delete, só quando a linha saiu de fato e nunca quando o admin remove o próprio conteúdo. É um aviso **do sistema**: `follower_id` vai **NULL** (o autor não sabe qual admin removeu) e `post_id`/`shots_id`/`flow_id` também — o conteúdo já não existe. O que sobra fica em `notifications.meta`: `{kind, reason, preview}` (tipo do conteúdo, motivo escolhido pelo admin e até 80 caracteres da legenda).
+- **Card:** ícone `ShieldAlert` vermelho num círculo (não é `isUserBased`), linha "Moderação LinKa" acima do texto e a legenda entre aspas abaixo.
+- **Toque:** não navega. Abre um diálogo com o motivo, o trecho do conteúdo, o aviso de que violações repetidas podem suspender a conta e o botão **"Ver diretrizes"** (`Browser.open(TERMS_URL)`).
+- **Motivos** (`MODERATION_REASONS` em `notification-copy.ts`): os mesmos do `ReportDrawer` — `inappropriate`, `spam`, `harassment`, `copyright`, `other`. O texto vem das chaves `report_reason_*` (e `moderation_reason_other` para "outro", que lê melhor como "Violação das diretrizes da comunidade").
+- **Leitura:** `getNotificationsDb` pede `meta` e, se a coluna não existir (migração não rodou, erro `42703`), refaz o select sem ela. Os `follower_id` nulos saem da consulta de perfis — um `null` no `.in()` derrubava a lista inteira.
+- **Push / banner:** título "Conteúdo removido 🛡️"; o toque abre `/notificacoes`. Exige **redeploy** da `send-push-notification`.
 
 - Cada nome livre (apelido, grupo, título) passa por `short()` para o push não virar um parágrafo; quando o lookup não encontra o registro, o texto cai numa variante sem o nome ("{nome} curtiu sua promoção.") em vez de ficar vazio.
 - Falha em qualquer lookup **não derruba o push**: `buildBody` é chamada com `.catch()` e volta ao texto genérico.

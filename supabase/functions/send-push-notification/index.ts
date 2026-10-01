@@ -65,6 +65,7 @@ type NotifRecord = {
   flow_id?: number | string;
   duel_check_in_id?: string;
   incentive_type?: number;
+  meta?: { kind?: string; reason?: string; preview?: string | null } | null;
 };
 
 const TITLE_BY_TYPE: Record<number, string> = {
@@ -89,6 +90,7 @@ const TITLE_BY_TYPE: Record<number, string> = {
   19: "Convite para treinar 💪",
   20: "Você foi mencionado 💬",
   21: "Nova republicação 🔁",
+  22: "Conteúdo removido 🛡️",
 };
 
 // Mesmos nomes exibidos no app (INCENTIVE_CONFIG / i18n)
@@ -244,6 +246,12 @@ async function buildBody(
     // notify_post_repost). `post_id` é o REPOST — o toque abre ele.
     case 21:
       return `${name} repostou sua publicação no feed.`;
+    // Conteúdo removido pela moderação (admin_delete_content). Aviso do sistema:
+    // sem `follower_id`, de propósito — o autor não sabe qual admin removeu.
+    case 22: {
+      const kind = record.meta?.kind === "shot" ? "shot" : record.meta?.kind === "flow" ? "flow" : "post";
+      return `Seu ${kind} foi removido por um administrador por violar as diretrizes da comunidade.`;
+    }
     default:
       return "Você tem uma nova notificação no LinKa.";
   }

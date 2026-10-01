@@ -369,6 +369,9 @@ export function FlowElementView({ el, interactive = false }: { el: StoryTextElem
         width: "max-content",
         maxWidth: isWorkout || isPost ? "92vw" : "80vw",
         padding: isWorkout || isPost ? 0 : "0 0.5rem",
+        // Moldura do post fica sempre embaixo de frases e do treino, mesmo nos
+        // flows já publicados (que gravaram o post por último no array).
+        zIndex: isPost ? 1 : 2,
       }}
     >
       {isPost ? (

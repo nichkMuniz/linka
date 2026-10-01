@@ -85,7 +85,7 @@ meta, e seus amigos incentivam com os 6 tipos.
 | `weightTracking` | ❌ | Registro e histórico de peso. O monitoramento vem num momento próprio |
 | `workoutStickerOnFlow` | ✅ **religada 26/09** | Mini frame de treino colado no flow. Os dados vêm de `routines.last_summary` — quem ainda não treinou pelo app abre um seletor vazio. E o sticker fica gravado em `flow.text_elements`, então um flow criado hoje segue renderizando depois |
 | `workoutDetailOnPost` | ✅ **religada 26/09** | Botão "Ver treino" no post. O comparador é de 26/08 e não foi validado; o detalhe série a série é leitura densa demais para quem acabou de instalar. O card de resumo no post **continua** |
-| `gpsRun` | ❌ | Única razão para pedir localização **Always**. Ver seção 6 |
+| `gpsRun` | ✅ **religada 01/10** | Corrida **e caminhada** ao ar livre com GPS em segundo plano. Pede localização **Always** — `UIBackgroundModes = location` voltou ao Info.plist junto (obrigatório: sem ele o app crasha). Ver seção 6 e `docs/05-metas.md` |
 | `hashtags` | ✅ **religada 26/09** | Função de volume: sem posts suficientes, devolve vazio |
 | `postTags` | ✅ **religada 26/09** | Marcar exige ter em quem marcar |
 | `postLocation` | ❌ | Alfinete de localização no post. Dado sensível com retorno nulo no v1 — sem hashtags nem busca por lugar, vira só um texto na legenda. Era a última justificativa de `NSLocationWhenInUseUsageDescription` |

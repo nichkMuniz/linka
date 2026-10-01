@@ -16,6 +16,6 @@
 
 "NSLocationWhenInUseUsageDescription" = "O LinKa usa sua localização apenas quando você escolhe marcar o lugar de uma publicação. Por exemplo: tocar no alfinete de localização ao escrever a legenda para mostrar que você treinou em uma academia específica. A localização é lida só nesse momento e nunca é coletada em segundo plano.";
 
-"NSLocationAlwaysAndWhenInUseUsageDescription" = "O LinKa usa sua localização em segundo plano somente enquanto uma corrida ao ar livre está sendo registrada, para que o rastreamento continue com a tela bloqueada. Por exemplo: iniciar uma corrida ao ar livre, guardar o celular no bolso e ainda assim receber sua rota, distância e ritmo no final. O rastreamento para no instante em que você encerra a corrida.";
+"NSLocationAlwaysAndWhenInUseUsageDescription" = "O LinKa usa sua localização em segundo plano somente enquanto uma corrida ou caminhada ao ar livre está sendo registrada, para que o rastreamento continue com a tela bloqueada. Por exemplo: iniciar uma caminhada ao ar livre, guardar o celular no bolso e ainda assim receber sua rota, distância e ritmo no final. O rastreamento para no instante em que você encerra a atividade.";
 
 "NSFaceIDUsageDescription" = "O LinKa usa o Face ID para você voltar à sua conta sem digitar a senha. Por exemplo: reabrir o app depois de alguns dias e desbloqueá-lo com um olhar, em vez de digitar e-mail e senha. Seus dados biométricos ficam no aparelho e nunca são enviados ao LinKa.";

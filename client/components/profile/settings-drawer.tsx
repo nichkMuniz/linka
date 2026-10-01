@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
+import { PinFlowDrawer } from "@/components/shared/pin-flow-drawer";
 import { LoadingSpinner } from "@/components/shared/animated-loading";
 import { ImageCropperDrawer, AVATAR_MAX_EXPORT } from "@/components/shared/image-cropper-drawer";
 import {
@@ -25,6 +26,8 @@ import {
   getCommercialPlansDb,
   saveCommercialPlansDb,
   getExpiredUserFlowsDb,
+  setFlowPinnedDb,
+  FLOW_PIN_LIMIT,
   deleteStoryDb,
   createPostDb,
   createShotDb,
@@ -83,6 +86,7 @@ import {
   User,
   X,
   Share2,
+  Pin,
   ZoomIn,
   Eye,
   EyeOff,
@@ -650,6 +654,51 @@ export function SettingsDrawer({
   const [deletingFlowId, setDeletingFlowId] = React.useState<string | null>(null);
   const [flowToDelete, setFlowToDelete] = React.useState<StoryWithUser | null>(null);
   const [flowToShare, setFlowToShare] = React.useState<StoryWithUser | null>(null);
+  // Flow do Arquivo com o drawer "Fixar no perfil" aberto.
+  const [pinTargetFlow, setPinTargetFlow] = React.useState<StoryWithUser | null>(null);
+
+  // Fixar a partir do Arquivo: é o único caminho para um flow que já saiu do
+  // feed (>24h) voltar a ficar visível — na faixa de fixados do perfil.
+  // Erros avisam e RELANÇAM: o PinFlowDrawer fica aberto para tentar de novo.
+  const failArchivePin = (err: any): never => {
+    if (err?.message === "PIN_LIMIT") {
+      toast({
+        title: t("flow_pin_limit_title").replace("{n}", String(FLOW_PIN_LIMIT)),
+        description: t("flow_pin_limit_desc"),
+        variant: "destructive",
+      });
+    } else {
+      reportHandledError(err, "settings:toggle-flow-pin");
+      toast({ title: t("flow_pin_error"), description: t("retry"), variant: "destructive" });
+    }
+    throw err;
+  };
+
+  const handleArchivePin = async (flow: StoryWithUser, title: string | null) => {
+    const wasPinned = !!flow.pinned_at;
+    try {
+      await setFlowPinnedDb(flow.id, true, title);
+    } catch (err) {
+      failArchivePin(err);
+    }
+    const pinnedAt = flow.pinned_at ?? new Date().toISOString();
+    setExpiredFlows((prev) =>
+      prev.map((f) => (f.id === flow.id ? { ...f, pinned_at: pinnedAt, pinned_title: title } : f)),
+    );
+    toast({ title: wasPinned ? t("flow_pin_renamed_toast") : t("flow_pinned_toast") });
+  };
+
+  const handleArchiveUnpin = async (flow: StoryWithUser) => {
+    try {
+      await setFlowPinnedDb(flow.id, false);
+    } catch (err) {
+      failArchivePin(err);
+    }
+    setExpiredFlows((prev) =>
+      prev.map((f) => (f.id === flow.id ? { ...f, pinned_at: null, pinned_title: null } : f)),
+    );
+    toast({ title: t("flow_unpinned_toast") });
+  };
 
   // Quando initialArchivedFlow está definido (vindo de notificação de flow expirado),
   // pula a lista e abre direto o flow em tela cheia — mesmo padrão de directToProfileEdit.
@@ -2479,6 +2528,20 @@ export function SettingsDrawer({
                               </p>
                               <div className="flex gap-1">
                                 <button
+                                  onClick={(e) => { e.stopPropagation(); setPinTargetFlow(flow); }}
+                                  className={`p-1 rounded-full transition-colors disabled:opacity-40 ${
+                                    flow.pinned_at ? "bg-amber-400 hover:bg-amber-300" : "bg-white/25 hover:bg-white/40"
+                                  }`}
+                                  title={flow.pinned_at ? t("flow_unpin_action") : t("flow_pin_action")}
+                                  aria-label={flow.pinned_at ? t("flow_unpin_action") : t("flow_pin_action")}
+                                  aria-pressed={!!flow.pinned_at}
+                                >
+                                  <Pin
+                                    className={`h-2.5 w-2.5 ${flow.pinned_at ? "text-black" : "text-white"}`}
+                                    fill={flow.pinned_at ? "currentColor" : "none"}
+                                  />
+                                </button>
+                                <button
                                   onClick={(e) => { e.stopPropagation(); setFlowToShare(flow); }}
                                   disabled={repostingFlowId === flow.id}
                                   className="p-1 rounded-full bg-brand/70 hover:bg-brand transition-colors disabled:opacity-40"
@@ -2501,6 +2564,16 @@ export function SettingsDrawer({
                           </div>
                         ))}
                       </div>
+
+                      {/* Fixar / renomear / desafixar — o PinFlowDrawer vai por portal ao body. */}
+                      <PinFlowDrawer
+                        open={!!pinTargetFlow}
+                        onOpenChange={(o) => { if (!o) setPinTargetFlow(null); }}
+                        pinned={!!pinTargetFlow?.pinned_at}
+                        initialTitle={pinTargetFlow?.pinned_title ?? null}
+                        onConfirm={(title) => (pinTargetFlow ? handleArchivePin(pinTargetFlow, title) : undefined)}
+                        onUnpin={() => (pinTargetFlow ? handleArchiveUnpin(pinTargetFlow) : undefined)}
+                      />
 
                       {/* Confirmação de exclusão — portal para document.body (mesmo motivo do viewer fullscreen acima) */}
                       {flowToDelete && createPortal(

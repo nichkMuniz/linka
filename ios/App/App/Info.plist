@@ -72,7 +72,19 @@
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Sua localização é usada apenas quando você escolhe marcar o lugar em uma publicação.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>A localização em segundo plano é usada apenas durante uma corrida ao ar livre, para registrar sua rota e distância mesmo com a tela bloqueada.</string>
+	<string>A localização em segundo plano é usada apenas durante uma corrida ou caminhada ao ar livre, para registrar sua rota e distância mesmo com a tela bloqueada.</string>
+	<!--
+	  Rastreamento GPS da corrida/caminhada ao ar livre com a tela bloqueada
+	  (FEATURES.gpsRun, religada em 01/10/2026). OBRIGATÓRIO com a feature
+	  ligada: sem este modo, `allowsBackgroundLocationUpdates = true` (ligado pelo
+	  @capgo/background-geolocation) lança exceção e CRASHA o app. Se a feature
+	  for desligada de novo, remover (Guideline 2.5.4: modo declarado precisa
+	  ser usado).
+	-->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+	</array>
 	<key>NSCameraUsageDescription</key>
 	<string>O LinKa usa a câmera apenas quando você escolhe fotografar ou filmar dentro do app, para registrar seus treinos. Por exemplo: tirar uma foto na academia para publicar no feed, gravar um vídeo curto (flow) executando um exercício, ou enviar uma foto em uma conversa com outro usuário. A câmera nunca é ligada em segundo plano e a mídia só sai do seu aparelho depois que você confirma a publicação ou o envio.</string>
 	<key>NSMicrophoneUsageDescription</key>

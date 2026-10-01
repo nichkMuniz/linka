@@ -1636,9 +1636,14 @@ export default function Goals() {
           data={summaryData}
           onPartyRoutineSaved={() => { void reloadRoutines(); }}
           onSharedToFeed={() => leaveSummaryToFeed({ refreshFeed: true })}
-          // Não publica nada aqui: o criador de flow mora no Feed, que abre
-          // direto na legenda com a mídia do resumo.
-          onShareToFlow={(seed) => leaveSummaryToFeed({ createFlowSeed: seed })}
+          // Não publica o flow aqui: o criador mora no Feed, que abre direto na
+          // legenda com a mídia do resumo. Se o post do feed saiu junto ("Feed e
+          // Flow"), o refreshFeed faz ele aparecer no topo por baixo do criador.
+          onShareToFlow={(seed, opts) =>
+            leaveSummaryToFeed(
+              opts?.alsoPostedToFeed ? { createFlowSeed: seed, refreshFeed: true } : { createFlowSeed: seed },
+            )
+          }
           onClose={() => {
             setSummaryData(null);
             // Agora que o resumo saiu, exibe os diálogos que estavam pendentes.

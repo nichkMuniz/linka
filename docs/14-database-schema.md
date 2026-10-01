@@ -510,6 +510,8 @@ Posts de Flow (formato Stories, mídia efêmera).
 | `media_transform` | jsonb | — | `null` | Enquadramento da **mídia em vídeo** ajustado na criação (pinça/arraste): `{ "scale": number, "x": number, "y": number }`, onde `x`/`y` são translação em **% do tamanho do elemento** (resolução-independente). Aplicado via CSS `transform` no viewer. Imagens **não** usam este campo (o ajuste é composto no canvas antes do upload). |
 | `reposted_from` | bigint | — | `null` | FK → `flow.id`. Flow original quando este flow é um **repost** (marcado repostou). Migração `20260729-flow-tags.sql`. |
 | `reposted_from_user` | uuid | — | `null` | FK → `auth.users`. Autor do flow original (atribuição do repost). |
+| `pinned_at` | timestamptz | — | `null` | **(2026-10-01)** Fixado no perfil (destaque). NULL = não fixado. O feed continua filtrando por 24h; o perfil lista os fixados sem esse filtro. Escrita **só** pela RPC `set_flow_pinned(p_flow_id bigint, p_pinned boolean)` (SECURITY DEFINER, só o dono, limite de 20 → `PIN_LIMIT`). Índice parcial `flow_user_pinned_idx (user_id, pinned_at desc) where pinned_at is not null`. Migração `20261001-flow-pinned.sql` |
+| `pinned_title` | text | — | `null` | **(2026-10-01)** Nome do destaque na faixa do perfil (até 30 caracteres; NULL = mostra a data). Gravado pela mesma RPC, agora `set_flow_pinned(p_flow_id, p_pinned, p_title)` — fixar de novo com outro nome = renomear (não mexe em `pinned_at`); desafixar limpa os dois. Migração `20261001-flow-pinned-title.sql` |
 | `created_at` | timestamptz | ✓ | `now()` | Data de publicação |
 
 > **Migração (rodar no Supabase SQL Editor):**
@@ -733,7 +735,7 @@ Notificações geradas para os usuários (follows, likes, comentários, duelos).
 | `id` | bigint | PK (identity) | — | Identificador único |
 | `user_id` | uuid | — | `gen_random_uuid()` | Destinatário da notificação |
 | `follower_id` | uuid | — | `gen_random_uuid()` | Quem originou a notificação |
-| `type` | bigint | — | — | Tipo da notificação (1–19 — ver `docs/10-notificacoes.md`). **Sem check constraint**: adicionar um tipo novo não precisa de migração, só de redeploy da `send-push-notification` para o push ter texto próprio. Os tipos **10 e 17** (mensagem privada / resposta a flow) são filtrados na leitura — existem só para disparar o push |
+| `type` | bigint | — | — | Tipo da notificação (1–22 — ver `docs/10-notificacoes.md`). **Sem check constraint**: adicionar um tipo novo não precisa de migração, só de redeploy da `send-push-notification` para o push ter texto próprio. Os tipos **10 e 17** (mensagem privada / resposta a flow) são filtrados na leitura — existem só para disparar o push |
 | `created_at` | timestamptz | ✓ | `now()` | Data de criação |
 | `post_id` | uuid | — | — | Post relacionado; guarda o **id do grupo de duelo** quando type=4, 5 ou 11, e o **id da promoção** quando type=8, 12 ou 13 |
 | `read` | boolean | — | `false` | Notificação lida ou não |
@@ -741,6 +743,7 @@ Notificações geradas para os usuários (follows, likes, comentários, duelos).
 | `flow_id` | bigint | — | — | Flow relacionado (se aplicável). FK lógica → `flow.id` (bigint, **não** uuid) |
 | `duel_check_in_id` | uuid | — | — | Check-in relacionado (se aplicável) — comentário (type=3), reação em comentário (type=6), reação em check-in (type=7), check-in de membro do duelo (type=11) e avaliação classificado/desclassificado (type=14/15) |
 | `incentive_type` | smallint | — | — | Tipo de incentivo (1–6) quando type=2; evita lookup nas tabelas de likes |
+| `meta` | jsonb | — | — | Dados de notificações **do sistema** (sem `follower_id`). Type 22: `{kind: post\|shot\|flow, reason, preview}`. Migração `20261001-moderation-removal-notice.sql` |
 
 **Tipos de notificação:**
 
@@ -761,6 +764,7 @@ Notificações geradas para os usuários (follows, likes, comentários, duelos).
 | 19 | **Convite para treinar junto** (26/08/2026) | `follower_id` (quem convidou), `post_id` (= `workout_parties.id`) |
 | 20 | **Mencionado com "@" num comentário** (27/09/2026) | `follower_id` (quem comentou), `post_id` ou `shots_id` ou `flow_id` |
 | 21 | **Repostaram sua publicação** (28/09/2026) | `follower_id` (quem repostou), `post_id` (o **repost**, não o original) |
+| 22 | **Conteúdo removido pela moderação** (01/10/2026) | `follower_id` **NULL** (sistema), `meta` = `{kind, reason, preview}`; sem `post_id`/`shots_id`/`flow_id` (o conteúdo já foi apagado). Gravado por `admin_delete_content` |
 | 14 | Check-in **classificado** (aprovado) por um participante | `follower_id` (quem votou), `duel_check_in_id` |
 | 15 | Check-in **desclassificado** (reprovado) por um participante | `follower_id` (quem votou), `duel_check_in_id` |
 
@@ -1910,6 +1914,23 @@ Registra o humor diário do usuário. Exibido automaticamente quando o usuário 
 
 ---
 
+## Usuário banido invisível — policies RESTRICTIVE (2026-10-01)
+
+Migração `docs/migrations/20261001-hide-banned-users.sql`. Banido (`profiles.is_banned = true`) some do app para **todo mundo**, inclusive `anon` (prévia de link). Feito no banco com policies **`AS RESTRICTIVE`**, que entram em AND com as permissivas existentes — nenhuma policy antiga foi reescrita.
+
+| Helper | O que faz |
+|---|---|
+| `banned_user_ids()` | `uuid[]` com todos os banidos. SECURITY DEFINER (lê `profiles` sem recursar na RLS). Chamado sempre como `(select public.banned_user_ids())` → initplan, roda **uma vez por query**. Índice parcial `profiles_banned_idx` |
+| `viewer_sees_banned()` | `is_app_admin(auth.uid())` com `coalesce` — o **admin enxerga tudo** |
+
+- **SELECT** (`<tabela>_hide_banned_<coluna>`; em `profiles` é `profiles_hide_banned`, que também libera o próprio banido): `posts.user_id`/`reposted_from_user`, `flow.user_id`/`reposted_from_user`, `shots`, `comments`, `flow_comments`, `shots_comments`, `likes`, `shots_likes`, `flow_likes`, `following` (os 2 lados), `followers` (os 2 lados), `messages` (os 2 lados), `post_tags`, `flow_tags`, `notifications.follower_id`, `check_ins`, `duel_check_ins`, `duel_group_participants`, `ranking`, `workout_party_members`.
+- **INSERT** (`<tabela>_no_banned_<coluna>`): não dá para seguir (`following.following_id`, `followers.user_id`), mandar DM (`messages.following_id`), marcar (`post_tags`/`flow_tags`) nem convidar para duelo/treino (`duel_group_participants`, `workout_party_members`).
+- A migração **pula com NOTICE** tabela inexistente, coluna inexistente e tabela com RLS **desligada** (nunca liga RLS sozinha — ligar sem policy permissiva bloquearia tudo).
+- `get_profile_counts` (SECURITY DEFINER, fora do alcance da RLS) foi recriada para não contar banidos em seguidores/seguindo.
+- **Reversível:** desbanir faz tudo reaparecer (follows, posts, conversas). Nada é apagado.
+- **Efeito colateral aceito:** linha escondida também não pode ser alterada/apagada por quem a vê escondida (UPDATE/DELETE passam pelas policies de SELECT) — p.ex. deixar de seguir um banido. Volta ao normal com o desban.
+- **Tabela nova com coluna de pessoa** que aparece para outros usuários: acrescentar o par em `v_hide` (e em `v_block_insert`, se criar vínculo) e reexecutar o bloco.
+
 ## Segurança / RLS — auditoria de 2026-07-13
 
 Migration: `docs/migrations/20260713-security-hardening.sql`. **As migrações voltaram a ser versionadas** — o `.gitignore` tinha `*.sql`, então nenhuma policy estava no Git.
@@ -1934,6 +1955,9 @@ Migration: `docs/migrations/20260713-security-hardening.sql`. **As migrações v
 | `viewer_follows(target)` | `auth.uid()` segue `target`? Usada na policy de `posts` |
 | `get_profile_counts(target)` | Devolve `posts_count`, `followers_count`, `following_count`. **Necessária**: com a RLS acima, um `count` direto devolveria 0 em perfis privados. O app mostra os números (só as listas e os posts ficam ocultos) — `getUserStatsDb` chama esta RPC |
 | `delete_user_data(p_user_id)` | Apaga **todas** as linhas do usuário numa transação e devolve `jsonb` com a contagem por `tabela.coluna`. Só o dono (`auth.uid() = p_user_id`) ou um admin pode chamar. Ver abaixo |
+| `is_abandoned_social_signup(p_user_id)` | Interna (sem grant). Regra única de "cadastro Google/Apple incompleto": provedor google/apple, `user_metadata.signup_completed` ≠ true, criada a partir de 29/09/2026, sem posts/flows e `profiles.updated_at` ≤ `created_at` + 30s. Migração `20261001-abandoned-social-signup.sql` |
+| `discard_incomplete_social_signup()` | RPC (authenticated). Apaga a **própria** conta via `delete_user_data` se `is_abandoned_social_signup` valer; senão `SIGNUP_NOT_ABANDONED`. O Login chama ao cancelar o cadastro social ou ao reabrir com a sessão incompleta |
+| `purge_abandoned_social_signups()` | Interna. pg_cron `purge-abandoned-social-signups` (minuto 15 de toda hora) apaga contas incompletas com mais de 1h. Não toca no Storage |
 
 #### `delete_user_data` — exclusão de conta (migração `20260915-delete-user-data.sql`)
 

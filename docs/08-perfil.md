@@ -71,6 +71,8 @@ Página de perfil do usuário. Exibe informações pessoais, estatísticas, cont
 ├──────────────────────────────────┤
 │  🎯 Metas (scroll horizontal)    │  ← condicional: só aparece se há metas públicas
 ├──────────────────────────────────┤
+│  📌 Flows fixados (bolinhas)     │  ← condicional: só se há flows fixados
+├──────────────────────────────────┤
 │  Tabs: [Posts][Treinos][Shots]   │  ← + [Marcações] e [Vitrine] (esta só se
 │         [Marcações][Vitrine]     │    há ofertas ativas; a linha rola)
 ├──────────────────────────────────┤
@@ -628,6 +630,21 @@ Aberto ao clicar nas estatísticas:
 - Apenas stories do próprio perfil são mostrados aqui
 - **Abre no 1º flow ainda não visto** (`pickFlowEntry`, `client/lib/flow-entry.ts`): o visitante que já viu os flows antigos vai direto ao novo, em vez de recomeçar do mais antigo. O conjunto de vistos vem de `getMyViewedFlowUserIdsDb` (carregado junto dos stories e ressincronizado ao **fechar** o viewer). No **próprio** perfil nenhum flow conta como visto (`recordFlowViewDb` ignora o dono), então o ring sempre começa do primeiro — igual ao Instagram.
 - **Abertura sem espera (`prefetchFlowMedia`):** assim que `getUserActiveStoriesDb` responde, o 1º flow é aquecido em modo `"metadata"` (capa inteira + cabeçalho do vídeo); no `onPointerDown` do ring o modo sobe para `"auto"` e o clipe começa a baixar ~200ms antes do modal montar. Somado à capa (`flow.poster_url`), o flow abre já exibindo o frame.
+
+## Flows fixados (2026-10-01)
+
+Faixa horizontal **logo acima das abas** (abaixo dos contadores e da faixa de Metas), no estilo dos destaques do Instagram: cada flow fixado é uma bolinha de 64px com o anel cônico do avatar e, embaixo, o **nome do destaque** (`pinned_title`) — sem nome, a data do flow. Tocar abre o **mesmo `FlowViewer` embutido**, navegando só entre os fixados (`viewerSource = "pinned"`; o anel do avatar usa `"ring"`).
+
+- **Expiração:** fixar **não** muda o feed — o flow sai do ring em 24h como sempre. Só o perfil lê os fixados **sem** o filtro de 24h (`getUserPinnedFlowsDb`, ordenado por `pinned_at desc`, cache `userPinnedFlows:{id}`).
+- **Fixar, nomear, renomear e desafixar** passam todos pelo mesmo **`PinFlowDrawer`** (`client/components/shared/pin-flow-drawer.tsx`): campo "Nome do destaque" (até 30 caracteres, opcional) + "Fixar"; num flow já fixado o campo vem preenchido ("Salvar" = renomear, sem mudar a ordem) + "Desafixar". Três portas:
+  1. **Na criação, antes de postar (2026-10-01):** chip "📌 Fixar no perfil" nas duas telas de publicar (mídia e texto). A escolha fica guardada no `FlowCreationDialog` (`pinOnPost`) e vai como 8º argumento de `onCreateStory`; o `Index.tsx` fixa logo após o `createStoryDb`. Se fixar falhar, o flow **continua publicado** e um toast manda fixar pelo 📌.
+  2. Botão 📌 no cabeçalho do `FlowViewer` (só o dono, ao lado da lixeira; âmbar preenchido = fixado). O drawer aberto **pausa** o flow (entra no `optionsHold`).
+  3. **Arquivo de Flows** das Configurações — o único caminho para fixar um flow que já expirou.
+- Tudo chama `setFlowPinnedDb(id, pinned, title)` → RPC `set_flow_pinned` e dispara `FLOW_PINNED_EVENT` (com o nome); o perfil escuta e relê a faixa (com o viewer aberto só corrige a marca, e relê ao fechar — tirar o flow da lista em exibição faria o viewer perdê-lo).
+- **Limite:** 20 fixados (`FLOW_PIN_LIMIT` / `PIN_LIMIT` na RPC) → toast "Limite de 20 flows fixados".
+- **Capa:** `poster_url` → imagem do flow → 1º frame do vídeo (`videoPosterSrc`) → flow só de texto com o fundo dele e ícone `Type`.
+- **Privacidade:** some junto com os posts quando o perfil esconde posts de quem não segue (`hide_posts_from_non_followers`). Excluir o flow o tira da faixa (`onDeleted`).
+- Componente: `client/components/profile/pinned-flows-strip.tsx` (`PinnedFlowsStrip`). Migração: `docs/migrations/20261001-flow-pinned.sql`.
 
 ### Barra de progresso do flow (segmentos)
 

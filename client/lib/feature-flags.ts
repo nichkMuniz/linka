@@ -200,25 +200,21 @@ export const FEATURES = {
   workoutDetailOnPost: true,
 
   /**
-   * Corrida ao ar livre com GPS em background.
+   * Corrida e caminhada ao ar livre com GPS em background.
    *
-   * Adiado, e essa é a flag de maior retorno em risco: ela é a única razão
-   * de EXERCER a permissão `NSLocationAlwaysAndWhenInUseUsageDescription`, a
-   * mais escrutinada da App Store. Com `false`, a API nunca é chamada e o
-   * usuário nunca vê o alerta.
+   * RELIGADA em 01/10/2026 (estava adiada desde o v1). É a única razão de
+   * EXERCER a permissão `NSLocationAlwaysAndWhenInUseUsageDescription`, a mais
+   * escrutinada da App Store — o revisor vai iniciar uma corrida/caminhada.
    *
-   * ⚠️ A chave **continua** no `Info.plist` e deve continuar: o TestFlight
-   * devolveu **ITMS-90683** quando ela foi removida. Quem exige a string é o
-   * *link* do `CapgoBackgroundGeolocation` no binário, não a chamada.
-   * Purpose string é permissão; ficha de privacidade é coleta — e o app não
-   * coleta localização, então a ficha segue sem ela.
-   *
-   * ⚠️ **Ao religar, `UIBackgroundModes = ["location"]` é obrigatório no
-   * Info.plist.** Hoje ele não está lá, de propósito (Guideline 2.5.4: modo
-   * declarado precisa ser usado). Sem ele, `allowsBackgroundLocationUpdates =
-   * true` **lança exceção e crasha o app** — não é aviso, é crash.
+   * ⚠️ **`UIBackgroundModes = ["location"]` no Info.plist é obrigatório com a
+   * flag em `true`** (adicionado junto com a religação). Sem ele,
+   * `allowsBackgroundLocationUpdates = true` **lança exceção e crasha o app**.
+   * Se esta flag voltar a `false`, remover o modo (Guideline 2.5.4: modo
+   * declarado precisa ser usado). A purpose string fica SEMPRE — o TestFlight
+   * devolve ITMS-90683 sem ela, porque quem a exige é o *link* do
+   * `CapgoBackgroundGeolocation`, não a chamada.
    */
-  gpsRun: false,
+  gpsRun: true,
 
   // ───────────────────────────────────────────────────────────────────────────
   // Social / descoberta (dependem de densidade de base)

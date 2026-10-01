@@ -49,7 +49,9 @@ import {
   ArrowLeft,
   ArrowUp,
   Trash2,
+  Pin,
 } from "lucide-react";
+import { PinFlowDrawer } from "@/components/shared/pin-flow-drawer";
 import { PhotoLibrary } from "@capgo/capacitor-photo-library";
 import { Capacitor } from "@capacitor/core";
 import { reportHandledError } from "@/lib/monitoring";
@@ -847,6 +849,8 @@ interface FlowCreationDialogProps {
     textElements?: StoryTextElement[] | null,
     mediaTransform?: { scale: number; x: number; y: number } | null,
     taggedUserIds?: string[],
+    /** Fixar no perfil logo depois de publicar (escolhido na criação). */
+    pin?: { title: string | null } | null,
   ) => Promise<void>;
   isLoading?: boolean;
 }
@@ -911,6 +915,10 @@ export function FlowCreationDialog({
   const [taggedUsers, setTaggedUsers] = React.useState<SearchUser[]>([]);
   const descriptionRef = React.useRef<HTMLTextAreaElement | null>(null);
   const [tagPeopleOpen, setTagPeopleOpen] = React.useState(false);
+  // Fixar no perfil, escolhido ANTES de postar: só fica guardado aqui e vai junto
+  // no onCreateStory — o flow ainda não existe para a RPC.
+  const [pinOnPost, setPinOnPost] = React.useState<{ title: string | null } | null>(null);
+  const [pinDrawerOpen, setPinDrawerOpen] = React.useState(false);
   // Mini frame do último treino citado no flow (estilo "repost"): um único
   // sticker por flow, arrastável e redimensionável como as frases. `null` = o
   // usuário não citou treino nenhum.
@@ -2166,6 +2174,7 @@ export function FlowCreationDialog({
     setMediaFromGallery(false);
     setDescription("");
     setTaggedUsers([]);
+    setPinOnPost(null);
     setWorkoutSticker(null);
     setPostSticker(null);
     setTexts([]);
@@ -2312,28 +2321,38 @@ export function FlowCreationDialog({
     </button>
   );
 
+  // Chip "Fixar no perfil" — mesmo componente nas duas telas de publicar (mídia
+  // e texto). Ligado: âmbar com o nome escolhido (ou "Fixado no perfil").
+  const pinChip = (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        setPinDrawerOpen(true);
+      }}
+      aria-pressed={!!pinOnPost}
+      className={cn(
+        "inline-flex max-w-full items-center gap-1.5 h-9 px-3.5 rounded-full border text-[13px] font-semibold backdrop-blur active:scale-95 transition-transform",
+        pinOnPost
+          ? "border-amber-300/60 bg-amber-400/20 text-amber-200"
+          : "border-white/20 bg-black/40 text-white/85",
+      )}
+    >
+      <Pin className="h-4 w-4 shrink-0" fill={pinOnPost ? "currentColor" : "none"} />
+      <span className="truncate">
+        {pinOnPost ? (pinOnPost.title || t("flow_pin_chip_on")) : t("flow_pin_action")}
+      </span>
+    </button>
+  );
+
   /**
    * Elementos sobrepostos que vao para `flow.text_elements`: as frases e, se
    * houver, o mini frame do treino citado. Tudo em % da viewport, para o viewer
    * reposicionar em qualquer aparelho.
    */
   const buildElementsPayload = (): StoryTextElement[] | null => {
-    const els: StoryTextElement[] = texts.map((item) => ({
-      text: item.text,
-      x: Math.round((item.x / window.innerWidth) * 1000) / 10,
-      y: Math.round((item.y / window.innerHeight) * 1000) / 10,
-      style: item.style,
-    }));
-    if (workoutSticker) {
-      els.push({
-        kind: "workout",
-        text: "",
-        x: Math.round((workoutSticker.x / window.innerWidth) * 1000) / 10,
-        y: Math.round((workoutSticker.y / window.innerHeight) * 1000) / 10,
-        scale: Math.round(workoutSticker.scale * 100) / 100,
-        workout: workoutSticker.data,
-      });
-    }
+    const els: StoryTextElement[] = [];
+    // Moldura do post primeiro: fica embaixo das frases e do treino no viewer.
     if (postSticker) {
       els.push({
         kind: "post",
@@ -2342,6 +2361,24 @@ export function FlowCreationDialog({
         y: Math.round((postSticker.y / window.innerHeight) * 1000) / 10,
         scale: Math.round(postSticker.scale * 100) / 100,
         post: postSticker.data,
+      });
+    }
+    for (const item of texts) {
+      els.push({
+        text: item.text,
+        x: Math.round((item.x / window.innerWidth) * 1000) / 10,
+        y: Math.round((item.y / window.innerHeight) * 1000) / 10,
+        style: item.style,
+      });
+    }
+    if (workoutSticker) {
+      els.push({
+        kind: "workout",
+        text: "",
+        x: Math.round((workoutSticker.x / window.innerWidth) * 1000) / 10,
+        y: Math.round((workoutSticker.y / window.innerHeight) * 1000) / 10,
+        scale: Math.round(workoutSticker.scale * 100) / 100,
+        workout: workoutSticker.data,
       });
     }
     return els.length > 0 ? els : null;
@@ -2391,7 +2428,7 @@ export function FlowCreationDialog({
       // Frases e mini frame de treino posicionados sobre a foto (renderizados ao
       // vivo no FlowViewer, mantendo tudo nítido — não são "queimados" na imagem)
       const elementsPercent = buildElementsPayload();
-      await onCreateStory(mediaToShare, description, null, null, elementsPercent, mediaTransformPayload, taggedUsers.map((u) => u.id));
+      await onCreateStory(mediaToShare, description, null, null, elementsPercent, mediaTransformPayload, taggedUsers.map((u) => u.id), pinOnPost);
       resetForm();
       onOpenChange(false);
       toast({
@@ -2424,7 +2461,7 @@ export function FlowCreationDialog({
         texts.length > 0
           ? texts.map((t) => t.text).join("\n")
           : (workoutSticker?.data.name ?? "");
-      await onCreateStory("", joinedDescription, selectedGradient, null, elementsPercent, null, taggedUsers.map((u) => u.id));
+      await onCreateStory("", joinedDescription, selectedGradient, null, elementsPercent, null, taggedUsers.map((u) => u.id), pinOnPost);
       resetForm();
       onOpenChange(false);
       toast({
@@ -2458,6 +2495,7 @@ export function FlowCreationDialog({
     setIsSavingDraft(false);
     setDescription("");
     setTaggedUsers([]);
+    setPinOnPost(null);
     setWorkoutSticker(null);
     setPostSticker(null);
     setSelectedGradient(GRADIENT_PRESETS[0].value);
@@ -3182,10 +3220,12 @@ export function FlowCreationDialog({
     </div>
   ) : null;
 
-  // Moldura do post do feed — só no modo texto (ver `postSticker`).
+  // Moldura do post do feed — só no modo texto (ver `postSticker`). Fica ABAIXO
+  // das frases (z-[6]) e do mini frame do treino (z-[8]): é o "fundo" do flow,
+  // o resto vai por cima dela.
   const postStickerLayer = postSticker ? (
     <div
-      className="absolute z-[8] touch-none select-none"
+      className="absolute z-[5] touch-none select-none"
       style={{
         left: postSticker.x,
         top: postSticker.y,
@@ -3621,6 +3661,7 @@ export function FlowCreationDialog({
                     </button>
                   ))}
                 </div>
+                <div className="flex">{pinChip}</div>
                 {/* Principal branco (padrão do app); o rascunho foi para a barra de cima. */}
                 <button
                   onClick={(e) => {
@@ -3846,6 +3887,7 @@ export function FlowCreationDialog({
                     </span>
                   </button>
                 )}
+                <div className="flex">{pinChip}</div>
                 {/* Rodapé compacto: descrição numa linha (cresce até 4) + enviar.
                     Antes: caixa de 80px + "Compartilhar flow" + "Salvar rascunho". */}
                 <div className="relative flex items-end gap-2.5">
@@ -3922,6 +3964,16 @@ export function FlowCreationDialog({
 
         {discardDialog}
       </div>
+
+      {/* Fixar no perfil antes de postar: guarda a escolha (nome incluído). */}
+      <PinFlowDrawer
+        open={pinDrawerOpen}
+        onOpenChange={setPinDrawerOpen}
+        pinned={!!pinOnPost}
+        initialTitle={pinOnPost?.title ?? null}
+        onConfirm={(title) => setPinOnPost({ title })}
+        onUnpin={() => setPinOnPost(null)}
+      />
 
       {FEATURES.postTags && (
       <TagPeopleDrawer

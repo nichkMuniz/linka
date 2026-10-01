@@ -17,22 +17,38 @@ Tela interna de moderação, métricas e gestão de usuários. **Não é traduzi
 > - **Segurança:** ninguém se autopromove. `verified_tier` só muda por admin ou service_role, porque o trigger `freeze_verified_tier` desfaz o UPDATE da própria pessoa.
 > - **Enquanto a migração não rodar:** o oficial abre o painel, mas as ações do servidor (banir, premium, selo, moderação) seguem recusando.
 
-## Seções (na ordem da tela)
+## Estrutura em abas (2026-10-01)
 
-| Seção | Fonte de dados |
+Antes eram 14 seções numa rolagem só, e a fila de denúncias (a única coisa que pede ação) ficava no meio. Agora o cabeçalho (voltar, "Atualizado às HH:MM", Atualizar) e a **barra de abas** ficam **fixos no topo** (`sticky`, com safe area), e cada área vive numa aba:
+
+| Aba | Conteúdo (na ordem) | Selo na aba |
+|---|---|---|
+| **Indicadores** (padrão) | Card **"Precisa de atenção"** (só aparece com denúncias abertas ou exercícios sem anatomia; cada linha leva à aba) · **Hoje** (ativos com "±N vs ontem · N novos", cadastros, sessões, tempo de uso + gráfico DAU 7 dias) · **Conteúdo de hoje** · **Base de usuários** (total, semana, mês, banidos + gráfico de cadastros) · **Engajamento e retenção** (WAU, MAU, stickiness, duração média, D1, D7) · **Totais gerais** · **Telas mais acessadas** | — |
+| **Atividade** | Mais ativos hoje · **Quem entrou hoje** (cards expansíveis) · Mais seguidos (linha abre o perfil) | — |
+| **Denúncias** | Fila de moderação | vermelho = nº na fila |
+| **Banidos** (2026-10-01) | Lista de quem está banido (avatar, @, "banido em") com botão **Desbanir** + confirmação. Tocar na pessoa abre o perfil | neutro = nº de banidos |
+| **Selos** | Card "Dar selo" (nível + @handle) · lista de contas verificadas | neutro = nº de contas |
+| **Cortesia** | Card "Conceder acesso" (duração + busca) · contas com acesso | neutro = nº ativos |
+| **Anatomia** | Cobertura + fila de exercícios sem músculos mapeados | vermelho = nº pendentes |
+
+- **Aba na URL** (`/admin?aba=denuncias`, com `replace`): "Ver post"/"Ver perfil" saem do painel; ao voltar, a pessoa continua na mesma aba. Indicadores = sem parâmetro. Trocar de aba volta a rolagem ao topo.
+- **Barra rolável na horizontal** (6 abas não cabem em 375px), com o mesmo cuidado da barra do Perfil: `overflow-y-hidden` e linha de base como sombra interna. A aba ativa rola para dentro da área visível quando aberta por link ou pelo "Precisa de atenção".
+- **Uma carga só:** as 8 consultas continuam em paralelo no `load()` — os selos das abas e o card de atenção precisam das contagens de denúncias/anatomia logo de cara.
+- **Toque:** abas com 44px; botões de ação da fila de moderação com 40px; X de remover selo/cortesia com 36px e `aria-label`. Avatares via `ImageWithFallback` (`UserAvatar`, miniatura no aparelho).
+- Componentes locais do arquivo: `AdminTabBar`, `AttentionRow`, `EmptyState`, `UserAvatar`, `SectionHeader` (`count` + `alert`).
+
+## Fontes de dados
+
+| Bloco | Fonte de dados |
 |---|---|
-| Usuários (cadastros hoje/semana/mês, banidos, gráfico 7 dias) | `get_admin_analytics()` |
-| Engajamento (DAU, WAU, MAU, stickiness, sessões, duração média) | `get_admin_analytics()` |
-| Retenção (D1, D7) | `get_admin_analytics()` |
-| Usuários mais seguidos | `get_admin_analytics()` |
+| Hoje / Base de usuários / Engajamento e retenção / Conteúdo de hoje / Totais / Mais seguidos | `get_admin_analytics()` |
 | Usuários mais ativos hoje (ranking) | `getAdminActiveUsersDb()` → `access_sessions` |
-| **Atividade de hoje (por usuário)** | `getAdminTodayActivityDb()` → RPC `get_admin_today_activity()` |
+| **Quem entrou hoje (por usuário)** | `getAdminTodayActivityDb()` → RPC `get_admin_today_activity()` |
 | Telas mais acessadas (7 dias) | `get_admin_analytics()` → `screen_time_logs` |
-| Conteúdo de hoje / Totais gerais | `get_admin_analytics()` |
 | Fila de moderação | `admin_complaints_view` + `adminDismissComplaintDb` / `adminDeleteContentDb` / `adminBanUserDb` → RPC `admin_set_banned()` |
 | **Anatomia dos exercícios** | `getAdminAnatomyCoverageDb()` → `workouts` + `workout_muscles` (leitura direta, sem RPC) |
-| **LinKa Premium** | `admin_list_premium()` / `admin_set_premium()` — ver `docs/17-premium.md` |
-| Contas Verificadas | `getVerifiedAccountsDb()` / `setUserVerifiedTierDb()` — dois níveis (oficial/verificado), ver "Verificar conta" |
+| **Acesso cortesia** | `admin_list_premium()` / `admin_set_premium()` — ver `docs/17-premium.md` |
+| Selos (contas verificadas) | `getVerifiedAccountsDb()` / `setUserVerifiedTierDb()` — dois níveis (oficial/verificado), ver "Verificar conta" |
 
 ## Atividade de hoje (por usuário)
 
@@ -81,6 +97,8 @@ O que a seção mostra:
 
 `adminDeleteContentDb(tipo, id)` → RPC `admin_delete_content(p_tipo, p_id)`. Migração: `docs/migrations/20260811-admin-moderation.sql`.
 
+> **Aviso ao autor (2026-10-01, migração `20261001-moderation-removal-notice.sql`):** a RPC virou `admin_delete_content(p_tipo, p_id, p_reason)` e grava uma notificação **type 22** para o autor na mesma transação (ver `docs/10-notificacoes.md`). No diálogo de confirmação de **Remover** e **Remover + banir** aparece a fileira **"Motivo — o autor recebe um aviso com ele"** (Conteúdo inadequado · Spam · Assédio ou bullying · Direitos autorais · Outro), já pré-selecionada a partir do texto da denúncia (`reasonFromComplaint`). O toast de sucesso diz se o autor foi avisado (`notified` no retorno da RPC). Banco sem a migração: o cliente recebe `PGRST202`, refaz a chamada com 2 argumentos e remove sem avisar. Banir sozinho não gera aviso — a `BannedScreen` já é o aviso.
+
 > **Entrada de denúncia de flow (2026-08-17):** o caso especial de flow nesta RPC (linha abaixo) já existia antes de a fila ter como receber denúncias reais — não havia botão em nenhuma tela que gravasse em `flow_complaint`. O botão entrou no `FlowViewer`/`FlowViewerModal` (menu "Denunciar usuário"/"Denunciar flow", ver `docs/01-feed.md`), usando o mesmo `ReportDrawer` do Feed/Shots. Nada mudou nesta seção — o pipeline de moderação já estava pronto e só passou a ser alimentado.
 
 > **"Ver flow" na denúncia caía no feed (corrigido em 17/08/2026):** `contentRoute` mandava sempre para `/` no caso `flow` — nunca chegou a apontar pro flow em si. Agora navega para `/flows/{conteudo_id}`. Como flows saem do ring ativo depois de 24h (comum entre a denúncia e a revisão), `FlowViewer` ganhou um fallback: se o id não está em `getActiveStoriesDb()`, busca via `getFlowByIdDb` (já existia, usado pelas notificações) e injeta o resultado nas stories carregadas antes de desistir e voltar pro feed.
@@ -103,13 +121,19 @@ Corrigido em 11/08/2026 — o botão estourava `invalid input syntax for type bi
 | Camada | Onde | Efeito |
 |---|---|---|
 | `profiles.is_banned` | `admin_set_banned` | Alimenta o card de métricas; protegido pelo trigger `freeze_is_banned` (ninguém se desbane sozinho) |
+| Policies **RESTRICTIVE** (2026-10-01) | `20261001-hide-banned-users.sql` | O banido **some para os outros**: perfil, busca, posts, flows, comentários, curtidas, listas de seguidores, DMs, marcações, notificações e duelos. Seguir, mandar DM, marcar e convidar um banido é barrado no INSERT. O **admin continua vendo** tudo (por isso o "Ver perfil" da aba Banidos funciona). Ver `docs/14-database-schema.md` |
 | `auth.users.banned_until` + `delete from auth.sessions` | `admin_set_banned` | **A trava real**: o GoTrue recusa login e renovação de token |
 | `BannedScreen` no `RequireAuth` | `client/App.tsx` | Fecha a janela em que o access token já emitido ainda vale (até 1h) |
 
 - O retorno da RPC traz `session_revoked`. Se vier `false` (o dono da função sem grant em `auth`), o painel mostra toast **destrutivo** avisando que a conta foi marcada mas o acesso não caiu — nunca um "banido" que não bane.
 - Banir a si mesmo é recusado (`CANNOT_BAN_SELF`) — trancaria o admin fora do painel.
-- Desbanir: `adminBanUserDb(userId, false)` limpa o flag e o `banned_until`. Ainda **não há botão** para isso na tela; hoje é via SQL/console.
-- A denúncia é descartada logo após o ban; outras denúncias contra o mesmo usuário continuam na fila.
+- **Desbanir (2026-10-01):** aba **Banidos** → `adminBanUserDb(userId, false)`, que limpa o flag e o `banned_until`. A lista vem de `getAdminBannedUsersDb()` → RPC `admin_list_banned()` (flag em `profiles` **ou** `banned_until` no futuro — aparece também quem ficou com só uma das travas). Não há coluna de data do ban: como `admin_set_banned` grava `banned_until = now() + 100 anos`, a RPC devolve `banned_at = banned_until − 100 anos`; ban feito por fora do painel vem sem data. A lista tem erro próprio (`bannedError`): sem a migração, só a aba mostra o aviso, o resto do painel carrega.
+- **Depois do ban**, a denúncia atual é arquivada **e** todas as denúncias de **perfil** contra a pessoa (`admin_resolve_user_complaints`). Denúncias de **conteúdo** dela continuam na fila — o conteúdo segue no ar até alguém remover.
+- Se o ban passar e o arquivamento falhar, o toast diz "Usuário banido, mas a denúncia continua na fila" — nunca um "Erro" genérico que levaria o admin a banir de novo.
+
+### Ignorar / arquivar denúncia
+
+Corrigido em 2026-10-01 (migração `20261001-admin-dismiss-unban.sql`): `adminDismissComplaintDb` fazia `delete()` direto nas tabelas `*_complaint`, que **não têm policy de DELETE** — sob RLS, 0 linhas e nenhum erro. A denúncia saía da tela e **voltava no próximo carregamento** ("Ignorar" e "Banir" nunca arquivaram nada). Agora é a RPC `admin_dismiss_complaint(p_tipo, p_id)`. "Remover conteúdo" escapava por acaso: `admin_delete_content` já apaga a denúncia junto. A lista local filtra por **tipo + id** (cada tabela de denúncia tem sua própria sequência de id; só o `id` casava denúncias de tabelas diferentes).
 
 ### Verificar conta
 

@@ -21,6 +21,8 @@ import {
   incrementOfferClickDb,
   type CommercialOffer,
   getUserActiveStoriesDb,
+  getUserPinnedFlowsDb,
+  FLOW_PINNED_EVENT,
   getMyViewedFlowUserIdsDb,
   FLOW_CREATED_EVENT,
   deleteAllUserDataDb,
@@ -58,6 +60,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ImageWithFallback } from "@/components/shared/image-with-fallback";
+import { PinnedFlowsStrip } from "@/components/profile/pinned-flows-strip";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { UserInsignias } from "@/components/profile/user-insignias";
 import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
@@ -270,6 +273,13 @@ export default function Profile() {
   const [viewedFlowIds, setViewedFlowIds] = React.useState<Set<string>>(() => new Set());
   const [isStoryViewerOpen, setIsStoryViewerOpen] = React.useState(false);
   const [selectedProfileStory, setSelectedProfileStory] = React.useState<StoryWithUser | null>(null);
+  // Flows fixados (faixa acima das abas). Ficam aqui mesmo depois das 24h.
+  const [pinnedFlows, setPinnedFlows] = React.useState<StoryWithUser[]>([]);
+  // De qual lista o viewer embutido navega: o ring (flows de 24h) ou os fixados.
+  const [viewerSource, setViewerSource] = React.useState<"ring" | "pinned">("ring");
+  const viewerStories = viewerSource === "pinned" ? pinnedFlows : profileStories;
+  const isStoryViewerOpenRef = React.useRef(false);
+  isStoryViewerOpenRef.current = isStoryViewerOpen;
   const [showFollowersModal, setShowFollowersModal] = React.useState(false);
   const [showFollowingModal, setShowFollowingModal] = React.useState(false);
   // Indica se o usuário logado segue o dono do perfil (para regras de privacidade)
@@ -550,7 +560,10 @@ export default function Profile() {
       });
     }
 
-    // Batch 3 — stories: fire-and-forget
+    // Batch 3 — flows fixados e stories: fire-and-forget
+    getUserPinnedFlowsDb(profileUserId).then((flows) => {
+      if (!isStale()) setPinnedFlows(flows);
+    });
     getUserActiveStoriesDb(profileUserId)
       .then(async (stories) => {
         if (isStale()) return;
@@ -744,6 +757,36 @@ export default function Profile() {
     };
     window.addEventListener(FLOW_CREATED_EVENT, onFlowCreated);
     return () => window.removeEventListener(FLOW_CREATED_EVENT, onFlowCreated);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profileUserId, isViewingOtherProfile]);
+
+  // Fixou/desafixou (no viewer ou no Arquivo): atualiza a faixa. Com o viewer
+  // aberto só corrige a marca nas listas — tirar da lista o flow que está na
+  // tela faria o viewer perder o flow atual; a faixa é relida ao fechar.
+  React.useEffect(() => {
+    if (!profileUserId || isViewingOtherProfile) return;
+    const onPinned = (e: Event) => {
+      const { flowId, pinned, title } =
+        (e as CustomEvent<{ flowId: string; pinned: boolean; title: string | null }>).detail ?? {};
+      const mark = (list: StoryWithUser[]) =>
+        list.map((s) =>
+          s.id === flowId
+            ? {
+                ...s,
+                // Renomear não mexe no pinned_at (a ordem da faixa não muda).
+                pinned_at: pinned ? (s.pinned_at ?? new Date().toISOString()) : null,
+                pinned_title: pinned ? (title ?? null) : null,
+              }
+            : s,
+        );
+      setProfileStories(mark);
+      setPinnedFlows(mark);
+      if (!isStoryViewerOpenRef.current) {
+        getUserPinnedFlowsDb(profileUserId).then(setPinnedFlows);
+      }
+    };
+    window.addEventListener(FLOW_PINNED_EVENT, onPinned);
+    return () => window.removeEventListener(FLOW_PINNED_EVENT, onPinned);
   }, [profileUserId, isViewingOtherProfile]);
 
   // Refresh vindo de fora (pull no feed, toque no logo, volta do background):
@@ -771,6 +814,8 @@ export default function Profile() {
     setIsShotEditorOpen(false);
     setIsStoryViewerOpen(false);
     setSelectedProfileStory(null);
+    setPinnedFlows([]);
+    setViewerSource("ring");
     setShowFollowersModal(false);
     setShowFollowingModal(false);
     setSelectedGoalForDrawer(null);
@@ -1330,7 +1375,7 @@ export default function Profile() {
                   // O dedo encostou → começa a baixar o clipe antes do modal montar.
                   // São ~200ms de vantagem, e é o que faz o flow abrir já rodando.
                   onPointerDown={() => prefetchFlowMedia(entryStory, "auto")}
-                  onClick={() => { setSelectedProfileStory(entryStory); setIsStoryViewerOpen(true); }}
+                  onClick={() => { setViewerSource("ring"); setSelectedProfileStory(entryStory); setIsStoryViewerOpen(true); }}
                   className="shrink-0 active:scale-95 transition-transform"
                   title={t("profile_view_flow")}
                 >
@@ -1805,6 +1850,20 @@ export default function Profile() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Flows fixados — logo acima das abas. Segue a mesma privacidade dos
+          posts: perfil que esconde posts de quem não segue esconde estes também. */}
+      {!(isViewingOtherProfile && profile?.hide_posts_from_non_followers && !viewerFollowsProfile) && (
+        <PinnedFlowsStrip
+          flows={pinnedFlows}
+          onPrefetch={(flow) => prefetchFlowMedia(flow, "auto")}
+          onOpen={(flow) => {
+            setViewerSource("pinned");
+            setSelectedProfileStory(flow);
+            setIsStoryViewerOpen(true);
+          }}
+        />
+      )}
 
       {/* Posts, Shots and Store Tabs */}
       <Tabs defaultValue="posts" className="w-full px-4">
@@ -2290,15 +2349,19 @@ export default function Profile() {
         <React.Suspense fallback={null}>
           <FlowViewer
             embedded={{
-              stories: profileStories,
+              stories: viewerStories,
               storyId: selectedProfileStory.id,
               onNavigate: (id) => {
-                const next = profileStories.find((s) => s.id === id);
+                const next = viewerStories.find((s) => s.id === id);
                 if (next) setSelectedProfileStory(next);
               },
               onClose: () => {
                 setIsStoryViewerOpen(false);
                 setSelectedProfileStory(null);
+                // Fixou/desafixou com o viewer aberto: agora pode reler a faixa.
+                if (!isViewingOtherProfile && profileUserId) {
+                  getUserPinnedFlowsDb(profileUserId).then(setPinnedFlows);
+                }
                 // Ao fechar, ressincroniza o que foi visto: o viewer grava cada
                 // visualização enquanto o usuário assiste, e o ring precisa reabrir
                 // no lugar certo.
@@ -2306,7 +2369,10 @@ export default function Profile() {
                   .then(setViewedFlowIds)
                   .catch(() => {});
               },
-              onDeleted: (id) => setProfileStories((prev) => prev.filter((s) => s.id !== id)),
+              onDeleted: (id) => {
+                setProfileStories((prev) => prev.filter((s) => s.id !== id));
+                setPinnedFlows((prev) => prev.filter((s) => s.id !== id));
+              },
             }}
           />
         </React.Suspense>

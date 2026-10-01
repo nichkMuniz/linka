@@ -21,6 +21,7 @@ import {
 } from "@/lib/offline-outbox";
 import { FEATURES } from "@/lib/feature-flags";
 import { verifiedTierOf, type VerifiedTier } from "@/lib/verified-tier";
+import { parseModerationNotice, type ModerationNotice, type ModerationReason } from "@/lib/notification-copy";
 
 // ─── Auth helpers ─────────────────────────────────────────────────────────────
 
@@ -6505,6 +6506,10 @@ export type Story = {
   media_transform?: StoryMediaTransform | null;
   reposted_from?: string | null;
   reposted_from_user?: string | null;
+  /** Quando foi fixado no perfil (NULL = não fixado). Migração 20261001-flow-pinned. */
+  pinned_at?: string | null;
+  /** Nome do destaque na faixa do perfil (NULL = mostra a data). Migração 20261001-flow-pinned-title. */
+  pinned_title?: string | null;
   created_at: string;
 };
 
@@ -6521,6 +6526,12 @@ export type StoryWithUser = Story & {
   repostedFromPhoto?: string | null;
 };
 
+// Com o nome do fixado (migração 20261001-flow-pinned-title).
+const FLOW_COLS_PINNED_TITLE =
+  "id, user_id, description, media_url, poster_url, duration_ms, background_color, text_position, text_elements, media_transform, reposted_from, reposted_from_user, pinned_at, pinned_title, created_at";
+// Com a marca de fixado no perfil (migração 20261001-flow-pinned).
+const FLOW_COLS_PINNED =
+  "id, user_id, description, media_url, poster_url, duration_ms, background_color, text_position, text_elements, media_transform, reposted_from, reposted_from_user, pinned_at, created_at";
 // Com a atribuição de repost (migração 20260729-flow-tags) — é o que o viewer usa
 // para desenhar a moldura do flow original.
 const FLOW_COLS_REPOST =
@@ -6538,9 +6549,12 @@ const FLOW_COLS_TEXT =
   "id, user_id, description, media_url, background_color, text_position, text_elements, created_at";
 const FLOW_COLS_BASE =
   "id, user_id, description, media_url, background_color, created_at";
-// Degradação em camadas: REPOST → DURATION → POSTER → FULL → TEXT → BASE (cada queda
-// remove só o que falta). A primeira query da sessão paga o erro 42703 e o cache guarda o nível.
+// Degradação em camadas: PINNED_TITLE → PINNED → REPOST → DURATION → POSTER → FULL →
+// TEXT → BASE (cada queda remove só o que falta). A primeira query da sessão paga o erro
+// 42703 e o cache guarda o nível.
 const FLOW_COLS_TIERS = [
+  FLOW_COLS_PINNED_TITLE,
+  FLOW_COLS_PINNED,
   FLOW_COLS_REPOST,
   FLOW_COLS_DURATION,
   FLOW_COLS_POSTER,
@@ -6548,7 +6562,7 @@ const FLOW_COLS_TIERS = [
   FLOW_COLS_TEXT,
   FLOW_COLS_BASE,
 ];
-let flowColsCache = FLOW_COLS_REPOST;
+let flowColsCache = FLOW_COLS_PINNED_TITLE;
 
 // PostgREST code for "undefined column"
 const isMissingColumnError = (err: any) =>
@@ -6813,6 +6827,116 @@ export async function getFlowByIdDb(flowId: string): Promise<StoryWithUser | nul
  * `detail` = `{ id, userId }` do flow criado.
  */
 export const FLOW_CREATED_EVENT = "lk:flow-created";
+
+/**
+ * Disparado ao fixar/desafixar um flow (detail: `{ flowId, pinned }`). O perfil
+ * escuta para atualizar a faixa de fixados sem recarregar a tela — o botão
+ * vive no FlowViewer e no Arquivo, longe dela.
+ */
+export const FLOW_PINNED_EVENT = "lk:flow-pinned";
+
+/** Máximo de flows fixados por pessoa — mesmo limite da RPC `set_flow_pinned`. */
+export const FLOW_PIN_LIMIT = 20;
+
+/** Tamanho máximo do nome do fixado — o servidor corta no mesmo ponto. */
+export const FLOW_PIN_TITLE_MAX = 30;
+
+/**
+ * Fixa/desafixa um flow do próprio usuário no perfil. Fixar não mexe na
+ * expiração do feed — só faz o flow continuar visível na faixa do perfil.
+ * Fixar um flow já fixado com outro `title` = renomear (a ordem não muda).
+ * `title` vazio/NULL → a faixa mostra a data. Lança `PIN_LIMIT` ao passar de
+ * FLOW_PIN_LIMIT.
+ */
+export async function setFlowPinnedDb(flowId: string, pinned: boolean, title?: string | null): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) throw new Error("Supabase não configurado");
+  const viewer = await getViewer();
+  if (!viewer) throw new Error("Não autenticado");
+
+  const cleanTitle = pinned ? (title ?? "").replace(/\s+/g, " ").trim().slice(0, FLOW_PIN_TITLE_MAX) || null : null;
+  let { data, error } = await supabase.rpc("set_flow_pinned", {
+    p_flow_id: Number(flowId),
+    p_pinned: pinned,
+    p_title: cleanTitle,
+  });
+  // Banco só com a 20261001-flow-pinned (sem o nome): fixa sem o título.
+  if (error?.code === "PGRST202") {
+    ({ data, error } = await supabase.rpc("set_flow_pinned", {
+      p_flow_id: Number(flowId),
+      p_pinned: pinned,
+    }));
+  }
+  if (error) {
+    if (error.message?.includes("PIN_LIMIT")) throw new Error("PIN_LIMIT");
+    if (error.code === "PGRST202") throw new Error("Migração 20261001-flow-pinned.sql não aplicada no Supabase");
+    throw new Error(error.message);
+  }
+  // false = o flow não é do usuário (ou já não existe): nada mudou.
+  if (data !== true) throw new Error("FLOW_NOT_FOUND");
+
+  invalidateQueryCache(`userPinnedFlows:${viewer.id}`);
+  invalidateQueryCache(`userActiveStories:${viewer.id}`);
+  invalidateQueryCache(`activeStories:${viewer.id}`);
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent(FLOW_PINNED_EVENT, { detail: { flowId, pinned, title: cleanTitle } }));
+  }
+}
+
+/**
+ * Flows fixados no perfil de `userId`, mais recente primeiro — SEM o filtro de
+ * 24h do ring. Banco sem a coluna `pinned_at` → lista vazia (a faixa some).
+ */
+export async function getUserPinnedFlowsDb(userId: string): Promise<StoryWithUser[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  // Erro de rede LANÇA dentro do `cached` (que não pode guardar falha — viraria
+  // "nenhum fixado" pelo TTL inteiro) e vira lista vazia só aqui fora.
+  return cached(`userPinnedFlows:${userId}`, CACHE_TTL_MEDIUM, async () => {
+    // Colunas fixas (não `selectFlow`): sem `pinned_at` não há o que listar, e a
+    // degradação geral de colunas tiraria justamente o filtro. Só o nome é
+    // opcional (banco sem a 20261001-flow-pinned-title).
+    const fetchPinned = (cols: string) =>
+      supabase!
+        .from("flow")
+        .select(cols)
+        .eq("user_id", userId)
+        .not("pinned_at", "is", null)
+        .order("pinned_at", { ascending: false })
+        .limit(FLOW_PIN_LIMIT);
+    const [firstFlowResult, profileResult] = await Promise.all([
+      fetchPinned(FLOW_COLS_PINNED_TITLE),
+      supabase!
+        .from("profiles")
+        .select("user_id, nickname, photo, is_verified, verified_tier")
+        .eq("user_id", userId)
+        .limit(1),
+    ]);
+
+    let flowResult: { data: any[] | null; error: any } = firstFlowResult;
+    if (flowResult.error && isMissingColumnError(flowResult.error)) {
+      flowResult = await fetchPinned(FLOW_COLS_PINNED);
+    }
+    if (flowResult.error) {
+      // Coluna ausente = migração não rodou: vazio é a resposta certa (e estável).
+      if (isMissingColumnError(flowResult.error)) return [];
+      throw new Error(flowResult.error.message);
+    }
+    if (!flowResult.data?.length) return [];
+
+    const profile = profileResult.data?.[0];
+    return attachRepostAuthors(flowResult.data.map((story: any) => ({
+      ...story,
+      id: String(story.id),
+      user_id: String(story.user_id),
+      userNickname: profile?.nickname ?? tUi("user_fallback_name"),
+      userPhoto: profile?.photo ?? null,
+      verifiedTier: verifiedTierOf(profile),
+    })));
+  }).catch((err) => {
+    console.error("Erro ao buscar flows fixados:", err?.message ?? err);
+    return [] as StoryWithUser[];
+  });
+}
 
 export async function createStoryDb(
   description: string,
@@ -9211,7 +9335,7 @@ export async function toggleUserHabitCompletionDb(
 // Notifications functionality
 export type NotificationItem = {
   id: string;
-  type: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 20 | 21; // 1 = new follower, 2 = incentive, 3 = comment, 4 = duel invite, 5 = join request, 6 = comment reaction, 7 = check-in reaction, 8 = promotion comment, 9 = tagged in post, 10 = private message, 11 = duel check-in, 12 = promotion like, 13 = promotion expired, 14 = check-in classificado, 15 = check-in desclassificado, 16 = tagged in flow, 17 = resposta a um flow (mensagem privada, só push), 18 = comentaram no flow em que você também comentou, 20 = mencionado (@) num comentário, 21 = repost da sua publicação (post_id = o repost)
+  type: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 20 | 21 | 22; // 1 = new follower, 2 = incentive, 3 = comment, 4 = duel invite, 5 = join request, 6 = comment reaction, 7 = check-in reaction, 8 = promotion comment, 9 = tagged in post, 10 = private message, 11 = duel check-in, 12 = promotion like, 13 = promotion expired, 14 = check-in classificado, 15 = check-in desclassificado, 16 = tagged in flow, 17 = resposta a um flow (mensagem privada, só push), 18 = comentaram no flow em que você também comentou, 20 = mencionado (@) num comentário, 21 = repost da sua publicação (post_id = o repost), 22 = seu conteúdo foi removido pela moderação (sistema, sem follower_id — ver `moderation`)
   userId: string;
   userNickname: string;
   userPhoto: string | null;
@@ -9224,6 +9348,8 @@ export type NotificationItem = {
   postPhoto?: string;
   incentiveType?: number; // For type 2 (incentive): 1=apoio, 2=continua, 3=ganhador, 4=consegueMais, 5=limiteMaior, 6=maisAlgum
   groupName?: string; // For type 4 (duel invite)
+  /** Type 22: o conteúdo já foi apagado — o que sobra para mostrar vem de `notifications.meta`. */
+  moderation?: ModerationNotice;
   createdAt: string;
   read?: boolean; // Whether the notification has been read
 };
@@ -9248,28 +9374,24 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
 
   try {
     // Read directly from notifications table
-    const { data: notificationsData, error } = await supabase
-      .from("notifications")
-      .select(
-        `
-        id,
-        follower_id,
-        type,
-        post_id,
-        shots_id,
-        flow_id,
-        duel_check_in_id,
-        incentive_type,
-        created_at,
-        read
-      `
-      )
-      .eq("user_id", viewer.id)
-      // Tipos 10 e 17 (mensagem privada / resposta a flow) são só gatilho de push —
-      // nunca viram card aqui. Ver sendMessageNotificationDb.
-      .not("type", "in", NOTIF_TYPES_PUSH_ONLY_FILTER)
-      .order("created_at", { ascending: false })
-      .limit(100);
+    const BASE_COLS = "id, follower_id, type, post_id, shots_id, flow_id, duel_check_in_id, incentive_type, created_at, read";
+    const fetchRows = (cols: string) =>
+      supabase!
+        .from("notifications")
+        .select<string, any>(cols)
+        .eq("user_id", viewer.id)
+        // Tipos 10 e 17 (mensagem privada / resposta a flow) são só gatilho de push —
+        // nunca viram card aqui. Ver sendMessageNotificationDb.
+        .not("type", "in", NOTIF_TYPES_PUSH_ONLY_FILTER)
+        .order("created_at", { ascending: false })
+        .limit(100);
+    // `meta` (type 22) vem da migração 20261001-moderation-removal-notice. Sem
+    // ela o select inteiro falharia (42703) e a tela ficaria vazia — então
+    // tenta de novo sem a coluna.
+    let { data: notificationsData, error } = await fetchRows(`${BASE_COLS}, meta`);
+    if (error?.code === "42703") {
+      ({ data: notificationsData, error } = await fetchRows(BASE_COLS));
+    }
 
     if (error) {
       console.error("Error fetching notifications:", error);
@@ -9291,7 +9413,9 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
     if (visibleNotifications.length === 0) return [];
 
     // Get all follower IDs and post IDs to fetch related data
-    const followerIds = [...new Set(visibleNotifications.map((n: any) => n.follower_id))];
+    // Notificação do sistema (type 22) não tem `follower_id`: um null no `.in()`
+    // derrubaria a consulta de perfis inteira — e com ela todos os cards.
+    const followerIds = [...new Set(visibleNotifications.map((n: any) => n.follower_id).filter(Boolean))];
     // Tipos cujo post_id NÃO guarda um post: 4/5/11 → id do grupo de duelo; 8/12/13 → id da promoção
     const postIds = [...new Set(visibleNotifications.filter((n: any) => !NOTIF_TYPES_WITHOUT_POST.has(Number(n.type)) && !n.shots_id && !n.flow_id).map((n: any) => n.post_id).filter(Boolean))];
     // shots_id may contain "flow:<id>" or "checkin:<id>" prefixed values — exclude those from the shots DB query
@@ -9542,6 +9666,21 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
     // Transform notifications table records to NotificationItem format
     const notifications: NotificationItem[] = visibleNotifications
       .map((notif: any) => {
+        // Type 22 = aviso da moderação. Vem do sistema: sem perfil de origem e
+        // sem conteúdo vivo para apontar (já foi apagado).
+        if (Number(notif.type) === 22) {
+          return {
+            id: notif.id,
+            type: 22,
+            userId: "",
+            userNickname: "",
+            userPhoto: null,
+            moderation: parseModerationNotice(notif.meta),
+            createdAt: notif.created_at,
+            read: notif.read ?? false,
+          } satisfies NotificationItem;
+        }
+
         const profile = profileMap.get(notif.follower_id);
         if (!profile) return null;
 
@@ -13131,6 +13270,34 @@ export async function deleteAllUserDataDb(userId: string): Promise<void> {
   if (removed && removed["auth.users"] > 0) return;
 
   // ── 3. Fallback: encerrar a conta com a service role, do servidor ────────
+  await deleteAuthUserViaServerDb(userId);
+}
+
+/**
+ * Cadastro por Google/Apple abandonado no meio: apaga a conta recém-criada,
+ * para ela só existir se a pessoa concluir todos os passos.
+ *
+ * A RPC `discard_incomplete_social_signup` decide no servidor se a conta é
+ * mesmo um cadastro incompleto (sem `signup_completed`, sem posts/flows) e
+ * recusa (`SIGNUP_NOT_ABANDONED`) caso contrário — então uma conta concluída
+ * nunca é apagada por aqui, mesmo com o estado local do app errado.
+ * Ver `docs/migrations/20261001-abandoned-social-signup.sql`.
+ *
+ * Chamar ANTES do signOut: tudo depende da sessão.
+ */
+export async function discardIncompleteSocialSignupDb(userId: string): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) throw new Error("Supabase não configurado");
+  assertUUID(userId, "ID do usuário");
+
+  const { data, error } = await (supabase as any).rpc("discard_incomplete_social_signup");
+  if (error) throw error;
+  const removed = (data ?? null) as Record<string, number> | null;
+  if (removed && removed["auth.users"] > 0) return;
+  await deleteAuthUserViaServerDb(userId);
+}
+
+/** Encerra a conta em `auth.users` com a service role (fallback das exclusões). */
+async function deleteAuthUserViaServerDb(userId: string): Promise<void> {
   const { data: sessionData } = await (supabase as NonNullable<typeof supabase>).auth.getSession();
   const accessToken = sessionData?.session?.access_token;
   // Sem token não há como autenticar a exclusão. Falhar alto: as linhas do
@@ -16056,14 +16223,53 @@ export async function adminDismissComplaintDb(
   id: string,
 ): Promise<void> {
   if (!supabase) return;
-  const tableMap = {
-    post: "post_complaint",
-    shot: "shots_complaint",
-    flow: "flow_complaint",
-    usuario: "user_complaint",
-  } as const;
-  const { error } = await supabase.from(tableMap[tipo]).delete().eq("id", id);
-  if (error) throw new Error(error.message);
+  // RPC, não `delete()` direto: as tabelas de denúncia não têm policy de DELETE,
+  // e sob RLS o delete do admin casava 0 linhas SEM erro — a denúncia voltava
+  // para a fila no próximo carregamento. Ver 20261001-admin-dismiss-unban.sql.
+  const { error } = await supabase.rpc("admin_dismiss_complaint", {
+    p_tipo: tipo,
+    p_id: String(id),
+  });
+  if (error) throw new Error(adminRpcErrorMessage(error, "20261001-admin-dismiss-unban.sql"));
+}
+
+/** Ban resolve todas as denúncias de PERFIL contra a pessoa (não as de conteúdo). */
+export async function adminResolveUserComplaintsDb(userId: string): Promise<number> {
+  if (!supabase) return 0;
+  assertUUID(userId, "ID do usuário");
+  const { data, error } = await supabase.rpc("admin_resolve_user_complaints", { p_user_id: userId });
+  if (error) throw new Error(adminRpcErrorMessage(error, "20261001-admin-dismiss-unban.sql"));
+  return Number(data ?? 0);
+}
+
+export type AdminBannedUser = {
+  userId: string;
+  nickname: string;
+  handle: string | null;
+  photo: string | null;
+  /** NULL quando o ban não veio do painel (não dá para saber a data). */
+  bannedAt: string | null;
+};
+
+/** Quem está banido (flag em `profiles` OU `banned_until` no auth). Sem cache: tela de gestão. */
+export async function getAdminBannedUsersDb(): Promise<AdminBannedUser[]> {
+  if (!supabase) return [];
+  const { data, error } = await supabase.rpc("admin_list_banned");
+  if (error) throw new Error(adminRpcErrorMessage(error, "20261001-admin-dismiss-unban.sql"));
+  return ((data ?? []) as any[]).map((r) => ({
+    userId: String(r.user_id),
+    nickname: r.nickname ?? "",
+    handle: r.handle ?? null,
+    photo: r.photo ?? null,
+    bannedAt: r.banned_at ?? null,
+  }));
+}
+
+/** Mensagem legível para os erros que as RPCs do painel devolvem de verdade. */
+function adminRpcErrorMessage(error: { code?: string; message?: string }, migration: string): string {
+  if (error.code === "PGRST202") return `Migração ${migration} não aplicada no Supabase`;
+  if (error.message?.includes("NOT_ADMIN")) return "Sua conta não tem permissão de admin no servidor.";
+  return error.message ?? "Erro desconhecido";
 }
 
 /**
@@ -16304,14 +16510,26 @@ function collectMediaUrls(row: any, textCols: string[], arrayCols: string[] = []
 export async function adminDeleteContentDb(
   tipo: AdminComplaint["tipo"],
   conteudo_id: string,
-): Promise<{ deleted: boolean }> {
+  reason: ModerationReason = "other",
+): Promise<{ deleted: boolean; notified: boolean }> {
   if (!hasSupabaseConfig || !supabase) throw new Error("Supabase não configurado");
-  if (tipo === "usuario") return { deleted: false }; // ban handled separately
+  if (tipo === "usuario") return { deleted: false, notified: false }; // ban handled separately
 
-  const { data, error } = await supabase.rpc("admin_delete_content", {
+  // O servidor grava o aviso ao autor (type 22) na mesma transação do delete —
+  // ver docs/migrations/20261001-moderation-removal-notice.sql.
+  let { data, error } = await supabase.rpc("admin_delete_content", {
     p_tipo: tipo,
     p_id: String(conteudo_id),
+    p_reason: reason,
   });
+  // Banco sem a migração 20261001 só conhece a assinatura de 2 argumentos:
+  // remove do mesmo jeito, só não avisa o autor (`notified` volta false).
+  if (error?.code === "PGRST202") {
+    ({ data, error } = await supabase.rpc("admin_delete_content", {
+      p_tipo: tipo,
+      p_id: String(conteudo_id),
+    }));
+  }
 
   if (error) {
     if (error.message?.includes("NOT_ADMIN")) {
@@ -16320,7 +16538,7 @@ export async function adminDeleteContentDb(
     throw new Error(error.message);
   }
 
-  const result = (data ?? {}) as { deleted?: boolean; media?: string[] };
+  const result = (data ?? {}) as { deleted?: boolean; media?: string[]; notified?: boolean };
 
   // Flow e post: a mídia pode estar compartilhada com um repost
   // (`repostStoryDb`/`repostPostDb` não copiam o arquivo). Remover a lista crua
@@ -16346,7 +16564,7 @@ export async function adminDeleteContentDb(
   // `deleted: false` aqui só pode significar que a linha já não existia — a RPC
   // ignora RLS, então não há mais o no-op silencioso de antes. Quem chama usa
   // isso para arquivar a denúncia avisando, em vez de travá-la na fila.
-  return { deleted: result.deleted === true };
+  return { deleted: result.deleted === true, notified: result.notified === true };
 }
 
 /**

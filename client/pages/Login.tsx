@@ -21,7 +21,7 @@ import {
 } from "@/lib/network-status";
 import { getKeyboardHeight, subscribeKeyboardHeight } from "@/lib/keyboard";
 import { Upload, X, Check, ArrowLeft, Eye, EyeOff, Plus, Trash2, ScanFace, Mail } from "lucide-react";
-import { createOrUpdateCommercialProfileDb, saveCommercialPlansDb, type ServicePlan, checkEmailExistsDb, checkHandleExistsDb, invalidateProfileCache, isValidEmail } from "@/lib/ritmofit-db";
+import { createOrUpdateCommercialProfileDb, saveCommercialPlansDb, type ServicePlan, checkEmailExistsDb, checkHandleExistsDb, invalidateProfileCache, isValidEmail, discardIncompleteSocialSignupDb } from "@/lib/ritmofit-db";
 import { ImageCropperDrawer, AVATAR_MAX_EXPORT } from "@/components/shared/image-cropper-drawer";
 import { LoginSplashOriginal } from "@/components/shared/login-splash-original";
 import { Browser } from "@capacitor/browser";
@@ -465,6 +465,22 @@ export default function Login() {
   }, []);
 
 
+  // Desistiu do cadastro por provedor (voltou, ou reabriu o app no meio): a
+  // conta recém-criada é apagada, para o cadastro só existir se for concluído.
+  // A RPC recusa conta já concluída (SIGNUP_NOT_ABANDONED) — aí só desloga.
+  const discardSocialSignupAndSignOut = React.useCallback(async (userId: string) => {
+    if (!supabase) return;
+    try {
+      await discardIncompleteSocialSignupDb(userId);
+    } catch (err: any) {
+      if (!String(err?.message ?? "").includes("SIGNUP_NOT_ABANDONED")) {
+        reportHandledError(err, "login:discard-social-signup");
+      }
+    }
+    // `local`: se a conta já saiu de auth.users, o logout no servidor falharia.
+    await supabase.auth.signOut({ scope: "local" }).catch(() => {});
+  }, []);
+
   // Entrou por Google/Apple (agora mesmo) e o cadastro ainda não terminou →
   // passos de perfil em vez do feed.
   const beginSocialSignup = React.useCallback(async (authUser: NonNullable<typeof user>, fullName?: string | null) => {
@@ -517,10 +533,12 @@ export default function Login() {
       // incompleta (voltou depois, recarregou, veio do RequireAuth) encerra a
       // sessão e mostra o login normal, COM os botões — antes, a tela ficava
       // presa no passo de perfil e os botões "sumiam" depois do 1º uso.
+      // Encerrar aqui também APAGA a conta: cadastro que não chegou ao fim
+      // não existe (o servidor confere antes de apagar).
       if (consumeSocialAttempt()) {
         void beginSocialSignup(user);
-      } else if (supabase) {
-        void supabase.auth.signOut().catch(() => {});
+      } else {
+        void discardSocialSignupAndSignOut(user.id);
       }
       return;
     }
@@ -536,7 +554,7 @@ export default function Login() {
     } else {
       navigate("/", { replace: true });
     }
-  }, [authLoading, user, navigate, isCompletingSignup, showNewPassword, showEnableBiometricPrompt, beginSocialSignup]);
+  }, [authLoading, user, navigate, isCompletingSignup, showNewPassword, showEnableBiometricPrompt, beginSocialSignup, discardSocialSignupAndSignOut]);
 
   // Retorno do OAuth do Google. No iOS chega pelo custom scheme
   // (`com.linka.meuapp://login-callback?code=…` — o DeepLinkHandler do App.tsx
@@ -633,10 +651,15 @@ export default function Login() {
     }
   };
 
-  // Desistiu no meio do cadastro por provedor: sai da conta recém-autenticada.
-  // A linha já existe no auth, mas sem `signup_completed` ela volta para estes
-  // passos no próximo login pelo mesmo provedor.
+  // Desistiu no meio do cadastro por provedor: apaga a conta recém-criada e
+  // sai dela. O próximo login pelo mesmo provedor começa um cadastro do zero.
+  // Apaga ANTES de resetar o estado: com `isCompletingSignup` ainda true, o
+  // efeito de roteamento não dispara um segundo descarte da mesma conta.
   const cancelSocialSignup = async () => {
+    if (busy) return;
+    setBusy(true);
+    if (user?.id) await discardSocialSignupAndSignOut(user.id);
+    else if (supabase) await supabase.auth.signOut().catch(() => {});
     setIsOAuthSignup(false);
     setIsCompletingSignup(false);
     setSignupStep(1);
@@ -645,7 +668,7 @@ export default function Login() {
     setDisplayName("");
     setEmail("");
     setTermsAccepted(false);
-    if (supabase) await supabase.auth.signOut().catch(() => {});
+    setBusy(false);
   };
 
   // Detect biometric hardware + opt-in status once on mount.
@@ -1072,6 +1095,11 @@ export default function Login() {
         await new Promise((resolve) => setTimeout(resolve, 800));
         resolvedUser = (await supabase.auth.getUser()).data.user;
       }
+      // Google/Apple: sem sessão não há como concluir — fica no passo para
+      // tentar de novo, em vez de seguir para o feed com o cadastro aberto.
+      if (!resolvedUser && isOAuthSignup) {
+        throw new Error("network: session unavailable");
+      }
       if (!resolvedUser) {
         console.error("Cadastro: sessão indisponível — perfil não foi gravado.");
         toast({
@@ -1162,7 +1190,8 @@ export default function Login() {
           if (profileError) {
             console.error("Erro ao salvar perfil no cadastro:", profileError);
             // Corrida rara: o handle foi ocupado entre a validação e o envio.
-            if (profileError.code === "23505" && String(profileError.message).toLowerCase().includes("handle")) {
+            const handleTaken = profileError.code === "23505" && String(profileError.message).toLowerCase().includes("handle");
+            if (handleTaken) {
               toast({
                 title: t("login_toast_handle_taken_title"),
                 description: t("login_toast_handle_taken_late"),
@@ -1174,6 +1203,12 @@ export default function Login() {
                 description: t("login_toast_profile_failed_desc"),
                 variant: "destructive",
               });
+            }
+            // Google/Apple: o perfil É o cadastro — sem ele gravado, não
+            // conclui. Fica nos passos (no do @, se foi ele) para corrigir.
+            if (isOAuthSignup) {
+              if (handleTaken) setSignupStep(2);
+              return;
             }
           } else if (!savedRows || savedRows.length === 0) {
             // 0 linhas sem erro = a linha ainda não existe (trigger handle_new_user
@@ -1199,6 +1234,7 @@ export default function Login() {
                 description: t("login_toast_profile_failed_desc2"),
                 variant: "destructive",
               });
+              if (isOAuthSignup) return;
             }
           }
           // Garante que o feed leia foto/handle atualizados, não o cache do trigger.
@@ -1270,7 +1306,10 @@ export default function Login() {
           : message,
         variant: "destructive",
       });
-      setIsCompletingSignup(false);
+      // Google/Apple: continua nos passos para tentar de novo. Soltar o
+      // `isCompletingSignup` faria o efeito de roteamento tratar a conta como
+      // cadastro abandonado e apagá-la.
+      if (!isOAuthSignup) setIsCompletingSignup(false);
     } finally {
       setBusy(false);
     }

@@ -2,10 +2,12 @@ import * as React from "react";
 import { requestAppRefresh, useAppRefresh } from "@/lib/app-refresh";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
-import { MessageCircle, MessagesSquare, UserPlus, Zap, Swords, SmilePlus, ChevronLeft, AtSign, Send, Dumbbell, Heart, Clock, CheckCircle2, XCircle, Repeat2, Bell } from "lucide-react";
+import { MessageCircle, MessagesSquare, UserPlus, Zap, Swords, SmilePlus, ChevronLeft, AtSign, Send, Dumbbell, Heart, Clock, CheckCircle2, XCircle, Repeat2, Bell, ShieldAlert } from "lucide-react";
 import { INCENTIVE_CONFIG } from "@/lib/incentive-config";
 import { getNotificationsDb, markNotificationsAsReadDb, clearNotificationsDb, getFollowingIdsDb, invalidateQueryCache, type NotificationItem } from "@/lib/ritmofit-db";
-import { notificationBody } from "@/lib/notification-copy";
+import { notificationBody, moderationKindLabel, moderationReasonLabel, type ModerationNotice } from "@/lib/notification-copy";
+import { Browser } from "@capacitor/browser";
+import { TERMS_URL } from "@/lib/share-url";
 import { supabase } from "@/lib/supabase";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { ScreenAura } from "@/components/shared/screen-aura";
@@ -35,6 +37,9 @@ export default function Notifications() {
   const [loading, setLoading] = React.useState(true);
   const [isClearing, setIsClearing] = React.useState(false);
   const [clearDialogOpen, setClearDialogOpen] = React.useState(false);
+  // Type 22: o conteúdo removido não existe mais para ser aberto — o toque mostra
+  // o porquê (motivo + trecho da legenda) em vez de levar a uma tela vazia.
+  const [removedNotice, setRemovedNotice] = React.useState<ModerationNotice | null>(null);
   const channelRef = React.useRef<ReturnType<NonNullable<typeof supabase>["channel"]> | null>(null);
 
   // Reusable loader so it can be triggered both on mount and via pull-to-refresh.
@@ -263,6 +268,9 @@ export default function Notifications() {
       // 21 = repostaram sua publicação — mesmo ícone do botão "Seu feed".
       case 21:
         return <Repeat2 className="h-5 w-5 text-violet-400" />;
+      // 22 = conteúdo removido pela moderação (aviso do sistema, sem avatar).
+      case 22:
+        return <ShieldAlert className="h-5 w-5 text-red-400" />;
       default:
         return <Zap className="h-5 w-5 text-gray-500" />;
     }
@@ -406,6 +414,11 @@ export default function Notifications() {
   };
 
   const handleNotificationClick = (notification: NotificationItem) => {
+    // Type 22 (conteúdo removido pela moderação) — explica, não navega.
+    if (notification.type === 22) {
+      if (notification.moderation) setRemovedNotice(notification.moderation);
+      return;
+    }
     // Types 8 / 12 / 13 (comentário, curtida e expiração de promoção) — abrem a Vitrine
     if (notification.type === 8 || notification.type === 12 || notification.type === 13) {
       navigate("/vitrine");
@@ -594,6 +607,7 @@ export default function Notifications() {
       case 18: return { iconBg: "rgba(129,140,248,.16)", iconColor: "#818cf8" };
       case 20: return { iconBg: "rgba(34,211,238,.16)", iconColor: "#22d3ee" };
       case 21: return { iconBg: "rgba(167,139,250,.16)", iconColor: "#a78bfa" };
+      case 22: return { iconBg: "rgba(248,113,113,.16)", iconColor: "#f87171" };
       default: return { iconBg: "rgba(255,255,255,.1)", iconColor: "rgba(255,255,255,.7)" };
     }
   };
@@ -653,6 +667,7 @@ export default function Notifications() {
         flow_id: notification.flowId ?? null,
         duel_check_in_id: notification.checkInId ?? null,
         incentive_type: notification.incentiveType ?? null,
+        meta: notification.moderation ?? null,
       },
       { name, groupName: notification.groupName ?? null },
     );
@@ -684,6 +699,7 @@ export default function Notifications() {
       case 18: return { background: "#818cf8" };
       case 20: return { background: "#22d3ee" };
       case 21: return { background: "#a78bfa" };
+      case 22: return { background: "#f87171" };
       default: return { background: "rgba(255,255,255,.5)" };
     }
   };
@@ -883,9 +899,19 @@ export default function Notifications() {
 
                               {/* Text */}
                               <div className="flex-1 min-w-0">
+                                {notification.type === 22 && (
+                                  <p className="font-semibold" style={{ fontSize: "12px", color: "#f87171" }}>
+                                    {t("notif_removed_sender")}
+                                  </p>
+                                )}
                                 <p className="leading-snug" style={{ fontSize: "13.5px", color: "#fff" }}>
                                   {renderDescription(description, notification.userNickname)}
                                 </p>
+                                {notification.type === 22 && notification.moderation?.preview && (
+                                  <p className="truncate mt-0.5" style={{ fontSize: "12px", color: "rgba(255,255,255,.55)" }}>
+                                    “{notification.moderation.preview}”
+                                  </p>
+                                )}
                                 <p className="mt-0.5" style={{ fontSize: "11px", color: "rgba(255,255,255,.45)" }}>
                                   {formatTimeAgo(notification.createdAt)}
                                 </p>
@@ -937,6 +963,42 @@ export default function Notifications() {
             </div>
           )}
         </div>
+
+        {/* Type 22 — detalhes da remoção pela moderação */}
+        <AlertDialog open={!!removedNotice} onOpenChange={(open) => { if (!open) setRemovedNotice(null); }}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle className="flex items-center gap-2">
+                <ShieldAlert className="h-5 w-5 text-red-400 shrink-0" />
+                {removedNotice
+                  ? t("notif_removed_dialog_title").replace("{kind}", moderationKindLabel(t, removedNotice.kind))
+                  : ""}
+              </AlertDialogTitle>
+              <AlertDialogDescription>{t("notif_removed_dialog_body")}</AlertDialogDescription>
+            </AlertDialogHeader>
+            {removedNotice && (
+              <div className="space-y-3 text-sm">
+                <div className="rounded-xl border border-border bg-muted/40 px-3 py-2.5">
+                  <p className="text-xs text-muted-foreground">{t("notif_removed_dialog_reason")}</p>
+                  <p className="font-medium text-foreground">{moderationReasonLabel(t, removedNotice.reason)}</p>
+                </div>
+                {removedNotice.preview && (
+                  <div className="rounded-xl border border-border bg-muted/40 px-3 py-2.5">
+                    <p className="text-xs text-muted-foreground">{t("notif_removed_dialog_content")}</p>
+                    <p className="text-foreground break-words">“{removedNotice.preview}”</p>
+                  </div>
+                )}
+                <p className="text-xs text-muted-foreground">{t("notif_removed_dialog_repeat")}</p>
+              </div>
+            )}
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => { void Browser.open({ url: TERMS_URL }); }}>
+                {t("notif_removed_dialog_guidelines")}
+              </AlertDialogCancel>
+              <AlertDialogAction>{t("notif_removed_dialog_ok")}</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         <AlertDialog open={clearDialogOpen} onOpenChange={setClearDialogOpen}>
           <AlertDialogContent>

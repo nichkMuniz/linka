@@ -41,16 +41,23 @@ export function needsSocialSignupCompletion(user: User | null | undefined): bool
   return true;
 }
 
-/** Marca o cadastro por provedor como concluído (metadata + marca local). */
+/**
+ * Marca o cadastro por provedor como concluído (metadata + marca local).
+ *
+ * Lança se o metadata não gravar: é ele que o servidor lê para decidir se a
+ * conta é um cadastro abandonado (e apagá-la — migração 20261001). Concluir
+ * só com a marca local deixaria uma conta "pronta" no app que o banco ainda
+ * considera incompleta.
+ */
 export async function markSocialSignupCompleted(userId: string): Promise<void> {
+  if (!supabase) return;
+  const { error } = await supabase.auth.updateUser({ data: { signup_completed: true } });
+  if (error) throw error;
   try {
     localStorage.setItem(completedKey(userId), "1");
   } catch {
     // ignore
   }
-  if (!supabase) return;
-  const { error } = await supabase.auth.updateUser({ data: { signup_completed: true } });
-  if (error) console.error("Erro ao marcar cadastro social concluído:", error);
 }
 
 /** Conta sem senha (só Google/Apple) — biometria não se aplica a ela. */
