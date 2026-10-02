@@ -1,4 +1,5 @@
 import * as React from "react";
+import type { VerifiedTier } from "@/lib/verified-tier";
 import { useNavigate } from "react-router-dom";
 import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/useAuth";
@@ -14,6 +15,9 @@ import {
 } from "@/lib/ritmofit-db";
 
 /** O mínimo de um post para decidir e executar o recompartilhamento. */
+/** Teto da legenda copiada para o flow: a moldura mostra 3 linhas, o resto é só peso no jsonb. */
+const FLOW_POST_CAPTION_MAX = 300;
+
 export type ResharablePost = {
   id: string;
   user_id: string;
@@ -21,6 +25,11 @@ export type ResharablePost = {
   photos?: string[] | null;
   userNickname?: string | null;
   userPhoto?: string | null;
+  /** Selo do autor — vai junto na moldura do post no flow. */
+  isVerified?: boolean;
+  verifiedTier?: VerifiedTier | null;
+  /** Legenda — vai junto na moldura do post no flow. */
+  description?: string | null;
   taggedUsers?: SearchUser[];
   repostOf?: RepostOrigin | null;
 };
@@ -73,6 +82,8 @@ export function usePostReshare(options: {
     authorId: post!.user_id,
     authorNickname: post!.userNickname ?? "",
     authorPhoto: post!.userPhoto ?? null,
+    authorVerifiedTier: post!.isVerified ? (post!.verifiedTier ?? "notable") : null,
+    caption: post!.description?.trim() ? post!.description.trim().slice(0, FLOW_POST_CAPTION_MAX) : null,
   });
 
   const shareToFlow = canShareToFlow

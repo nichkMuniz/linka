@@ -1,4 +1,5 @@
 import * as React from "react";
+import { useAppRefresh } from "@/lib/app-refresh";
 import { QuickIncentiveOverlay } from "@/components/shared/quick-incentive-overlay";
 import { showIncentiveToast } from "@/lib/incentive-toast";
 import {
@@ -617,6 +618,16 @@ export default function Shots() {
     }
   }, [shots, location.state]);
 
+  // Volta ao app depois de 5+ min fora: relê a lista SÓ se a pessoa está no
+  // primeiro shot (mesma regra do feed, que só recarrega no topo). No meio da
+  // lista, trocar a ordem tiraria o vídeo que ela está vendo do lugar.
+  const [refreshTick, setRefreshTick] = React.useState(0);
+  useAppRefresh(({ reason }) => {
+    if (reason !== "resume") return;
+    const current = visibleShotIdRef.current;
+    if (!current || current === shots[0]?.id) setRefreshTick((n) => n + 1);
+  });
+
   // Load shots on mount
   React.useEffect(() => {
     (async () => {
@@ -666,7 +677,8 @@ export default function Shots() {
         setLoading(false);
       }
     })();
-  }, [user?.id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, refreshTick]);
 
   // Set up IntersectionObserver to detect visible shot and auto-play video
   React.useEffect(() => {

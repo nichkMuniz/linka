@@ -5,7 +5,7 @@ import { SectionHeader } from "@/components/shared/section-header";
 import { useLanguage } from "@/lib/language-context";
 import { formatScheduledTime } from "@/hooks/use-routine-notifications";
 import {
-  computeSequentialWorkoutDue,
+  type SequentialCycle,
   isCompletedToday,
   isSequentialCard,
   type RoutineCard,
@@ -24,6 +24,8 @@ interface TodayDashboardProps {
   userGoals: UserGoal[];
   /** map user_workout_id → ISO date of last execution */
   routineLastDates: Record<string, string>;
+  /** Ciclo do rodízio sequencial — `due` é a rotina em 0% que o card mostra. */
+  seqCycle?: SequentialCycle;
   /** routine name of the workout in progress (null = none) */
   activeWorkoutName: string | null;
   onStartWorkout: (card: RoutineCard) => void;
@@ -90,6 +92,7 @@ export function TodayDashboard({
   cards,
   userGoals,
   routineLastDates,
+  seqCycle = null,
   activeWorkoutName,
   onStartWorkout,
   onOpenCard,
@@ -141,12 +144,10 @@ export function TodayDashboard({
     [cardWeekdays, todayIdx],
   );
 
-  // Treino SEQUENCIAL não usa dias fixos: o rodízio surface uma rotina por dia,
-  // avançando só por conclusão. Fica fora do filtro por dia da semana.
-  const seqDue = React.useMemo(
-    () => computeSequentialWorkoutDue(workoutCards, routineLastDates, today),
-    [workoutCards, routineLastDates, today],
-  );
+  // Treino SEQUENCIAL não usa dias fixos: o card mostra SEMPRE a próxima rotina
+  // do rodízio que está em 0% no ciclo (02/10/2026 — antes, a feita hoje
+  // continuava no card como "concluída" até virar o dia).
+  const seqDue = React.useMemo(() => (seqCycle ? { card: seqCycle.due } : null), [seqCycle]);
 
   // Tarefas de hoje, sempre na ordem treino → dieta → hábitos. Treinos por dia
   // da semana (não-sequenciais) + a única sequencial devida (quando há).

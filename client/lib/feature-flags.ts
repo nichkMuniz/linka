@@ -101,9 +101,12 @@ export const FEATURES = {
   /**
    * Treinar junto — sessão de treino compartilhada com amigos.
    *
-   * Adiado: de 26/08, realtime, e exige um amigo treinando no mesmo horário.
+   * Feature de 26/08 (realtime), adiada no recorte da v1 e **religada em
+   * 02/10/2026**. Tabelas `workout_parties`/`workout_party_members` já existem
+   * em produção (conferido no dia). O push do convite (type 19) depende do
+   * redeploy da `send-push-notification`.
    */
-  workoutParty: false,
+  workoutParty: true,
 
   /**
    * Modo Expert — técnicas (bi-set, drop-set, rest-pause), três tipos de
@@ -215,6 +218,24 @@ export const FEATURES = {
    * `CapgoBackgroundGeolocation`, não a chamada.
    */
   gpsRun: true,
+
+  /**
+   * Treino rápido (2026-10-02) — botão animado na tela de Metas (sempre
+   * visível fora de um treino): abre a sessão VAZIA, a pessoa adiciona os
+   * exercícios conforme treina e, no resumo, pode salvar tudo como rotina.
+   * Reaproveita a sessão sem rotina do convidado do "treinar junto" (que segue
+   * desligado em `workoutParty` — são independentes). Ver docs/05-metas.md.
+   */
+  quickWorkout: true,
+
+  /**
+   * Desafio de treino (2026-10-02) — no resumo, "Desafiar" seguidores a bater
+   * os números do treino nos mesmos exercícios, SEM revelar os números. O
+   * desafiado treina e vê o placar no resumo dele (+ canvas). Push types 24/25.
+   * Exige a migração 20261002-workout-challenges + redeploy da
+   * send-push-notification. Ver docs/05-metas.md → "Desafio de treino".
+   */
+  workoutChallenge: true,
 
   // ───────────────────────────────────────────────────────────────────────────
   // Social / descoberta (dependem de densidade de base)

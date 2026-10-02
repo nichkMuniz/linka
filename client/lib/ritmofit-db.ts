@@ -1,4 +1,13 @@
 import { reportHandledError } from "@/lib/monitoring";
+import {
+  compareChallenge,
+  parseChallengeResult,
+  parseChallengeSnapshot,
+  type ChallengeOutcome,
+  type ChallengeWinner,
+  type WorkoutChallengeResult,
+  type WorkoutChallengeSnapshot,
+} from "@/lib/workout-challenge";
 import { cardioTotalMinutes } from "@/lib/cardio-exercises";
 import { IMMUTABLE_CACHE_CONTROL } from "@/lib/storage-cache";
 import { resolveLanguage, tUi, type TranslationKey } from "@/lib/i18n";
@@ -1077,9 +1086,16 @@ export type PostComment = {
   createdAt: string;
   isVerified?: boolean;
   verifiedTier?: VerifiedTier | null;
+  /** Comentário respondido (pode ser outra resposta). null = comentário raiz. */
+  parentId: string | null;
 };
 
-export async function addPostCommentDb(postId: string, text: string) {
+/**
+ * `parentId` = comentário que está sendo respondido. O autor dele recebe a
+ * notificação type 23 pelo trigger `notify_post_comment_reply` (migração
+ * 20261001-comment-replies) — o cliente não insere notificação.
+ */
+export async function addPostCommentDb(postId: string, text: string, parentId?: string | null) {
   if (!hasSupabaseConfig || !supabase) return;
 
   assertUUID(postId, "ID do post");
@@ -1089,10 +1105,15 @@ export async function addPostCommentDb(postId: string, text: string) {
   const viewer = await getViewer();
   if (!viewer) return;
 
+  if (parentId) assertUUID(parentId, "ID do comentário");
+
   const { error } = await supabase.from("comments").insert({
     post_id: postId,
     user_id: viewer.id,
     text: text.trim(),
+    // Só manda a coluna quando é resposta: comentário comum segue funcionando
+    // mesmo antes da migração 20261001-comment-replies.
+    ...(parentId ? { parent_id: parentId } : {}),
   });
 
   if (error) {
@@ -1108,12 +1129,19 @@ export async function getPostCommentsDb(
 ): Promise<PostComment[]> {
   if (!hasSupabaseConfig || !supabase) return [];
   return cached(`postComments:${postId}`, CACHE_TTL_SHORT, async () => {
-  const { data, error } = await supabase
-    .from("comments")
-    .select("id, post_id, user_id, text, created_at")
-    .eq("post_id", postId)
-    .order("created_at", { ascending: false })
-    .limit(500);
+  const fetchRows = (columns: string) =>
+    supabase
+      .from("comments")
+      .select(columns)
+      .eq("post_id", postId)
+      .order("created_at", { ascending: false })
+      .limit(500);
+  let { data, error } = await fetchRows("id, post_id, user_id, text, created_at, parent_id");
+  // 42703 = coluna inexistente: banco ainda sem a migração 20261001-comment-replies.
+  // Sem este fallback a lista inteira sumiria até a migração rodar.
+  if (error?.code === "42703") {
+    ({ data, error } = await fetchRows("id, post_id, user_id, text, created_at"));
+  }
 
   if (error) {
     console.error("Error fetching comments:", error);
@@ -1154,6 +1182,7 @@ export async function getPostCommentsDb(
         createdAt: String(row.created_at ?? new Date().toISOString()),
         isVerified: profile?.is_verified ?? false,
         verifiedTier: profile?.verified_tier ?? null,
+        parentId: row.parent_id ? String(row.parent_id) : null,
       } satisfies PostComment;
     },
   );
@@ -4645,8 +4674,8 @@ export async function backfillRoutineIdOnItemsDb(
   type: number,
   routineName: string | null,
   itemIds: string[],
-): Promise<void> {
-  if (!hasSupabaseConfig || !supabase || itemIds.length === 0) return;
+): Promise<string | null> {
+  if (!hasSupabaseConfig || !supabase || itemIds.length === 0) return null;
 
   const query = supabase
     .from("routines")
@@ -4661,13 +4690,16 @@ export async function backfillRoutineIdOnItemsDb(
     : await query.is("name", null);
 
   const routineId = data?.[0]?.id;
-  if (!routineId) return;
+  if (!routineId) return null;
 
   const table = type === 1 ? "user_workouts" : type === 2 ? "user_diets" : "user_habits";
   await supabase
     .from(table)
     .update({ routine_id: routineId })
     .in("id", itemIds.map(Number));
+  // Devolvido para quem precisa continuar montando a rotina (treino rápido:
+  // ordem, descanso e vínculo do histórico). Os demais chamadores ignoram.
+  return String(routineId);
 }
 
 export async function getRoutinesByGoalIdDb(
@@ -6458,6 +6490,18 @@ export type StoryPostSticker = {
   authorId: string;
   authorNickname: string;
   authorPhoto?: string | null;
+  /**
+   * Selo de verificação do autor (2026-10-02), mostrado ao lado do nome na
+   * moldura. Cópia do momento do compartilhamento, como a legenda; ausente nos
+   * flows antigos (sem selo).
+   */
+  authorVerifiedTier?: VerifiedTier | null;
+  /**
+   * Legenda do post no momento do compartilhamento (2026-10-01), mostrada na
+   * moldura abaixo da foto. Cópia (o flow dura 24h): editar o post depois não
+   * muda o flow. Ausente nos flows antigos — a moldura só não mostra legenda.
+   */
+  caption?: string | null;
 };
 
 /**
@@ -7250,6 +7294,8 @@ export type FlowViewer = {
   followerId: string;
   userNickname: string;
   userPhoto: string | null;
+  /** Selo de verificação de quem viu (null = sem selo). */
+  verifiedTier: VerifiedTier | null;
   incentiveTypes: number[]; // empty = no incentive sent
   viewedAt: string;
 };
@@ -7516,7 +7562,7 @@ export async function getFlowViewersDb(storyId: string): Promise<FlowViewer[]> {
     const [profilesResult, likesResult] = await Promise.all([
       supabase
         .from("profiles")
-        .select("user_id, nickname, photo")
+        .select("user_id, nickname, photo, is_verified, verified_tier")
         .in("user_id", followerIds),
       supabase
         .from("flow_likes")
@@ -7543,6 +7589,7 @@ export async function getFlowViewersDb(storyId: string): Promise<FlowViewer[]> {
         followerId: String(view.follower_id),
         userNickname: profile?.nickname ?? tUi("user_fallback_name"),
         userPhoto: profile?.photo ?? null,
+        verifiedTier: verifiedTierOf(profile),
         incentiveTypes: likesPerUser.get(String(view.follower_id)) ?? [],
         viewedAt: String(view.updated_at ?? view.created_at),
       };
@@ -8454,7 +8501,7 @@ export async function getFollowersDb(userId?: string): Promise<SearchUser[]> {
     // Fetch profile data for each follower
     const { data: profiles, error: profileError } = await supabase
       .from("profiles")
-      .select("user_id, nickname, bio, photo")
+      .select("user_id, nickname, bio, photo, handle, is_verified, verified_tier")
       .in("user_id", followerIds);
 
     if (profileError) {
@@ -8467,6 +8514,9 @@ export async function getFollowersDb(userId?: string): Promise<SearchUser[]> {
       nickname: String(row.nickname ?? tUi("user_fallback_name")),
       bio: row.bio ? String(row.bio) : undefined,
       photo: row.photo ? String(row.photo) : null,
+      handle: row.handle ? String(row.handle) : null,
+      // Selo na lista de Seguidores (FollowListDrawer), igual à de Seguindo.
+      verifiedTier: verifiedTierOf(row),
     }));
   } catch (err: any) {
     console.error("Error getting followers:", err);
@@ -8532,6 +8582,60 @@ export async function getFollowingDb(
     return [];
   }
   }); // end cached
+}
+
+export type MostFollowedProfile = SearchUser & {
+  followersCount: number;
+  isVerified: boolean;
+};
+
+/**
+ * Perfis com mais seguidores — sugestão da lista "Seguindo" vazia do próprio
+ * perfil. A contagem vem da RPC `get_most_followed_profiles` (DEFINER: a RLS de
+ * listas privadas zeraria um count feito daqui), que já tira o próprio usuário,
+ * quem ele segue, banidos e bloqueios. Migração 20261001-most-followed-profiles.
+ */
+export async function getMostFollowedProfilesDb(limit = 15): Promise<MostFollowedProfile[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+  const viewer = await getViewer();
+  if (!viewer) return [];
+
+  // Falha LANÇA dentro do cached (não guarda [] por todo o TTL) e vira [] fora —
+  // sem a função no banco a lista vazia só mostra a mensagem de sempre.
+  return cached(`mostFollowed:${viewer.id}:${limit}`, CACHE_TTL_MEDIUM, async () => {
+    const { data, error } = await supabase!.rpc("get_most_followed_profiles", { p_limit: limit });
+    if (error) throw error;
+
+    const ranked = (data ?? []) as Array<{ user_id: string; followers_count: number | string }>;
+    if (ranked.length === 0) return [];
+
+    const ids = ranked.map((r) => String(r.user_id));
+    const { data: profiles, error: profileError } = await supabase!
+      .from("profiles")
+      .select("user_id, nickname, bio, photo, handle, is_verified, verified_tier")
+      .in("user_id", ids);
+    if (profileError) throw profileError;
+
+    const byId = new Map((profiles ?? []).map((p: any) => [String(p.user_id), p]));
+    // Mantém a ordem da RPC (mais seguidos primeiro); sem perfil legível = fora.
+    return ranked.flatMap((r) => {
+      const row: any = byId.get(String(r.user_id));
+      if (!row) return [];
+      return [{
+        id: String(row.user_id),
+        nickname: String(row.nickname ?? tUi("user_fallback_name")),
+        bio: row.bio ? String(row.bio) : undefined,
+        photo: row.photo ? String(row.photo) : null,
+        handle: row.handle ? String(row.handle).replace(/^@/, "") : null,
+        verifiedTier: verifiedTierOf(row),
+        isVerified: row.is_verified === true,
+        followersCount: Number(r.followers_count ?? 0),
+      } satisfies MostFollowedProfile];
+    });
+  }).catch((err) => {
+    console.error("Error getting most followed profiles:", err);
+    return [] as MostFollowedProfile[];
+  });
 }
 
 export type Shot = {
@@ -9335,7 +9439,7 @@ export async function toggleUserHabitCompletionDb(
 // Notifications functionality
 export type NotificationItem = {
   id: string;
-  type: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 20 | 21 | 22; // 1 = new follower, 2 = incentive, 3 = comment, 4 = duel invite, 5 = join request, 6 = comment reaction, 7 = check-in reaction, 8 = promotion comment, 9 = tagged in post, 10 = private message, 11 = duel check-in, 12 = promotion like, 13 = promotion expired, 14 = check-in classificado, 15 = check-in desclassificado, 16 = tagged in flow, 17 = resposta a um flow (mensagem privada, só push), 18 = comentaram no flow em que você também comentou, 20 = mencionado (@) num comentário, 21 = repost da sua publicação (post_id = o repost), 22 = seu conteúdo foi removido pela moderação (sistema, sem follower_id — ver `moderation`)
+  type: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 20 | 21 | 22 | 23 | 24 | 25; // 1 = new follower, 2 = incentive, 3 = comment, 4 = duel invite, 5 = join request, 6 = comment reaction, 7 = check-in reaction, 8 = promotion comment, 9 = tagged in post, 10 = private message, 11 = duel check-in, 12 = promotion like, 13 = promotion expired, 14 = check-in classificado, 15 = check-in desclassificado, 16 = tagged in flow, 17 = resposta a um flow (mensagem privada, só push), 18 = comentaram no flow em que você também comentou, 20 = mencionado (@) num comentário, 21 = repost da sua publicação (post_id = o repost), 22 = seu conteúdo foi removido pela moderação (sistema, sem follower_id — ver `moderation`), 23 = responderam seu comentário num post, 24 = te desafiaram (post_id = desafio), 25 = completaram seu desafio (meta = placar)
   userId: string;
   userNickname: string;
   userPhoto: string | null;
@@ -9350,6 +9454,8 @@ export type NotificationItem = {
   groupName?: string; // For type 4 (duel invite)
   /** Type 22: o conteúdo já foi apagado — o que sobra para mostrar vem de `notifications.meta`. */
   moderation?: ModerationNotice;
+  /** Types 24/25 (desafio): `meta` cru do trigger — rotina e placar. */
+  challengeMeta?: Record<string, unknown> | null;
   createdAt: string;
   read?: boolean; // Whether the notification has been read
 };
@@ -9357,7 +9463,8 @@ export type NotificationItem = {
 // A coluna post_id é reaproveitada por vários tipos: nestes ela guarda o id de um
 // grupo de duelo (4, 5, 11) ou de uma promoção (8, 12, 13) — nunca o id de um post.
 // Os tipos de check-in (7, 14, 15) não usam post_id de forma alguma.
-const NOTIF_TYPES_WITHOUT_POST = new Set([4, 5, 7, 8, 11, 12, 13, 14, 15]);
+// 24/25 = desafio de treino: `post_id` guarda o id do DESAFIO, não de um post.
+const NOTIF_TYPES_WITHOUT_POST = new Set([4, 5, 7, 8, 11, 12, 13, 14, 15, 24, 25]);
 
 // Mensagem privada: a linha só existe para disparar o push, então some da lista
 // e da contagem do sino. 10 = mensagem comum, 17 = resposta a um flow (mesma
@@ -9695,6 +9802,12 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
           read: notif.read ?? false,
         };
 
+        // Desafio: `post_id` = id do desafio; o placar/rotina vem no `meta`.
+        if (notif.type === 24 || notif.type === 25) {
+          notification.postId = notif.post_id ? String(notif.post_id) : undefined;
+          notification.challengeMeta = (notif.meta ?? null) as Record<string, unknown> | null;
+        }
+
         // Add incentive type for type 2 notifications.
         // Prefer the dedicated column; fall back to the legacy likes-lookup map for old rows.
         if (notif.type === 2) {
@@ -9932,6 +10045,36 @@ export async function clearNotificationsDb(): Promise<boolean> {
     console.error("Error clearing notifications:", errorMsg);
     return false;
   }
+}
+
+/**
+ * Apaga notificações específicas do usuário (swipe na tela de Notificações,
+ * 2026-10-02). Recebe VÁRIOS ids porque a lista agrupa — vários incentivos no
+ * mesmo post viram uma linha só, e apagar a linha tem de levar todos (senão a
+ * próxima do grupo reaparece no lugar).
+ *
+ * Confere quantas linhas saíram: DELETE barrado pela RLS volta 0 linhas SEM
+ * erro (ver docs/14 — no-op silencioso), e aí a notificação voltaria no
+ * próximo carregamento.
+ */
+export async function deleteNotificationsDb(ids: string[]): Promise<boolean> {
+  if (!hasSupabaseConfig || !supabase || ids.length === 0) return false;
+  const viewer = await getViewer();
+  if (!viewer) return false;
+
+  const { data, error } = await supabase
+    .from("notifications")
+    .delete()
+    .in("id", ids)
+    .eq("user_id", viewer.id)
+    .select("id");
+  if (error) {
+    console.error("Error deleting notifications:", error.message);
+    return false;
+  }
+  invalidateQueryCache("notifications");
+  invalidateQueryCache("unreadNotifCount");
+  return (data ?? []).length > 0;
 }
 
 export function subscribeToUnreadNotificationsDb(
@@ -11646,6 +11789,60 @@ export async function getRoutineLastDatesBatchDb(
       if (off) return off;
     }
     return {};
+  }
+}
+
+/**
+ * Histórico de EXECUÇÕES das rotinas de treino (2026-10-02) — uma linha por
+ * série gravada, em ordem cronológica. Alimenta o ciclo do rodízio sequencial
+ * (`computeSequentialCycle`): o anel e a "próxima" dependem da ORDEM em que as
+ * rotinas foram feitas, não só da última data de cada uma.
+ *
+ * Casa por `routine_id` (sobrevive à troca/remoção de exercícios) e, para as
+ * linhas antigas sem ele, por `user_workout_id`. Mesma cópia offline das
+ * demais leituras de Metas.
+ */
+export async function getRoutineExecutionsDb(
+  userId: string,
+  routineIds: string[],
+  userWorkoutIds: string[],
+): Promise<Array<{ routineId: string | null; userWorkoutId: string | null; at: string }>> {
+  if (!hasSupabaseConfig || !supabase) return [];
+  const rIds = [...new Set(routineIds.filter(Boolean))];
+  const uwIds = [...new Set(userWorkoutIds.filter(Boolean))];
+  if (rIds.length === 0 && uwIds.length === 0) return [];
+
+  const offlineKey = `routineExecutions:${userId}`;
+  try {
+    const filters = [
+      rIds.length ? `routine_id.in.(${rIds.join(",")})` : null,
+      uwIds.length ? `user_workout_id.in.(${uwIds.join(",")})` : null,
+    ].filter(Boolean).join(",");
+    const { data, error } = await supabase
+      .from("user_workouts_hist")
+      .select("routine_id, user_workout_id, date_completed")
+      .eq("user_id", userId)
+      .or(filters)
+      .order("date_completed", { ascending: true })
+      .limit(5000);
+    if (error) throw error;
+
+    const rows = (data ?? [])
+      .filter((r: any) => r.date_completed)
+      .map((r: any) => ({
+        routineId: r.routine_id != null ? String(r.routine_id) : null,
+        userWorkoutId: r.user_workout_id != null ? String(r.user_workout_id) : null,
+        at: String(r.date_completed),
+      }));
+    offlineCopyWrite(offlineKey, rows);
+    return rows;
+  } catch (err: any) {
+    console.error("Error fetching routine executions:", err);
+    if (isTransientNetworkError(err)) {
+      const off = offlineCopyRead<Array<{ routineId: string | null; userWorkoutId: string | null; at: string }>>(offlineKey);
+      if (off) return off;
+    }
+    return [];
   }
 }
 
@@ -17206,7 +17403,51 @@ export type WorkoutPartyMember = {
   /** Exercícios concluídos / total — o "Ana · 3/6" do header da sessão. */
   progressDone: number;
   progressTotal: number;
+  // ── Ao vivo, por série (migração 20261002-workout-party-live-stats) ──
+  // Ausentes/zerados sem a migração: a "vez" e as estatísticas por pessoa
+  // simplesmente não aparecem.
+  setsDone: number;
+  volumeKg: number;
+  bestKg: number;
+  /** Exercício da última série concluída — o "fazendo Supino" da vez. */
+  currentExercise: string | null;
+  lastSetAt: string | null;
+  /** Fim do descanso em curso; no passado/null = não está descansando. */
+  restEndsAt: string | null;
+  finishedAt: string | null;
+  exerciseStats: WorkoutPartyExerciseStat[];
 };
+
+/** Uma linha do "com quanto peso" de cada participante. */
+export type WorkoutPartyExerciseStat = {
+  name: string;
+  sets: number;
+  bestKg: number;
+  volumeKg: number;
+};
+
+/** O que cada participante publica ao concluir uma série (e ao finalizar). */
+export type WorkoutPartyLiveStats = {
+  setsDone: number;
+  volumeKg: number;
+  bestKg: number;
+  currentExercise: string | null;
+  /** Fim do descanso que começou agora; null = sem descanso. */
+  restEndsAt: string | null;
+  exerciseStats: WorkoutPartyExerciseStat[];
+};
+
+function parseExerciseStats(raw: unknown): WorkoutPartyExerciseStat[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((e: any) => ({
+      name: String(e?.name ?? ""),
+      sets: Number(e?.sets ?? 0),
+      bestKg: Number(e?.bestKg ?? 0),
+      volumeKg: Number(e?.volumeKg ?? 0),
+    }))
+    .filter((e) => e.name);
+}
 
 export type WorkoutPartyInvite = {
   partyId: string;
@@ -17455,10 +17696,20 @@ export async function getWorkoutPartyMembersDb(
   if (!hasSupabaseConfig || !supabase) return [];
   return cached(`workoutPartyMembers:${partyId}`, CACHE_TTL_SHORT, async () => {
     try {
-      const { data, error } = await supabase!
+      const BASE_COLS = "user_id, role, status, progress_done, progress_total";
+      const LIVE_COLS = `${BASE_COLS}, sets_done, volume_kg, best_kg, current_exercise, last_set_at, rest_ends_at, finished_at, exercise_stats`;
+      let { data, error }: { data: any[] | null; error: any } = await supabase!
         .from("workout_party_members")
-        .select("user_id, role, status, progress_done, progress_total")
+        .select(LIVE_COLS)
         .eq("party_id", partyId);
+      // 42703 = coluna inexistente: banco sem a migração 20261002-workout-party-
+      // live-stats. Sem o fallback a faixa do treinar junto sumiria inteira.
+      if (error?.code === "42703") {
+        ({ data, error } = await supabase!
+          .from("workout_party_members")
+          .select(BASE_COLS)
+          .eq("party_id", partyId));
+      }
 
       if (error || !data || data.length === 0) return [];
 
@@ -17479,6 +17730,14 @@ export async function getWorkoutPartyMembersDb(
           status: String(row.status ?? "pending") as WorkoutPartyMemberStatus,
           progressDone: Number(row.progress_done ?? 0),
           progressTotal: Number(row.progress_total ?? 0),
+          setsDone: Number(row.sets_done ?? 0),
+          volumeKg: Number(row.volume_kg ?? 0),
+          bestKg: Number(row.best_kg ?? 0),
+          currentExercise: row.current_exercise ? String(row.current_exercise) : null,
+          lastSetAt: row.last_set_at ? String(row.last_set_at) : null,
+          restEndsAt: row.rest_ends_at ? String(row.rest_ends_at) : null,
+          finishedAt: row.finished_at ? String(row.finished_at) : null,
+          exerciseStats: parseExerciseStats(row.exercise_stats),
         };
         return member;
       });
@@ -17512,6 +17771,81 @@ export async function updateWorkoutPartyProgressDb(
     .eq("party_id", partyId)
     .eq("user_id", viewer.id);
 
+  invalidateQueryCache(`workoutPartyMembers:${partyId}`);
+}
+
+function liveStatsRow(stats: WorkoutPartyLiveStats) {
+  return {
+    sets_done: stats.setsDone,
+    volume_kg: Math.round(stats.volumeKg),
+    best_kg: stats.bestKg,
+    current_exercise: stats.currentExercise,
+    rest_ends_at: stats.restEndsAt,
+    exercise_stats: stats.exerciseStats,
+  };
+}
+
+/**
+ * Publica o estado ao vivo do usuário (2026-10-02): chamado a cada SÉRIE
+ * concluída e ao pular o descanso — é o que faz a tela do amigo mostrar "vez
+ * da Ana" / "Ana descansando 0:42". `last_set_at` só anda quando uma série foi
+ * concluída (`setCompleted`), não ao pular o descanso.
+ *
+ * Silencioso em qualquer falha (inclusive sem a migração): a "vez" é um
+ * enfeite do treino, não pode atrapalhar quem está treinando.
+ */
+export async function updateWorkoutPartyLiveDb(
+  partyId: string,
+  stats: WorkoutPartyLiveStats,
+  opts: { setCompleted: boolean },
+): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+  const viewer = await getViewer();
+  if (!viewer) return;
+  const now = new Date().toISOString();
+  const { error } = await supabase
+    .from("workout_party_members")
+    .update({
+      ...liveStatsRow(stats),
+      ...(opts.setCompleted ? { last_set_at: now } : {}),
+      updated_at: now,
+    })
+    .eq("party_id", partyId)
+    .eq("user_id", viewer.id);
+  if (error && error.code !== "42703") console.error("Error updating party live stats:", error);
+  invalidateQueryCache(`workoutPartyMembers:${partyId}`);
+}
+
+/**
+ * Finalizou o treino: grava as estatísticas FINAIS + `finished_at` e sai da
+ * party (status `left`) numa escrita só. O resumo dos outros troca o
+ * "treinando…" pelos números finais via realtime.
+ *
+ * Sem a migração (colunas novas ausentes) cai no `leaveWorkoutPartyDb` de
+ * sempre — sair da party não pode depender das estatísticas.
+ */
+export async function finishWorkoutPartyMemberDb(
+  partyId: string,
+  stats: WorkoutPartyLiveStats,
+): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+  const viewer = await getViewer();
+  if (!viewer) return;
+  const now = new Date().toISOString();
+  const { error } = await supabase
+    .from("workout_party_members")
+    .update({
+      ...liveStatsRow({ ...stats, restEndsAt: null }),
+      status: "left",
+      finished_at: now,
+      updated_at: now,
+    })
+    .eq("party_id", partyId)
+    .eq("user_id", viewer.id);
+  if (error) {
+    await leaveWorkoutPartyDb(partyId);
+    return;
+  }
   invalidateQueryCache(`workoutPartyMembers:${partyId}`);
 }
 
@@ -17556,6 +17890,7 @@ export async function saveRoutineFromWorkoutPartyDb(
   userId: string,
   snapshot: WorkoutPartySnapshot,
   routineName: string,
+  partyId?: string | null,
 ): Promise<void> {
   if (!hasSupabaseConfig || !supabase) throw new Error("Supabase not configured");
 
@@ -17564,8 +17899,375 @@ export async function saveRoutineFromWorkoutPartyDb(
 
   const name = routineName.trim() || snapshot.routineName;
   const inserted = await createUserWorkoutsDb(userId, workoutIds, { name });
-  await backfillRoutineIdOnItemsDb(userId, 1, name, inserted.map((i) => i.id)).catch(() => {});
+  const routineId = await backfillRoutineIdOnItemsDb(userId, 1, name, inserted.map((i) => i.id)).catch(() => null);
+
+  // Origem = quem convidou, na MESMA coluna que o "Copiar rotina" usa
+  // (`routines.follower_id`, ver copyRoutineToUserDb). É o que faz o próximo
+  // convite do mesmo amigo para a mesma rotina não oferecer salvar de novo
+  // (`hasSavedPartyRoutineDb`). Best-effort: sem ela, a checagem por
+  // exercícios ainda reconhece a rotina.
+  if (routineId && partyId) {
+    const hostId = await getWorkoutPartyHostIdDb(partyId);
+    if (hostId && hostId !== userId) {
+      const { error } = await supabase
+        .from("routines")
+        .update({ follower_id: hostId })
+        .eq("id", Number(routineId))
+        .eq("user_id", userId);
+      if (error) console.error("Error setting party routine origin:", error.message);
+    }
+  }
   // `getUserRoutinesDb`/`getUserWorkoutsDb` não passam por `cached()` (têm a
   // própria cópia offline), então não há cache a derrubar aqui — quem recarrega
   // a lista é a tela de Metas, via `reloadRoutines()`.
+}
+
+/** Dono (host) de uma party — o convidado pode ler a party (RLS de membro). */
+async function getWorkoutPartyHostIdDb(partyId: string): Promise<string | null> {
+  if (!hasSupabaseConfig || !supabase) return null;
+  const { data } = await supabase
+    .from("workout_parties")
+    .select("host_id")
+    .eq("id", partyId)
+    .maybeSingle();
+  return data?.host_id ? String(data.host_id) : null;
+}
+
+/**
+ * O convidado já tem esta rotina? (2026-10-02) — decide se o resumo oferece
+ * "Salvar essa rotina?". Fulano convida para a rotina dele; quem já a salvou
+ * numa vez anterior não deve ver a oferta de novo.
+ *
+ * Conta como "já tem":
+ *  1. uma rotina de treino com `follower_id` = quem convidou E o mesmo nome — a
+ *     marca que `saveRoutineFromWorkoutPartyDb` grava (convenção do "Copiar
+ *     rotina");
+ *  2. uma rotina com o mesmo nome OU vinda de quem convidou que já CONTÉM todos
+ *     os exercícios do treino. Cobre rotinas salvas antes desta marca existir
+ *     (sem `follower_id`) e a rotina renomeada depois de salva.
+ *
+ * Falha (rede, RLS) → `false`: na dúvida a oferta aparece, como antes. Oferecer
+ * de novo é inofensivo; esconder sem certeza tiraria a única chance de salvar.
+ */
+export async function hasSavedPartyRoutineDb(
+  userId: string,
+  partyId: string | null,
+  snapshot: WorkoutPartySnapshot,
+): Promise<boolean> {
+  if (!hasSupabaseConfig || !supabase) return false;
+  try {
+    const hostId = partyId ? await getWorkoutPartyHostIdDb(partyId) : null;
+    const name = snapshot.routineName.trim();
+
+    const { data: routines, error } = await supabase
+      .from("routines")
+      .select("id, name, follower_id")
+      .eq("user_id", userId)
+      .eq("type", 1);
+    if (error || !routines?.length) return false;
+
+    const normalize = (v: unknown) => String(v ?? "").trim().toLowerCase();
+    const candidates = (routines as any[]).filter(
+      (r) =>
+        (name && normalize(r.name) === normalize(name)) ||
+        (hostId && String(r.follower_id ?? "") === hostId),
+    );
+    if (candidates.length === 0) return false;
+
+    if (hostId && candidates.some((r) => String(r.follower_id ?? "") === hostId && normalize(r.name) === normalize(name))) {
+      return true;
+    }
+
+    const wanted = new Set(snapshot.items.map((i) => i.workoutId).filter(Boolean));
+    if (wanted.size === 0) return false;
+    const { data: items, error: itemsError } = await supabase
+      .from("user_workouts")
+      .select("routine_id, workout_id")
+      .eq("user_id", userId)
+      .in("routine_id", candidates.map((r) => Number(r.id)));
+    if (itemsError || !items) return false;
+
+    const byRoutine = new Map<string, Set<string>>();
+    for (const row of items as any[]) {
+      const key = String(row.routine_id);
+      if (!byRoutine.has(key)) byRoutine.set(key, new Set());
+      byRoutine.get(key)!.add(String(row.workout_id));
+    }
+    return [...byRoutine.values()].some((ids) => [...wanted].every((w) => ids.has(w)));
+  } catch {
+    return false;
+  }
+}
+
+// ─────────────────────────── Desafio de treino (2026-10-02) ───────────────────────────
+// Tabelas `workout_challenges` + `workout_challenge_results` (migração
+// 20261002-workout-challenges). Regras puras em `@/lib/workout-challenge`.
+
+export type WorkoutChallengeStatus = "pending" | "accepted" | "completed" | "declined";
+
+export type WorkoutChallenge = {
+  id: string;
+  challengerId: string;
+  challengerNickname: string;
+  challengerPhoto: string | null;
+  challengedId: string;
+  challengedNickname: string;
+  challengedPhoto: string | null;
+  routineName: string;
+  snapshot: WorkoutChallengeSnapshot;
+  status: WorkoutChallengeStatus;
+  winner: ChallengeWinner | null;
+  challengerScore: number | null;
+  challengedScore: number | null;
+  createdAt: string;
+  expiresAt: string;
+};
+
+const CHALLENGE_COLS =
+  "id, challenger_id, challenged_id, routine_name, snapshot, status, winner, challenger_score, challenged_score, created_at, expires_at";
+
+async function mapChallenges(rows: any[]): Promise<WorkoutChallenge[]> {
+  if (!supabase || rows.length === 0) return [];
+  const ids = [...new Set(rows.flatMap((r) => [String(r.challenger_id), String(r.challenged_id)]))];
+  const { data: profiles } = await supabase
+    .from("profiles")
+    .select("user_id, nickname, photo")
+    .in("user_id", ids);
+  const byId = new Map((profiles ?? []).map((p: any) => [String(p.user_id), p]));
+  const nick = (id: string) => String(byId.get(id)?.nickname ?? tUi("user_fallback_name"));
+  const photo = (id: string) => (byId.get(id)?.photo ? String(byId.get(id).photo) : null);
+  return rows.map((r) => {
+    const challengerId = String(r.challenger_id);
+    const challengedId = String(r.challenged_id);
+    return {
+      id: String(r.id),
+      challengerId,
+      challengerNickname: nick(challengerId),
+      challengerPhoto: photo(challengerId),
+      challengedId,
+      challengedNickname: nick(challengedId),
+      challengedPhoto: photo(challengedId),
+      routineName: String(r.routine_name ?? ""),
+      snapshot: parseChallengeSnapshot(r.snapshot),
+      status: String(r.status ?? "pending") as WorkoutChallengeStatus,
+      winner: r.winner ? (String(r.winner) as ChallengeWinner) : null,
+      challengerScore: r.challenger_score != null ? Number(r.challenger_score) : null,
+      challengedScore: r.challenged_score != null ? Number(r.challenged_score) : null,
+      createdAt: String(r.created_at ?? ""),
+      expiresAt: String(r.expires_at ?? ""),
+    };
+  });
+}
+
+/**
+ * Desafia `challengedIds` com o treino que acabou de fazer. Grava um desafio por
+ * pessoa (o trigger manda o push type 24) e os MEUS números em
+ * `workout_challenge_results` — que a RLS esconde do desafiado até ele treinar.
+ * Devolve quantos desafios foram criados.
+ */
+export async function createWorkoutChallengesDb(
+  challengedIds: string[],
+  snapshot: WorkoutChallengeSnapshot,
+  myResult: WorkoutChallengeResult,
+): Promise<number> {
+  if (!hasSupabaseConfig || !supabase) throw new Error("Supabase not configured");
+  const viewer = await getViewer();
+  if (!viewer) throw new Error("Not signed in");
+  if (snapshot.items.length === 0) throw new Error("Treino sem exercícios");
+
+  const targets = [...new Set(challengedIds)].filter((id) => id && id !== viewer.id);
+  if (targets.length === 0) return 0;
+
+  const { data, error } = await supabase
+    .from("workout_challenges")
+    .insert(
+      targets.map((challengedId) => ({
+        challenger_id: viewer.id,
+        challenged_id: challengedId,
+        routine_name: snapshot.routineName,
+        snapshot,
+      })),
+    )
+    .select("id");
+  if (error) throw error;
+
+  const created = (data ?? []).map((r: any) => String(r.id));
+  if (created.length > 0) {
+    const { error: resultError } = await supabase
+      .from("workout_challenge_results")
+      .insert(created.map((challengeId) => ({ challenge_id: challengeId, user_id: viewer.id, result: myResult })));
+    if (resultError) {
+      // Sem os meus números o desafio não tem com o que comparar: desfaz.
+      await supabase.from("workout_challenges").delete().in("id", created);
+      throw resultError;
+    }
+  }
+  return created.length;
+}
+
+export async function getWorkoutChallengeDb(challengeId: string): Promise<WorkoutChallenge | null> {
+  if (!hasSupabaseConfig || !supabase) return null;
+  const { data, error } = await supabase
+    .from("workout_challenges")
+    .select(CHALLENGE_COLS)
+    .eq("id", challengeId)
+    .maybeSingle();
+  if (error || !data) return null;
+  return (await mapChallenges([data]))[0] ?? null;
+}
+
+/** Desafios recebidos ainda abertos (pendentes ou aceitos e não expirados). */
+export async function getPendingWorkoutChallengesDb(): Promise<WorkoutChallenge[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+  const viewer = await getViewer();
+  if (!viewer) return [];
+  const { data, error } = await supabase
+    .from("workout_challenges")
+    .select(CHALLENGE_COLS)
+    .eq("challenged_id", viewer.id)
+    .in("status", ["pending", "accepted"])
+    .gt("expires_at", new Date().toISOString())
+    .order("created_at", { ascending: false })
+    .limit(10);
+  if (error || !data) return [];
+  return mapChallenges(data as any[]);
+}
+
+export async function respondWorkoutChallengeDb(challengeId: string, accept: boolean): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+  const { error } = await supabase
+    .from("workout_challenges")
+    .update({ status: accept ? "accepted" : "declined", responded_at: new Date().toISOString() })
+    .eq("id", challengeId);
+  if (error) throw error;
+}
+
+/** Os dois resultados — o do adversário só vem depois de gravar o meu (RLS). */
+export async function getWorkoutChallengeResultsDb(
+  challenge: WorkoutChallenge,
+): Promise<{ challenger: WorkoutChallengeResult | null; challenged: WorkoutChallengeResult | null }> {
+  if (!hasSupabaseConfig || !supabase) return { challenger: null, challenged: null };
+  const { data } = await supabase
+    .from("workout_challenge_results")
+    .select("user_id, result")
+    .eq("challenge_id", challenge.id);
+  const byUser = new Map((data ?? []).map((r: any) => [String(r.user_id), parseChallengeResult(r.result)]));
+  return {
+    challenger: byUser.get(challenge.challengerId) ?? null,
+    challenged: byUser.get(challenge.challengedId) ?? null,
+  };
+}
+
+/**
+ * O desafiado terminou: grava os números dele, lê os de quem desafiou (agora
+ * liberados pela RLS), compara e fecha o desafio com vencedor e placar — a
+ * troca de status dispara o push type 25 para quem desafiou.
+ */
+export async function submitWorkoutChallengeResultDb(
+  challengeId: string,
+  myResult: WorkoutChallengeResult,
+): Promise<{ challenge: WorkoutChallenge; outcome: ChallengeOutcome } | null> {
+  if (!hasSupabaseConfig || !supabase) return null;
+  const viewer = await getViewer();
+  if (!viewer) return null;
+
+  const { error: insertError } = await supabase
+    .from("workout_challenge_results")
+    .upsert(
+      { challenge_id: challengeId, user_id: viewer.id, result: myResult },
+      { onConflict: "challenge_id,user_id", ignoreDuplicates: true },
+    );
+  if (insertError) throw insertError;
+
+  const challenge = await getWorkoutChallengeDb(challengeId);
+  if (!challenge) return null;
+  const results = await getWorkoutChallengeResultsDb(challenge);
+  if (!results.challenger || !results.challenged) return null;
+
+  const outcome = compareChallenge(challenge.snapshot, results.challenger, results.challenged);
+  if (challenge.status !== "completed") {
+    await supabase
+      .from("workout_challenges")
+      .update({
+        status: "completed",
+        winner: outcome.winner,
+        challenger_score: outcome.challengerScore,
+        challenged_score: outcome.challengedScore,
+        completed_at: new Date().toISOString(),
+      })
+      .eq("id", challengeId);
+  }
+  return {
+    challenge: {
+      ...challenge,
+      status: "completed",
+      winner: outcome.winner,
+      challengerScore: outcome.challengerScore,
+      challengedScore: outcome.challengedScore,
+    },
+    outcome,
+  };
+}
+
+/**
+ * "Treino rápido" → rotina (2026-10-02). A sessão rodou SEM rotina (como a do
+ * convidado do "treinar junto"); no resumo, a pessoa dá um nome e o treino vira
+ * rotina com:
+ *  1. os exercícios, na ORDEM em que foram feitos (`order_index`);
+ *  2. o descanso escolhido em cada um durante a sessão (`time_to_rest`);
+ *  3. o histórico da sessão vinculado (RPC `link_session_history_to_routine`,
+ *     migração 20261002) — a rotina já nasce "feita hoje", com "último treino";
+ *  4. o resumo da sessão como `last_summary` (ícone de resumo no detalhe).
+ *
+ * Só (1) é obrigatório: os passos 2–4 são best-effort e não desfazem a rotina
+ * se falharem (a rotina com os exercícios é o que a pessoa pediu). Devolve
+ * quantas séries do histórico foram vinculadas — 0 sem a migração.
+ */
+export async function saveQuickWorkoutRoutineDb(
+  userId: string,
+  snapshot: WorkoutPartySnapshot,
+  routineName: string,
+  opts: { historyBaseAt?: string | null; lastSummary?: RoutineLastSummary | null } = {},
+): Promise<{ routineId: string | null; linkedHistory: number }> {
+  if (!hasSupabaseConfig || !supabase) throw new Error("Supabase not configured");
+
+  const workoutIds = snapshot.items.map((i) => i.workoutId).filter(Boolean);
+  if (workoutIds.length === 0) throw new Error("Treino sem exercícios");
+
+  const name = routineName.trim() || snapshot.routineName;
+  const inserted = await createUserWorkoutsDb(userId, workoutIds, { name });
+  const routineId = await backfillRoutineIdOnItemsDb(
+    userId,
+    1,
+    name,
+    inserted.map((i) => i.id),
+  ).catch(() => null);
+  if (!routineId) return { routineId: null, linkedHistory: 0 };
+
+  const orderByWorkout = new Map(workoutIds.map((id, index) => [id, index]));
+  const steps: Promise<unknown>[] = [
+    updateRoutineOrderDb(
+      userId,
+      inserted.map((row) => ({
+        userWorkoutId: row.id,
+        orderIndex: orderByWorkout.get(row.workout_id) ?? 0,
+      })),
+    ),
+    ...snapshot.items
+      .filter((i) => i.restSecs != null)
+      .map((i) => updateUserWorkoutRestDb(userId, i.workoutId, routineId, i.restSecs as number)),
+  ];
+  if (opts.lastSummary) steps.push(updateRoutineLastSummaryDb(routineId, opts.lastSummary));
+  await Promise.all(steps.map((p) => p.catch((err) => console.error("quick routine step failed", err))));
+
+  let linkedHistory = 0;
+  if (opts.historyBaseAt) {
+    const { data, error } = await supabase.rpc("link_session_history_to_routine", {
+      p_routine_id: Number(routineId),
+      p_since: opts.historyBaseAt,
+    });
+    if (error) console.error("Error linking quick workout history:", error);
+    else linkedHistory = Number(data ?? 0);
+  }
+  return { routineId, linkedHistory };
 }

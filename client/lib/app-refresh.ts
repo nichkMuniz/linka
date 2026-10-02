@@ -18,7 +18,7 @@ import { invalidateVolatileQueryCache } from "@/lib/ritmofit-db";
  *
  * Gatilhos: pull-to-refresh de qualquer tela, toque no logo/home e volta do
  * background (o iOS suspende o WebView e o realtime perde o que chegou nesse
- * meio-tempo).
+ * meio-tempo) depois de `RESUME_REFRESH_AFTER_MS` fora.
  */
 export const APP_REFRESH_EVENT = "lk:app-refresh";
 
@@ -38,6 +38,52 @@ export type AppRefreshDetail = {
 // viram um só — a segunda rodada releria exatamente o mesmo dado.
 const COALESCE_MS = 1_500;
 let lastRefreshAt = 0;
+
+/**
+ * Ausência a partir da qual voltar ao app atualiza TUDO (2026-10-01: 5 min).
+ * Vale para os dois jeitos de "voltar": o app suspenso que volta ao primeiro
+ * plano (AppLayout) e o app que o iOS fechou em segundo plano e abre do zero
+ * (`refreshIfLongAbsenceOnLaunch`).
+ */
+export const RESUME_REFRESH_AFTER_MS = 5 * 60_000;
+
+// Instante em que o app foi para o segundo plano. No DISCO, não na memória: se o
+// iOS matar o app suspenso (comum depois de um tempo fora), a próxima abertura
+// é um cold start e só o disco sabe há quanto tempo a pessoa saiu.
+const BACKGROUNDED_AT_KEY = "lk:backgroundedAt";
+
+export function markAppBackgrounded() {
+  try { localStorage.setItem(BACKGROUNDED_AT_KEY, String(Date.now())); } catch { /* storage indisponível */ }
+}
+
+export function clearAppBackgrounded() {
+  try { localStorage.removeItem(BACKGROUNDED_AT_KEY); } catch { /* storage indisponível */ }
+}
+
+/**
+ * Cold start: se o app saiu de cena há mais de `RESUME_REFRESH_AFTER_MS`,
+ * derruba o cache volátil ANTES do primeiro render. Sem isto o `cached()`
+ * serviria a cópia do disco (até 24h de idade) e revalidaria por trás — mas as
+ * telas não releem sozinhas, então a pessoa via o dado velho até navegar.
+ * Chamado uma vez em `App.tsx`, antes do `root.render`.
+ */
+export function refreshIfLongAbsenceOnLaunch() {
+  let backgroundedAt = 0;
+  try { backgroundedAt = Number(localStorage.getItem(BACKGROUNDED_AT_KEY) ?? 0); } catch { /* storage indisponível */ }
+  clearAppBackgrounded();
+  if (backgroundedAt > 0 && Date.now() - backgroundedAt >= RESUME_REFRESH_AFTER_MS) {
+    invalidateVolatileQueryCache();
+  }
+}
+
+// Marca/limpa também pelo `visibilitychange`, que dispara mesmo sem o AppLayout
+// montado (tela de login, admin) e no navegador.
+if (typeof document !== "undefined") {
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") markAppBackgrounded();
+  });
+  window.addEventListener("pagehide", markAppBackgrounded);
+}
 
 export function requestAppRefresh(reason: AppRefreshReason, source?: string) {
   const now = Date.now();
@@ -64,4 +110,19 @@ export function useAppRefresh(handler: (detail: AppRefreshDetail) => void) {
     window.addEventListener(APP_REFRESH_EVENT, listener);
     return () => window.removeEventListener(APP_REFRESH_EVENT, listener);
   }, []);
+}
+
+/**
+ * Contador que sobe a cada refresh global que passa no `filter` (padrão: volta
+ * do background). Para telas que carregam num `useEffect`: pôr o tick nas
+ * dependências faz o efeito rodar de novo, sem extrair a carga para uma função.
+ */
+export function useAppRefreshTick(
+  filter: (detail: AppRefreshDetail) => boolean = (d) => d.reason === "resume",
+): number {
+  const [tick, setTick] = React.useState(0);
+  useAppRefresh((detail) => {
+    if (filter(detail)) setTick((n) => n + 1);
+  });
+  return tick;
 }

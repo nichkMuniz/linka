@@ -12,17 +12,24 @@ interface SwipeableConversationRowProps {
   onDelete: () => void;
   /** Label acessível do botão de excluir. */
   deleteLabel: string;
+  /**
+   * Classes do container (arredondamento). Padrão = o da lista de conversas;
+   * a tela de Notificações usa o raio dos cards dela (18px).
+   */
+  className?: string;
 }
 
 /**
- * Linha de conversa com gesto de swipe da direita para a esquerda que revela
- * um botão de excluir com fundo vermelho — padrão iOS (Mail/Mensagens).
+ * Linha com gesto de swipe da direita para a esquerda que revela um botão de
+ * excluir com fundo vermelho — padrão iOS (Mail/Mensagens). Usada na lista de
+ * conversas e, desde 02/10/2026, nas linhas da tela de Notificações.
  * Substitui o antigo botão de lixeira baseado em hover (que não funciona no toque).
  */
 export function SwipeableConversationRow({
   children,
   onDelete,
   deleteLabel,
+  className = "rounded-[20px]",
 }: SwipeableConversationRowProps) {
   const [translateX, setTranslateX] = React.useState(0);
   const [isOpen, setIsOpen] = React.useState(false);
@@ -90,7 +97,7 @@ export function SwipeableConversationRow({
   };
 
   return (
-    <div className="relative overflow-hidden rounded-[20px]">
+    <div className={`relative overflow-hidden ${className}`}>
       {/* Flex row mais largo que o container: conteúdo + botão lado a lado.
           O overflow-hidden do container clipa o botão até ele ser revelado pelo swipe. */}
       <div

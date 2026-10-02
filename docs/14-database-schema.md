@@ -273,6 +273,9 @@ Comentários feitos por usuários em posts do feed.
 | `post_id` | uuid | FK → `posts.id` | — | Post comentado |
 | `text` | text | — | — | Conteúdo do comentário |
 | `created_at` | timestamp | — | `now()` | Data de criação |
+| `parent_id` | uuid | FK → `comments.id` **on delete cascade** | `null` | Comentário **respondido** (2026-10-01). `null` = comentário raiz. Pode apontar para outra resposta; o app agrupa sob a raiz |
+
+- **Respostas (migração `20261001-comment-replies.sql`):** índice parcial `comments_parent_id_idx (parent_id) where parent_id is not null`. Trigger `comments_check_parent_trg` (BEFORE INSERT/UPDATE OF parent_id, `comments_check_parent()`) recusa pai de outro post ou o próprio comentário. Apagar um comentário apaga as respostas (cascata — inclusive respostas de outras pessoas, como no Instagram).
 
 ---
 
@@ -765,6 +768,9 @@ Notificações geradas para os usuários (follows, likes, comentários, duelos).
 | 20 | **Mencionado com "@" num comentário** (27/09/2026) | `follower_id` (quem comentou), `post_id` ou `shots_id` ou `flow_id` |
 | 21 | **Repostaram sua publicação** (28/09/2026) | `follower_id` (quem repostou), `post_id` (o **repost**, não o original) |
 | 22 | **Conteúdo removido pela moderação** (01/10/2026) | `follower_id` **NULL** (sistema), `meta` = `{kind, reason, preview}`; sem `post_id`/`shots_id`/`flow_id` (o conteúdo já foi apagado). Gravado por `admin_delete_content` |
+| 23 | **Responderam seu comentário** (01/10/2026) | `follower_id` (quem respondeu), `post_id` |
+| 24 | **Te desafiaram** (02/10/2026) | `follower_id` (quem desafiou), `post_id` = **id do desafio**, `meta.routine_name` |
+| 25 | **Completaram seu desafio** (02/10/2026) | `follower_id` (quem cumpriu), `post_id` = id do desafio, `meta` = `{ winner, challenger_score, challenged_score }` |
 | 14 | Check-in **classificado** (aprovado) por um participante | `follower_id` (quem votou), `duel_check_in_id` |
 | 15 | Check-in **desclassificado** (reprovado) por um participante | `follower_id` (quem votou), `duel_check_in_id` |
 
@@ -782,7 +788,9 @@ Notificações geradas para os usuários (follows, likes, comentários, duelos).
 | `shots_comments` | `notify_shots_comment` | `notify_shots_comment()` | type 3 (shot) |
 | `flow_comments` | `trg_notify_flow_comment` | `notify_flow_comment()` | type 3 (flow) — só para o **dono** do flow |
 | `flow_comments` | `trg_notify_flow_comment_followup` | `notify_flow_comment_followup()` | type 18 — para os **demais comentaristas** do mesmo flow |
-| `comments` | `trg_notify_post_comment_mentions` | `notify_post_comment_mentions()` | type 20 — cada `@handle` do texto (migração `20260927-comment-mentions.sql`) |
+| `comments` | `trg_notify_post_comment_mentions` | `notify_post_comment_mentions()` | type 20 — cada `@handle` do texto (migração `20260927-comment-mentions.sql`); desde `20261001-comment-replies.sql` exclui o autor do comentário respondido |
+| `comments` | `trg_notify_post_comment_reply` | `notify_post_comment_reply()` | type 23 — autor do comentário respondido (`parent_id`); pula a si mesmo e bloqueio. Nome `trg_` roda **antes** do `trigger_notify_post_comment` (ordem alfabética) |
+| `notifications` (BEFORE INSERT) | `notifications_skip_comment_when_reply_trg` | `notifications_skip_comment_when_reply()` | descarta a type 3 quando já existe a 23 do mesmo remetente/destinatário/post na mesma transação (`created_at = now()`) — dono do post respondido recebe um push só |
 | `shots_comments` | `trg_notify_shot_comment_mentions` | `notify_shot_comment_mentions()` | type 20 |
 | `flow_comments` | `trg_notify_flow_comment_mentions` | `notify_flow_comment_mentions()` | type 20 |
 | `posts` | `trg_notify_post_repost` | `notify_post_repost()` | type 21 — para o autor do original, quando `reposted_from` vem preenchido; pula se houver bloqueio (migração `20260928-repost-notification.sql`) |
@@ -1808,6 +1816,41 @@ Postgres entraria em recursão de policy); INSERT/UPDATE/DELETE só do host.
 
 ---
 
+## workout_challenges
+
+**(2026-10-02)** Desafio de treino: quem desafiou, quem foi desafiado e QUAL treino — sem números (`20261002-workout-challenges.sql`).
+
+| Coluna | Tipo | Obrigatório | Padrão | Descrição |
+|---|---|---|---|---|
+| `id` | uuid | PK | `gen_random_uuid()` | — |
+| `challenger_id` | uuid | FK → `auth.users` ON DELETE CASCADE | — | Quem desafiou |
+| `challenged_id` | uuid | FK → `auth.users` ON DELETE CASCADE | — | Quem foi desafiado. `CHECK (challenger_id <> challenged_id)` |
+| `routine_name` | text | ✓ | — | Nome do treino ("Peito e Tríceps") |
+| `snapshot` | jsonb | ✓ | — | `{ routineName, items: [{ workoutId, name, muscleGroup, photo, series, isCardio }] }` — **nunca** carga/reps |
+| `status` | text | ✓ | `'pending'` | `pending` → `accepted` → `completed`, ou `declined` |
+| `winner` | text | — | — | `challenger` / `challenged` / `tie` — gravado por quem cumpre |
+| `challenger_score` / `challenged_score` | integer | — | — | Exercícios vencidos por cada lado |
+| `created_at` | timestamptz | ✓ | `now()` | — |
+| `expires_at` | timestamptz | ✓ | `now() + 7 days` | Depois disso não abre mais |
+| `responded_at` / `completed_at` | timestamptz | — | — | — |
+
+**RLS:** SELECT para os dois lados; INSERT só em nome próprio e **sem bloqueio** entre os dois (`user_blocks`, as duas direções); UPDATE só do **desafiado** (responder e fechar com o placar); DELETE só de quem desafiou. **Triggers:** `trg_notify_workout_challenge_created` (type 24) e `trg_notify_workout_challenge_completed` (type 25, quando `status` vira `completed`), ambos SECURITY DEFINER.
+
+## workout_challenge_results
+
+**(2026-10-02)** Os números de cada lado de um desafio — separados do desafio porque **RLS é por linha**: só assim dá para esconder do adversário.
+
+| Coluna | Tipo | Obrigatório | Padrão | Descrição |
+|---|---|---|---|---|
+| `challenge_id` | uuid | PK (composta), FK → `workout_challenges` ON DELETE CASCADE | — | — |
+| `user_id` | uuid | PK (composta), FK → `auth.users` ON DELETE CASCADE | — | Dono dos números |
+| `result` | jsonb | ✓ | — | `{ exercises: [{ workoutId, name, isCardio, sets, bestKg, reps, volumeKg, km }], totalVolumeKg, totalSets }` |
+| `created_at` | timestamptz | ✓ | `now()` | — |
+
+**RLS:** SELECT do próprio resultado sempre; o do **adversário só depois de gravar o seu** (`is_workout_challenge_party(challenge_id) and has_workout_challenge_result(challenge_id)`, helpers SECURITY DEFINER para não recursar). INSERT só do próprio e só sendo parte do desafio. **Sem UPDATE/DELETE** — o resultado gravado é definitivo.
+
+**Exclusão de conta:** as colunas de usuário das duas tabelas são `ON DELETE CASCADE` em `auth.users` (e os resultados caem com o desafio); como `delete_user_data` apaga `auth.users` na mesma transação, elas **não** precisaram entrar no `v_targets`.
+
 ## workout_party_members
 
 **(2026-08-26)** Participantes de uma party — **1:N, sem limite**: treinar em
@@ -1823,6 +1866,16 @@ grupo de quatro é tão comum quanto em dupla.
 | `progress_total` | integer | ✓ | `0` | Total de exercícios da sessão daquela pessoa |
 | `responded_at` | timestamptz | — | — | Quando aceitou/recusou |
 | `updated_at` | timestamptz | ✓ | `now()` | Ordena a busca do convite pendente mais recente |
+| `sets_done` | integer | ✓ | `0` | **(2026-10-02)** Séries contadas da pessoa (regra da barra de números da sessão) |
+| `volume_kg` | numeric | ✓ | `0` | **(2026-10-02)** Volume (kg × reps, sem cardio) |
+| `best_kg` | numeric | ✓ | `0` | **(2026-10-02)** Maior carga levantada |
+| `current_exercise` | text | — | — | **(2026-10-02)** Exercício da última série concluída — o "fazendo Supino" da vez |
+| `last_set_at` | timestamptz | — | — | **(2026-10-02)** Quando a última série terminou (só anda ao concluir série) |
+| `rest_ends_at` | timestamptz | — | — | **(2026-10-02)** Fim do descanso em curso; no passado/null = não está descansando. A **vez** é derivada daqui no app |
+| `finished_at` | timestamptz | — | — | **(2026-10-02)** Finalizou o treino (gravado junto do `status = 'left'`) |
+| `exercise_stats` | jsonb | ✓ | `'[]'` | **(2026-10-02)** `[{ name, sets, bestKg, volumeKg }]` — o "com quanto peso" de cada um no resumo |
+
+> **Escritas por série (2026-10-02, `20261002-workout-party-live-stats.sql`):** as colunas acima são escritas a **cada série concluída** e ao pular/pausar o descanso (`updateWorkoutPartyLiveDb`, debounce de 350 ms — concluir a série e abrir o descanso viram uma escrita só) e uma última vez ao finalizar (`finishWorkoutPartyMemberDb`). Isso reverte a regra "por exercício, nunca por série" de 26/08 — a alternância de vez é por série e não há outro jeito de sabê-la ao vivo. Sem a migração, a leitura (`getWorkoutPartyMembersDb`) cai para as colunas antigas (erro `42703`) e a faixa continua funcionando, só sem vez/estatísticas.
 
 **RLS:** SELECT para qualquer membro da party (é o que alimenta os avatares da
 faixa); **INSERT só do host** — é o que impede alguém de se auto-adicionar numa
@@ -1954,6 +2007,8 @@ Migration: `docs/migrations/20260713-security-hardening.sql`. **As migrações v
 | `profile_hides_follow_lists(target)` | Idem para `hide_follow_lists` |
 | `viewer_follows(target)` | `auth.uid()` segue `target`? Usada na policy de `posts` |
 | `get_profile_counts(target)` | Devolve `posts_count`, `followers_count`, `following_count`. **Necessária**: com a RLS acima, um `count` direto devolveria 0 em perfis privados. O app mostra os números (só as listas e os posts ficam ocultos) — `getUserStatsDb` chama esta RPC |
+| `link_session_history_to_routine(p_routine_id bigint, p_since timestamptz)` | (2026-10-02, `20261002-quick-workout-history-link.sql`) SECURITY DEFINER, só `authenticated`. Treino rápido → rotina: liga as séries da sessão (linhas do próprio `auth.uid()` em `user_workouts_hist` **sem** `routine_id`/`user_workout_id`, com `date_completed` entre `p_since` − 2 s e `p_since` + 10 min, comparado em UTC porque a coluna é `timestamp` sem fuso) à rotina, preenchendo `routine_id` e `user_workout_id` (casado por `workout_id` nos itens da rotina). Confere que a rotina é do usuário. Devolve o nº de linhas vinculadas. Usada por `saveQuickWorkoutRoutineDb` |
+| `get_most_followed_profiles(p_limit int = 15)` | (2026-10-01, `20261001-most-followed-profiles.sql`) SECURITY DEFINER, só `authenticated`. Devolve `(user_id, followers_count)` dos perfis mais seguidos, contando em `following` com a mesma regra do `get_profile_counts` (sem seguidores banidos). Exclui `auth.uid()`, quem ele já segue, banidos e pares com bloqueio (as duas direções); limite 1..30. Devolve só contagens, nunca quem segue quem. Usada por `getMostFollowedProfilesDb` (lista "Seguindo" vazia do perfil) |
 | `delete_user_data(p_user_id)` | Apaga **todas** as linhas do usuário numa transação e devolve `jsonb` com a contagem por `tabela.coluna`. Só o dono (`auth.uid() = p_user_id`) ou um admin pode chamar. Ver abaixo |
 | `is_abandoned_social_signup(p_user_id)` | Interna (sem grant). Regra única de "cadastro Google/Apple incompleto": provedor google/apple, `user_metadata.signup_completed` ≠ true, criada a partir de 29/09/2026, sem posts/flows e `profiles.updated_at` ≤ `created_at` + 30s. Migração `20261001-abandoned-social-signup.sql` |
 | `discard_incomplete_social_signup()` | RPC (authenticated). Apaga a **própria** conta via `delete_user_data` se `is_abandoned_social_signup` valer; senão `SIGNUP_NOT_ABANDONED`. O Login chama ao cancelar o cadastro social ou ao reabrir com a sessão incompleta |

@@ -38,6 +38,19 @@ interface EditedMediaPlugin {
     size: number;
   }>;
   cancelMediaWrite(options: { token: string }): Promise<void>;
+  // Seletor da Fototeca (PHPicker) — ver `pickGalleryMedia`
+  pickMedia(): Promise<
+    | { cancelled: true }
+    | {
+        cancelled: false;
+        type: "image" | "video";
+        path: string;
+        webPath: string;
+        mimeType: string;
+        fileName: string;
+        size: number;
+      }
+  >;
 }
 
 const EditedMedia = registerPlugin<EditedMediaPlugin>("EditedMedia");
@@ -311,4 +324,29 @@ export async function compressVideoBlob(blob: Blob): Promise<Blob> {
     await EditedMedia.cancelMediaWrite({ token }).catch(() => {});
     return blob;
   }
+}
+
+/**
+ * Foto ou vídeo escolhido na Fototeca do iOS, já como `File` com tipo explícito.
+ * `null` = a pessoa cancelou.
+ *
+ * Usa o PHPicker do NOSSO plugin (`EditedMedia.pickMedia`) e não o
+ * `PhotoLibrary.pickMedia` do @capgo, que devolvia lista vazia para TODO vídeo
+ * (ver o comentário do `pickMedia` em EditedMediaPlugin.swift) — o flow
+ * tratava isso como "cancelou" e o vídeo simplesmente não carregava.
+ *
+ * Lança o erro do plugin; `code === "UNIMPLEMENTED"` = build sem o método.
+ */
+export async function pickGalleryMedia(): Promise<File | null> {
+  const picked = await EditedMedia.pickMedia();
+  // `in` (e não `picked.cancelled`): o tsconfig não é strict, e sem ele a união
+  // não estreita pelo booleano.
+  if (picked.cancelled || !("webPath" in picked)) return null;
+  const blob = await (await fetch(picked.webPath)).blob();
+  // Tipo explícito: o Blob lido do arquivo nativo pode vir com `.type` vazio no
+  // WKWebView, e sem ele o vídeo seria tratado como imagem (ver
+  // flow-gallery-video-mimetype-bug).
+  const type =
+    picked.mimeType || blob.type || (picked.type === "video" ? "video/quicktime" : "image/jpeg");
+  return new File([blob], picked.fileName, { type });
 }

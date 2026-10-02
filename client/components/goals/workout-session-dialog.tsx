@@ -16,6 +16,7 @@ import { RunSplitsList } from "@/components/shared/run-splits";
 import { ExerciseImage } from "@/components/shared/exercise-image";
 import { ExerciseAnatomy } from "@/components/shared/exercise-anatomy";
 import { TechniqueInfoOverlay } from "@/components/goals/technique-info-overlay";
+import { PartyTurnStatus, useWorkoutPartyMembers } from "@/components/goals/workout-party-live";
 import { WorkoutPartyBar } from "@/components/goals/workout-party-bar";
 import { buildPartySnapshot } from "@/components/goals/workout-party-helpers";
 import { getCoachingAdaptations, getExerciseCoaching } from "@/lib/exercise-coaching";
@@ -74,8 +75,10 @@ import {
   getExercisePersonalRecordsDb,
   createWorkoutPartyDb,
   inviteToWorkoutPartyDb,
-  leaveWorkoutPartyDb,
+  finishWorkoutPartyMemberDb,
+  updateWorkoutPartyLiveDb,
   endWorkoutPartyDb,
+  type WorkoutPartyLiveStats,
   type ExercisePersonalRecords,
   type SetKind,
   type TrainingMode,
@@ -160,6 +163,13 @@ export type WorkoutSessionSummary = {
    * de ele levar para casa a rotina que de fato fez, e não a que foi proposta.
    */
   partyRoutineSnapshot?: WorkoutPartySnapshot;
+  /**
+   * Instante-base com que a finalização gravou as séries no histórico
+   * (`date_completed` = base + índice em ms). O treino rápido usa para, se a
+   * pessoa salvar a rotina no resumo, vincular exatamente estas séries a ela
+   * (RPC `link_session_history_to_routine`).
+   */
+  historyBaseAt?: string;
   // Corrida GPS concluída nesta sessão (Corrida ao Ar Livre) — alimenta o
   // slide de mapa compartilhável no resumo do treino. null quando não correu.
   run: {
@@ -1208,6 +1218,8 @@ export function WorkoutSessionDialog({
     globalRestTimerKey, setGlobalRestTimerKey,
     workoutPartyId, setWorkoutPartyId,
     workoutPartyRole, setWorkoutPartyRole,
+    workoutQuickSession,
+    workoutChallenge,
     resetWorkoutState,
   } = useWorkout();
 
@@ -1219,6 +1231,19 @@ export function WorkoutSessionDialog({
    * dos exercícios avulsos).
    */
   const isPartyGuest = workoutPartyRole === "guest";
+  /**
+   * "Treino rápido": começou vazio, sem rotina — a pessoa adiciona os
+   * exercícios conforme treina. Mesma regra do convidado: nada vira rotina ao
+   * finalizar (a oferta de salvar aparece no resumo).
+   */
+  const isQuickWorkout = workoutQuickSession;
+  /**
+   * Cumprindo o DESAFIO de alguém: o treino é o do desafio, não uma rotina
+   * minha — mesma regra das sessões sem rotina.
+   */
+  const isChallenge = !!workoutChallenge;
+  /** Sessão sem rotina por trás (convidado, treino rápido ou desafio). */
+  const isEphemeral = isPartyGuest || isQuickWorkout || isChallenge;
 
   // Corpo do usuário — alimenta as adaptações da ficha técnica ("como você
   // marcou cuidado com o joelho…"). Best-effort e uma vez por sessão: sem ele,
@@ -1867,6 +1892,78 @@ export function WorkoutSessionDialog({
     return { volume: Math.round(volume), totalDone, doneEx };
   }, [workoutSeries, allItems]);
 
+  // ── Treinar junto ao vivo: a VEZ de cada um (2026-10-02) ─────────────────
+  // Fonte única dos participantes (faixa do topo + modal/barra de descanso).
+  const { members: partyMembers, reload: reloadPartyMembers } = useWorkoutPartyMembers(
+    FEATURES.workoutParty ? workoutPartyId : null,
+  );
+  // Os OUTROS: quem está treinando e quem já terminou (aparece "terminou").
+  const partyPartners = React.useMemo(
+    () => partyMembers.filter(
+      (m) => m.userId !== userId && (m.status === "accepted" || (m.status === "left" && !!m.finishedAt)),
+    ),
+    [partyMembers, userId],
+  );
+  // Exercício da série concluída por último — o "fazendo Supino" que o amigo vê.
+  const lastCompletedWorkoutRef = React.useRef<string | null>(null);
+
+  /** Estado publicado para os outros: totais + por exercício (o "com quanto peso"). */
+  const buildPartyLiveStats = (): WorkoutPartyLiveStats => {
+    let bestKg = 0;
+    const exerciseStats: WorkoutPartyLiveStats["exerciseStats"] = [];
+    for (const item of allItems) {
+      const isCardio = isCardioExercise(item.muscle_group, item.workout_id);
+      const done = (workoutSeries[item.workout_id] ?? []).filter((x) => x.completed);
+      if (done.length === 0) continue;
+      let exBest = 0;
+      let exVolume = 0;
+      let exSets = 0;
+      for (const x of done) {
+        if (countsAsSeries(setKindOf(x))) exSets++;
+        if (isCardio) continue;
+        exBest = Math.max(exBest, x.kg || 0);
+        exVolume += (x.kg || 0) * (x.reps || 0);
+      }
+      bestKg = Math.max(bestKg, exBest);
+      exerciseStats.push({
+        name: item.workoutName ?? "",
+        sets: exSets,
+        bestKg: exBest,
+        volumeKg: Math.round(exVolume),
+      });
+    }
+    const current = lastCompletedWorkoutRef.current
+      ? allItems.find((i) => i.workout_id === lastCompletedWorkoutRef.current)?.workoutName ?? null
+      : null;
+    const restSecs = globalRestTimerActive
+      ? (getWorkoutClock().restRemaining || globalRestTimerTotal)
+      : 0;
+    return {
+      setsDone: stats.totalDone,
+      volumeKg: stats.volume,
+      bestKg,
+      currentExercise: current,
+      restEndsAt: restSecs > 0 ? new Date(Date.now() + restSecs * 1000).toISOString() : null,
+      exerciseStats,
+    };
+  };
+
+  // Publica a cada série concluída/desmarcada e a cada início/fim/pausa de
+  // descanso (a `globalRestTimerKey` muda ao iniciar E ao pular). Debounce
+  // curto: concluir a série e abrir o descanso acontecem no mesmo toque e
+  // viram UMA escrita.
+  const publishedSetsRef = React.useRef<number | null>(null);
+  React.useEffect(() => {
+    if (!FEATURES.workoutParty || !workoutPartyId || !open) return;
+    const id = setTimeout(() => {
+      const setCompleted = publishedSetsRef.current !== null && stats.totalDone > publishedSetsRef.current;
+      publishedSetsRef.current = stats.totalDone;
+      void updateWorkoutPartyLiveDb(workoutPartyId, buildPartyLiveStats(), { setCompleted }).catch(() => {});
+    }, 350);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workoutPartyId, open, stats.totalDone, globalRestTimerKey, globalRestTimerActive, globalRestTimerPaused]);
+
   // ── Calorias da sessão ──────────────────────────────────────────────────
   // Estimativa VIVA (tempo do cronômetro × tipo de exercício × peso corporal),
   // que a pessoa pode substituir pelo número do aparelho/relógio a qualquer
@@ -2465,7 +2562,7 @@ export function WorkoutSessionDialog({
     const isRoutineItem = items.some(
       (i) => i.workout_id === workoutId && !String(i.id ?? "").startsWith(SESSION_ITEM_ID_PREFIX),
     );
-    if (isRoutineItem && !isPartyGuest) {
+    if (isRoutineItem && !isEphemeral) {
       showNotice({
         kind: "warn",
         title: t("goals_remove_leaves_routine_title"),
@@ -2533,7 +2630,7 @@ export function WorkoutSessionDialog({
       // exercício entra na sessão como avulso e o treino dele é gravado
       // normalmente; o que a oferta do resumo salva é a rotina DO AMIGO (o
       // snapshot do convite), não a sessão com os acréscimos.
-      if (!isPartyGuest) {
+      if (!isEphemeral) {
         await createUserWorkoutsDb(userId, [created.id], {
           routine_id: routineId,
           name: routineName ?? undefined,
@@ -2792,6 +2889,7 @@ export function WorkoutSessionDialog({
       ),
     }));
     if (!wasCompleted) {
+      lastCompletedWorkoutRef.current = workoutId;
       const kind = setKindOf(row);
       // Descanso depende do que vem A SEGUIR, não só do que acabou:
       //  - próxima linha é um drop  → emenda, sem descanso nenhum;
@@ -2958,7 +3056,7 @@ export function WorkoutSessionDialog({
       // aplicada ANTES de casar com `workoutRemovedIds`, senão remover um card
       // já trocado não acharia a linha (o prop `items` ainda traz o workout_id
       // antigo). Itens sintéticos ficam de fora — não existem no banco.
-      if (workoutRemovedIds.length > 0 && !isPartyGuest) {
+      if (workoutRemovedIds.length > 0 && !isEphemeral) {
         const removedRoutineItemIds = [...new Set(
           [...items, ...workoutExtraItems]
             .map((i) => {
@@ -3024,7 +3122,7 @@ export function WorkoutSessionDialog({
       // uma rotina dele). Vinculá-los aqui criaria a rotina sem perguntar —
       // exatamente o contrário do fluxo, em que salvar é uma escolha feita no
       // resumo. O histórico grava sem vínculo, como qualquer avulso.
-      if (extraWorkoutIds.length > 0 && !isPartyGuest) {
+      if (extraWorkoutIds.length > 0 && !isEphemeral) {
         try {
           linkedExtraIds = await linkSessionWorkoutsToRoutineDb(userId, extraWorkoutIds, {
             routine_id: routineId,
@@ -3052,7 +3150,7 @@ export function WorkoutSessionDialog({
       // `user_workouts` agora (acima), então a posição deles se perderia: sem
       // isto, um exercício adicionado no meio do treino e arrastado para a 2ª
       // posição voltaria para o fim da rotina no treino seguinte.
-      if (workoutOrder.length > 0 && !isPartyGuest) {
+      if (workoutOrder.length > 0 && !isEphemeral) {
         const orderEntries = allItemsForSave
           .slice()
           .sort((a, b) => {
@@ -3298,7 +3396,7 @@ export function WorkoutSessionDialog({
       // No convidado não há linha em `user_workouts` para receber nada disso —
       // a preferência dele vale a partir do momento em que ele SALVAR a rotina.
       const sessionWorkoutIds = new Set(
-        isPartyGuest ? [] : allItemsForSave.map((w) => w.workout_id),
+        isEphemeral ? [] : allItemsForSave.map((w) => w.workout_id),
       );
       await Promise.all(
         Object.entries(workoutExerciseNotes)
@@ -3330,7 +3428,9 @@ export function WorkoutSessionDialog({
       if (workoutPartyId) {
         const partyToClose = workoutPartyId;
         const wasHost = workoutPartyRole === "host";
-        void leaveWorkoutPartyDb(partyToClose).catch(() => {});
+        // Sai da party JÁ com os números finais — é o que o resumo dos outros
+        // mostra no card "Treino em conjunto" (via realtime).
+        void finishWorkoutPartyMemberDb(partyToClose, buildPartyLiveStats()).catch(() => {});
         if (wasHost) void endWorkoutPartyDb(partyToClose).catch(() => {});
       }
       // Corrida GPS ainda ativa não pode sobreviver ao fim do treino (o watch
@@ -3350,14 +3450,20 @@ export function WorkoutSessionDialog({
         // exercícios que ele adicionou e sem os que removeu. Salvar a proposta
         // original faria a rotina nascer diferente do treino que ele acabou de
         // fazer.
-        partyRoutineSnapshot: isPartyGuest
+        // Treino rápido: idem — e com o descanso escolhido NA SESSÃO, que é o
+        // único lugar onde ele existe (o item avulso não tem `time_to_rest`).
+        partyRoutineSnapshot: isEphemeral
           ? buildPartySnapshot({
               routineName: routineName ?? routineLabel,
               trainingMode: isExpert ? "expert" : "simple",
-              items: allItemsForSave,
+              items: allItemsForSave.map((w) => ({
+                ...w,
+                time_to_rest: workoutExerciseRestTimes[w.workout_id] ?? w.time_to_rest ?? null,
+              })),
               seriesByWorkout: workoutSeries,
             })
           : undefined,
+        historyBaseAt: new Date(sessionBaseMs).toISOString(),
         run: lastRunRef.current,
       });
       lastRunRef.current = null;
@@ -4037,6 +4143,26 @@ export function WorkoutSessionDialog({
         </button>
       </div>
 
+      {/* ── DESAFIO ──────────────────────────────────────────── */}
+      {/* Lembra o modo: os números de quem desafiou só aparecem no resumo. */}
+      {workoutChallenge && (
+        <div style={{
+          flexShrink: 0, margin: "0 16px 8px", padding: "8px 12px", borderRadius: 14,
+          background: "rgba(248,113,113,.10)", border: "1px solid rgba(248,113,113,.35)",
+          display: "flex", alignItems: "center", gap: 8, minWidth: 0,
+        }}>
+          <span style={{ fontSize: 16 }}>⚔️</span>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 800, color: "#fca5a5", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {t("goals_challenge_session_title").replace("{name}", workoutChallenge.challengerNickname)}
+            </div>
+            <div style={{ fontSize: 11.5, color: MUTED_FG }}>
+              {t("goals_challenge_session_hint")}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── TREINAR JUNTO ────────────────────────────────────── */}
       {/* Sem party, encolhe para um botão discreto: quem treina sozinho (a
           maioria) não perde espaço, e quem quer chamar alguém depois de já ter
@@ -4048,8 +4174,10 @@ export function WorkoutSessionDialog({
         routineName={routineName ?? routineLabel}
         exerciseCount={allItems.length}
         progressDone={stats.doneEx}
-        canInvite={!isPartyGuest}
+        canInvite={!isEphemeral}
         onInvite={handlePartyInvite}
+        members={partyMembers}
+        onMembersChanged={reloadPartyMembers}
       />
       )}
 
@@ -5352,14 +5480,51 @@ export function WorkoutSessionDialog({
             display: "flex", flexDirection: "column",
             alignItems: "center", padding: "48px 16px", textAlign: "center",
           }}>
-            <p style={{ color: MUTED_FG, fontSize: 14 }}>
-              {itemSearch.trim() ? t("goals_session_no_search_results") : t("goals_no_exercises_added")}
-            </p>
+            {isQuickWorkout && !itemSearch.trim() ? (
+              // Treino rápido começa vazio: em vez de "nenhum exercício", o
+              // convite para o primeiro. O picker NÃO abre sozinho (pedido de
+              // 02/10/2026): a pessoa cai na tela do treino e escolhe quando abrir.
+              <>
+                <div style={{ fontSize: 34, marginBottom: 10 }}>⚡</div>
+                <p style={{ color: FG, fontSize: 16, fontWeight: 700, marginBottom: 6 }}>
+                  {t("goals_quick_empty_title")}
+                </p>
+                <p style={{ color: MUTED_FG, fontSize: 14, lineHeight: 1.45, maxWidth: 280, marginBottom: 18 }}>
+                  {t("goals_quick_empty_desc")}
+                </p>
+                <button
+                  onClick={() => setPickerOpen(true)}
+                  style={{
+                    border: "none", cursor: "pointer", borderRadius: 999,
+                    padding: "12px 22px", minHeight: 44,
+                    background: GLASS_GRADIENT, color: "#fff",
+                    fontSize: 14, fontWeight: 700,
+                  }}
+                >
+                  {t("goals_quick_add_first")}
+                </button>
+              </>
+            ) : (
+              <p style={{ color: MUTED_FG, fontSize: 14 }}>
+                {itemSearch.trim() ? t("goals_session_no_search_results") : t("goals_no_exercises_added")}
+              </p>
+            )}
           </div>
         )}
       </div>
 
       {/* ── REST TIMER ───────────────────────────────────────── */}
+      {/* Treinar junto: a vez do amigo também na barra fina (modal fechado). */}
+      {globalRestTimerActive && restHasTime && partyPartners.length > 0 && (
+        <div style={{
+          flexShrink: 0, display: "flex", minWidth: 0,
+          padding: "6px 20px 0",
+          background: GLASS_BAR_BG,
+          borderTop: `1px solid ${BORDER}`,
+        }}>
+          <PartyTurnStatus partners={partyPartners} mode="rest" compact />
+        </div>
+      )}
       {globalRestTimerActive && restHasTime && (
         <div style={{
           flexShrink: 0,
@@ -6280,6 +6445,14 @@ export function WorkoutSessionDialog({
                   <ClockText select={(c) => c.restRemaining} format={fmtMinSec} />
                 </div>
               </div>
+
+              {/* Treinar junto: enquanto EU descanso, de quem é a vez — "💪 Vez
+                  da Ana · fazendo Supino" ou "Ana descansando 0:42". */}
+              {partyPartners.length > 0 && (
+                <div style={{ width: "100%", marginTop: -8, marginBottom: 18 }}>
+                  <PartyTurnStatus partners={partyPartners} mode="rest" />
+                </div>
+              )}
 
               {/* Ações principais: Pausar/Retomar + Minimizar */}
               <div style={{ display: "flex", gap: 10, width: "100%" }}>

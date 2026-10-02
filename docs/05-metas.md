@@ -191,7 +191,12 @@ Do mesmo jeito, `?action=create-routine` abre o wizard direto na criação de **
   - **Regra do rodízio** (`computeSequentialWorkoutDue` em `goals-helpers.ts`): as rotinas sequenciais rodam na **ordem de criação** (`routines.id` crescente). O "devido hoje" é a **próxima após a última concluída**; o rodízio **só avança por conclusão**, nunca pelo calendário — pular um dia mantém a mesma na fila (ex.: Perna pulada na terça continua sendo Perna na quarta, não Ombro). Se a última concluída foi **hoje**, o dia está feito (mostra concluída, a próxima só aparece amanhã — **uma por dia**). Nunca executou nenhuma → a primeira. Faz o wrap ao fim do ciclo.
   - **Hub do Hoje** (`today-dashboard.tsx`): sequenciais saem do filtro por dia da semana (`!isSequentialCard(c)`) e entram como **um único card devido** vindo do `seqDue`. Sem dia de descanso por agenda (sempre há uma próxima).
   - **Exibição**: o chip de dias vira **"Sequencial"** (`routines-tab`); na **Agenda semanal** (`routine-schedule-modal`) ganham uma **seção própria** no topo (numerada pela ordem do rodízio, com horário), fora da grade de dias (a grade só aparece se houver rotina por dia da semana). No **detalhe** da rotina, o editor de Lembrete esconde os chips de dias e mostra um aviso "Sequencial"; salvar/desativar **preserva o `'seq'`** (senão viraria "todo dia").
-  - **Notificação (corrigido em 15/09/2026)**: `scheduled_days='seq'` cai em `parseWeekdays → []` → **lembrete diário** no horário definido. **Todo o rodízio gera UM lembrete só por horário**: antes cada rotina sequencial agendava a sua, então 3 rotinas às 07:00 disparavam 3 notificações simultâneas para um dia em que **só uma** está devida. O agendador funde as rotinas sequenciais numa entrada única (`__seq__`) e o texto é **genérico** (💪 Treino — "Hora do seu treino de hoje"), porque qual rotina está devida depende de conclusões que acontecem **depois** do agendamento. O toque leva `extra.url = "/metas?openRoutine=seq"` (`SEQUENTIAL_OPEN_PARAM`) e quem resolve é o `Goals.tsx`, **na hora do toque**, via `computeSequentialWorkoutDue` — abrindo o detalhe da rotina realmente devida. Rotinas do rodízio com **horários diferentes** continuam com um lembrete por horário (é a agenda que o usuário definiu).
+  - **Notificação (corrigido em 15/09/2026)**: `scheduled_days='seq'` cai em `parseWeekdays → []` → **lembrete diário** no horário definido. **Todo o rodízio gera UM lembrete só por horário**: antes cada rotina sequencial agendava a sua, então 3 rotinas às 07:00 disparavam 3 notificações simultâneas para um dia em que **só uma** está devida. O agendador funde as rotinas sequenciais numa entrada única (`__seq__`) e o texto é **genérico** (💪 Treino — "Hora do seu treino de hoje"), porque qual rotina está devida depende de conclusões que acontecem **depois** do agendamento. O toque leva `extra.url = "/metas?openRoutine=seq"` (`SEQUENTIAL_OPEN_PARAM`) e quem resolve é o `Goals.tsx`, **na hora do toque**, via o ciclo do rodízio (`computeSequentialCycle` → `seqCycle.due`, desde 02/10/2026; antes `computeSequentialWorkoutDue`) — abrindo o detalhe da rotina realmente devida. Rotinas do rodízio com **horários diferentes** continuam com um lembrete por horário (é a agenda que o usuário definiu).
+  - **Ciclo do rodízio — anéis e "Treino de hoje" (02/10/2026)**: o anel das rotinas sequenciais deixou de seguir a **semana do calendário** (que só zerava na segunda) e passou a seguir o **ciclo do rodízio**. `computeSequentialCycle(cards, executions)` (`goals-helpers.ts`, substitui o antigo `computeSequentialWorkoutDue`) percorre o **histórico de execuções** em ordem (`getRoutineExecutionsDb` — `user_workouts_hist` casado por `routine_id`, ou `user_workout_id` nas linhas antigas; cópia offline `routineExecutions:`) juntando as rotinas feitas no ciclo. Quando todas foram feitas, o ciclo **fecha**: só a última fica em 100% (marca de "ciclo completo") e as outras voltam a 0%; a próxima execução abre um ciclo **novo do zero**. Exemplo com Peito → Perna → Braço: dia 1 `Peito 100%`; dia 2 `Peito 100% · Perna 100%`; dia 3 `Braço 100%` (Peito e Perna zeram); dia 4 `Peito 100%` (Braço zera) e assim por diante.
+    - **Por que o histórico inteiro, e não a última data de cada rotina:** com só a última data, "Peito, Perna, Braço, Peito" e "Perna, Braço, Peito" seriam idênticos, e os anéis não. Várias séries da mesma sessão contam uma vez (execuções consecutivas da mesma rotina se fundem).
+    - **Por que a que fecha não conta no ciclo seguinte:** se contasse, o ciclo seguinte fecharia com uma rotina a menos e o rodízio sairia de fase (testado: no dia 5 só "Perna" ficava em 100%).
+    - **"Treino de hoje" mostra SEMPRE a rotina em 0%**: `due` = a primeira em 0% no rodízio, a partir da que vem depois da última executada (sem execução → a primeira criada). Antes, a feita hoje continuava no card como "concluída" até virar o dia; agora o card já mostra a próxima. Com uma rotina sequencial só, ela é sempre a do dia.
+    - **Onde vale**: anel dos cards (`routines-tab` via `isRoutineDoneForRing`), anel "Exercícios" do topo de Metas (`typeProgress`), card do "Treino de hoje" (`today-dashboard`, prop `seqCycle`) e o lembrete do rodízio (`openRoutine=seq` abre `seqCycle.due`). Rotinas por **dias da semana** seguem a regra semanal de sempre (`isRoutineCompleted`).
   - **Escopo**: só **treino**, nos **dois** fluxos de criação — **"Do zero"** (passo `build-schedule`) e **"Sugerido pelo app"** (o mesmo toggle no topo do preview `suggested-program`, 20/07/2026). No sugerido, o quiz continua definindo a **estrutura** do programa (nº de dias → nº de treinos distintos); ao escolher Sequencial, a tira seg→dom vira um aviso, cada treino mostra a **posição no rodízio** (`#N`, `goals_program_seq_position`) em vez das letras de dia, e o `handleAddWeeklyProgram` grava `'seq'` em vez dos dias. A **ordem do rodízio** = ordem de `program.workouts` (primeira aparição na sequência gerada) = ordem de criação. Dieta/hábito seguem por dia da semana. O estado `scheduleMode` é compartilhado pelos dois fluxos (reset para "weekly" ao fechar o wizard).
 
 - **Meta personalizada** (passo `goal-custom`): descrição + categoria (fitness/saúde/hábitos) + **duração** (presets 30/60/90 ou personalizada, em dias) + **frequência** (campo numérico = `quantity`, dias por semana que o usuário pretende executar, 1–7 — hoje é só informativo/exibido, não entra no cálculo de progresso). O **denominador do progresso é a duração** (`perc = days_completed / duration`, ver `docs/14-database-schema.md` e `incrementGoalProgressDb`): cada rotina vinculada concluída num dia soma **+1 `days_completed`** (máx. 1x/dia, mesmo com várias rotinas concluídas), então uma meta de 30 dias avança **~3,33% por dia** de execução. Cria via `createCustomGoalAndSelectDb(userId, desc, type, duration, frequency)`, que grava em **`user_custom_goals`** (com dono) e liga o `user_goals` por `custom_goal_id`. Desde 25/09/2026 a meta personalizada **não entra mais no catálogo `goals`**. Ver `docs/14-database-schema.md` → `user_custom_goals`.
@@ -762,6 +767,8 @@ A barra de números do topo da sessão passou de 4 para **5 cards**: `Duração 
 
 ## Treinar junto — convidar amigos para o mesmo treino (26/08/2026)
 
+> **Status:** desligada no recorte da v1 (`FEATURES.workoutParty = false`) e **religada em 02/10/2026**. Convive com o treino rápido: as duas são sessões sem rotina (`isEphemeral`), mas o treino rápido **não** convida (`canInvite` desligado — não há rotina para replicar).
+
 Quem vai treinar pode chamar **quantas pessoas quiser** (seguidores ou qualquer
 usuário buscado pelo nome) para fazer o mesmo treino agora. Cada convidado
 recebe um push, e quem aceita entra numa **sessão espelho**: os mesmos
@@ -824,6 +831,19 @@ em poucos dias.
    (`saveRoutineFromWorkoutPartyDb`); "Agora não" não grava nada. Nos dois casos
    o **treino já foi registrado** — o histórico, o volume, os PRs, as calorias e
    o check-in do dia acontecem normalmente.
+   - **Não oferece de novo o que já foi salvo (02/10/2026).** Salvar marca a
+     origem: a rotina do convidado ganha `routines.follower_id` = quem convidou
+     (a mesma coluna/convenção do "Copiar rotina" — `copyRoutineToUserDb` /
+     `getCopiedRoutineKeysDb`). No convite seguinte, o resumo só mostra o card
+     depois de `hasSavedPartyRoutineDb(userId, partyId, snapshot)` responder
+     `false`. "Já tem" = rotina com `follower_id` = host **e** o mesmo nome, **ou**
+     rotina com o mesmo nome / vinda do host que já **contém todos os
+     exercícios** do treino (cobre rotinas salvas antes da marca e rotinas
+     renomeadas). Falha na checagem → o card aparece (oferecer de novo é
+     inofensivo; esconder sem certeza tiraria a chance de salvar). Enquanto
+     checa, o card não aparece — nada surge e some. Efeito colateral desejado:
+     na Busca/flow, a rotina daquele amigo passa a constar como "Rotina copiada"
+     para quem a salvou pelo treinar junto.
 
 ### O que é replicado (e o que não é)
 
@@ -881,6 +901,34 @@ um nome comum) trocaria o treino do amigo pelo dele no meio da sessão.
 - **Falha ao convidar não bloqueia o treino**: o erro vira toast e a sessão
   começa assim mesmo.
 
+### A vez de cada um (02/10/2026)
+
+Treinando em dupla, a pessoa alterna: termina a série, descansa enquanto o amigo faz a dele. A sessão agora mostra **de quem é a vez**:
+
+| Onde | O que mostra |
+|---|---|
+| **Modal de descanso** (abaixo do anel) | Uma linha por amigo, com avatar: **"💪 Vez da Ana · fazendo Supino"** (verde) quando ela está na série, **"⏸ Ana descansando · 0:42"** (azul, contando) quando ela também descansa, "✅ Ana terminou o treino" ou "⏳ Ana se preparando" |
+| **Barra fina de descanso** (modal fechado) | A mesma informação numa linha, priorizando quem está fazendo a série agora |
+| **Faixa do topo** (fora do descanso) | Abaixo do "Ana 3/6": **"🔥 Sua vez! · ⏸ Ana descansando 0:30"** quando o amigo está descansando, ou "💪 Vez da Ana · fazendo Supino" |
+
+**Como sabe:** cada participante publica, a cada série concluída e ao pular/pausar o descanso, até quando vai o descanso dele (`rest_ends_at`), qual exercício fez (`current_exercise`) e os totais — `updateWorkoutPartyLiveDb`, com debounce de 350 ms (concluir a série e abrir o descanso no mesmo toque viram uma escrita). O estado sai de `partnerTurn()` (`client/components/goals/workout-party-live.tsx`): descanso no futuro → descansando; senão → é a vez dele. O relógio é o de cada aparelho — poucos segundos de diferença só adiantam/atrasam a contagem.
+
+**Uma assinatura só:** `useWorkoutPartyMembers(partyId)` (mesmo arquivo) virou a fonte única dos participantes na sessão — a faixa (`WorkoutPartyBar`) recebe `members` por prop em vez de ter o próprio realtime. **`PartyTurnStatus`** é o único pedaço que re-renderiza a cada segundo (a contagem do descanso do amigo), seguindo a regra do relógio fora do contexto.
+
+**Custo aceito:** ~20–40 writes pequenos por pessoa por treino (antes era 1 por exercício). A alternância é por série; não há outro jeito de saber a vez ao vivo.
+
+### Resumo em conjunto (02/10/2026)
+
+O resumo de quem treinou junto ganhou:
+
+- **Card "👥 Treino em conjunto"** (acima do "salvar rotina"): um bloco por pessoa com **séries, exercícios, volume e maior carga**, e a lista "com quanto peso" — cada exercício com `{séries}× · até {kg}kg`. Os meus números vêm da própria sessão (exatos e imediatos); os dos outros, de `workout_party_members`. **Ao vivo:** o resumo assina o realtime (`useWorkoutPartyMembers(data.partyId)`), então quem ainda está treinando aparece como "Ainda treinando…" e os números sobem até ele finalizar (`finished_at`).
+- **Template de canvas "👥 Em conjunto"** (`together`, acento âmbar `#fbbf24`), logo depois do clássico: uma linha por participante (até 4) com a **foto de perfil** num círculo com anel na cor da pessoa, nome ("você" no meu), "maior carga" ou "ainda treinando…", e séries/exercícios/volume; embaixo, **"JUNTOS: {volume} · {sets} séries"**. **Foto sem sujar o canvas:** desenhar direto uma imagem de outro domínio marca o canvas como *tainted* e o `toBlob` da publicação falharia; por isso `loadCanvasAvatar` entrega a foto sempre por `blob:` local — a miniatura do `thumb-cache` (`loadThumb`) ou, se a original for pequena demais, um `fetch` CORS (o Storage responde `Access-Control-Allow-Origin: *`, conferido em 02/10/2026). Memoizado por URL, com teto de 4 s; falhou/sem foto → a **inicial** no círculo colorido (como na primeira versão). Vira o template **padrão** assim que os números do amigo chegam — a menos que a pessoa já tenha tocado em outro estilo (`templatePickedRef`).
+- Os dois só aparecem com **pelo menos um amigo com dados** (série feita, `last_set_at` ou `finished_at`). `WorkoutSummaryData.partyId` é preenchido pelo `Goals.tsx` (só com `FEATURES.workoutParty`).
+
+**Ao finalizar**, `finishWorkoutPartyMemberDb` grava os números finais + `finished_at` + `status = 'left'` numa escrita só (sem a migração, cai no `leaveWorkoutPartyDb` de antes).
+
+**Migração:** `docs/migrations/20261002-workout-party-live-stats.sql` (só colunas novas; RLS e realtime já cobriam).
+
 ### Notificação
 
 Tipo **19** (`Convite para treinar 💪` / "{name} te chamou pra treinar agora"),
@@ -890,6 +938,80 @@ traz os exercícios e os botões. Exige **redeploy da `send-push-notification`**
 
 **Migração:** `docs/migrations/20260826-workout-party.sql` (tabelas + RLS +
 realtime).
+
+## Treino rápido — treinar sem montar rotina (02/10/2026)
+
+Ao entrar em Metas aparece um botão animado **"🏋️ Treino rápido · Comece sem montar rotina"** (ícone `Dumbbell`) que abre a sessão de treino **vazia**: a pessoa vai adicionando os exercícios conforme treina e, no resumo, pode transformar tudo numa rotina com nome. Flag `FEATURES.quickWorkout`.
+
+### O botão (`QuickWorkoutButton`, `client/components/goals/quick-workout-button.tsx`)
+
+Estilo do botão "Instants" do Instagram, no canto inferior direito, acima da barra de navegação (`bottom: 96px + safe area`):
+
+1. nasce **escondido**, mostrando **30%** da largura (mín. 44px) — a fresta, com o ícone de halter inteiro à mostra. Começou com 10% e ficou pouco visível (ajustado no mesmo dia);
+2. ~0,7 s depois **desliza até o centro** da tela com o rótulo à mostra (spring do framer-motion);
+3. segura ~3,2 s e **volta para a fresta**, onde fica com um "respiro" de brilho.
+
+- **Uma vez por entrada na tela** (o componente remonta a cada visita a Metas).
+- **Toque em qualquer fase inicia o treino.** A fresta de 30% (~69px) já passa do alvo mínimo de 44px da Apple — sem área de toque extra.
+- **Reduzir movimento** (iOS) → sem animação: fica parado no canto, inteiro à mostra.
+- **Quando aparece:** `FEATURES.quickWorkout` **e** nenhum treino em andamento/minimizado **e** o resumo fechado — **com ou sem rotina** (a primeira versão aparecia só para quem não tinha rotina; o usuário pediu em 02/10/2026 que ficasse sempre à mão). Durante o treino o canto é da barra do treino minimizado.
+
+### A sessão
+
+`handleStartQuickWorkout` (`Goals.tsx`) limpa o estado, liga `workoutQuickSession` no `workout-context` (**persistido**, limpo no `resetWorkoutState`) e abre o `WorkoutSessionDialog` com o card sintético **`quickWorkoutCard`** — vazio, sem `routineId`, nome "Treino rápido". Ele tem prioridade logo depois do card do convidado em `activeWorkoutCard` (uma rotina chamada "Treino rápido" não sequestra a sessão) e, por ser derivado do contexto, minimizar/recarregar reconstrói o treino.
+
+- O toque abre **só a tela de registrar treino** — o picker de exercícios **não** abre sozinho (decisão do usuário em 02/10/2026; a primeira versão abria). A lista vazia mostra "Bora treinar!" + o botão "Adicionar exercício" no lugar de "nenhum exercício", além do botão de sempre no rodapé.
+- Os exercícios entram como **avulsos** (`workoutExtraItems`, id `session_…`), como em qualquer sessão.
+- **Sessão efêmera, como a do convidado:** o dialog generalizou `isPartyGuest` em **`isEphemeral = isPartyGuest || isQuickWorkout`** nas escritas que criariam/alterariam rotina ao finalizar (`linkSessionWorkoutsToRoutineDb`, `removeRoutineItemsKeepHistoryDb`, `updateRoutineOrderDb`, notas/descanso, `createUserWorkoutsDb` do "Criar exercício") e no aviso "sai da rotina". O convite do "treinar junto" (`canInvite`) também fica desligado — não há rotina para replicar.
+- O **histórico grava normalmente**, com `routine_id`/`user_workout_id` nulos — PR, coluna ANTERIOR, gráficos, check-in e calorias funcionam (leem `workout_id`).
+
+### Virar rotina, no resumo
+
+A finalização monta `partyRoutineSnapshot` também para o treino rápido — o treino **como executado**, com o **descanso escolhido na sessão** (`workoutExerciseRestTimes`, o único lugar onde ele existe para avulsos) — e devolve **`historyBaseAt`** (o instante-base com que gravou a rajada de séries). O `Goals.tsx` passa `partySaveOffer` com **`kind: "quick"`** ao resumo, que mostra o card **"⚡ Transformar em rotina?"** com campo **Nome da rotina** — pré-preenchido com os 2 grupos musculares mais feitos ("Peito e Tríceps"; sem grupo, "Treino rápido") — e **Salvar como rotina** / **Agora não**. O card do convidado (`kind: "party"`) continua igual.
+
+`saveQuickWorkoutRoutineDb` (`ritmofit-db.ts`):
+1. cria os itens com o nome (`createUserWorkoutsDb`) e acha a rotina que o trigger criou (`backfillRoutineIdOnItemsDb`, que agora **devolve o id**) — obrigatório;
+2. grava a **ordem** em que os exercícios foram feitos (`updateRoutineOrderDb`), o **descanso** (`updateUserWorkoutRestDb`) e o **`last_summary`** da sessão (`updateRoutineLastSummaryDb`) — best-effort;
+3. **vincula o histórico** pela RPC `link_session_history_to_routine(routine_id, historyBaseAt)` (migração `docs/migrations/20261002-quick-workout-history-link.sql`) — a rotina já nasce "feita hoje", com "último treino" e ícone de resumo. RPC `SECURITY DEFINER` porque o app nunca fez UPDATE em `user_workouts_hist` e a policy "for all" não estava aplicada em produção (o mesmo motivo de `20260716-hist-delete-rls`): um UPDATE do cliente poderia falhar em silêncio. Sem a migração, salvar funciona e só o vínculo do histórico fica de fora.
+
+Depois de salvar, `onPartyRoutineSaved` recarrega as rotinas — a rotina aparece em Metas (o botão continua lá para o próximo treino rápido). "Agora não" não grava nada além do treino, que já foi registrado.
+
+**Chaves:** `goals_quick_*` (botão, sessão vazia, card de salvar, toasts).
+
+## Desafio de treino (02/10/2026)
+
+No resumo do treino, a pessoa pode **desafiar seguidores** a bater os números dela **nos mesmos exercícios — sem mostrar os números**. Quem recebe treina dando o máximo e, no **resumo do treino dele**, vê o placar exercício a exercício e um canvas "Fulano desafiou Ciclano — X venceu". Flag `FEATURES.workoutChallenge`.
+
+### Fluxo
+
+1. **Desafiar** — card "⚔️ Desafie alguém" no resumo (só em treino "normal": não aparece no resumo de um desafio, nem sem exercícios com `workoutId`). Abre o mesmo seletor de seguidores do treinar junto (`WorkoutPartyDrawer` com a prop `copy`), multi-seleção. `createWorkoutChallengesDb` grava um desafio por pessoa + **os meus números** em `workout_challenge_results` (se esses falharem, os desafios são desfeitos — sem números não há com o que comparar). O botão vira "Desafio enviado para N · desafiar mais".
+2. **Receber** — push **type 24** ("Fulano te desafiou: Peito e Tríceps"). O toque abre `/metas?challenge=<id>` → **`ChallengeInviteDialog`**: quem desafiou, o nome do treino e os exercícios com o **nº de séries** — nunca carga ou repetições — e "🔒 os números de Fulano ficam escondidos até você terminar". Metas também mostra uma faixa **"⚔️ Fulano te desafiou"** enquanto houver desafios abertos (o push pode ter passado batido). Com treino em andamento, não dá para aceitar (aviso, como no convite de treino).
+3. **Treinar** — aceitar (`respondWorkoutChallengeDb`) abre uma sessão **sem rotina** (`workoutChallenge` no contexto, persistido; `isEphemeral` no dialog — nada vira rotina) com os exercícios do desafio e o mesmo nº de séries; a carga pré-preenchida é a do **histórico do próprio desafiado** (mesma lógica do convidado do treinar junto, via `challengeToPartySnapshot` + `partySnapshotToSeries`). Uma faixa "⚔️ Desafio de Fulano · os números dele aparecem só no resumo" fica no topo da sessão.
+4. **Resultado** — ao finalizar, `submitWorkoutChallengeResultDb` grava os meus números, lê os de quem desafiou (agora liberados pela RLS), compara e fecha o desafio (`status = completed`, `winner`, placar) — o que dispara o push **type 25** para quem desafiou. O resumo mostra o card **"⚔️ Desafio de Fulano"** com o **placar** (`ChallengeComparison`: "Você venceu! 🏆 · 3 × 2", e por exercício a carga × reps de cada um com o vencedor destacado) e o template de canvas **"⚔️ Desafio"**, que vira o padrão assim que o placar chega.
+5. **Quem desafiou** — o push 25 já diz o resultado ("Ciclano completou seu desafio e venceu (2×3)"); o toque abre `/metas?challengeResult=<id>` → **`ChallengeResultDialog`** com o mesmo placar, do ponto de vista dele.
+
+### Regra do placar (`compareChallenge`, `client/lib/workout-challenge.ts`)
+
+Por exercício, na ordem do desafio: **força** → maior **carga** numa série; empate → mais **repetições** somadas. **Cardio** → maior **distância**. Quem **não fez** o exercício perde aquele exercício (os dois sem → empate). Vence quem ganhou **mais exercícios**; empate no placar → maior **volume total**; ainda igual → **empate**. Mesma função no resumo, no canvas e no diálogo de quem desafiou.
+
+### Os números ficam escondidos de verdade
+
+Não é só a tela que não mostra: os números moram em `workout_challenge_results`, e a **RLS** só entrega o resultado do adversário **depois que você gravou o seu** (`has_workout_challenge_result`). Quem chama a API direto também não consegue espiar. O `snapshot` do desafio guarda só exercícios e nº de séries.
+
+### Canvas "⚔️ Desafio" (`challenge`, acento `#f43f5e`)
+
+"⚔️ DESAFIO", "Fulano desafiou Ciclano", o veredito grande (**"CICLANO VENCEU"** / **"EMPATE"**), o placar **3 × 2** entre as **fotos de perfil** dos dois (anel na cor do card para quem venceu, apagado para quem perdeu, âmbar no empate; nome embaixo de cada foto; mesma técnica do canvas em conjunto — `loadCanvasAvatar` + `drawCanvasAvatar`, inicial como fallback) e, por exercício (até 6), de que lado ficou a vitória (🏆 / =). **Nenhum número de carga ou repetição** — o card vai para o feed, e o desafio existe para ninguém expor quanto levantou. Os números ficam só no card do resumo.
+
+### Peças
+
+| Peça | Onde |
+|---|---|
+| Regras puras (snapshot, resultado, placar) | `client/lib/workout-challenge.ts` |
+| Banco (criar, ler, pendentes, responder, enviar resultado) | `createWorkoutChallengesDb`, `getWorkoutChallengeDb`, `getPendingWorkoutChallengesDb`, `respondWorkoutChallengeDb`, `getWorkoutChallengeResultsDb`, `submitWorkoutChallengeResultDb` em `ritmofit-db.ts` |
+| Convite, placar e resultado | `ChallengeInviteDialog`, `ChallengeComparison`, `ChallengeResultDialog` em `client/components/goals/workout-challenge.tsx` |
+| Migração | `docs/migrations/20261002-workout-challenges.sql` (tabelas, RLS, triggers 24/25) + **redeploy** da `send-push-notification` |
+
+**Expiração:** 7 dias (`expires_at`); desafio recusado ou expirado não abre mais ("Este desafio não está mais disponível").
 
 ## Relógio do treino fora do contexto (29/09/2026)
 
@@ -906,6 +1028,7 @@ Agora o provider espelha os dois números num **store externo** (`useWorkoutCloc
 ## Resumo do treino (`workout-summary-overlay.tsx`)
 
 Overlay full-screen (`zIndex 9500`, `pointer-events:auto`) exibido ao finalizar. Mostra card-canvas gerado (variantes **padrão/PR/máquina zerada**, ou um dos **templates criativos** escolhidos pelo usuário — ver abaixo), fotos opcionais do usuário (carrossel), stats (duração/séries/volume), insígnias, banner de PR/máquina e lista de exercícios.
+- **Fundo padrão do app (01/10/2026):** a raiz usa `hsl(var(--background))` + o brilho do preset `goals` do `ScreenAura` (radial pintado direto, sem `filter: blur`, desde o topo da tela). O header é **transparente** (sem barra de vidro nem borda) e é o único a aplicar a safe area de cima — antes o shell escuro próprio (`GLASS_ROOT_BG`), o `paddingTop` duplicado na raiz e a barra escura do header formavam uma **faixa preta no topo**. Não voltar a pintar fundo próprio na raiz nem barra no header.
 - **Seletor de estilo do card — templates criativos (13/07/2026):** logo abaixo do carrossel, uma fileira de chips horizontais (`goals_canvas_style_label`) deixa o usuário trocar o card gerado (sempre o último slide) entre 5 estilos, todos redesenhados a partir do mesmo `WorkoutSessionSummary` — pensados para gerar mais empolgação e vontade de seguir o treino no feed do que o card informativo simples:
   - **Clássico** (`auto`) — o comportamento de sempre: variante padrão/PR/máquina zerada conforme os dados (`getCanvasVariant`).
   - **Equivalência** (`comparison`, azul-céu `#38bdf8`, só aparece com volume > 0) — "VOCÊ MOVEU {volume}kg ≈ N elefantes/caminhões/aviões...". `COMPARISON_ITEMS` é uma tabela de 15 objetos do mundo real (melancia 8kg → baleia-azul 140.000kg) com emoji; `getComparisonOptions` filtra os que cabem no volume (proporção ≥ 0.95) da referência mais pesada para a mais leve, cortando nas 6 primeiras. Tocar de novo no chip já selecionado sorteia a próxima comparação da lista (`comparisonIndex`, ícone 🔀) — ex.: trocar de "≈ 1 elefante" para "≈ 3,2 hipopótamos" no mesmo treino. Sem volume disponível (rotina sem carga), o chip nem aparece.
@@ -1040,7 +1163,7 @@ Detalhes que a mudança exige:
 
 **Um lembrete por horário (15/09/2026):** o agendador deixou de agendar "uma notificação por rotina" e passou a agendar **uma notificação por horário**. O agrupamento mora em `groupIntoSlots` (`use-routine-notifications.ts`): a chave do slot é `HH:MM | dias | phase`, e dentro do slot as rotinas viram entradas (`tipo|nome`), com `count` = nº de itens daquela rotina naquele horário. Motivo: com 3 rotinas configuradas para o **mesmo horário** o app disparava **3 notificações simultâneas** — três buzinas para o mesmo momento do dia.
 
-- **Rodízio sequencial** (`scheduled_days = 'seq'`): todas as rotinas do rodízio colapsam numa entrada única (`__seq__`), porque **só uma está devida por dia**. O lembrete é genérico (💪 Treino — "Hora do seu treino de hoje") e aponta para `openRoutine=seq`; o `Goals.tsx` resolve a rotina devida **no toque** (`computeSequentialWorkoutDue`), já que o rodízio anda por conclusão, depois do agendamento. O efeito do param espera `lastDatesLoaded` — com o mapa de datas vazio o rodízio cairia sempre na primeira rotina.
+- **Rodízio sequencial** (`scheduled_days = 'seq'`): todas as rotinas do rodízio colapsam numa entrada única (`__seq__`), porque **só uma está devida por dia**. O lembrete é genérico (💪 Treino — "Hora do seu treino de hoje") e aponta para `openRoutine=seq`; o `Goals.tsx` resolve a rotina devida **no toque** (`seqCycle.due`, ciclo do rodízio), já que o rodízio anda por conclusão, depois do agendamento. O efeito do param espera `lastDatesLoaded` (que agora só vira `true` depois das datas **e** do histórico de execuções) — sem eles o rodízio cairia sempre na primeira rotina.
 - **Rotinas diferentes no mesmo horário/dias** (ex.: "Treino A" + "Café da manhã" às 07:00): um lembrete só, título genérico (ícone do tipo + plural, ou 🔔 "Suas rotinas" quando os tipos se misturam) e corpo com os **nomes** (até 3, o resto vira "e mais N"). O toque leva a `/metas` (o Hoje já lista as rotinas do momento) — nomear uma rotina no título e abrir só ela seria arbitrário.
 - **Rotina única**: comportamento de sempre — ícone + nome no título, `openRoutine=<type>::<name>` no toque. O corpo com vários itens agora diz "(3 exercícios)" em vez do antigo "(3 Treino)" (`ITEM_LABELS_PT/EN`).
 - **O que NÃO funde**: horários diferentes, dias diferentes e `phase` diferente (início × fim da janela do hábito) continuam gerando lembretes separados — são momentos distintos do dia.
@@ -1276,6 +1399,7 @@ A tela de Metas concentrava 4 dos gates do antigo plano **LinKa Premium**:
 | Componente | Arquivo |
 |---|---|
 | Página (orquestrador) | `client/pages/Goals.tsx` |
+| Botão animado "Treino rápido" | `client/components/goals/quick-workout-button.tsx` |
 | Card de streak + badges (v4) | `client/components/goals/streak-badges-card.tsx` |
 | Modal calendário de check-ins | `client/components/goals/check-in-calendar-modal.tsx` |
 | Seção "Suas rotinas" — 3 cards de tipo (v4) | `client/components/goals/routine-type-cards.tsx` |

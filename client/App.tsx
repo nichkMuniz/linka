@@ -144,6 +144,7 @@ class ErrorBoundary extends React.Component<
 }
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { refreshIfLongAbsenceOnLaunch } from "@/lib/app-refresh";
 import { createRoot, type Root } from "react-dom/client";
 import {
   BrowserRouter,
@@ -594,6 +595,11 @@ const App = () => {
     </QueryClientProvider>
   );
 };
+
+// Abriu do zero depois de mais de 5 min fora (o iOS fecha o app suspenso):
+// derruba o cache volátil antes do primeiro render, para nenhuma tela nascer
+// com a cópia velha do disco. Ver @/lib/app-refresh.
+refreshIfLongAbsenceOnLaunch();
 
 const container = document.getElementById("root")!;
 

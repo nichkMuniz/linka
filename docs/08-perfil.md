@@ -145,7 +145,7 @@ Tocar numa miniatura (abas Publicações, Treinos e Marcações) abre uma **tela
   - A forma também muda (não só a cor), para os níveis se distinguirem sem depender de cor. `title`/`aria-label` traduzidos (`verified_official_label` / `verified_notable_label`).
   - O nível é derivado por `verifiedTierOf()` em `client/lib/verified-tier.ts`; os objetos de post/shot/comentário carregam `verifiedTier` ao lado de `isVerified`.
 - Também aparece em: post-card (overlay do autor), detalhe do post, comentários, shots (overlay do criador), **flow** (nome no ring do feed + cabeçalho do `FlowViewer`, inclusive as prévias anterior/próximo), **Buscar** (resultados e lista inicial de usuários) e **mensagens privadas** (lista de conversas, lista de quem você segue, drawer "Nova mensagem", cabeçalho e cartão de perfil da conversa aberta)
-  - Fontes que carregam `verifiedTier`: `getActiveStoriesDb`/`getUserActiveStoriesDb`/`getExpiredUserFlowsDb`/`getFlowByIdDb` (flow), `searchUsersDb`/`getAllUsersDb`/`getFollowingDb` (`SearchUser`), `getConversationsDb` (`Conversation`). Todo select novo de autor que exiba o nome precisa pedir `is_verified, verified_tier`.
+  - Fontes que carregam `verifiedTier`: `getActiveStoriesDb`/`getUserActiveStoriesDb`/`getExpiredUserFlowsDb`/`getFlowByIdDb` (flow), `searchUsersDb`/`getAllUsersDb`/`getFollowingDb`/`getFollowersDb` (`SearchUser`), `getMostFollowedProfilesDb`, `getConversationsDb` (`Conversation`). Todo select novo de autor que exiba o nome precisa pedir `is_verified, verified_tier`.
   - Não entram (sem nome em destaque): notificações e listas de curtidas.
 - **Botão "Admin"** no próprio perfil: aparece só com `verified_tier === "official"`. Antes bastava `is_verified`, o que mostraria o botão a qualquer conta verificada. A autorização real continua no servidor (`app_admins`).
 - **Modal de parabéns (`client/components/shared/verified-congrats-dialog.tsx`):** montado no `AppLayout`, que chama `getOwnVerificationStatusDb()` ao abrir o app e sempre que ele volta ao primeiro plano (`visibilitychange`). A leitura é direta, sem `cached()`, porque o selo é dado pelo admin em outro aparelho. Abre só quando o nível **sobe** em relação a `verified_seen_tier` (nenhum → verificado/oficial, verificado → oficial), com textos diferentes para cada nível (`verified_congrats_*`). Remoção ou rebaixamento só sincroniza a marca, sem modal. A marca é gravada **ao fechar** (`markVerificationSeenDb`), então o modal reaparece se o app for morto com ele aberto. "Ver meu selo" leva a `/perfil`.
@@ -616,10 +616,10 @@ Função: `createOrUpdateCommercialProfileDb` — salva `service_plans` como jso
 
 ## Modal de Seguidores / Seguindo
 
-Aberto ao clicar nas estatísticas:
-- Lista de usuários com avatar e nome
+Aberto ao clicar nas estatísticas (`FollowListDrawer`, `client/components/profile/follow-list-drawer.tsx`):
+- Lista de usuários com avatar, nome e **selo de verificação** (`VerifiedBadge` quando `verifiedTier` vem preenchido — nas três fontes: seguidores, seguindo e perfis mais seguidos)
 - Botão follow/unfollow para cada um
-- Campo de busca para filtrar
+- **"Seguindo" vazio no próprio perfil → perfis mais seguidos (2026-10-01):** quando o usuário ainda não segue ninguém, abaixo da mensagem "Você ainda não segue ninguém…" aparece a seção **"Perfis mais seguidos"** (até 15, do mais seguido para o menos), cada um com "{n} seguidores" e botão **Seguir**. Vem de `getMostFollowedProfilesDb` → RPC `get_most_followed_profiles` (já exclui o próprio usuário, quem ele segue, banidos e bloqueios). Só no **próprio** perfil — a lista vazia de outra pessoa continua só com a mensagem. Prop `emptySuggestions` do drawer (genérica: título, descrição, usuários, loading). Sem a migração `20261001-most-followed-profiles.sql` a seção simplesmente não aparece
 
 ---
 
@@ -678,6 +678,7 @@ Um segmento por flow do usuário; o segmento ativo enche conforme o tempo do flo
 | Estatísticas | `getUserStatsDb(userId)` |
 | Seguidores | `getFollowersDb(userId)` |
 | Seguindo | `getFollowingDb(userId)` |
+| Perfis mais seguidos (lista "Seguindo" vazia, só no próprio perfil) | `getMostFollowedProfilesDb()` → RPC `get_most_followed_profiles` (cache `mostFollowed:{viewer}:{limit}`, 60s) |
 | Status de seguimento | `isFollowingDb(userId)` / `getFollowingStatusBatchDb` |
 | Rotinas (para o GoalDetailDrawer) | `getUserRoutinesDb(userId)` |
 | Metas do usuário | `getUserGoalsByUserIdDb(userId)` |

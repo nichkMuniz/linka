@@ -34,6 +34,7 @@ import {
   flushPendingIncentivesDb,
   copyRoutineToUserDb,
   getAllUsersDb,
+  getMostFollowedProfilesDb,
   type SearchUser,
   type PostIncentiveType,
   type StoryTextElement,
@@ -43,6 +44,7 @@ import {
   getFollowingIdsDb,
 } from "@/lib/ritmofit-db";
 import { UserAvatar } from "@/components/shared/user-avatar";
+import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
 import { ScreenAura } from "@/components/shared/screen-aura";
 import { FollowButton } from "@/components/shared/follow-button";
 import { PostLikesModal } from "@/components/modals/post-likes-modal";
@@ -240,14 +242,30 @@ export default function Index() {
   const [copiedRoutineKeys, setCopiedRoutineKeys] = React.useState<Set<string>>(new Set());
 
   // Perfis sugeridos do empty state do feed — só carregados quando o usuário
-  // realmente cai nele (não segue ninguém ainda).
-  const [suggestedUsers, setSuggestedUsers] = React.useState<SearchUser[]>([]);
+  // realmente cai nele (não segue ninguém ainda). Os MAIS SEGUIDOS primeiro
+  // (RPC get_most_followed_profiles, a mesma da lista "Seguindo" vazia do
+  // perfil); `getAllUsersDb` vinha em ordem alfabética e fica só de reserva para
+  // quando a RPC não devolve nada (banco sem a migração, app sem follows).
+  const [suggestedUsers, setSuggestedUsers] = React.useState<
+    Array<SearchUser & { followersCount?: number }>
+  >([]);
+  const [suggestedLoaded, setSuggestedLoaded] = React.useState(false);
   React.useEffect(() => {
-    if (loading || (posts.length > 0 && !followsNobody) || !user?.id || suggestedUsers.length > 0) return;
-    getAllUsersDb(user.id)
-      .then((users) => setSuggestedUsers(users.slice(0, 5)))
-      .catch((err) => console.error("Erro ao carregar perfis sugeridos:", err));
-  }, [loading, posts.length, followsNobody, user?.id, suggestedUsers.length]);
+    if (loading || (posts.length > 0 && !followsNobody) || !user?.id || suggestedLoaded) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const top = await getMostFollowedProfilesDb(5);
+        const users = top.length > 0 ? top : (await getAllUsersDb(user.id)).slice(0, 5);
+        if (!cancelled) setSuggestedUsers(users);
+      } catch (err) {
+        console.error("Erro ao carregar perfis sugeridos:", err);
+      } finally {
+        if (!cancelled) setSuggestedLoaded(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [loading, posts.length, followsNobody, user?.id, suggestedLoaded]);
 
   const [likesModalOpen, setLikesModalOpen] = React.useState(false);
   const [likesLoading, setLikesLoading] = React.useState(false);
@@ -1507,7 +1525,7 @@ export default function Index() {
                 <p className="text-base font-semibold text-white">{t("feed_empty_title")}</p>
                 <p className="text-sm text-white/60 mt-1 mb-4">{t("feed_follow_cta")}</p>
 
-                {suggestedUsers.length === 0 ? (
+                {!suggestedLoaded ? (
                   <div className="flex flex-col gap-2">
                     {Array.from({ length: 3 }).map((_, i) => (
                       <div key={i} className="flex items-center gap-3 py-1.5">
@@ -1526,11 +1544,30 @@ export default function Index() {
                         >
                           <UserAvatar photo={u.photo} nickname={u.nickname} className="h-10 w-10 flex-shrink-0" />
                           <div className="min-w-0">
-                            <p className="text-sm font-semibold text-white truncate">{u.nickname}</p>
-                            {u.bio && <p className="text-xs text-white/50 truncate">{u.bio}</p>}
+                            {/* Selo ao lado do nome: entre os mais seguidos é o que
+                                diz quem é perfil oficial/notável. */}
+                            <p className="flex items-center gap-1 text-sm font-semibold text-white">
+                              <span className="truncate">{u.nickname}</span>
+                              {u.verifiedTier && <VerifiedBadge size="sm" tier={u.verifiedTier} />}
+                            </p>
+                            {u.followersCount != null ? (
+                              <p className="text-xs text-white/50 truncate">
+                                {u.followersCount === 1
+                                  ? t("follow_list_followers_one")
+                                  : t("follow_list_followers_many").replace("{n}", u.followersCount.toLocaleString())}
+                              </p>
+                            ) : (
+                              u.bio && <p className="text-xs text-white/50 truncate">{u.bio}</p>
+                            )}
                           </div>
                         </button>
-                        <FollowButton targetUserId={u.id} targetName={u.nickname} />
+                        {/* Vindo da RPC a pessoa ainda não é seguida (ela já exclui
+                            quem você segue) — sem consulta extra por linha. */}
+                        <FollowButton
+                          targetUserId={u.id}
+                          targetName={u.nickname}
+                          initialIsFollowing={u.followersCount != null ? false : undefined}
+                        />
                       </div>
                     ))}
                   </div>

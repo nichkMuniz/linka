@@ -65,7 +65,16 @@ type NotifRecord = {
   flow_id?: number | string;
   duel_check_in_id?: string;
   incentive_type?: number;
-  meta?: { kind?: string; reason?: string; preview?: string | null } | null;
+  meta?: {
+    kind?: string;
+    reason?: string;
+    preview?: string | null;
+    // Desafio (24/25)
+    routine_name?: string;
+    winner?: string;
+    challenger_score?: number;
+    challenged_score?: number;
+  } | null;
 };
 
 const TITLE_BY_TYPE: Record<number, string> = {
@@ -91,16 +100,21 @@ const TITLE_BY_TYPE: Record<number, string> = {
   20: "Você foi mencionado 💬",
   21: "Nova republicação 🔁",
   22: "Conteúdo removido 🛡️",
+  23: "Nova resposta 💬",
+  24: "Novo desafio ⚔️",
+  25: "Resultado do desafio ⚔️",
 };
 
-// Mesmos nomes exibidos no app (INCENTIVE_CONFIG / i18n)
+// Mesmos nomes exibidos no app — cópia de `incentive_1..6` em client/lib/i18n.ts
+// (a edge function não importa do client). Mudou lá, muda aqui: esta tabela
+// ficou com os nomes antigos e o push dizia "Mais Algum" para um "Intensifique!".
 const INCENTIVE_NAMES: Record<number, string> = {
-  1: "Apoio",
-  2: "Continua",
-  3: "Vencedor",
-  4: "Consegue Mais",
-  5: "Limite Maior",
-  6: "Mais Algum",
+  1: "Amei",
+  2: "Pode mais!",
+  3: "Vencedor!",
+  4: "Evolução!",
+  5: "Boa execução!",
+  6: "Intensifique!",
 };
 
 /** Encurta nomes livres (apelido, grupo, título) para o push não virar um parágrafo. */
@@ -252,6 +266,20 @@ async function buildBody(
       const kind = record.meta?.kind === "shot" ? "shot" : record.meta?.kind === "flow" ? "flow" : "post";
       return `Seu ${kind} foi removido por um administrador por violar as diretrizes da comunidade.`;
     }
+    // Resposta a um comentário do destinatário (trigger notify_post_comment_reply).
+    case 23:
+      return `${name} respondeu seu comentário.`;
+    // Desafio de treino (triggers em workout_challenges).
+    case 24:
+      return record.meta?.routine_name
+        ? `${name} te desafiou: ${short(record.meta.routine_name)}. Bora bater os números?`
+        : `${name} te desafiou para um treino.`;
+    case 25: {
+      const score = `${record.meta?.challenger_score ?? 0}×${record.meta?.challenged_score ?? 0}`;
+      if (record.meta?.winner === "challenger") return `${name} completou seu desafio — você venceu (${score}).`;
+      if (record.meta?.winner === "challenged") return `${name} completou seu desafio e venceu (${score}).`;
+      return `${name} completou seu desafio: empate (${score}).`;
+    }
     default:
       return "Você tem uma nova notificação no LinKa.";
   }
@@ -290,6 +318,14 @@ function deepLinkFor(type: number, record: NotifRecord): string {
     // 21 = repost: abre o repost (post_id), como o card da lista.
     case 21:
       return record.post_id ? `/post/${record.post_id}` : "/notificacoes";
+    // 23 = resposta a um comentário: abre o post da conversa.
+    case 23:
+      return record.post_id ? `/post/${record.post_id}` : "/notificacoes";
+    // 24 = convite do desafio, 25 = placar (`post_id` = id do desafio).
+    case 24:
+      return record.post_id ? `/metas?challenge=${record.post_id}` : "/metas";
+    case 25:
+      return record.post_id ? `/metas?challengeResult=${record.post_id}` : "/metas";
     default:
       return "/notificacoes";
   }

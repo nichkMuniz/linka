@@ -8,6 +8,8 @@ import {
   updateRoutineGoalDb,
   getFollowersDb,
   getFollowingDb,
+  getMostFollowedProfilesDb,
+  type MostFollowedProfile,
   getFollowingStatusBatchDb,
   isFollowingDb,
   getBlockedIdsDb,
@@ -286,6 +288,9 @@ export default function Profile() {
   const [viewerFollowsProfile, setViewerFollowsProfile] = React.useState(false);
   const [followers, setFollowers] = React.useState<any[]>([]);
   const [following, setFollowing] = React.useState<any[]>([]);
+  // Perfis mais seguidos — só na lista "Seguindo" vazia do próprio perfil.
+  const [suggestedProfiles, setSuggestedProfiles] = React.useState<MostFollowedProfile[]>([]);
+  const [isLoadingSuggested, setIsLoadingSuggested] = React.useState(false);
   const [isLoadingFollowers, setIsLoadingFollowers] = React.useState(false);
   const [followerFollowStatus, setFollowerFollowStatus] = React.useState<Record<string, boolean>>({});
   const [followingFollowStatus, setFollowingFollowStatus] = React.useState<Record<string, boolean>>({});
@@ -700,6 +705,17 @@ export default function Profile() {
       const data = await getFollowingDb(profileUserId);
       setFollowing(data);
 
+      // Próprio perfil sem seguir ninguém → sugere os perfis mais seguidos no
+      // lugar da lista vazia. No perfil de outra pessoa a lista vazia fica vazia.
+      if (!isViewingOtherProfile && data.length === 0) {
+        setIsLoadingSuggested(true);
+        getMostFollowedProfilesDb()
+          .then(setSuggestedProfiles)
+          .finally(() => setIsLoadingSuggested(false));
+      } else {
+        setSuggestedProfiles([]);
+      }
+
       // All users in the "following" list are already followed by definition
       const statusMap: Record<string, boolean> = {};
       data.forEach((u: any) => { if (u.id) statusMap[u.id] = true; });
@@ -713,7 +729,7 @@ export default function Profile() {
     } finally {
       setIsLoadingFollowers(false);
     }
-  }, [profileUserId]);
+  }, [profileUserId, isViewingOtherProfile]);
 
 
 
@@ -2311,6 +2327,16 @@ export default function Profile() {
         users={following}
         isLoading={isLoadingFollowers}
         followStatus={followingFollowStatus}
+        emptySuggestions={
+          isViewingOtherProfile
+            ? undefined
+            : {
+                title: t("follow_list_suggested_title"),
+                description: t("follow_list_suggested_desc"),
+                users: suggestedProfiles,
+                isLoading: isLoadingSuggested,
+              }
+        }
       />
 
       {/* Shot Editor Drawer */}

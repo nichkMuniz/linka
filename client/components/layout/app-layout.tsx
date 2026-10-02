@@ -39,7 +39,13 @@ import { IncomingMessageToast } from "@/components/shared/incoming-message-toast
 import { showIncomingMessageToast, showIncomingNotificationToast } from "@/lib/incoming-message-toast";
 import { RoutineCompletedToast } from "@/components/shared/routine-completed-toast";
 import { FEATURES } from "@/lib/feature-flags";
-import { requestAppRefresh, useAppRefresh } from "@/lib/app-refresh";
+import {
+  RESUME_REFRESH_AFTER_MS,
+  clearAppBackgrounded,
+  markAppBackgrounded,
+  requestAppRefresh,
+  useAppRefresh,
+} from "@/lib/app-refresh";
 import { getUnreadMessageCountDb, getUnreadNotificationsCountDb, getUserProfileDb, subscribeToUnreadNotificationsDb, recordAccessSessionDb, bufferScreenTime, flushScreenTimeDb, invalidateQueryCache, getPendingWorkoutPartyInviteDb, getWorkoutPartyInviteByIdDb, respondWorkoutPartyInviteDb, getOwnVerificationStatusDb, markVerificationSeenDb, type WorkoutPartyInvite } from "@/lib/ritmofit-db";
 import { WorkoutPartyInviteDialog } from "@/components/goals/workout-party-invite-dialog";
 import { VerifiedCongratsDialog } from "@/components/shared/verified-congrats-dialog";
@@ -583,20 +589,26 @@ export function AppLayout() {
 
   // Volta do background: o iOS suspende o WebView e o realtime não entrega o
   // que chegou nesse meio-tempo.
-  //  - fora por 3 min ou mais → refresh global (derruba o cache das telas);
-  //  - fora por 15 s a 3 min → só os contadores do header/footer, que são
+  //  - fora por 5 min ou mais → refresh global (derruba o cache das telas);
+  //    o mesmo limite vale para o app que o iOS fechou e abre do zero
+  //    (`refreshIfLongAbsenceOnLaunch` em App.tsx);
+  //  - fora por 15 s a 5 min → só os contadores do header/footer, que são
   //    baratos. Derrubar o cache inteiro a cada troca rápida de app fazia
   //    Perfil/Metas abrirem com esqueleto em vez de instantâneos.
   // No nativo o sinal confiável é o `appStateChange` do Capacitor (mesmo
   // critério da dica de atualização do feed); no navegador, `visibilitychange`.
   React.useEffect(() => {
-    const RESUME_REFRESH_AFTER_MS = 3 * 60_000;
     const RESUME_BADGES_AFTER_MS = 15_000;
     let hiddenAt: number | null = null;
-    const onHide = () => { hiddenAt = Date.now(); };
+    const onHide = () => {
+      hiddenAt = Date.now();
+      markAppBackgrounded();
+    };
     const onShow = () => {
       const awayMs = hiddenAt === null ? 0 : Date.now() - hiddenAt;
       hiddenAt = null;
+      // Voltou sem ser fechado: a marca do disco não vale mais para um cold start.
+      clearAppBackgrounded();
       if (awayMs >= RESUME_REFRESH_AFTER_MS) {
         requestAppRefresh("resume");
       } else if (awayMs >= RESUME_BADGES_AFTER_MS) {

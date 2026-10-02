@@ -3,6 +3,8 @@ import Capacitor
 import CryptoKit
 import Foundation
 import Photos
+import PhotosUI
+import UIKit
 import UniformTypeIdentifiers
 
 /// Ponte com a galeria de fotos do iOS. Faz duas coisas:
@@ -39,7 +41,8 @@ public class EditedMediaPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "appendMediaWrite", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "saveMediaWrite", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "compressMediaWrite", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "cancelMediaWrite", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "cancelMediaWrite", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "pickMedia", returnType: CAPPluginReturnPromise)
     ]
 
     private struct ExportedFile {
@@ -75,6 +78,20 @@ public class EditedMediaPlugin: CAPPlugin, CAPBridgedPlugin {
     /// Sessões de escrita em andamento, por token. Só é tocado dentro de
     /// `queue`, que é serial — daí não precisar de lock.
     private var writeSessions: [String: URL] = [:]
+
+    /// Chamada do `pickMedia` esperando o PHPicker fechar (uma por vez).
+    private var pendingPickCall: CAPPluginCall?
+
+    /// Cópias da mídia escolhida no `pickMedia`. Computado (não `lazy`): é usado
+    /// no callback do item provider, fora da main thread.
+    private var pickedDirectory: URL {
+        let caches = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first ?? fileManager.temporaryDirectory
+        let directory = caches.appendingPathComponent("LinkaPickedMedia", isDirectory: true)
+        if !fileManager.fileExists(atPath: directory.path) {
+            try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
+        }
+        return directory
+    }
 
     // MARK: - Métodos expostos ao JS
 
@@ -526,6 +543,88 @@ public class EditedMediaPlugin: CAPPlugin, CAPBridgedPlugin {
         ])
     }
 
+    // MARK: - Seletor da galeria (PHPicker)
+
+    /// Seletor da Fototeca para o flow (foto OU vídeo, um item).
+    ///
+    /// Substitui o `PhotoLibrary.pickMedia` do `@capgo/capacitor-photo-library`,
+    /// que perdia TODO vídeo: ele copia o arquivo de `loadFileRepresentation`
+    /// num `queue.async`, mas o iOS apaga esse arquivo temporário assim que o
+    /// callback retorna — a cópia falhava, o asset virava nil e o JS recebia a
+    /// lista vazia (igual a "cancelou"). Aqui a cópia é feita DENTRO do callback.
+    ///
+    /// Não pede acesso à fototeca (PHPicker roda fora do processo do app).
+    /// Resolve `{ cancelled: true }` ao cancelar.
+    @objc public func pickMedia(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            if self.pendingPickCall != nil {
+                call.reject("pickMedia already in progress")
+                return
+            }
+            guard let presenter = self.bridge?.viewController else {
+                call.reject("Unable to access view controller to present picker")
+                return
+            }
+
+            var configuration = PHPickerConfiguration()
+            configuration.selectionLimit = 1
+            configuration.filter = PHPickerFilter.any(of: [.images, .videos])
+            // `.current`: entrega o arquivo como está (versão editada), sem o
+            // transcode para H.264 do modo automático — o app já reencoda o
+            // vídeo para 720p depois (`compressVideoBlob`).
+            configuration.preferredAssetRepresentationMode = .current
+
+            let picker = PHPickerViewController(configuration: configuration)
+            picker.delegate = self
+            self.pendingPickCall = call
+            presenter.present(picker, animated: true)
+        }
+    }
+
+    /// Esvazia `pickedDirectory`: só a escolha atual importa (o JS lê o arquivo
+    /// para um Blob logo em seguida).
+    fileprivate func clearPickedDirectory() -> URL {
+        let directory = pickedDirectory
+        if let leftovers = try? fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) {
+            for url in leftovers {
+                try? fileManager.removeItem(at: url)
+            }
+        }
+        return directory
+    }
+
+    /// Copia o arquivo temporário do provider para `pickedDirectory`. Precisa
+    /// rodar SÍNCRONO dentro do callback de `loadFileRepresentation`.
+    fileprivate func persistPickedFile(from tempURL: URL, fallbackExt: String) -> URL? {
+        let rawExt = tempURL.pathExtension.lowercased()
+        let ext = rawExt.isEmpty ? fallbackExt : rawExt
+        let directory = clearPickedDirectory()
+        let destination = directory.appendingPathComponent("picked_" + UUID().uuidString + "." + ext)
+        do {
+            try fileManager.copyItem(at: tempURL, to: destination)
+            return destination
+        } catch {
+            CAPLog.print("EditedMedia: failed to copy picked media: " + error.localizedDescription)
+            return nil
+        }
+    }
+
+    fileprivate func resolvePicked(_ call: CAPPluginCall, url: URL, isVideo: Bool) {
+        let webPath = bridge?.portablePath(fromLocalURL: url)?.absoluteString ?? url.absoluteString
+        let detected = mimeType(forExtension: url.pathExtension.lowercased())
+        let fallback = isVideo ? "video/quicktime" : "image/jpeg"
+        let mime = detected == "application/octet-stream" ? fallback : detected
+        call.resolve([
+            "cancelled": false,
+            "type": isVideo ? "video" : "image",
+            "path": url.path,
+            "webPath": webPath,
+            "mimeType": mime,
+            "fileName": url.lastPathComponent,
+            "size": fileSize(at: url)
+        ])
+    }
+
     // MARK: - Cache
 
     private func purgeStaleEntries(limit: Int) -> Int {
@@ -712,5 +811,65 @@ public class EditedMediaPlugin: CAPPlugin, CAPBridgedPlugin {
     private func fileSize(at url: URL) -> Int {
         let attributes = try? fileManager.attributesOfItem(atPath: url.path)
         return (attributes?[.size] as? NSNumber)?.intValue ?? -1
+    }
+}
+
+// MARK: - PHPickerViewControllerDelegate
+
+extension EditedMediaPlugin: PHPickerViewControllerDelegate {
+    public func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+        picker.dismiss(animated: true)
+
+        guard let call = pendingPickCall else { return }
+        pendingPickCall = nil
+
+        guard let provider = results.first?.itemProvider else {
+            call.resolve(["cancelled": true])
+            return
+        }
+
+        // Vídeo ANTES de imagem: um item de vídeo também pode se anunciar como
+        // carregável em UIImage (prévia), e aí o vídeo viraria uma foto.
+        if provider.hasItemConformingToTypeIdentifier(UTType.movie.identifier) {
+            provider.loadFileRepresentation(forTypeIdentifier: UTType.movie.identifier) { [weak self] tempURL, error in
+                guard let self = self else { return }
+                guard let tempURL = tempURL else {
+                    call.reject(error?.localizedDescription ?? "Could not load the picked video")
+                    return
+                }
+                // Síncrono: o iOS apaga `tempURL` quando este bloco retorna.
+                guard let copied = self.persistPickedFile(from: tempURL, fallbackExt: "mov") else {
+                    call.reject("Could not copy the picked video")
+                    return
+                }
+                self.resolvePicked(call, url: copied, isVideo: true)
+            }
+            return
+        }
+
+        // Foto: carrega como UIImage (em memória) e grava JPEG — o pipeline de
+        // imagem do flow desenha num canvas, e JPEG é o formato que ele já usava
+        // (HEIC cru não é seguro em todo WebView).
+        if provider.canLoadObject(ofClass: UIImage.self) {
+            provider.loadObject(ofClass: UIImage.self) { [weak self] object, error in
+                guard let self = self else { return }
+                guard let image = object as? UIImage, let data = image.jpegData(compressionQuality: 0.92) else {
+                    call.reject(error?.localizedDescription ?? "Could not load the picked image")
+                    return
+                }
+                let directory = self.clearPickedDirectory()
+                let destination = directory.appendingPathComponent("picked_" + UUID().uuidString + ".jpg")
+                do {
+                    try data.write(to: destination, options: .atomic)
+                } catch {
+                    call.reject("Could not save the picked image: " + error.localizedDescription)
+                    return
+                }
+                self.resolvePicked(call, url: destination, isVideo: false)
+            }
+            return
+        }
+
+        call.reject("Unsupported media type")
     }
 }

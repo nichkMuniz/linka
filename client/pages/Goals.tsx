@@ -1,4 +1,5 @@
 import * as React from "react";
+import { useAppRefresh } from "@/lib/app-refresh";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { useLanguage } from "@/lib/language-context";
@@ -14,7 +15,14 @@ import {
   getUserGoalsDb,
   getCheckInHistoryDb,
   getRoutineLastDatesBatchDb,
+  getRoutineExecutionsDb,
   getLastWorkoutSessionSeriesDb,
+  getWorkoutChallengeDb,
+  getPendingWorkoutChallengesDb,
+  respondWorkoutChallengeDb,
+  submitWorkoutChallengeResultDb,
+  type WorkoutChallenge,
+  type WorkoutPartySnapshot,
   getUserBadgesDb,
   getAllBadgesDb,
   getDisplayBadgeDb,
@@ -70,7 +78,9 @@ import {
 } from "@/lib/ritmofit-db";
 import {
   buildRoutineCards,
-  computeSequentialWorkoutDue,
+  computeSequentialCycle,
+  isRoutineDoneForRing,
+  type RoutineExecution,
   computeStreak,
   computeWeekCheckins,
   getSuggestedSetsForCard,
@@ -82,6 +92,9 @@ import {
 } from "@/components/goals/goals-helpers";
 import { SEQUENTIAL_OPEN_PARAM } from "@/hooks/use-routine-notifications";
 import { GoalsSkeleton } from "@/components/shared/animated-loading";
+import { ChallengeInviteDialog, ChallengeResultDialog } from "@/components/goals/workout-challenge";
+import { buildChallengeResult, type WorkoutChallengeSnapshot } from "@/lib/workout-challenge";
+import { QuickWorkoutButton } from "@/components/goals/quick-workout-button";
 import { ScreenAura } from "@/components/shared/screen-aura";
 import { addNetworkStatusListener, getNetworkStatus } from "@/lib/network-status";
 import { OUTBOX_SYNCED_EVENT } from "@/lib/offline-outbox";
@@ -186,6 +199,23 @@ function cardLastDate(card: RoutineCard, lastDates: Record<string, string>): str
 
 // ─── Página Metas (glass "Hub do Hoje") ─────────────────────────────────────
 
+/** O desafio no formato do snapshot do treinar junto — reaproveita os helpers de sessão. Reps 0: o desafiado nunca recebe os números. */
+function challengeToPartySnapshot(snapshot: WorkoutChallengeSnapshot): WorkoutPartySnapshot {
+  return {
+    routineName: snapshot.routineName,
+    trainingMode: "simple",
+    items: snapshot.items.map((i) => ({
+      workoutId: i.workoutId,
+      name: i.name,
+      muscleGroup: i.muscleGroup,
+      photo: i.photo,
+      series: i.series,
+      reps: 0,
+      restSecs: null,
+    })),
+  };
+}
+
 export default function Goals() {
   const { user } = useAuth();
   const { t } = useLanguage();
@@ -213,6 +243,10 @@ export default function Goals() {
     setWorkoutPartySnapshot,
     workoutPartyHostName,
     setWorkoutPartyHostName,
+    workoutQuickSession,
+    setWorkoutQuickSession,
+    workoutChallenge,
+    setWorkoutChallenge,
     pendingPartyJoin,
     setPendingPartyJoin,
   } = useWorkout();
@@ -234,6 +268,9 @@ export default function Goals() {
   // ambíguo — "ainda carregando" ou "nunca treinou" —, então quem depende de
   // saber a diferença (o rodízio sequencial) olha esta flag.
   const [lastDatesLoaded, setLastDatesLoaded] = React.useState(false);
+  // Histórico de execuções das rotinas de treino — o ciclo do rodízio
+  // sequencial depende da ORDEM em que foram feitas (ver computeSequentialCycle).
+  const [routineExecutions, setRoutineExecutions] = React.useState<RoutineExecution[]>([]);
   const [userBadges, setUserBadges] = React.useState<UserBadge[]>([]);
   const [allBadges, setAllBadges] = React.useState<Badge[]>([]);
   // Escolha persistida do usuário (profiles.selected_badge_id) — não muda no check-in
@@ -326,10 +363,20 @@ export default function Goals() {
 
     // Depende dos ids que acabaram de chegar, então é sequencial de verdade —
     // mas não bloqueia: a tela já pode desenhar as rotinas sem as datas.
-    getRoutineLastDatesBatchDb(user.id, ws.map((w) => w.id))
-      .then(setRoutineLastDates)
-      .catch(() => { /* datas ausentes só escondem o "último treino" */ })
-      .finally(() => setLastDatesLoaded(true));
+    // As execuções vêm junto: o lembrete do rodízio (`openRoutine=seq`) espera
+    // `lastDatesLoaded`, e a rotina devida agora sai do ciclo.
+    Promise.all([
+      getRoutineLastDatesBatchDb(user.id, ws.map((w) => w.id))
+        .then(setRoutineLastDates)
+        .catch(() => { /* datas ausentes só escondem o "último treino" */ }),
+      getRoutineExecutionsDb(
+        user.id,
+        rts.filter((r) => Number(r.type) === 1).map((r) => String(r.id)),
+        ws.map((w) => w.id),
+      )
+        .then(setRoutineExecutions)
+        .catch(() => { /* sem histórico: o rodízio começa da primeira */ }),
+    ]).finally(() => setLastDatesLoaded(true));
   }, [user]);
 
   /** Metas do usuário. */
@@ -470,6 +517,12 @@ export default function Goals() {
       ),
     [],
   );
+  // Volta ao app depois de 5+ min fora: carga completa, a mesma do retorno do
+  // modo offline (metas/rotinas/progresso podem ter mudado em outro aparelho).
+  useAppRefresh(({ reason }) => {
+    if (reason === "resume") loadData();
+  });
+
   React.useEffect(() => {
     const onSynced = () => loadData();
     window.addEventListener(OUTBOX_SYNCED_EVENT, onSynced);
@@ -519,6 +572,57 @@ export default function Goals() {
     }
   }, [searchParams, setSearchParams]);
 
+  // ── Desafio de treino (2026-10-02) ───────────────────────────────────────
+  // Convite (desafiado) e resultado (quem desafiou) abrem por aqui: o push/
+  // notificação navega para /metas?challenge=<id> ou ?challengeResult=<id>.
+  const [inviteChallenge, setInviteChallenge] = React.useState<WorkoutChallenge | null>(null);
+  const [resultChallenge, setResultChallenge] = React.useState<WorkoutChallenge | null>(null);
+  const [pendingChallenges, setPendingChallenges] = React.useState<WorkoutChallenge[]>([]);
+
+  const reloadPendingChallenges = React.useCallback(() => {
+    if (!FEATURES.workoutChallenge || !user) return;
+    getPendingWorkoutChallengesDb()
+      .then(setPendingChallenges)
+      .catch(() => { /* faixa informativa */ });
+  }, [user]);
+  React.useEffect(() => { reloadPendingChallenges(); }, [reloadPendingChallenges]);
+
+  React.useEffect(() => {
+    if (!FEATURES.workoutChallenge || !user) return;
+    const inviteId = searchParams.get("challenge");
+    const resultId = searchParams.get("challengeResult");
+    if (!inviteId && !resultId) return;
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("challenge");
+        next.delete("challengeResult");
+        return next;
+      },
+      { replace: true },
+    );
+    void getWorkoutChallengeDb((inviteId ?? resultId)!).then((challenge) => {
+      if (!challenge) {
+        toast({ title: t("goals_challenge_unavailable"), variant: "destructive" });
+        return;
+      }
+      if (resultId || challenge.status === "completed") {
+        // Quem desafiou vê o placar; o desafiado que reabre um desafio já
+        // concluído também cai no resultado (do ponto de vista de quem desafiou
+        // não faz sentido para ele — então só abre se for o desafiante).
+        if (challenge.challengerId === user.id) setResultChallenge(challenge);
+        else toast({ title: t("goals_challenge_already_done") });
+        return;
+      }
+      if (challenge.challengedId !== user.id) return;
+      if (challenge.status === "declined" || Date.parse(challenge.expiresAt) < Date.now()) {
+        toast({ title: t("goals_challenge_unavailable"), variant: "destructive" });
+        return;
+      }
+      setInviteChallenge(challenge);
+    });
+  }, [searchParams, setSearchParams, user, t]);
+
   // Cards derivados
   // `cards` alimenta o Hoje, as listas por tipo, os detalhes e o progresso —
   // filtrar aqui, na fonte, é o que impede uma rotina de dieta/hábito criada
@@ -533,6 +637,13 @@ export default function Goals() {
   );
   const workoutCards = React.useMemo(() => cards.filter((c) => c.type === 1), [cards]);
 
+  // Rodízio SEQUENCIAL: quais rotinas já foram feitas no ciclo (anel 100%) e qual
+  // é a próxima em 0% — a do "Treino de hoje".
+  const seqCycle = React.useMemo(
+    () => computeSequentialCycle(workoutCards, routineExecutions),
+    [workoutCards, routineExecutions],
+  );
+
   // Tocou numa notificação de rotina (ex.: dieta às 12h) → abrir o drawer de
   // detalhe já aberto, pronto para marcar como concluída. Espera `cards`
   // carregar antes de resolver a key, já que o param chega antes do loadData.
@@ -545,8 +656,7 @@ export default function Goals() {
     // conclusão chegarem — sem elas o rodízio cairia sempre na primeira rotina.
     if (openRoutine === SEQUENTIAL_OPEN_PARAM) {
       if (!lastDatesLoaded) return;
-      const due = computeSequentialWorkoutDue(workoutCards, routineLastDates, localDateStr(new Date()));
-      if (due) setSelectedCardKey(due.card.key);
+      if (seqCycle) setSelectedCardKey(seqCycle.due.key);
     } else {
       const match = cards.find((c) => c.key === openRoutine);
       if (match) setSelectedCardKey(match.key);
@@ -563,8 +673,7 @@ export default function Goals() {
     searchParams,
     setSearchParams,
     cards,
-    workoutCards,
-    routineLastDates,
+    seqCycle,
     lastDatesLoaded,
     loading,
   ]);
@@ -615,11 +724,59 @@ export default function Goals() {
     };
   }, [workoutPartyRole, workoutPartySnapshot, workoutPartyId, user]);
 
+  /**
+   * Sessão de TREINO RÁPIDO: card sintético e VAZIO — os exercícios que a
+   * pessoa adiciona vivem em `workoutExtraItems` (contexto, persistido), como
+   * os avulsos de qualquer sessão. Mesmo motivo do card do convidado para ser
+   * derivado do contexto: minimizar/recarregar reconstrói o treino sozinho.
+   */
+  const quickWorkoutCard = React.useMemo<RoutineCard | null>(() => {
+    if (!workoutQuickSession || !user) return null;
+    return {
+      key: "quick-workout",
+      type: 1,
+      name: t("goals_quick_workout_title"),
+      routineId: null,
+      goalId: null,
+      items: [],
+      scheduledTime: null,
+      scheduledDays: null,
+      lastSummary: null,
+      programMeta: null,
+      trainingMode: "simple",
+    };
+  }, [workoutQuickSession, user, t]);
+
+  /**
+   * Sessão de DESAFIO: card sintético com os exercícios do desafio (ids
+   * `session_…`, sem rotina), derivado do contexto persistido — mesmo esquema
+   * do convidado do treinar junto.
+   */
+  const challengeCard = React.useMemo<RoutineCard | null>(() => {
+    if (!workoutChallenge || !user) return null;
+    return {
+      key: `challenge::${workoutChallenge.id}`,
+      type: 1,
+      name: workoutChallenge.snapshot.routineName || null,
+      routineId: null,
+      goalId: null,
+      items: partySnapshotToSessionItems(challengeToPartySnapshot(workoutChallenge.snapshot), user.id),
+      scheduledTime: null,
+      scheduledDays: null,
+      lastSummary: null,
+      programMeta: null,
+      trainingMode: "simple",
+    };
+  }, [workoutChallenge, user]);
+
   // O card do convidado tem PRIORIDADE: o casamento por nome logo abaixo poderia
   // encontrar uma rotina própria homônima ("Peito e Tríceps" é um nome comum) e
-  // trocar o treino do amigo pela rotina dele no meio da sessão.
+  // trocar o treino do amigo pela rotina dele no meio da sessão. O treino rápido
+  // idem (uma rotina chamada "Treino rápido" não pode sequestrar a sessão).
   const activeWorkoutCard =
     partyGuestCard ??
+    quickWorkoutCard ??
+    challengeCard ??
     cards.find((c) => c.key === sessionCardKey) ??
     workoutCards.find((c) => (c.name ?? "__unnamed__") === selectedRoutineName) ??
     null;
@@ -635,7 +792,7 @@ export default function Goals() {
 
   const typeProgress = (typeCards: RoutineCard[]) => {
     const total = typeCards.length;
-    const done = typeCards.filter((c) => isRoutineCompleted(c, routineLastDates)).length;
+    const done = typeCards.filter((c) => isRoutineDoneForRing(c, routineLastDates, seqCycle)).length;
     return { total, done, perc: total > 0 ? (done / total) * 100 : 0 };
   };
   const wkP = typeProgress(workoutCards);
@@ -841,6 +998,96 @@ export default function Goals() {
     [user, setWorkoutPartyId, setWorkoutPartyRole, setWorkoutPartySnapshot, setWorkoutPartyHostName, setSelectedRoutineName, setCurrentWorkoutIndex, setWorkoutExerciseNotes, setWorkoutSeries, setWorkoutModalOpen],
   );
 
+  // ── Desafio: aceitar e treinar ────────────────────────────────────────────
+
+  /**
+   * Aceita o desafio e abre a sessão com os exercícios dele. Séries = as de quem
+   * desafiou (só a QUANTIDADE — carga e reps nunca chegam aqui); a carga
+   * pré-preenchida é a do HISTÓRICO do próprio desafiado, como no treinar junto.
+   */
+  const startChallengeSession = React.useCallback(
+    async (challenge: WorkoutChallenge) => {
+      if (!user) return;
+      setInviteChallenge(null);
+      if (challenge.status === "pending") {
+        respondWorkoutChallengeDb(challenge.id, true).catch((err) =>
+          reportHandledError(err, "goals:accept-challenge"),
+        );
+      }
+      const partySnapshot = challengeToPartySnapshot(challenge.snapshot);
+      resetWorkoutState();
+      setWorkoutChallenge({
+        id: challenge.id,
+        challengerNickname: challenge.challengerNickname,
+        snapshot: challenge.snapshot,
+      });
+      setSessionCardKey(null);
+      setSelectedCardKey(null);
+      setSelectedRoutineName(challenge.snapshot.routineName || "__unnamed__");
+      setCurrentWorkoutIndex(0);
+      setWorkoutExerciseNotes({});
+      const series = partySnapshotToSeries(partySnapshot);
+      try {
+        const last = await getLastWorkoutSessionSeriesDb(
+          user.id,
+          partySnapshot.items.map((i) => i.workoutId),
+        );
+        for (const [workoutId, entries] of Object.entries(last)) {
+          const planned = series[workoutId];
+          if (!planned || entries.length === 0) continue;
+          series[workoutId] = planned.map((s, index) => {
+            const prev = entries[Math.min(index, entries.length - 1)];
+            return prev ? { ...s, kg: prev.kg, prevKg: prev.kg, prevReps: prev.reps } : s;
+          });
+        }
+      } catch {
+        /* sem histórico: começa zerado */
+      }
+      setWorkoutSeries(series);
+      setWorkoutModalOpen(true);
+      setPendingChallenges((prev) => prev.filter((c) => c.id !== challenge.id));
+    },
+    [user, resetWorkoutState, setWorkoutChallenge, setSelectedRoutineName, setCurrentWorkoutIndex, setWorkoutExerciseNotes, setWorkoutSeries, setWorkoutModalOpen],
+  );
+
+  const declineChallenge = React.useCallback(async (challenge: WorkoutChallenge) => {
+    setInviteChallenge(null);
+    setPendingChallenges((prev) => prev.filter((c) => c.id !== challenge.id));
+    try {
+      await respondWorkoutChallengeDb(challenge.id, false);
+      toast({ title: t("goals_challenge_declined_toast") });
+    } catch (err) {
+      reportHandledError(err, "goals:decline-challenge");
+      toast({ title: t("goals_challenge_respond_error"), variant: "destructive" });
+      reloadPendingChallenges();
+    }
+  }, [t, reloadPendingChallenges]);
+
+  // ── Treino rápido ─────────────────────────────────────────────────────────
+
+  /**
+   * Abre a sessão VAZIA, sem rotina (o picker de exercícios abre sozinho lá
+   * dentro). Ao finalizar, o resumo oferece transformar o treino em rotina.
+   */
+  const handleStartQuickWorkout = React.useCallback(() => {
+    if (!user) return;
+    // O botão some com treino em andamento; se ainda assim chegar aqui, só reabre.
+    if (workoutStartTime !== null) {
+      setWorkoutMinimized(false);
+      setWorkoutModalOpen(true);
+      return;
+    }
+    resetWorkoutState();
+    setWorkoutQuickSession(true);
+    setSessionCardKey(null);
+    setSelectedCardKey(null);
+    setSelectedRoutineName(t("goals_quick_workout_title"));
+    setCurrentWorkoutIndex(0);
+    setWorkoutExerciseNotes({});
+    setWorkoutSeries({});
+    setWorkoutModalOpen(true);
+  }, [user, workoutStartTime, t, resetWorkoutState, setWorkoutQuickSession, setSelectedRoutineName, setCurrentWorkoutIndex, setWorkoutExerciseNotes, setWorkoutSeries, setWorkoutModalOpen, setWorkoutMinimized]);
+
   // Convite aceito em outra tela (o diálogo vive no AppLayout, para chegar em
   // qualquer lugar do app) — a sessão só pode nascer aqui, que é quem sabe
   // iniciar um treino. Mesmo padrão de `pendingReopen`.
@@ -860,6 +1107,10 @@ export default function Goals() {
     const partyRole = workoutPartyRole;
     const partySnapshot = workoutPartySnapshot;
     const partyHostName = workoutPartyHostName;
+    // Treino rápido: idem — a oferta de virar rotina depende desta cópia.
+    const wasQuickWorkout = workoutQuickSession;
+    // Desafio: idem — o placar sai daqui depois do reset.
+    const finishedChallenge = workoutChallenge;
     // Mostra o resumo IMEDIATAMENTE com os dados síncronos que já temos, sem
     // esperar nenhuma chamada de rede — assim não há piscar da tela de baixo
     // (feed/metas) entre fechar o modal e abrir o resumo.
@@ -899,11 +1150,30 @@ export default function Goals() {
       partySaveOffer:
         partyRole === "guest" && (summary.partyRoutineSnapshot ?? partySnapshot)
           ? {
+              kind: "party",
               hostNickname: partyHostName ?? "",
               snapshot: (summary.partyRoutineSnapshot ?? partySnapshot)!,
             }
-          : null,
+          // Treino rápido → "transformar em rotina?" com nome editável. Leva o
+          // instante do histórico para a rotina já nascer com o treino de hoje.
+          : wasQuickWorkout && summary.partyRoutineSnapshot && summary.partyRoutineSnapshot.items.length > 0
+            ? {
+                kind: "quick",
+                hostNickname: "",
+                snapshot: summary.partyRoutineSnapshot,
+                historyBaseAt: summary.historyBaseAt ?? null,
+              }
+            : null,
       userGroups: [],
+      // Treinar junto: o resumo lê os participantes ao vivo para o card
+      // "Treino em conjunto" e o template de canvas do grupo.
+      partyId: FEATURES.workoutParty ? partyId : null,
+      // Desafio: o placar chega logo abaixo (precisa gravar meus números para a
+      // RLS liberar os de quem desafiou). Treino de desafio não oferece
+      // "Desafiar" de novo — o resumo é sobre o resultado.
+      challengeResult: finishedChallenge
+        ? { challengerNickname: finishedChallenge.challengerNickname, status: "loading" }
+        : null,
       // Corrida GPS da sessão (se houve) — vira o slide de mapa compartilhável
       // no resumo. Não entra no snapshot persistido (updateRoutineLastSummaryDb):
       // o path pode ter milhares de pontos e o resumo salvo não renderiza mapa.
@@ -931,6 +1201,35 @@ export default function Goals() {
     persistSummary([]);
 
     if (!user) return;
+
+    if (finishedChallenge) {
+      submitWorkoutChallengeResultDb(finishedChallenge.id, buildChallengeResult(summary.completedExercises))
+        .then((res) => {
+          setSummaryData((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  challengeResult: res
+                    ? {
+                        challengerNickname: res.challenge.challengerNickname,
+                        challengedNickname: res.challenge.challengedNickname,
+                        challengerPhoto: res.challenge.challengerPhoto,
+                        challengedPhoto: res.challenge.challengedPhoto,
+                        status: "ready",
+                        outcome: res.outcome,
+                      }
+                    : { challengerNickname: finishedChallenge.challengerNickname, status: "error" },
+                }
+              : prev,
+          );
+        })
+        .catch((err) => {
+          reportHandledError(err, "goals:submit-challenge");
+          setSummaryData((prev) =>
+            prev ? { ...prev, challengeResult: { challengerNickname: finishedChallenge.challengerNickname, status: "error" } } : prev,
+          );
+        });
+    }
 
     // Quem treinou junto — vira a linha "Treino em grupo com …" no topo do
     // resumo. Fora do caminho crítico: o resumo já está na tela, e uma falha
@@ -1350,6 +1649,18 @@ export default function Goals() {
           em cima, com o brilho cortado numa linha reta. */}
       <ScreenAura variant="goals" />
 
+      {/* Treino rápido — sempre à mão, com ou sem rotina (pedido de
+          02/10/2026: no início aparecia só sem rotina). Nunca por cima de um
+          treino em andamento (lá o canto é da barra do treino minimizado) nem
+          do resumo. */}
+      {FEATURES.quickWorkout &&
+        workoutStartTime === null &&
+        !workoutModalOpen &&
+        !workoutMinimized &&
+        !summaryData && (
+          <QuickWorkoutButton onStart={handleStartQuickWorkout} />
+        )}
+
       <div className="relative px-4 pb-4 space-y-5">
         {isOffline && (
           <div
@@ -1376,6 +1687,34 @@ export default function Goals() {
           </div>
         )}
 
+        {/* Desafios recebidos em aberto — o push pode ter passado batido. */}
+        {FEATURES.workoutChallenge && pendingChallenges.length > 0 && workoutStartTime === null && (
+          <div className="space-y-2">
+            {pendingChallenges.slice(0, 3).map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => setInviteChallenge(c)}
+                className="w-full flex items-center gap-3 rounded-[18px] p-3 text-left active:scale-[0.985] transition-transform"
+                style={{
+                  background: "linear-gradient(rgba(239,68,68,.16),rgba(249,115,22,.06))",
+                  border: "1px solid rgba(239,68,68,.35)",
+                }}
+              >
+                <span className="text-xl">⚔️</span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-white truncate">
+                    {t("goals_challenge_strip_title").replace("{name}", c.challengerNickname)}
+                  </p>
+                  <p className="text-xs text-white/60 truncate">
+                    {c.routineName} · {t("goals_challenge_strip_cta")}
+                  </p>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+
         <StreakBadgesCard
           streakCount={streak}
           weekDone={week.doneCount}
@@ -1391,6 +1730,7 @@ export default function Goals() {
           cards={cards}
           userGoals={userGoals}
           routineLastDates={routineLastDates}
+          seqCycle={seqCycle}
           activeWorkoutName={activeWorkoutName}
           onStartWorkout={handleStartWorkout}
           onOpenCard={(card) => setSelectedCardKey(card.key)}
@@ -1516,6 +1856,7 @@ export default function Goals() {
         cards={cards}
         userGoals={userGoals}
         routineLastDates={routineLastDates}
+          seqCycle={seqCycle}
         activeWorkoutName={activeWorkoutName}
         onStartWorkout={(card) => { setListType(null); handleStartWorkout(card); }}
         // `onTrainTogether` é opcional, e routines-tab / routine-list-drawer /
@@ -1629,6 +1970,19 @@ export default function Goals() {
           }}
           onFinished={handleWorkoutFinished}
         />
+      )}
+
+      {inviteChallenge && (
+        <ChallengeInviteDialog
+          challenge={inviteChallenge}
+          busyWithOtherWorkout={workoutStartTime !== null}
+          onAccept={() => { void startChallengeSession(inviteChallenge); }}
+          onDecline={() => { void declineChallenge(inviteChallenge); }}
+          onDismiss={() => setInviteChallenge(null)}
+        />
+      )}
+      {resultChallenge && (
+        <ChallengeResultDialog challenge={resultChallenge} onClose={() => setResultChallenge(null)} />
       )}
 
       {summaryData && (

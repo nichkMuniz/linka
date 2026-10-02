@@ -103,6 +103,9 @@ const TITLE_KEY_BY_TYPE: Record<number, TranslationKey> = {
   20: "notif_title_20",
   21: "notif_title_21",
   22: "notif_title_22",
+  23: "notif_title_23",
+  24: "notif_title_24",
+  25: "notif_title_25",
 };
 
 const INCENTIVE_KEY_BY_TYPE: Record<number, TranslationKey> = {
@@ -259,6 +262,29 @@ export function notificationBody(
       const notice = parseModerationNotice(row.meta);
       return t("notif_desc_content_removed").replace("{kind}", moderationKindLabel(t, notice.kind));
     }
+    // 23 = responderam um comentário do destinatário (trigger notify_post_comment_reply).
+    case 23:
+      return t("notif_desc_comment_reply").replace("{name}", name);
+    // 24 = te desafiaram (trigger notify_workout_challenge_created).
+    case 24: {
+      const meta = (row.meta ?? {}) as { routine_name?: string };
+      return t("notif_desc_challenge_received")
+        .replace("{name}", name)
+        .replace("{routine}", meta.routine_name ?? "");
+    }
+    // 25 = completaram o desafio que o destinatário mandou. O placar vem pronto
+    // no `meta` (gravado ao fechar o desafio), do ponto de vista de QUEM DESAFIOU.
+    case 25: {
+      const meta = (row.meta ?? {}) as { winner?: string; challenger_score?: number; challenged_score?: number };
+      const score = `${meta.challenger_score ?? 0}×${meta.challenged_score ?? 0}`;
+      const key =
+        meta.winner === "challenger"
+          ? "notif_desc_challenge_you_won"
+          : meta.winner === "challenged"
+            ? "notif_desc_challenge_they_won"
+            : "notif_desc_challenge_tie";
+      return t(key).replace("{name}", name).replace("{score}", score);
+    }
     default:
       return t("notif_body_default");
   }
@@ -282,6 +308,7 @@ export function notificationDeepLink(row: NotificationRow): string {
   if (!FEATURES.store && (type === 8 || type === 12 || type === 13)) return "/notificacoes";
   if (!FEATURES.workoutParty && type === 19) return "/notificacoes";
   if (!FEATURES.postTags && type === 16) return "/notificacoes";
+  if (!FEATURES.workoutChallenge && (type === 24 || type === 25)) return "/notificacoes";
 
   // Comentário (3), reação no comentário (6), reação no check-in (7), check-in
   // de um membro do duelo (11) e avaliação do check-in (14/15) abrem o próprio
@@ -312,6 +339,14 @@ export function notificationDeepLink(row: NotificationRow): string {
     // Repost: abre o repost, mesmo destino do card na lista.
     case 21:
       return row.post_id ? `/post/${row.post_id}` : "/notificacoes";
+    // Resposta a um comentário: abre o post da conversa.
+    case 23:
+      return row.post_id ? `/post/${row.post_id}` : "/notificacoes";
+    // Desafio: `post_id` é o id do desafio. 24 abre o convite; 25, o placar.
+    case 24:
+      return row.post_id ? `/metas?challenge=${row.post_id}` : "/metas";
+    case 25:
+      return row.post_id ? `/metas?challengeResult=${row.post_id}` : "/metas";
     default:
       return "/notificacoes";
   }

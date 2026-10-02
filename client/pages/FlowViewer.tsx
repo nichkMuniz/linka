@@ -2038,7 +2038,10 @@ export default function FlowViewer({ embedded }: { embedded?: FlowViewerEmbedded
                     <UserAvatar photo={viewer.userPhoto} nickname={viewer.userNickname} className="h-full w-full" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold truncate">{viewer.userNickname}</p>
+                    <p className="flex items-center gap-1 text-sm font-semibold">
+                      <span className="truncate">{viewer.userNickname}</span>
+                      {viewer.verifiedTier && <VerifiedBadge size="sm" tier={viewer.verifiedTier} />}
+                    </p>
                     <p className="text-[10px] text-muted-foreground">{formatTimeAgo(viewer.viewedAt)}</p>
                   </div>
                   {viewer.incentiveTypes.length > 0 && (

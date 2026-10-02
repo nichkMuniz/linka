@@ -26,7 +26,7 @@ import {
 } from "@/components/modals/workout-sticker-picker-drawer";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { useLanguage } from "@/lib/language-context";
-import { saveMediaToPhotos, SaveMediaError, compressVideoBlob } from "@/lib/native-media";
+import { saveMediaToPhotos, SaveMediaError, compressVideoBlob, pickGalleryMedia } from "@/lib/native-media";
 import { hapticLight } from "@/lib/haptics";
 import { motion } from "framer-motion";
 import type { SearchUser, StoryPostSticker, StoryTextElement, StoryWorkoutSticker } from "@/lib/ritmofit-db";
@@ -1770,14 +1770,33 @@ export function FlowCreationDialog({
   }, []);
 
   // Galeria do celular DIRETO (2026-09-30): no app nativo, o seletor da
-  // Fototeca do iOS (`PhotoLibrary.pickMedia`, PHPicker — não pede acesso à
-  // biblioteca inteira). O `<input type="file">` abria antes uma folha com
-  // "Fototeca / Tirar foto / Escolher arquivo"; ele fica só como reserva para o
-  // navegador de dev e para build sem o plugin.
+  // Fototeca do iOS (PHPicker — não pede acesso à biblioteca inteira). O
+  // `<input type="file">` abria antes uma folha com "Fototeca / Tirar foto /
+  // Escolher arquivo"; ele fica só como reserva para o navegador de dev e para
+  // build sem o plugin.
+  //
+  // 2026-10-01: o seletor agora é o do NOSSO plugin (`pickGalleryMedia`). O
+  // `PhotoLibrary.pickMedia` do @capgo perdia todo VÍDEO (copiava o arquivo
+  // temporário depois de o iOS apagá-lo) e devolvia lista vazia — o código abaixo
+  // lia isso como "cancelou", e o vídeo nunca carregava. O do @capgo ficou só
+  // como reserva para binário sem o método novo.
   const openGallery = async () => {
     if (!Capacitor.isNativePlatform()) {
       fileInputRef.current?.click();
       return;
+    }
+    try {
+      const file = await pickGalleryMedia();
+      if (file) processPickedFile(file);
+      return;
+    } catch (err: any) {
+      if (/in progress/i.test(String(err?.message ?? ""))) return;
+      if (err?.code !== "UNIMPLEMENTED") {
+        reportHandledError(err, "flow-creation:pick-gallery-media");
+        toast({ title: t("flow_pick_media_error"), description: t("retry"), variant: "destructive" });
+        return;
+      }
+      // Binário sem `EditedMedia.pickMedia` → seletor do @capgo (abaixo).
     }
     let picked;
     try {

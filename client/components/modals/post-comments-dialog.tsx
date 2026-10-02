@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Trash2, Pencil, Check, X, Send, MoreVertical } from "lucide-react";
+import { Trash2, Pencil, Check, X, Send, MoreVertical, CornerDownRight } from "lucide-react";
 import { CommentReactions } from "@/components/shared/comment-reactions";
 import { UserSafetyDrawer } from "@/components/shared/user-safety-drawer";
 import { hasObjectionableContent } from "@/lib/content-filter";
@@ -49,10 +49,10 @@ import { useOpenProfileByHandle } from "@/hooks/use-open-profile-by-handle";
 let _commentsAutoOpenConsumed = false;
 let _commentsAutoOpenPostId = "";
 
-function formatRelativeTime(dateStr: string): string {
+function formatRelativeTime(dateStr: string, nowLabel: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
   const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "agora";
+  if (mins < 1) return nowLabel;
   if (mins < 60) return `${mins}m`;
   const hours = Math.floor(mins / 60);
   if (hours < 24) return `${hours}h`;
@@ -183,6 +183,14 @@ export function PostCommentsDialog({
   const [editDraft, setEditDraft] = React.useState("");
   const [savingEditId, setSavingEditId] = React.useState<string | null>(null);
   const [currentUserPhoto, setCurrentUserPhoto] = React.useState<string | null>(null);
+  /**
+   * Comentário sendo respondido. Enquanto existe, a barra de escrever mostra
+   * "Respondendo a {nome}" com um trecho do comentário, e ele fica destacado na
+   * lista — a pessoa precisa ver que a resposta vai SÓ para aquele comentário.
+   */
+  const [replyTarget, setReplyTarget] = React.useState<PostComment | null>(null);
+  /** Conversas (id do comentário raiz) com todas as respostas à mostra. */
+  const [expandedThreads, setExpandedThreads] = React.useState<Set<string>>(() => new Set());
   // O input de escrever comentário é rodapé fixo (já acima do teclado). Este hook
   // cobre a textarea de EDIÇÃO inline, que fica no meio da lista rolável.
   useKeyboardInputScroll();
@@ -196,8 +204,78 @@ export function PostCommentsDialog({
       setDraft("");
       setEditingId(null);
       setEditDraft("");
+      setReplyTarget(null);
+      setExpandedThreads(new Set());
     }
   }, [open]);
+
+  // Conversas: cada resposta fica embaixo do comentário RAIZ da conversa (um
+  // nível de recuo, mesmo respondendo a outra resposta — quem foi respondido
+  // aparece no "em resposta a"). Raízes seguem a ordem da lista (mais novo
+  // primeiro); respostas, em ordem cronológica. Resposta cujo pai não veio
+  // (bloqueado, fora do limite) vira raiz — some o contexto, não o conteúdo.
+  const commentById = React.useMemo(
+    () => new Map(comments.map((c) => [c.id, c])),
+    [comments],
+  );
+  const rootIdOf = React.useCallback(
+    (comment: PostComment): string => {
+      let current = comment;
+      const seen = new Set<string>();
+      while (current.parentId && commentById.has(current.parentId) && !seen.has(current.id)) {
+        seen.add(current.id);
+        current = commentById.get(current.parentId)!;
+      }
+      return current.id;
+    },
+    [commentById],
+  );
+  const { rootComments, repliesByRoot } = React.useMemo(() => {
+    const roots: PostComment[] = [];
+    const replies = new Map<string, PostComment[]>();
+    for (const c of comments) {
+      const rootId = rootIdOf(c);
+      if (rootId === c.id) {
+        roots.push(c);
+      } else {
+        const list = replies.get(rootId) ?? [];
+        list.push(c);
+        replies.set(rootId, list);
+      }
+    }
+    for (const list of replies.values()) {
+      list.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+    }
+    return { rootComments: roots, repliesByRoot: replies };
+  }, [comments, rootIdOf]);
+
+  /** O comentário e todas as respostas abaixo dele (o banco apaga em cascata). */
+  const collectWithDescendants = React.useCallback(
+    (commentId: string): Set<string> => {
+      const ids = new Set([commentId]);
+      let grew = true;
+      while (grew) {
+        grew = false;
+        for (const c of comments) {
+          if (c.parentId && ids.has(c.parentId) && !ids.has(c.id)) {
+            ids.add(c.id);
+            grew = true;
+          }
+        }
+      }
+      return ids;
+    },
+    [comments],
+  );
+
+  const handleStartReply = React.useCallback((comment: PostComment) => {
+    hapticLight();
+    setEditingId(null);
+    setEditDraft("");
+    setReplyTarget(comment);
+    // Foco no mesmo toque: o iOS só abre o teclado com foco síncrono ao gesto.
+    inputRef.current?.focus();
+  }, []);
 
   React.useEffect(() => {
     if (!open) return;
@@ -267,8 +345,10 @@ export function PostCommentsDialog({
       }
       setSubmitting(true);
       const commentText = draft.trim();
-      await addPostCommentDb(postId, commentText);
+      const target = replyTarget;
+      await addPostCommentDb(postId, commentText, target?.id ?? null);
       setDraft("");
+      setReplyTarget(null);
 
       const profile = await getUserProfileDb(user.id);
       const optimisticComment: PostComment = {
@@ -282,23 +362,45 @@ export function PostCommentsDialog({
         createdAt: new Date().toISOString(),
         isVerified: profile?.is_verified || false,
         verifiedTier: profile?.verified_tier ?? null,
+        parentId: target?.id ?? null,
       };
+      // Resposta: abre a conversa inteira e rola até ela (a raiz não muda de id
+      // quando a lista recarrega). Comentário comum: topo, onde ele entra.
+      const threadRootId = target ? rootIdOf(target) : null;
+      if (threadRootId) {
+        setExpandedThreads((prev) => new Set(prev).add(threadRootId));
+      }
+      const revealNew = () =>
+        requestAnimationFrame(() => {
+          const list = commentsListRef.current;
+          if (!list) return;
+          if (!threadRootId) {
+            list.scrollTop = 0;
+            return;
+          }
+          list
+            .querySelector(`[data-thread-id="${threadRootId}"]`)
+            ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        });
       setComments((prev) => [optimisticComment, ...prev]);
-      requestAnimationFrame(() => {
-        if (commentsListRef.current) commentsListRef.current.scrollTop = 0;
-      });
+      revealNew();
 
       getPostCommentsDb(postId).then((data) => {
         setComments(data);
-        requestAnimationFrame(() => {
-          if (commentsListRef.current) commentsListRef.current.scrollTop = 0;
-        });
+        revealNew();
       }).catch(() => {});
 
-      toast({
-        title: t("comments_sent"),
-        description: t("comments_sent_desc"),
-      });
+      toast(
+        target
+          ? {
+              title: t("comments_reply_sent"),
+              description: t("comments_reply_sent_desc").replace("{name}", target.userName),
+            }
+          : {
+              title: t("comments_sent"),
+              description: t("comments_sent_desc"),
+            },
+      );
     } catch (err: any) {
       console.error("Error submitting comment:", err);
       toast({
@@ -308,7 +410,7 @@ export function PostCommentsDialog({
     } finally {
       setSubmitting(false);
     }
-  }, [draft, postId, user, t]);
+  }, [draft, postId, user, t, replyTarget, rootIdOf]);
 
   const handleStartEdit = React.useCallback((comment: PostComment) => {
     setEditingId(comment.id);
@@ -357,7 +459,9 @@ export function PostCommentsDialog({
     setIsDeletingComment(true);
     try {
       await deletePostCommentDb(deletingCommentId);
-      setComments((prev) => prev.filter((c) => c.id !== deletingCommentId));
+      const removed = collectWithDescendants(deletingCommentId);
+      setComments((prev) => prev.filter((c) => !removed.has(c.id)));
+      setReplyTarget((prev) => (prev && removed.has(prev.id) ? null : prev));
       toast({ title: t("comments_deleted") });
     } catch (err: any) {
       console.error("Error deleting comment:", err);
@@ -370,7 +474,7 @@ export function PostCommentsDialog({
       setDeleteCommentDialogOpen(false);
       setDeletingCommentId(null);
     }
-  }, [deletingCommentId, t]);
+  }, [deletingCommentId, t, collectWithDescendants]);
 
   // Três estados do ícone, do mais forte para o mais fraco:
   //  1. dono com comentário NÃO LIDO → azul, preenchido;
@@ -410,6 +514,257 @@ export function PostCommentsDialog({
     </motion.button>
   );
 
+  // Uma linha de comentário. Respostas usam avatar menor e dizem a quem
+  // respondem; o comentário em resposta fica destacado na lista.
+  const renderComment = (comment: PostComment, isReply: boolean) => {
+    const parent = isReply && comment.parentId ? commentById.get(comment.parentId) ?? null : null;
+    const isReplyTarget = replyTarget?.id === comment.id;
+    return (
+      <div
+        key={comment.id}
+        className="-mx-2 flex gap-[11px] rounded-2xl px-2 py-1.5 transition-colors"
+        style={
+          isReplyTarget
+            ? { background: "rgba(91,140,255,.12)", boxShadow: "inset 0 0 0 1px rgba(91,140,255,.35)" }
+            : undefined
+        }
+      >
+        {/* Avatar — abre o perfil de quem comentou */}
+        <button
+          type="button"
+          onClick={() => handleAuthorClick(comment.userId)}
+          className="flex-shrink-0 mt-0.5 self-start rounded-full active:opacity-70 transition-opacity"
+          aria-label={t("comments_open_profile").replace("{name}", comment.userName)}
+        >
+          <UserAvatar
+            photo={comment.userPhoto}
+            nickname={comment.userName}
+            size="sm"
+            className={isReply ? "h-6 w-6" : undefined}
+          />
+        </button>
+
+        {/* Content */}
+        <div className="flex-1 min-w-0">
+          {/* Name + time */}
+          <div className="text-[13.5px]" style={{ color: "rgba(255,255,255,.95)" }}>
+            <button
+              type="button"
+              onClick={() => handleAuthorClick(comment.userId)}
+              className="font-semibold active:opacity-70 transition-opacity"
+              style={{ color: "#fff" }}
+            >
+              {comment.userName}
+            </button>
+            {comment.isVerified && (
+              <VerifiedBadge size="sm" tier={comment.verifiedTier} className="ml-1 align-[-2px]" />
+            )}
+            {" "}
+            <span style={{ color: "rgba(255,255,255,.4)", fontSize: "11.5px" }}>
+              · {formatRelativeTime(comment.createdAt, t("comments_time_now"))}
+            </span>
+            {/* Comentário otimista ainda não tem id do banco — sem "Responder" até recarregar. */}
+            {user && editingId !== comment.id && !comment.id.startsWith("optimistic-") && (
+              <>
+                <span style={{ color: "rgba(255,255,255,.4)", fontSize: "11.5px" }}> · </span>
+                <button
+                  type="button"
+                  onClick={() => handleStartReply(comment)}
+                  className="font-semibold active:opacity-70 transition-opacity"
+                  style={{ color: isReplyTarget ? "#8fb0ff" : "rgba(255,255,255,.6)", fontSize: "11.5px" }}
+                  aria-label={t("comments_reply_label").replace("{name}", comment.userName)}
+                >
+                  {t("comments_reply")}
+                </button>
+              </>
+            )}
+          </div>
+
+          {/* Resposta: quem foi respondido, explícito (inclusive resposta a resposta). */}
+          {parent && (
+            <div
+              className="mt-0.5 flex items-center gap-1 text-[11.5px]"
+              style={{ color: "rgba(255,255,255,.45)" }}
+            >
+              <CornerDownRight className="h-3 w-3 shrink-0" />
+              <span className="truncate">
+                {t("comments_in_reply_to").replace("{name}", parent.userName)}
+              </span>
+            </div>
+          )}
+
+          {/* Text or edit form */}
+          {editingId === comment.id ? (
+            <div className="mt-1 flex flex-col gap-1.5">
+              <div className="relative">
+              <textarea
+                ref={editTextareaRef}
+                value={editDraft}
+                onChange={(e) => setEditDraft(e.target.value)}
+                className="w-full rounded-2xl px-3 py-2 text-sm resize-none"
+                style={{
+                  background: "rgba(255,255,255,.07)",
+                  border: "1px solid rgba(255,255,255,.12)",
+                  color: "#fff",
+                  minHeight: "64px",
+                  outline: "none",
+                }}
+                disabled={savingEditId === comment.id}
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey && editDraft.trim()) {
+                    e.preventDefault();
+                    handleSaveEdit(comment.id);
+                  }
+                  if (e.key === "Escape") handleCancelEdit();
+                }}
+              />
+              {/* "@" na edição → sugestões logo abaixo do campo. Editar não
+                  renotifica (o trigger do type 20 é só no INSERT). */}
+              <MentionSuggestions
+                inputRef={editTextareaRef}
+                value={editDraft}
+                onChange={setEditDraft}
+                placement="below"
+              />
+              </div>
+              <div className="flex gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => handleSaveEdit(comment.id)}
+                  disabled={!editDraft.trim() || savingEditId === comment.id}
+                  className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium disabled:opacity-50 transition-colors"
+                  style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}
+                >
+                  <Check className="h-3 w-3" />
+                  {t("comments_edit_save")}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCancelEdit}
+                  disabled={savingEditId === comment.id}
+                  className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium disabled:opacity-50 transition-colors"
+                  style={{ background: "rgba(255,255,255,.08)", color: "rgba(255,255,255,.7)" }}
+                >
+                  <X className="h-3 w-3" />
+                  {t("comments_edit_cancel")}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <p
+              className="break-words"
+              style={{ margin: "3px 0 7px", fontSize: "13.5px", lineHeight: "1.45", color: "rgba(255,255,255,.82)" }}
+            >
+              {renderWithMentions(comment.text, handleMentionClick)}
+            </p>
+          )}
+
+          <CommentReactions
+            commentType="post"
+            commentId={comment.id}
+            commentOwnerId={comment.userId}
+            sourceId={postId}
+            isOwnComment={!!(user && user.id === comment.userId)}
+          />
+        </div>
+
+        {/* Edit/Delete for own comments */}
+        {user && user.id === comment.userId && editingId !== comment.id && (
+          <div className="flex gap-0.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => handleStartEdit(comment)}
+              className="rounded-lg p-1.5 transition-colors active:opacity-70"
+              style={{ color: "rgba(255,255,255,.4)" }}
+              aria-label={t("comments_edit_label")}
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => handleDelete(comment.id)}
+              disabled={isDeletingComment && deletingCommentId === comment.id}
+              className="rounded-lg p-1.5 transition-colors active:opacity-70 disabled:opacity-50"
+              style={{ color: "rgba(255,255,255,.4)" }}
+              aria-label={t("comments_delete_label")}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
+
+        {/* Denunciar/bloquear o autor de um comentário alheio. */}
+        {user && user.id !== comment.userId && (
+          <div className="flex shrink-0">
+            <button
+              type="button"
+              onClick={() =>
+                setSafetyTarget({ userId: comment.userId, userName: comment.userName })
+              }
+              className="rounded-lg p-1.5 transition-colors active:opacity-70"
+              style={{ color: "rgba(255,255,255,.4)" }}
+              aria-label={t("user_safety_title")}
+            >
+              <MoreVertical className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // Comentário raiz + respostas recuadas. Até 2 respostas à mostra; o resto
+  // abre em "Ver mais N respostas" (a conversa em que você respondeu já abre).
+  const VISIBLE_REPLIES = 2;
+  const renderThread = (root: PostComment) => {
+    const replies = repliesByRoot.get(root.id) ?? [];
+    const expanded = expandedThreads.has(root.id);
+    const hasHiddenTarget =
+      !!replyTarget && replies.slice(VISIBLE_REPLIES).some((r) => r.id === replyTarget.id);
+    const shown = expanded || hasHiddenTarget ? replies : replies.slice(0, VISIBLE_REPLIES);
+    const hiddenCount = replies.length - shown.length;
+    return (
+      <div key={root.id} data-thread-id={root.id} className="flex flex-col gap-2">
+        {renderComment(root, false)}
+        {replies.length > 0 && (
+          <div className="ml-[43px] flex flex-col gap-2">
+            {shown.map((reply) => renderComment(reply, true))}
+            {hiddenCount > 0 ? (
+              <button
+                type="button"
+                onClick={() => setExpandedThreads((prev) => new Set(prev).add(root.id))}
+                className="self-start flex items-center gap-2 py-1 text-[12px] font-semibold active:opacity-70"
+                style={{ color: "rgba(255,255,255,.55)" }}
+              >
+                <span className="h-px w-6" style={{ background: "rgba(255,255,255,.25)" }} />
+                {hiddenCount === 1
+                  ? t("comments_view_replies_one")
+                  : t("comments_view_replies_many").replace("{n}", String(hiddenCount))}
+              </button>
+            ) : expanded && replies.length > VISIBLE_REPLIES ? (
+              <button
+                type="button"
+                onClick={() =>
+                  setExpandedThreads((prev) => {
+                    const next = new Set(prev);
+                    next.delete(root.id);
+                    return next;
+                  })
+                }
+                className="self-start flex items-center gap-2 py-1 text-[12px] font-semibold active:opacity-70"
+                style={{ color: "rgba(255,255,255,.55)" }}
+              >
+                <span className="h-px w-6" style={{ background: "rgba(255,255,255,.25)" }} />
+                {t("comments_hide_replies")}
+              </button>
+            ) : null}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const drawerContent = (
     <DrawerContent
       handleClassName="mt-[10px] h-1 w-[38px] bg-white/25"
@@ -441,7 +796,7 @@ export function PostCommentsDialog({
         style={{
           display: "flex",
           flexDirection: "column",
-          gap: "18px",
+          gap: "10px",
           justifyContent: loading || !comments.length ? "center" : "flex-start",
         }}
       >
@@ -450,162 +805,7 @@ export function PostCommentsDialog({
             {t("comments_loading")}
           </div>
         ) : comments.length ? (
-          comments.map((comment) => (
-            <div key={comment.id} className="flex gap-[11px]">
-              {/* Avatar — abre o perfil de quem comentou */}
-              <button
-                type="button"
-                onClick={() => handleAuthorClick(comment.userId)}
-                className="flex-shrink-0 mt-0.5 self-start rounded-full active:opacity-70 transition-opacity"
-                aria-label={t("comments_open_profile").replace("{name}", comment.userName)}
-              >
-                <UserAvatar
-                  photo={comment.userPhoto}
-                  nickname={comment.userName}
-                  size="sm"
-                />
-              </button>
-
-              {/* Content */}
-              <div className="flex-1 min-w-0">
-                {/* Name + time */}
-                <div className="text-[13.5px]" style={{ color: "rgba(255,255,255,.95)" }}>
-                  <button
-                    type="button"
-                    onClick={() => handleAuthorClick(comment.userId)}
-                    className="font-semibold active:opacity-70 transition-opacity"
-                    style={{ color: "#fff" }}
-                  >
-                    {comment.userName}
-                  </button>
-                  {comment.isVerified && (
-                    <VerifiedBadge size="sm" tier={comment.verifiedTier} className="ml-1 align-[-2px]" />
-                  )}
-                  {" "}
-                  <span style={{ color: "rgba(255,255,255,.4)", fontSize: "11.5px" }}>
-                    · {formatRelativeTime(comment.createdAt)}
-                  </span>
-                </div>
-
-                {/* Text or edit form */}
-                {editingId === comment.id ? (
-                  <div className="mt-1 flex flex-col gap-1.5">
-                    <div className="relative">
-                    <textarea
-                      ref={editTextareaRef}
-                      value={editDraft}
-                      onChange={(e) => setEditDraft(e.target.value)}
-                      className="w-full rounded-2xl px-3 py-2 text-sm resize-none"
-                      style={{
-                        background: "rgba(255,255,255,.07)",
-                        border: "1px solid rgba(255,255,255,.12)",
-                        color: "#fff",
-                        minHeight: "64px",
-                        outline: "none",
-                      }}
-                      disabled={savingEditId === comment.id}
-                      autoFocus
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && !e.shiftKey && editDraft.trim()) {
-                          e.preventDefault();
-                          handleSaveEdit(comment.id);
-                        }
-                        if (e.key === "Escape") handleCancelEdit();
-                      }}
-                    />
-                    {/* "@" na edição → sugestões logo abaixo do campo. Editar não
-                        renotifica (o trigger do type 20 é só no INSERT). */}
-                    <MentionSuggestions
-                      inputRef={editTextareaRef}
-                      value={editDraft}
-                      onChange={setEditDraft}
-                      placement="below"
-                    />
-                    </div>
-                    <div className="flex gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => handleSaveEdit(comment.id)}
-                        disabled={!editDraft.trim() || savingEditId === comment.id}
-                        className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium disabled:opacity-50 transition-colors"
-                        style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}
-                      >
-                        <Check className="h-3 w-3" />
-                        {t("comments_edit_save")}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleCancelEdit}
-                        disabled={savingEditId === comment.id}
-                        className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium disabled:opacity-50 transition-colors"
-                        style={{ background: "rgba(255,255,255,.08)", color: "rgba(255,255,255,.7)" }}
-                      >
-                        <X className="h-3 w-3" />
-                        {t("comments_edit_cancel")}
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <p
-                    className="break-words"
-                    style={{ margin: "3px 0 7px", fontSize: "13.5px", lineHeight: "1.45", color: "rgba(255,255,255,.82)" }}
-                  >
-                    {renderWithMentions(comment.text, handleMentionClick)}
-                  </p>
-                )}
-
-                <CommentReactions
-                  commentType="post"
-                  commentId={comment.id}
-                  commentOwnerId={comment.userId}
-                  sourceId={postId}
-                  isOwnComment={!!(user && user.id === comment.userId)}
-                />
-              </div>
-
-              {/* Edit/Delete for own comments */}
-              {user && user.id === comment.userId && editingId !== comment.id && (
-                <div className="flex gap-0.5 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => handleStartEdit(comment)}
-                    className="rounded-lg p-1.5 transition-colors active:opacity-70"
-                    style={{ color: "rgba(255,255,255,.4)" }}
-                    aria-label={t("comments_edit_label")}
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleDelete(comment.id)}
-                    disabled={isDeletingComment && deletingCommentId === comment.id}
-                    className="rounded-lg p-1.5 transition-colors active:opacity-70 disabled:opacity-50"
-                    style={{ color: "rgba(255,255,255,.4)" }}
-                    aria-label={t("comments_delete_label")}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              )}
-
-              {/* Denunciar/bloquear o autor de um comentário alheio. */}
-              {user && user.id !== comment.userId && (
-                <div className="flex shrink-0">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setSafetyTarget({ userId: comment.userId, userName: comment.userName })
-                    }
-                    className="rounded-lg p-1.5 transition-colors active:opacity-70"
-                    style={{ color: "rgba(255,255,255,.4)" }}
-                    aria-label={t("user_safety_title")}
-                  >
-                    <MoreVertical className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              )}
-            </div>
-          ))
+          rootComments.map(renderThread)
         ) : (
           <div className="py-6 text-center text-sm" style={{ color: "rgba(255,255,255,.5)" }}>
             {t("comments_empty")}
@@ -613,13 +813,44 @@ export function PostCommentsDialog({
         )}
       </div>
 
+      {/* Respondendo a um comentário: diz para quem vai e mostra um trecho
+          dele, com X para voltar a comentar no post. */}
+      {user && replyTarget && (
+        <div
+          className="flex-shrink-0 flex items-center gap-2.5 px-[16px] py-2"
+          style={{
+            borderTop: "1px solid rgba(255,255,255,.08)",
+            background: "rgba(91,140,255,.08)",
+          }}
+        >
+          <CornerDownRight className="h-4 w-4 shrink-0" style={{ color: "#8fb0ff" }} />
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-[12.5px] font-semibold" style={{ color: "#fff" }}>
+              {t("comments_replying_to").replace("{name}", replyTarget.userName)}
+            </div>
+            <div className="truncate text-[12px]" style={{ color: "rgba(255,255,255,.55)" }}>
+              {replyTarget.text}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setReplyTarget(null)}
+            className="shrink-0 flex items-center justify-center rounded-full active:opacity-70"
+            style={{ width: 28, height: 28, background: "rgba(255,255,255,.1)", color: "rgba(255,255,255,.8)" }}
+            aria-label={t("comments_reply_cancel")}
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* Input bar */}
       <div
         className="relative flex-shrink-0 flex items-center gap-[10px] px-[16px]"
         style={{
           paddingTop: "12px",
           paddingBottom: "max(28px, env(safe-area-inset-bottom))",
-          borderTop: "1px solid rgba(255,255,255,.08)",
+          borderTop: user && replyTarget ? "none" : "1px solid rgba(255,255,255,.08)",
         }}
       >
         {/* User avatar */}
@@ -635,7 +866,11 @@ export function PostCommentsDialog({
           <input
             ref={inputRef}
             type="text"
-            placeholder={t("comments_placeholder")}
+            placeholder={
+              replyTarget
+                ? t("comments_reply_placeholder").replace("{name}", replyTarget.userName)
+                : t("comments_placeholder")
+            }
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
@@ -711,7 +946,9 @@ export function PostCommentsDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>{t("comments_delete_title")}</AlertDialogTitle>
           <AlertDialogDescription>
-            {t("comments_delete_desc")}
+            {deletingCommentId && comments.some((c) => c.parentId === deletingCommentId)
+              ? t("comments_delete_desc_with_replies")
+              : t("comments_delete_desc")}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -739,6 +976,7 @@ export function PostCommentsDialog({
       userName={safetyTarget?.userName ?? ""}
       onBlocked={() => {
         setSafetyTarget(null);
+        setReplyTarget(null);
         getPostCommentsDb(postId).then(setComments).catch(() => {});
       }}
     />

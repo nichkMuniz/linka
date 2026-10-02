@@ -1,4 +1,5 @@
 import * as React from "react";
+import { useAppRefresh } from "@/lib/app-refresh";
 import { IMMUTABLE_CACHE_CONTROL } from "@/lib/storage-cache";
 import {
   getPromotionsDb,
@@ -1849,6 +1850,13 @@ export default function Store() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeCategory]);
+
+  // Volta ao app depois de 5+ min fora: relê a aba aberta.
+  useAppRefresh(({ reason }) => {
+    if (reason !== "resume") return;
+    load();
+    if (activeTab === "profissionais") loadProfessionals();
+  });
 
   React.useEffect(() => {
     if (activeTab === "profissionais") loadProfessionals();

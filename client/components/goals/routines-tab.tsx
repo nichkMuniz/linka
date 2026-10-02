@@ -3,7 +3,7 @@ import { Bell, CalendarDays, ChevronRight, Dumbbell, Play, Shield, Sparkles, Tar
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/lib/language-context";
 import { formatScheduledTime } from "@/hooks/use-routine-notifications";
-import { isRoutineCompleted, isSequentialCard, type RoutineCard } from "@/components/goals/goals-helpers";
+import { isRoutineDoneForRing, isSequentialCard, type RoutineCard, type SequentialCycle } from "@/components/goals/goals-helpers";
 import { buildRoutineWeekdayMap } from "@/components/goals/suggested-routines-data";
 import type { RoutineTypeCode, UserGoal } from "@/lib/ritmofit-db";
 
@@ -22,6 +22,8 @@ interface RoutinesTabProps {
   userGoals: UserGoal[];
   /** map user_workout_id → ISO date of last execution */
   routineLastDates: Record<string, string>;
+  /** Ciclo do rodízio sequencial — o anel das sequenciais segue o ciclo, não a semana. */
+  seqCycle?: SequentialCycle;
   activeWorkoutName: string | null;
   onStartWorkout: (card: RoutineCard) => void;
   /**
@@ -117,6 +119,7 @@ export function RoutinesTab({
   cards,
   userGoals,
   routineLastDates,
+  seqCycle = null,
   activeWorkoutName,
   onStartWorkout,
   onTrainTogether,
@@ -204,7 +207,8 @@ export function RoutinesTab({
               : t("goals_rt_habits"));
         const linkedGoal = card.goalId ? goalById.get(card.goalId) : null;
         // Anel = conclusão da rotina: 100% se concluída, senão 0% (binário).
-        const completionPerc = isRoutineCompleted(card, routineLastDates) ? 100 : 0;
+        // Sequencial: concluída NO CICLO do rodízio (zera quando todas fecham).
+        const completionPerc = isRoutineDoneForRing(card, routineLastDates, seqCycle) ? 100 : 0;
         const isActive =
           card.type === 1 &&
           activeWorkoutName !== null &&

@@ -1,4 +1,5 @@
 import * as React from "react";
+import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
 import { Dumbbell, Flame, ImageOff, Timer, Trophy } from "lucide-react";
 import { useLanguage } from "@/lib/language-context";
 import { UserAvatar } from "@/components/shared/user-avatar";
@@ -315,6 +316,7 @@ export function FlowPostCard({ data, interactive = false }: { data: StoryPostSti
       <div className="flex items-center gap-2" style={{ padding: "10px 12px" }}>
         <UserAvatar photo={data.authorPhoto ?? null} nickname={data.authorNickname} className="h-7 w-7 shrink-0" />
         <span className="truncate" style={{ fontSize: 13, fontWeight: 700 }}>{data.authorNickname}</span>
+        {data.authorVerifiedTier && <VerifiedBadge size="sm" tier={data.authorVerifiedTier} />}
       </div>
 
       {broken ? (
@@ -334,6 +336,28 @@ export function FlowPostCard({ data, interactive = false }: { data: StoryPostSti
           className="block w-full select-none pointer-events-none"
           style={{ maxHeight: "56dvh", objectFit: "cover" }}
         />
+      )}
+
+      {/* Legenda do post, como no Instagram: autor em negrito + texto, até 3
+          linhas (o resto fica no post, a um toque). */}
+      {data.caption && (
+        <p
+          className="break-words"
+          style={{
+            // Sem a dica de toque embaixo (prévia no criador), fecha o card.
+            padding: interactive ? "9px 12px 0" : "9px 12px 11px",
+            fontSize: 13,
+            lineHeight: 1.4,
+            color: "rgba(255,255,255,.88)",
+            display: "-webkit-box",
+            WebkitLineClamp: 3,
+            WebkitBoxOrient: "vertical",
+            overflow: "hidden",
+          }}
+        >
+          <span style={{ fontWeight: 700, color: "#fff" }}>{data.authorNickname}</span>{" "}
+          {data.caption}
+        </p>
       )}
 
       {interactive && (

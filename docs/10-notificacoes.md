@@ -82,12 +82,14 @@ Cada item exibe:
 Quando o tipo é incentivo, o ícone exibido é o do incentivo específico (não um ícone genérico):
 | ID | Nome | Ícone | Cor |
 |---|---|---|---|
-| 1 | Apoio | `HeartHandshake` | Rose |
-| 2 | Continua | `Flame` | Orange |
-| 3 | Ganhador | `Trophy` | Emerald |
-| 4 | Consegue Mais | `Rocket` | Blue |
-| 5 | Limite Maior | `Target` | Purple |
-| 6 | Mais Algum | `Zap` | Yellow |
+| 1 | Amei | `Heart` | Rose |
+| 2 | Pode mais! | `Flame` | Orange |
+| 3 | Vencedor! | `Trophy` | Amber |
+| 4 | Evolução! | `TrendingUp` | Emerald |
+| 5 | Boa execução! | `Dumbbell` | Blue |
+| 6 | Intensifique! | `Zap` | Yellow |
+
+Ícones/cores vêm de `INCENTIVE_CONFIG` (`client/lib/incentive-config.tsx`) e os nomes de `incentive_1..6` no i18n — os mesmos dos botões do post. O push usa a cópia em `INCENTIVE_NAMES` da `send-push-notification` (corrigida em 01/10/2026: ainda tinha os nomes antigos "Apoio/Continua/Consegue Mais/Limite Maior/Mais Algum").
 
 ---
 
@@ -98,6 +100,12 @@ Quando o tipo é incentivo, o ícone exibido é o do incentivo específico (não
 - O badge do ícone na navegação é zerado ao entrar na tela
 - **Momentos em que a tela marca como lida (2026-07-21):** logo após a lista carregar (mount e pull-to-refresh), a cada notificação que chega pelo Realtime **com a tela aberta**, e no **unmount** (varredura final ao sair). Junto, o `AppLayout` ignora as atualizações de contagem do Realtime enquanto `pathname === "/notificacoes"` — assim o sinalizador de pendência nunca sobrevive à saída da tela
 - **A marcação vem DEPOIS do `getNotificationsDb()`, não em paralelo:** marcar como lido invalida o cache `notifications`, e um fetch ainda em voo regravaria por cima o payload antigo (com `read=false`)
+
+### Apagar uma notificação — swipe (2026-10-02)
+- **Gesto:** arrastar a linha **da direita para a esquerda** revela a lixeira vermelha; tocar nela apaga. É o **mesmo componente** da lista de conversas (`SwipeableConversationRow`, `client/components/community/swipeable-conversation-row.tsx`, que ganhou a prop `className` para o raio de 18px dos cards daqui). Gesto vertical continua rolando a lista; com a linha aberta, tocar no card só fecha o swipe (não abre a notificação).
+- **Linha agrupada apaga o grupo inteiro:** vários incentivos no mesmo post viram uma linha só; o agrupamento guarda todos os ids (`groupedIds`) e `deleteNotificationsDb(ids)` apaga todos — senão a próxima do grupo reapareceria no lugar.
+- **Otimista com volta:** a linha some na hora; se o banco não apagar, ela volta com toast de erro. `deleteNotificationsDb` confere **quantas linhas saíram** — DELETE barrado pela RLS volta 0 linhas sem erro (no-op silencioso), e sem essa checagem a notificação "voltaria do nada" no próximo carregamento. Toast "Notificação apagada" no sucesso.
+- O contador do sino não precisa de nada extra: a tela já marca tudo como lido ao abrir, e a assinatura de não lidas escuta qualquer mudança em `notifications` (inclusive DELETE).
 
 ### Estado vazio (2026-09-30)
 Padrão do design system (§10.3): **ícone do assunto** (`Bell` em círculo de 72px, `bg-white/[.07]` — antes era um raio `Zap`, sem relação com notificação), título "Nenhuma notificação ainda" (19px bold), texto de apoio e **uma ação**: "Encontrar pessoas" (`notif_page_empty_cta`, botão secundário) → `/buscar`. Sem a caixa tracejada que envolvia o bloco.
@@ -236,8 +244,15 @@ O corpo do push é montado em runtime por `buildBody()`, com os dados reais da n
 | 20 | "{nome} mencionou você num comentário." | `profiles` |
 | 21 | "{nome} repostou sua publicação no feed." | `profiles` |
 | 22 | "Seu {post/shot/flow} foi removido por um administrador por violar as diretrizes da comunidade." | `notifications.meta` (sem remetente) |
+| 23 | "{nome} respondeu seu comentário." | `profiles` |
+| 24 | "{nome} te desafiou: {treino}. Bora bater os números?" | `profiles`, `notifications.meta.routine_name` |
+| 25 | "{nome} completou seu desafio — você venceu (3×2)" / "…e venceu (2×3)" / "…: empate (2×2)" | `profiles`, `notifications.meta` (`winner`, placar) |
 
 **Type 21 — repost (2026-09-28):** gerado pelo trigger `notify_post_repost` (migração `20260928-repost-notification.sql`) quando alguém marcado reposta uma publicação. Destinatário é o **autor do original**, `follower_id` é quem repostou e `post_id` é o **repost**: o toque (card, banner e push) abre `/post/{repost}`, e apagar o repost ou o original apaga a notificação junto. Não notifica se houver bloqueio. Na lista: ícone `Repeat2` violeta, miniatura da foto e agrupamento por usuário (`isUserBased`).
+
+**Types 24/25 — desafio de treino (2026-10-02):** gerados por triggers em `workout_challenges` (migração `20261002-workout-challenges.sql`). **24** no INSERT do desafio → para o desafiado, `follower_id` = quem desafiou, `post_id` = **id do desafio**, `meta.routine_name`. **25** quando o status vira `completed` → para quem desafiou, `follower_id` = quem cumpriu, `meta` = `{ routine_name, winner, challenger_score, challenged_score }` (placar do ponto de vista de quem desafiou). Na lista: ícone `Swords` rosa; não buscam foto de post (`NOTIF_TYPES_WITHOUT_POST`). Toque: 24 → `/metas?challenge=<id>` (convite), 25 → `/metas?challengeResult=<id>` (placar). O `meta` cru vai para `NotificationItem.challengeMeta`. Ver `docs/05-metas.md` → "Desafio de treino".
+
+**Type 23 — responderam seu comentário (2026-10-01):** gerado pelo trigger `notify_post_comment_reply` (migração `20261001-comment-replies.sql`) quando um comentário de post entra com `parent_id`. Destinatário é o **autor do comentário respondido**, `follower_id` é quem respondeu e `post_id` é o post. Não notifica a si mesmo nem com bloqueio (as duas direções). Se o comentário respondido é do **dono do post**, ele recebe só a 23 — a type 3 da mesma inserção é descartada (`notifications_skip_comment_when_reply`, BEFORE INSERT); e o autor respondido sai das menções (type 20) daquela inserção. Na lista: ícone `MessagesSquare` índigo (mesmo do 18), miniatura do post; o toque abre `/post/{id}` com os comentários abertos (`state.openComments`). Push/banner: `/post/{id}`.
 
 **Type 22 — conteúdo removido pela moderação (2026-10-01):** gravado **pelo servidor** dentro de `admin_delete_content` (migração `20261001-moderation-removal-notice.sql`), na mesma transação do delete, só quando a linha saiu de fato e nunca quando o admin remove o próprio conteúdo. É um aviso **do sistema**: `follower_id` vai **NULL** (o autor não sabe qual admin removeu) e `post_id`/`shots_id`/`flow_id` também — o conteúdo já não existe. O que sobra fica em `notifications.meta`: `{kind, reason, preview}` (tipo do conteúdo, motivo escolhido pelo admin e até 80 caracteres da legenda).
 - **Card:** ícone `ShieldAlert` vermelho num círculo (não é `isUserBased`), linha "Moderação LinKa" acima do texto e a legenda entre aspas abaixo.

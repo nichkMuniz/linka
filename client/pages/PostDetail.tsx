@@ -1,4 +1,5 @@
 import * as React from "react";
+import { useAppRefreshTick } from "@/lib/app-refresh";
 import { useOpenProfileByHandle } from "@/hooks/use-open-profile-by-handle";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { getPostByIdDb, getCommentCountsBatchDb, getPostLikeUsersDb, getPostLikesDb, getUserPostLikesDb, togglePostIncentiveDb, getUserGoalByIdDb, deletePostDb, flushPendingIncentivesDb, type PostWithUser, type PostLikeStats, type PostIncentiveType, type UserGoal } from "@/lib/ritmofit-db";
@@ -107,6 +108,9 @@ export default function PostDetail() {
     navStateRef.current = location.state as { openComments?: boolean; openLikes?: boolean } | null;
   }, [postId]);
 
+  // Volta ao app depois de 5+ min fora: relê o post, incentivos e comentários.
+  const refreshTick = useAppRefreshTick();
+
   React.useEffect(() => {
     (async () => {
       try {
@@ -157,7 +161,8 @@ export default function PostDetail() {
         setLoading(false);
       }
     })();
-  }, [postId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [postId, refreshTick]);
 
   const totalLikes = likeStats.apoio + likeStats.continua + likeStats.ganhador + likeStats.consegueMais + likeStats.limiteMaior + likeStats.maisAlgum;
 

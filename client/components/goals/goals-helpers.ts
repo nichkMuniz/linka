@@ -36,10 +36,28 @@ export function isSequentialCard(
   );
 }
 
-export type SequentialDue = {
-  card: RoutineCard;
-  /** já executada hoje → mostrar como concluída, sem surgir a próxima */
-  doneToday: boolean;
+/** Uma execução de rotina de treino (sessão finalizada), vinda do histórico. */
+export type RoutineExecution = {
+  /** `routines.id` gravado no histórico (preferido — sobrevive à troca de itens). */
+  routineId: string | null;
+  /** `user_workouts.id` — vínculo das linhas antigas, sem `routine_id`. */
+  userWorkoutId: string | null;
+  /** `date_completed` (UTC naive, como o resto do histórico). */
+  at: string;
+};
+
+/**
+ * Estado do rodízio SEQUENCIAL (2026-10-02).
+ *  - `doneKeys`: rotinas já feitas no ciclo atual → anel 100%; as demais, 0%.
+ *  - `due`: a próxima do rodízio que está em 0% — é ela que o "Treino de hoje"
+ *    mostra, sempre.
+ * `null` quando não há rotina sequencial.
+ */
+export type SequentialCycle = {
+  doneKeys: Set<string>;
+  due: RoutineCard;
+  /** Última rotina executada do rodízio (null = nenhuma ainda). */
+  lastKey: string | null;
 } | null;
 
 // Ordem do rodízio = ordem de criação. `routines.id` é bigint identity, logo
@@ -50,44 +68,86 @@ function seqOrder(card: RoutineCard): number {
 }
 
 /**
- * Qual rotina sequencial de treino está "devida hoje". O rodízio avança SÓ por
- * conclusão (não pelo calendário): a próxima após a última concluída. Pular um
- * dia mantém a mesma na fila. Se a última concluída foi HOJE, o dia está feito
- * (mostra concluída, não surge a próxima). Nunca executou nenhuma → a primeira.
- * `today` = data local YYYY-MM-DD. Retorna null se não há rotina sequencial.
+ * Ciclo do rodízio sequencial, a partir do HISTÓRICO de execuções (não só da
+ * última data de cada rotina — com só ela, "Peito, Perna, Braço, Peito" e
+ * "Perna, Braço, Peito" seriam iguais, e os anéis não).
+ *
+ * Regra (pedido do usuário, 02/10/2026): percorre as execuções em ordem,
+ * juntando as rotinas feitas no ciclo. Quando o conjunto chega a TODAS as
+ * rotinas, o ciclo fecha: só a que acabou de ser feita fica em 100% (marca de
+ * "ciclo completo") e a próxima execução abre um ciclo novo do zero:
+ *   Peito → {Peito} · Perna → {Peito, Perna} · Braço → {Braço} (Peito e Perna
+ *   voltam a 0%) · Peito → {Peito} · Perna → {Peito, Perna} · Braço → {Braço} …
+ *
+ * A próxima (`due`) é a primeira em 0% no rodízio, a partir da que vem depois
+ * da última executada. Sem execução nenhuma → a primeira criada. Com UMA
+ * rotina sequencial só, ela é sempre a próxima.
  */
-export function computeSequentialWorkoutDue(
+export function computeSequentialCycle(
   cards: RoutineCard[],
-  routineLastDates: Record<string, string>,
-  today: string,
-): SequentialDue {
+  executions: RoutineExecution[],
+): SequentialCycle {
   const seq = cards.filter(isSequentialCard).sort((a, b) => seqOrder(a) - seqOrder(b));
   if (seq.length === 0) return null;
 
-  const lastOf = (c: RoutineCard): string | null => {
-    const dates = c.items
-      .map((i) => routineLastDates[i.id])
-      .filter(Boolean)
-      .map((d) => localDateFromUtcNaive(d))
-      .sort();
-    return dates.pop() ?? null;
-  };
+  const byRoutineId = new Map<string, string>();
+  const byItemId = new Map<string, string>();
+  for (const card of seq) {
+    if (card.routineId) byRoutineId.set(String(card.routineId), card.key);
+    for (const item of card.items) byItemId.set(String(item.id), card.key);
+  }
 
-  // ponteiro = rotina concluída mais recentemente (empate no mesmo dia → a de
-  // criação mais recente, por causa do `>=`).
-  let pointerIdx = -1;
-  let pointerDate = "";
-  seq.forEach((c, idx) => {
-    const d = lastOf(c);
-    if (d && d >= pointerDate) {
-      pointerDate = d;
-      pointerIdx = idx;
+  const events = executions
+    .map((e) => ({
+      key: (e.routineId && byRoutineId.get(String(e.routineId))) || (e.userWorkoutId && byItemId.get(String(e.userWorkoutId))) || null,
+      at: e.at,
+    }))
+    .filter((e): e is { key: string; at: string } => !!e.key && !!e.at)
+    .sort((a, b) => a.at.localeCompare(b.at));
+
+  const done = new Set<string>();
+  let lastKey: string | null = null;
+  // O ciclo FECHOU na última execução: a que fechou fica em 100% só como marca
+  // de "ciclo completo" — a próxima execução abre um ciclo NOVO do zero. Sem
+  // isso a que fechou contaria também no ciclo seguinte, que fecharia com uma
+  // rotina a menos e o rodízio sairia de fase (dia 5 do exemplo: só "Perna").
+  let cycleClosed = false;
+  for (const event of events) {
+    if (event.key === lastKey) continue; // várias séries da mesma sessão
+    lastKey = event.key;
+    if (cycleClosed) {
+      done.clear();
+      cycleClosed = false;
     }
-  });
+    done.add(event.key);
+    if (done.size >= seq.length) {
+      done.clear();
+      done.add(event.key);
+      cycleClosed = true;
+    }
+  }
 
-  if (pointerIdx === -1) return { card: seq[0], doneToday: false };
-  if (pointerDate === today) return { card: seq[pointerIdx], doneToday: true };
-  return { card: seq[(pointerIdx + 1) % seq.length], doneToday: false };
+  if (seq.length === 1) return { doneKeys: done, due: seq[0], lastKey };
+
+  const lastIdx = lastKey ? seq.findIndex((c) => c.key === lastKey) : -1;
+  for (let step = 1; step <= seq.length; step++) {
+    const card = seq[(lastIdx + step + seq.length) % seq.length];
+    if (!done.has(card.key)) return { doneKeys: done, due: card, lastKey };
+  }
+  return { doneKeys: done, due: seq[0], lastKey };
+}
+
+/**
+ * Anel de conclusão de uma rotina: SEQUENCIAL segue o ciclo do rodízio
+ * (`computeSequentialCycle`); as demais, a regra semanal de `isRoutineCompleted`.
+ */
+export function isRoutineDoneForRing(
+  card: RoutineCard,
+  routineLastDates: Record<string, string>,
+  seqCycle: SequentialCycle,
+): boolean {
+  if (seqCycle && isSequentialCard(card)) return seqCycle.doneKeys.has(card.key);
+  return isRoutineCompleted(card, routineLastDates);
 }
 
 export type RoutineCard = {

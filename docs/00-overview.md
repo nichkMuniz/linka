@@ -146,14 +146,16 @@ Ao mexer nisso, confira com `npx vite build` — o tamanho do `index-*.js` é o 
 
 Em vez de um simples "curtir", o RitmoFit usa **incentivos** com 6 tipos distintos:
 
-| ID | Nome | Significado |
+| ID | Nome (PT / EN) | Significado |
 |---|---|---|
-| 1 | Apoio | Suporte emocional |
-| 2 | Continua | Encoraja a persistir |
-| 3 | Ganhador | Celebra uma conquista |
-| 4 | Consegue Mais | Acredita no potencial |
-| 5 | Limite Maior | Motivação de superação |
-| 6 | Mais Algum | Desafio para ir além |
+| 1 | ❤️ Amei / Loved it | Suporte emocional |
+| 2 | 🔥 Pode mais! / You can do more! | Encoraja a persistir |
+| 3 | 🏆 Vencedor! / Winner! | Celebra uma conquista |
+| 4 | 📈 Evolução! / Evolution! | Reconhece a progressão |
+| 5 | 💪 Boa execução! / Good execution! | Elogia a técnica |
+| 6 | ⚡ Intensifique! / Intensify! | Desafio para ir além |
+
+> Os nomes vivem em `incentive_1..6` (`client/lib/i18n.ts` / `i18n-en.ts`) e são **copiados** em `INCENTIVE_NAMES` da edge function `send-push-notification` (texto do push, só PT). Mudou um, muda o outro.
 
 ---
 

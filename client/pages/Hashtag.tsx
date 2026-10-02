@@ -1,4 +1,5 @@
 import React from "react";
+import { useAppRefreshTick } from "@/lib/app-refresh";
 import { useParams, useNavigate } from "react-router-dom";
 import { ArrowLeft, Hash, Video } from "lucide-react";
 import { useLanguage } from "@/lib/language-context";
@@ -23,9 +24,12 @@ export default function Hashtag() {
   const [items, setItems] = React.useState<HashtagItem[]>([]);
   const [loading, setLoading] = React.useState(true);
 
+  // Volta ao app depois de 5+ min fora: relê (sem esqueleto se já há itens).
+  const refreshTick = useAppRefreshTick();
+
   React.useEffect(() => {
     let cancelled = false;
-    setLoading(true);
+    if (refreshTick === 0) setLoading(true);
     searchContentByHashtagDb(tag)
       .then((data) => {
         if (!cancelled) setItems(data);
@@ -37,7 +41,7 @@ export default function Hashtag() {
     return () => {
       cancelled = true;
     };
-  }, [tag]);
+  }, [tag, refreshTick]);
 
   const countLabel = (
     items.length === 1 ? t("hashtag_post_count_one") : t("hashtag_posts_count")

@@ -3,10 +3,9 @@ import { UserPlus } from "lucide-react";
 
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { WorkoutPartyDrawer } from "@/components/goals/workout-party-drawer";
+import { PartyTurnStatus } from "@/components/goals/workout-party-live";
 import { useLanguage } from "@/lib/language-context";
-import { supabase } from "@/lib/supabase";
 import {
-  getWorkoutPartyMembersDb,
   updateWorkoutPartyProgressDb,
   type WorkoutPartyMember,
 } from "@/lib/ritmofit-db";
@@ -30,6 +29,13 @@ interface WorkoutPartyBarProps {
    * sessão, que é quem tem os exercícios para congelar no snapshot.
    */
   onInvite: (userIds: string[]) => Promise<void>;
+  /**
+   * Participantes (com realtime) — vêm da sessão (`useWorkoutPartyMembers`),
+   * que também os usa no modal e na barra de descanso para a "vez".
+   */
+  members: WorkoutPartyMember[];
+  /** Relê os participantes (depois de convidar). */
+  onMembersChanged: () => void;
 }
 
 /** Quantos avatares aparecem antes do "+N". */
@@ -55,39 +61,11 @@ export function WorkoutPartyBar({
   progressDone,
   canInvite,
   onInvite,
+  members,
+  onMembersChanged: reload,
 }: WorkoutPartyBarProps) {
   const { t } = useLanguage();
-  const [members, setMembers] = React.useState<WorkoutPartyMember[]>([]);
   const [drawerOpen, setDrawerOpen] = React.useState(false);
-
-  const reload = React.useCallback(() => {
-    if (!partyId) {
-      setMembers([]);
-      return;
-    }
-    getWorkoutPartyMembersDb(partyId, { fresh: true })
-      .then(setMembers)
-      .catch(() => { /* faixa é informativa: falhar aqui não atrapalha o treino */ });
-  }, [partyId]);
-
-  React.useEffect(() => { reload(); }, [reload]);
-
-  // Realtime: quem aceitou o convite e em que exercício cada um está. Nome de
-  // canal único por montagem — reaproveitar o nome deixa a segunda assinatura
-  // silenciosamente morta quando a tela é remontada (mesmo padrão de
-  // Notifications.tsx).
-  React.useEffect(() => {
-    if (!partyId || !supabase) return;
-    const channel = supabase
-      .channel(`workout-party-${partyId}-${Math.random().toString(36).slice(2)}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "workout_party_members", filter: `party_id=eq.${partyId}` },
-        () => reload(),
-      )
-      .subscribe();
-    return () => { channel.unsubscribe(); };
-  }, [partyId, reload]);
 
   // Reporta o próprio progresso. Depende só de `progressDone`, que muda uma vez
   // por exercício concluído.
@@ -185,6 +163,14 @@ export function WorkoutPartyBar({
                       .join(" · ")
                   : t("goals_party_waiting")}
               </div>
+              {/* A VEZ: de quem é a série agora (ou "Sua vez!" quando o amigo
+                  está descansando). Só com a migração 20261002 — sem ela
+                  ninguém tem `lastSetAt` e a linha nem aparece. */}
+              {active.some((m) => m.lastSetAt || m.finishedAt) && (
+                <div style={{ display: "flex", minWidth: 0, marginTop: 2 }}>
+                  <PartyTurnStatus partners={active} mode="bar" compact />
+                </div>
+              )}
             </div>
           </>
         )}

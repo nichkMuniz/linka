@@ -1,4 +1,5 @@
 import * as React from "react";
+import type { SequentialCycle } from "@/components/goals/goals-helpers";
 import { CalendarDays, Plus } from "lucide-react";
 import {
   Drawer,
@@ -22,6 +23,8 @@ interface RoutineListDrawerProps {
   cards: RoutineCard[];
   userGoals: UserGoal[];
   routineLastDates: Record<string, string>;
+  /** Ciclo do rodízio sequencial (anel das rotinas sequenciais). */
+  seqCycle?: SequentialCycle;
   activeWorkoutName: string | null;
   onStartWorkout: (card: RoutineCard) => void;
   /** "Treinar junto" — repassado ao card da rotina (ver `RoutinesTab`). */
@@ -49,6 +52,7 @@ export function RoutineListDrawer({
   cards,
   userGoals,
   routineLastDates,
+  seqCycle = null,
   activeWorkoutName,
   onStartWorkout,
   onTrainTogether,
@@ -110,6 +114,7 @@ export function RoutineListDrawer({
             cards={cards}
             userGoals={userGoals}
             routineLastDates={routineLastDates}
+            seqCycle={seqCycle}
             activeWorkoutName={activeWorkoutName}
             onStartWorkout={onStartWorkout}
             onTrainTogether={onTrainTogether}

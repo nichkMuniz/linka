@@ -924,6 +924,17 @@ Conteúdo **de outra pessoa** exibido dentro do próprio flow (repost) vai num c
 | Micro-interação de reação | `hover:scale-125 transition-transform` |
 | Botão pressionado | `active:scale-95` |
 
+### 13.3 Botão que "espia" do canto (2026-10-02)
+
+Padrão do **`QuickWorkoutButton`** (Metas), inspirado no "Instants" do Instagram, para um CTA que precisa ser **descoberto** sem ocupar a tela:
+
+- repouso: escondido na borda, com uma **fresta** de ~30% da largura visível (10% foi testado e ficou pouco visível) — o suficiente para o ícone aparecer inteiro;
+- ao entrar na tela: desliza até o **centro** com o rótulo (spring `stiffness 240 / damping 26`), segura ~3 s e volta à fresta;
+- a fresta nunca fica abaixo de **44px** (alvo mínimo de toque);
+- `useReducedMotion()` → sem animação, botão inteiro parado no canto.
+
+Usar com parcimônia: no máximo um por tela, para uma ação que vale a pena descobrir (a animação roda uma vez por entrada na tela; depois fica só a fresta).
+
 ### 13.4 Hover não existe no device (obrigatório)
 
 O alvo é iPhone/iPad: **nenhum feedback pode depender de `:hover`**.

@@ -49,6 +49,11 @@ interface WorkoutPartyDrawerProps {
    * travando.
    */
   wrapperClassName?: string;
+  /**
+   * Textos próprios para reaproveitar o seletor fora do "treinar junto" — hoje
+   * o DESAFIO de treino (2026-10-02): título, subtítulo e botão.
+   */
+  copy?: { title: string; subtitle?: string; cta: string };
 }
 
 /**
@@ -68,6 +73,7 @@ export function WorkoutPartyDrawer({
   onConfirm,
   onSkip,
   wrapperClassName,
+  copy,
 }: WorkoutPartyDrawerProps) {
   const { t } = useLanguage();
   const viewportHeight = useKeyboardAwareHeight();
@@ -152,7 +158,7 @@ export function WorkoutPartyDrawer({
   };
 
   const ctaLabel =
-    mode === "start" ? t("goals_party_start_cta") : t("goals_party_add_cta");
+    copy?.cta ?? (mode === "start" ? t("goals_party_start_cta") : t("goals_party_add_cta"));
 
   return (
     <Drawer
@@ -170,11 +176,15 @@ export function WorkoutPartyDrawer({
         <DrawerHeader className="pb-2">
           <DrawerTitle className="text-base font-semibold text-white flex items-center gap-2">
             <Users className="h-4 w-4 text-white/70" />
-            {t("goals_party_title")}
+            {copy?.title ?? t("goals_party_title")}
           </DrawerTitle>
           <p className="text-[13px] text-white/50 text-left">
-            {routineName ? `${routineName} · ` : ""}
-            {t("goals_party_exercise_count").replace("{n}", String(exerciseCount))}
+            {copy?.subtitle ?? (
+              <>
+                {routineName ? `${routineName} · ` : ""}
+                {t("goals_party_exercise_count").replace("{n}", String(exerciseCount))}
+              </>
+            )}
           </p>
         </DrawerHeader>
 

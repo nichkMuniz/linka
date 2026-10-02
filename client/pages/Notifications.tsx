@@ -4,7 +4,8 @@ import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { MessageCircle, MessagesSquare, UserPlus, Zap, Swords, SmilePlus, ChevronLeft, AtSign, Send, Dumbbell, Heart, Clock, CheckCircle2, XCircle, Repeat2, Bell, ShieldAlert } from "lucide-react";
 import { INCENTIVE_CONFIG } from "@/lib/incentive-config";
-import { getNotificationsDb, markNotificationsAsReadDb, clearNotificationsDb, getFollowingIdsDb, invalidateQueryCache, type NotificationItem } from "@/lib/ritmofit-db";
+import { getNotificationsDb, markNotificationsAsReadDb, clearNotificationsDb, deleteNotificationsDb, getFollowingIdsDb, invalidateQueryCache, type NotificationItem } from "@/lib/ritmofit-db";
+import { SwipeableConversationRow } from "@/components/community/swipeable-conversation-row";
 import { notificationBody, moderationKindLabel, moderationReasonLabel, type ModerationNotice } from "@/lib/notification-copy";
 import { Browser } from "@capacitor/browser";
 import { TERMS_URL } from "@/lib/share-url";
@@ -271,6 +272,13 @@ export default function Notifications() {
       // 22 = conteúdo removido pela moderação (aviso do sistema, sem avatar).
       case 22:
         return <ShieldAlert className="h-5 w-5 text-red-400" />;
+      // 23 = responderam seu comentário — conversa, como o 18.
+      case 23:
+        return <MessagesSquare className="h-5 w-5 text-indigo-400" />;
+      // 24/25 = desafio de treino (recebido / resultado).
+      case 24:
+      case 25:
+        return <Swords className="h-5 w-5 text-rose-400" />;
       default:
         return <Zap className="h-5 w-5 text-gray-500" />;
     }
@@ -322,8 +330,11 @@ export default function Notifications() {
     groupedNicknames?: string[];
     groupedIncentiveTypes?: number[];
     groupedUsers?: Array<{ userId: string; userNickname: string; userPhoto?: string; incentiveTypes: number[] }>;
+    groupedIds?: string[];
   }> => {
     type GroupedNotif = NotificationItem & {
+      /** Todas as notificações que a linha representa — apagar a linha apaga todas. */
+      groupedIds?: string[];
       groupedCount?: number;
       groupedNicknames?: string[];
       groupedIncentiveTypes?: number[];
@@ -340,6 +351,7 @@ export default function Notifications() {
         if (seenPost.has(postKey)) {
           const idx = seenPost.get(postKey)!;
           const existing = result[idx];
+          existing.groupedIds!.push(n.id);
           // Track per-user incentive types
           const users = existing.groupedUsers!;
           const existingUser = users.find(u => u.userId === n.userId);
@@ -360,6 +372,7 @@ export default function Notifications() {
           seenPost.set(postKey, result.length);
           result.push({
             ...n,
+            groupedIds: [n.id],
             groupedCount: 1,
             groupedNicknames: [n.userNickname],
             groupedIncentiveTypes: [n.incentiveType!],
@@ -413,6 +426,21 @@ export default function Notifications() {
     return groups;
   };
 
+  // Swipe → lixeira: some na hora (otimista) e volta se o banco não apagar.
+  const handleDeleteNotification = async (notification: NotificationItem & { groupedIds?: string[] }) => {
+    const ids = notification.groupedIds?.length ? notification.groupedIds : [notification.id];
+    const removed = new Set(ids);
+    const snapshot = notifications;
+    setNotifications((prev) => prev.filter((n) => !removed.has(n.id)));
+    const ok = await deleteNotificationsDb(ids).catch(() => false);
+    if (ok) {
+      toast({ title: t("notif_deleted") });
+    } else {
+      setNotifications(snapshot);
+      toast({ title: t("notif_delete_error"), description: t("retry"), variant: "destructive" });
+    }
+  };
+
   const handleNotificationClick = (notification: NotificationItem) => {
     // Type 22 (conteúdo removido pela moderação) — explica, não navega.
     if (notification.type === 22) {
@@ -447,6 +475,18 @@ export default function Notifications() {
       } else {
         navigate(`/usuario/${notification.userId}`);
       }
+      return;
+    }
+    // Types 24/25 (desafio) — Metas abre o convite (24) ou o placar (25).
+    if (notification.type === 24 || notification.type === 25) {
+      const param = notification.type === 24 ? "challenge" : "challengeResult";
+      navigate(notification.postId ? `/metas?${param}=${notification.postId}` : "/metas");
+      return;
+    }
+    // Type 23 (responderam seu comentário) — abre os comentários do post.
+    if (notification.type === 23) {
+      if (notification.postId) navigate(`/post/${notification.postId}`, { state: { openComments: true } });
+      else navigate(`/usuario/${notification.userId}`);
       return;
     }
     // Type 21 (repostaram sua publicação) — abre o repost, onde o autor vê como
@@ -608,6 +648,9 @@ export default function Notifications() {
       case 20: return { iconBg: "rgba(34,211,238,.16)", iconColor: "#22d3ee" };
       case 21: return { iconBg: "rgba(167,139,250,.16)", iconColor: "#a78bfa" };
       case 22: return { iconBg: "rgba(248,113,113,.16)", iconColor: "#f87171" };
+      case 23: return { iconBg: "rgba(129,140,248,.16)", iconColor: "#818cf8" };
+      case 24:
+      case 25: return { iconBg: "rgba(251,113,133,.16)", iconColor: "#fb7185" };
       default: return { iconBg: "rgba(255,255,255,.1)", iconColor: "rgba(255,255,255,.7)" };
     }
   };
@@ -667,7 +710,7 @@ export default function Notifications() {
         flow_id: notification.flowId ?? null,
         duel_check_in_id: notification.checkInId ?? null,
         incentive_type: notification.incentiveType ?? null,
-        meta: notification.moderation ?? null,
+        meta: notification.moderation ?? notification.challengeMeta ?? null,
       },
       { name, groupName: notification.groupName ?? null },
     );
@@ -700,6 +743,9 @@ export default function Notifications() {
       case 20: return { background: "#22d3ee" };
       case 21: return { background: "#a78bfa" };
       case 22: return { background: "#f87171" };
+      case 23: return { background: "#818cf8" };
+      case 24:
+      case 25: return { background: "#fb7185" };
       default: return { background: "rgba(255,255,255,.5)" };
     }
   };
@@ -840,14 +886,21 @@ export default function Notifications() {
                           const groupedUsers = notification.groupedUsers ?? [];
                           const isGrouped = (notification.groupedCount ?? 1) > 1;
                           const isFollow = notification.type === 1;
-                          const hasThumbnail = (notification.type === 2 || notification.type === 3 || notification.type === 9 || notification.type === 16 || notification.type === 18 || notification.type === 20 || notification.type === 21) && notification.postPhoto;
+                          const hasThumbnail = (notification.type === 2 || notification.type === 3 || notification.type === 9 || notification.type === 16 || notification.type === 18 || notification.type === 20 || notification.type === 21 || notification.type === 23) && notification.postPhoto;
 
                           return (
-                            /* div (não button): a notificação de novo seguidor precisa
-                               conter um FollowButton real, e button dentro de button é
-                               HTML inválido — o toque no "Seguir" era engolido pelo card. */
-                            <div
+                            /* Swipe da direita para a esquerda revela a lixeira — o
+                               mesmo componente da lista de conversas. */
+                            <SwipeableConversationRow
                               key={notification.id}
+                              onDelete={() => { void handleDeleteNotification(notification); }}
+                              deleteLabel={t("notif_delete_label")}
+                              className="rounded-[18px]"
+                            >
+                            {/* div (não button): a notificação de novo seguidor precisa
+                               conter um FollowButton real, e button dentro de button é
+                               HTML inválido — o toque no "Seguir" era engolido pelo card. */}
+                            <div
                               role="button"
                               tabIndex={0}
                               onClick={() => handleNotificationClick(notification)}
@@ -953,6 +1006,7 @@ export default function Notifications() {
                                 />
                               ) : null}
                             </div>
+                            </SwipeableConversationRow>
                           );
                         })}
                       </div>

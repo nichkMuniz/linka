@@ -1,4 +1,5 @@
 import React from "react";
+import { useAppRefreshTick } from "@/lib/app-refresh";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -228,6 +229,9 @@ export default function Search() {
   );
   const searchDebounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Volta ao app depois de 5+ min fora (refresh global "resume"): relê a lista.
+  const refreshTick = useAppRefreshTick();
+
   // Load all users on mount (com snapshot, atualiza por trás sem skeleton)
   React.useEffect(() => {
     if (!user) return;
@@ -244,7 +248,24 @@ export default function Search() {
       .catch((err) => console.error("Error loading users:", err))
       .finally(() => setIsLoadingPeople(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]);
+  }, [user, refreshTick]);
+
+  // Treinos/dietas já carregados também são relidos no refresh — por trás, sem
+  // esvaziar a lista (o efeito de carga só busca quando ela está vazia).
+  React.useEffect(() => {
+    if (refreshTick === 0) return;
+    if (allWorkouts.length > 0) {
+      searchRoutinesDb("", 1, user?.id)
+        .then((data) => { setAllWorkouts(data); if (!searchQueryRef.current.trim()) setSearchWorkouts(data); })
+        .catch((err) => console.error("Error loading workouts:", err));
+    }
+    if (allDiets.length > 0) {
+      searchRoutinesDb("", 2, user?.id)
+        .then((data) => { setAllDiets(data); if (!searchQueryRef.current.trim()) setSearchDiets(data); })
+        .catch((err) => console.error("Error loading diets:", err));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshTick]);
 
   // Voltou de um perfil (POP) com a lista já na tela → mesmo ponto do scroll.
   // Layout effect: antes do 1º paint, sem pular do topo para o lugar.

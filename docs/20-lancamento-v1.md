@@ -76,7 +76,7 @@ meta, e seus amigos incentivam com os 6 tipos.
 | `store` | ❌ | Segundo produto dentro do app; não participa do loop de treino; nasce vazia |
 | `duels` | ❌ | Exige 4+ amigos ativos; código de 21/08 não validado em device |
 | `ranking` | ❌ | Com base pequena, expõe o tamanho do app |
-| `workoutParty` | ❌ | De 26/08, realtime, exige amigo treinando no mesmo horário |
+| `workoutParty` | ✅ **religada 02/10** | Treinar junto (de 26/08). Tabelas da migração `20260826-workout-party.sql` conferidas em produção no dia; o push do convite (type 19) exige o redeploy da `send-push-notification`. Ver `docs/05-metas.md` → "Treinar junto" |
 | `expertMode` | ❌ | Profundidade de power user; remove metade da superfície de bug da tela mais complexa |
 | `muscleAnatomy` | ✅ **religada 26/09** | Valor no mês 3, ruído no dia 1 |
 | `dietAndHabitRoutines` | ❌ | Rotinas de dieta e hábito (tipos 2 e 3). Cada tipo extra multiplica a superfície da tela mais complexa do app — catálogo, progresso e check-in próprios — para quem ainda não completou a primeira semana de treino |
@@ -86,6 +86,8 @@ meta, e seus amigos incentivam com os 6 tipos.
 | `workoutStickerOnFlow` | ✅ **religada 26/09** | Mini frame de treino colado no flow. Os dados vêm de `routines.last_summary` — quem ainda não treinou pelo app abre um seletor vazio. E o sticker fica gravado em `flow.text_elements`, então um flow criado hoje segue renderizando depois |
 | `workoutDetailOnPost` | ✅ **religada 26/09** | Botão "Ver treino" no post. O comparador é de 26/08 e não foi validado; o detalhe série a série é leitura densa demais para quem acabou de instalar. O card de resumo no post **continua** |
 | `gpsRun` | ✅ **religada 01/10** | Corrida **e caminhada** ao ar livre com GPS em segundo plano. Pede localização **Always** — `UIBackgroundModes = location` voltou ao Info.plist junto (obrigatório: sem ele o app crasha). Ver seção 6 e `docs/05-metas.md` |
+| `quickWorkout` | ✅ **nova em 02/10** | Treino rápido em Metas (sempre visível fora de um treino): sessão vazia + "transformar em rotina" no resumo. Rodar `docs/migrations/20261002-quick-workout-history-link.sql` (sem ela só o vínculo do histórico falta). Ver `docs/05-metas.md` |
+| `workoutChallenge` | ✅ **nova em 02/10** | Desafio de treino: desafiar seguidores a bater os números do treino sem revelá-los; placar no resumo de quem cumpre + canvas. Rodar `docs/migrations/20261002-workout-challenges.sql` **antes** do build + redeploy da `send-push-notification` (types 24/25). Ver `docs/05-metas.md` |
 | `hashtags` | ✅ **religada 26/09** | Função de volume: sem posts suficientes, devolve vazio |
 | `postTags` | ✅ **religada 26/09** | Marcar exige ter em quem marcar |
 | `postLocation` | ❌ | Alfinete de localização no post. Dado sensível com retorno nulo no v1 — sem hashtags nem busca por lugar, vira só um texto na legenda. Era a última justificativa de `NSLocationWhenInUseUsageDescription` |
@@ -689,4 +691,4 @@ Uma flag por release, cada uma com seu ciclo de TestFlight:
 | 1.3 | `shots` | Só com gente postando com frequência |
 | 1.4 | `duels` + `ranking` | Precisam de densidade social |
 | 1.5 | `iap` | Com dados reais de quem usa o quê, o gate certo fica óbvio |
-| depois | `store`, `gpsRun`, `workoutParty`, `workoutStickerOnFlow`, `muscleAnatomy`, `biometricLogin`, `reengagementPush` | Conforme demanda observada |
+| depois | `store`, `gpsRun` (religada 01/10), `workoutParty` (religada 02/10), `workoutStickerOnFlow`, `muscleAnatomy`, `biometricLogin`, `reengagementPush` | Conforme demanda observada |

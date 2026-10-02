@@ -1,4 +1,5 @@
 import * as React from "react";
+import type { WorkoutChallengeSnapshot } from "@/lib/workout-challenge";
 import { LocalNotifications } from "@capacitor/local-notifications";
 import { Capacitor } from "@capacitor/core";
 // `import type` explícito: garante que o bundler ELIMINE a aresta para
@@ -45,6 +46,13 @@ export type WorkoutSeriesEntry = {
    * Nunca participa de `canCompleteSeries`: a série fecha sem ela.
    */
   elev?: number;
+};
+
+/** Desafio sendo cumprido na sessão atual (ver `workoutChallenge`). */
+export type ActiveWorkoutChallenge = {
+  id: string;
+  challengerNickname: string;
+  snapshot: WorkoutChallengeSnapshot;
 };
 
 interface WorkoutContextValue {
@@ -134,6 +142,21 @@ interface WorkoutContextValue {
   workoutPartyHostName: string | null;
   setWorkoutPartyHostName: (v: string | null) => void;
   /**
+   * "Treino rápido" (2026-10-02): sessão que começou VAZIA e sem rotina — a
+   * pessoa vai adicionando os exercícios conforme treina. Como no convidado,
+   * nada vira rotina ao finalizar; o resumo oferece salvar. Persistido para
+   * minimizar/recarregar reconstruir a sessão (ver `quickWorkoutCard`).
+   */
+  workoutQuickSession: boolean;
+  setWorkoutQuickSession: (v: boolean) => void;
+  /**
+   * Desafio de treino (2026-10-02): a sessão está cumprindo o desafio de alguém.
+   * Sessão sem rotina, como a do convidado; ao finalizar, os números vão para o
+   * desafio e o resumo mostra o placar. Persistido (minimizar/recarregar).
+   */
+  workoutChallenge: ActiveWorkoutChallenge | null;
+  setWorkoutChallenge: (v: ActiveWorkoutChallenge | null) => void;
+  /**
    * Convite JÁ ACEITO, esperando a tela de Metas montar para virar sessão. O
    * diálogo de convite vive no AppLayout (chega em qualquer tela), mas quem
    * sabe iniciar um treino é a tela de Metas — mesmo padrão de `pendingReopen`.
@@ -199,6 +222,10 @@ const WorkoutContext = React.createContext<WorkoutContextValue>({
   setWorkoutPartySnapshot: () => {},
   workoutPartyHostName: null,
   setWorkoutPartyHostName: () => {},
+  workoutQuickSession: false,
+  setWorkoutQuickSession: () => {},
+  workoutChallenge: null,
+  setWorkoutChallenge: () => {},
   pendingPartyJoin: null,
   setPendingPartyJoin: () => {},
   resetWorkoutState: () => {},
@@ -237,6 +264,8 @@ function loadPersistedWorkout() {
       workoutPartyRole?: "host" | "guest" | null;
       workoutPartySnapshot?: WorkoutPartySnapshot | null;
       workoutPartyHostName?: string | null;
+      workoutQuickSession?: boolean;
+      workoutChallenge?: ActiveWorkoutChallenge | null;
     };
   } catch {
     return null;
@@ -346,6 +375,12 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
   const [workoutPartyHostName, setWorkoutPartyHostName] = React.useState<string | null>(
     () => persisted?.workoutPartyHostName ?? null
   );
+  const [workoutQuickSession, setWorkoutQuickSession] = React.useState<boolean>(
+    () => persisted?.workoutQuickSession === true
+  );
+  const [workoutChallenge, setWorkoutChallenge] = React.useState<ActiveWorkoutChallenge | null>(
+    () => persisted?.workoutChallenge ?? null
+  );
   // Fora do localStorage de propósito: é um repasse de segundos entre o
   // AppLayout (onde o convite é aceito) e a tela de Metas (que inicia a sessão).
   const [pendingPartyJoin, setPendingPartyJoin] = React.useState<WorkoutPartyInvite | null>(null);
@@ -376,9 +411,11 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
         workoutPartyRole,
         workoutPartySnapshot,
         workoutPartyHostName,
+        workoutQuickSession,
+        workoutChallenge,
       }));
     }
-  }, [workoutSeries, workoutStartTime, selectedRoutineName, workoutExerciseRestTimes, workoutExerciseNotes, workoutExtraItems, workoutRemovedIds, workoutExpandedId, maxedExerciseIds, machineDeclinedKg, dismissedWarmupIds, workoutOrder, workoutCaloriesKcal, workoutPartyId, workoutPartyRole, workoutPartySnapshot, workoutPartyHostName, workoutModalOpen, workoutMinimized]);
+  }, [workoutSeries, workoutStartTime, selectedRoutineName, workoutExerciseRestTimes, workoutExerciseNotes, workoutExtraItems, workoutRemovedIds, workoutExpandedId, maxedExerciseIds, machineDeclinedKg, dismissedWarmupIds, workoutOrder, workoutCaloriesKcal, workoutPartyId, workoutPartyRole, workoutPartySnapshot, workoutPartyHostName, workoutQuickSession, workoutChallenge, workoutModalOpen, workoutMinimized]);
 
   // Workout duration timer — calculates from startTime so background/lock doesn't break it
   React.useEffect(() => {
@@ -534,6 +571,9 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
     setWorkoutPartyRole(null);
     setWorkoutPartySnapshot(null);
     setWorkoutPartyHostName(null);
+    // Idem para o treino rápido: o resumo já copiou o que precisava.
+    setWorkoutQuickSession(false);
+    setWorkoutChallenge(null);
     setWorkoutMinimized(false);
     setWorkoutModalOpen(false);
     setGlobalRestTimerRemaining(0);
@@ -573,6 +613,8 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
       workoutPartyRole, setWorkoutPartyRole,
       workoutPartySnapshot, setWorkoutPartySnapshot,
       workoutPartyHostName, setWorkoutPartyHostName,
+      workoutQuickSession, setWorkoutQuickSession,
+      workoutChallenge, setWorkoutChallenge,
       pendingPartyJoin, setPendingPartyJoin,
       resetWorkoutState,
       setGlobalRestTimerRemaining,
@@ -581,7 +623,7 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
       globalRestTimerTotal, setGlobalRestTimerTotal,
       globalRestTimerKey, setGlobalRestTimerKey,
   }), [
-    workoutModalOpen, setWorkoutModalOpen, workoutMinimized, setWorkoutMinimized, pendingReopen, setPendingReopen, workoutSeries, setWorkoutSeries, setWorkoutDuration, workoutStartTime, setWorkoutStartTime, selectedRoutineName, setSelectedRoutineName, workoutExerciseRestTimes, setWorkoutExerciseRestTimes, workoutExerciseNotes, setWorkoutExerciseNotes, currentWorkoutIndex, setCurrentWorkoutIndex, workoutExtraItems, setWorkoutExtraItems, workoutRemovedIds, setWorkoutRemovedIds, workoutExpandedId, setWorkoutExpandedId, maxedExerciseIds, setMaxedExerciseIds, machineDeclinedKg, setMachineDeclinedKg, dismissedWarmupIds, setDismissedWarmupIds, workoutOrder, setWorkoutOrder, workoutCaloriesKcal, setWorkoutCaloriesKcal, workoutPartyId, setWorkoutPartyId, workoutPartyRole, setWorkoutPartyRole, workoutPartySnapshot, setWorkoutPartySnapshot, workoutPartyHostName, setWorkoutPartyHostName, pendingPartyJoin, setPendingPartyJoin, resetWorkoutState, setGlobalRestTimerRemaining, globalRestTimerActive, setGlobalRestTimerActive, globalRestTimerPaused, setGlobalRestTimerPaused, globalRestTimerTotal, setGlobalRestTimerTotal, globalRestTimerKey, setGlobalRestTimerKey,
+    workoutModalOpen, setWorkoutModalOpen, workoutMinimized, setWorkoutMinimized, pendingReopen, setPendingReopen, workoutSeries, setWorkoutSeries, setWorkoutDuration, workoutStartTime, setWorkoutStartTime, selectedRoutineName, setSelectedRoutineName, workoutExerciseRestTimes, setWorkoutExerciseRestTimes, workoutExerciseNotes, setWorkoutExerciseNotes, currentWorkoutIndex, setCurrentWorkoutIndex, workoutExtraItems, setWorkoutExtraItems, workoutRemovedIds, setWorkoutRemovedIds, workoutExpandedId, setWorkoutExpandedId, maxedExerciseIds, setMaxedExerciseIds, machineDeclinedKg, setMachineDeclinedKg, dismissedWarmupIds, setDismissedWarmupIds, workoutOrder, setWorkoutOrder, workoutCaloriesKcal, setWorkoutCaloriesKcal, workoutPartyId, setWorkoutPartyId, workoutPartyRole, setWorkoutPartyRole, workoutPartySnapshot, setWorkoutPartySnapshot, workoutPartyHostName, setWorkoutPartyHostName, workoutQuickSession, setWorkoutQuickSession, workoutChallenge, setWorkoutChallenge, pendingPartyJoin, setPendingPartyJoin, resetWorkoutState, setGlobalRestTimerRemaining, globalRestTimerActive, setGlobalRestTimerActive, globalRestTimerPaused, setGlobalRestTimerPaused, globalRestTimerTotal, setGlobalRestTimerTotal, globalRestTimerKey, setGlobalRestTimerKey,
   ]);
 
   return (
