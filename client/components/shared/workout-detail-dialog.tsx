@@ -51,18 +51,22 @@ function formatSet(set: WorkoutSummarySet, isCardio: boolean): string {
 // somem sobre fundo escuro, então a foto vai sobre **fundo branco** com
 // `object-contain`. Sem foto (ou erro de carregamento) cai no fallback do
 // `ExerciseImage` (gradiente + emoji por grupo muscular).
-function ExerciseThumb({ photo, name, muscleGroup }: {
+// Exportada: o Histórico de treinos usa a mesma miniatura, maior (`size`).
+export function ExerciseThumb({ photo, name, muscleGroup, size = 44 }: {
   photo: string | null; name: string; muscleGroup: string | null;
+  /** Lado em px CSS (padrão 44 — lista do "Ver treino"). */
+  size?: number;
 }) {
   const [err, setErr] = React.useState(false);
   React.useEffect(() => setErr(false), [photo]);
   // Miniatura guardada no aparelho — a foto do catálogo tem ~1 MB (ver @/lib/thumb-cache).
-  const shown = useThumbSrc(photo, 44);
+  const shown = useThumbSrc(photo, size);
+  const box: React.CSSProperties = { width: size, height: size, borderRadius: Math.round(size * 0.27) };
   if (photo && !err) {
     return (
       <div
-        className="h-11 w-11 rounded-xl overflow-hidden shrink-0 flex items-center justify-center"
-        style={{ background: "#fff" }}
+        className="overflow-hidden shrink-0 flex items-center justify-center"
+        style={{ ...box, background: "#fff" }}
       >
         <img
           src={shown}
@@ -75,7 +79,9 @@ function ExerciseThumb({ photo, name, muscleGroup }: {
     );
   }
   return (
-    <ExerciseImage photo={null} name={name} muscleGroup={muscleGroup} className="h-11 w-11 rounded-xl" />
+    <div className="shrink-0 overflow-hidden" style={box}>
+      <ExerciseImage photo={null} name={name} muscleGroup={muscleGroup} className="h-full w-full" />
+    </div>
   );
 }
 

@@ -85,11 +85,14 @@ async function resolveDuration(v: HTMLVideoElement): Promise<number | null> {
  *
  * @param src blob:/data: URL do vídeo
  * @param maxWidth largura máxima do JPEG da capa (a altura acompanha a proporção)
+ * @param square recorta o centro em 1:1 — capa de post em vídeo, cujo frame no
+ *   feed é sempre quadrado (o `photo` do post precisa nascer 1:1)
  */
 export async function probeFlowVideo(
   src: string,
   maxWidth = 720,
   quality = 0.72,
+  square = false,
 ): Promise<VideoProbe> {
   if (typeof document === "undefined" || !src) return EMPTY_PROBE;
 
@@ -120,13 +123,20 @@ export async function probeFlowVideo(
     const vh = video.videoHeight;
     if (!vw || !vh) return { poster: null, durationMs };
 
-    const scale = Math.min(1, maxWidth / vw);
+    // Recorte de origem: o quadro inteiro, ou o quadrado central.
+    const side = Math.min(vw, vh);
+    const sw = square ? side : vw;
+    const sh = square ? side : vh;
+    const sx = (vw - sw) / 2;
+    const sy = (vh - sh) / 2;
+
+    const scale = Math.min(1, maxWidth / sw);
     const canvas = document.createElement("canvas");
-    canvas.width = Math.round(vw * scale);
-    canvas.height = Math.round(vh * scale);
+    canvas.width = Math.round(sw * scale);
+    canvas.height = Math.round(sh * scale);
     const ctx = canvas.getContext("2d");
     if (!ctx) return { poster: null, durationMs };
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
 
     const poster = await new Promise<Blob | null>((resolve) => {
       canvas.toBlob((blob) => resolve(blob), "image/jpeg", quality);

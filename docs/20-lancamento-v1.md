@@ -72,7 +72,7 @@ meta, e seus amigos incentivam com os 6 tipos.
 | Flag | v1.0 | Motivo de estar guardada |
 |---|---|---|
 | `iap` | ❌ | Causa direta da rejeição 2.1(b). Ver seção 5 |
-| `shots` | ❌ | Feed vertical de vídeo esvazia em 40s com pouco conteúdo; dobra a superfície de vídeo |
+| `shots` | ❌ | Feed vertical de vídeo esvazia em 40s com pouco conteúdo; dobra a superfície de vídeo. **Desde 05/10/2026 o vídeo entra no feed como post comum** (até 60 s, `posts.video_url` — ver `docs/04-novo-post.md`), então ninguém fica sem postar vídeo enquanto a flag está off |
 | `store` | ❌ | Segundo produto dentro do app; não participa do loop de treino; nasce vazia |
 | `duels` | ❌ | Exige 4+ amigos ativos; código de 21/08 não validado em device |
 | `ranking` | ❌ | Com base pequena, expõe o tamanho do app |

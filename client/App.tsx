@@ -199,6 +199,9 @@ const AppLayout = React.lazy(() =>
 const BannedScreen = React.lazy(() =>
   import("@/components/shared/banned-screen").then((m) => ({ default: m.BannedScreen })),
 );
+const PendingDeletionScreen = React.lazy(() =>
+  import("@/components/shared/pending-deletion-screen").then((m) => ({ default: m.PendingDeletionScreen })),
+);
 
 // Lazy-load heavy pages to split the initial bundle
 const Index = React.lazy(() => import("@/pages/Index"));
@@ -426,10 +429,43 @@ function useBanGuard(userId: string | null): boolean {
   return banned;
 }
 
+/**
+ * Conta com exclusão agendada (pedido feito há menos de 30 dias). Mesmo
+ * raciocínio do `useBanGuard`: não segura o primeiro render de todo mundo por
+ * um caso raro. Devolve a data da exclusão ou null; `clear` some com a tela
+ * depois que a pessoa reativa.
+ */
+function usePendingDeletionGuard(userId: string | null): { scheduledFor: string | null; clear: () => void } {
+  const [scheduledFor, setScheduledFor] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    setScheduledFor(null);
+    if (!userId) return;
+
+    let active = true;
+    import("@/lib/ritmofit-db")
+      .then(({ getPendingAccountDeletionDb }) => getPendingAccountDeletionDb())
+      .then((when) => {
+        if (active) setScheduledFor(when);
+      })
+      .catch(() => {
+        // Sem resposta = sem tela; o pedido continua valendo no servidor.
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [userId]);
+
+  const clear = React.useCallback(() => setScheduledFor(null), []);
+  return { scheduledFor, clear };
+}
+
 function RequireAuth() {
   const location = useLocation();
   const { user, loading } = useAuth();
   const banned = useBanGuard(user?.id ?? null);
+  const pendingDeletion = usePendingDeletionGuard(user?.id ?? null);
 
   // Register for remote push notifications when user is authenticated
   usePushNotifications(user?.id ?? null);
@@ -458,6 +494,17 @@ function RequireAuth() {
     return (
       <React.Suspense fallback={<AppShellFallback />}>
         <BannedScreen />
+      </React.Suspense>
+    );
+  }
+
+  if (pendingDeletion.scheduledFor) {
+    return (
+      <React.Suspense fallback={<AppShellFallback />}>
+        <PendingDeletionScreen
+          scheduledFor={pendingDeletion.scheduledFor}
+          onReactivated={pendingDeletion.clear}
+        />
       </React.Suspense>
     );
   }

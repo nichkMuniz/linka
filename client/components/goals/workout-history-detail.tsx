@@ -1,15 +1,26 @@
 import * as React from "react";
-import { ArrowLeft, Dumbbell, Share2, Swords, Users, Zap, type LucideIcon } from "lucide-react";
+import { ArrowLeft, Dumbbell, Share2, Swords, Trash2, Users, Zap, type LucideIcon } from "lucide-react";
 
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { LoadingSpinner } from "@/components/shared/animated-loading";
 import { ChallengeComparison, shareChallengeResultToFeed } from "@/components/goals/workout-challenge";
 import { toast } from "@/components/ui/use-toast";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useLanguage } from "@/lib/language-context";
 import type { TranslationKey } from "@/lib/i18n";
 import { reportHandledError } from "@/lib/monitoring";
 import { compareChallenge, type ChallengeOutcome } from "@/lib/workout-challenge";
-import { formatCardioKm, formatCardioMinutes, sumCardioSets } from "@/lib/cardio-exercises";
+import { cardioMinutesFromInput, formatCardioKm, formatCardioMinutes, sumCardioSets } from "@/lib/cardio-exercises";
+import { ExerciseThumb } from "@/components/shared/workout-detail-dialog";
 import {
   getWorkoutChallengeResultsDb,
   getWorkoutPartyMembersDb,
@@ -136,17 +147,148 @@ const CARD_STYLE: React.CSSProperties = {
   border: "1px solid rgba(255,255,255,.09)",
 };
 
-/** "80×8 · 80×8 · 75×7" (musculação) ou "5,2 km · 30min" (cardio). */
-function exerciseDetail(ex: WorkoutHistoryExercise, language: string): string {
-  if (ex.isCardio) {
-    const { minutes, km } = sumCardioSets(ex.sets);
-    return [km > 0 ? `${formatCardioKm(km)} km` : null, minutes > 0 ? formatCardioMinutes(minutes) : null]
-      .filter(Boolean)
-      .join(" · ");
-  }
-  return ex.sets
-    .map((s) => (s.kg > 0 ? `${formatHistoryNumber(s.kg, language)}×${s.reps || 0}` : `${s.reps || 0}`))
+/** Selo de cada tipo de série que não é a válida comum. */
+const SET_KIND_TONE: Record<"warmup" | "failure" | "drop", { color: string; bg: string; labelKey: TranslationKey }> = {
+  warmup: { color: "#ffcf70", bg: "rgba(255,190,80,.16)", labelKey: "goals_set_kind_warmup" },
+  failure: { color: "#ff8a8a", bg: "rgba(255,110,110,.16)", labelKey: "goals_set_kind_failure" },
+  drop: { color: "#c2a6ff", bg: "rgba(160,120,255,.16)", labelKey: "goals_set_kind_drop" },
+};
+
+/**
+ * Um exercício da sessão (2026-10-05): miniatura do catálogo + nome, e as
+ * séries UMA POR LINHA — número, carga × repetições em destaque e o selo do
+ * tipo (aquecimento/falha/drop). Antes era uma linha cinza "80×8 · 80×8 · 75×7".
+ *
+ * Numeração igual à da tela de treino (`countsAsSeries`): o drop não ganha
+ * número — é continuação da série de cima e aparece recuado com "↳".
+ */
+function HistoryExerciseCard({ ex }: { ex: WorkoutHistoryExercise }) {
+  const { t, language } = useLanguage();
+  const cardio = ex.isCardio ? sumCardioSets(ex.sets) : null;
+  const subtitle = [
+    ex.muscleGroup,
+    countLabel(ex.seriesCount, "goals_history_sets_one", "goals_history_sets", t),
+  ]
+    .filter(Boolean)
     .join(" · ");
+
+  let number = 0;
+  const rows = ex.sets.map((set) => {
+    const isDrop = set.setKind === "drop";
+    if (!isDrop) number += 1;
+    return { set, isDrop, number };
+  });
+
+  return (
+    <div className="overflow-hidden" style={CARD_STYLE}>
+      <div className="flex items-center gap-3 p-3">
+        <ExerciseThumb photo={ex.photo} name={ex.name} muscleGroup={ex.muscleGroup} size={52} />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[15px] font-semibold text-white">{ex.name}</p>
+          <p className="truncate text-[12.5px] text-white/60">{subtitle}</p>
+        </div>
+        {cardio ? (
+          <div className="shrink-0 text-right">
+            {cardio.km > 0 && (
+              <p className="text-[15px] font-extrabold text-white tabular-nums">{formatCardioKm(cardio.km)} km</p>
+            )}
+            {cardio.minutes > 0 && (
+              <p className="text-[12px] text-white/60 tabular-nums">{formatCardioMinutes(cardio.minutes)}</p>
+            )}
+          </div>
+        ) : ex.bestKg > 0 ? (
+          <div className="shrink-0 text-right">
+            <p className="text-[15px] font-extrabold text-white tabular-nums">
+              {formatHistoryNumber(ex.bestKg, language)}
+              <span className="ml-0.5 text-[11px] font-semibold text-white/60">kg</span>
+            </p>
+            <p className="text-[11px] text-white/50">{t("goals_history_best_load")}</p>
+          </div>
+        ) : null}
+      </div>
+
+      {rows.length > 0 && (
+        <div className="px-3 pb-2.5" style={{ borderTop: "1px solid rgba(255,255,255,.07)" }}>
+          {rows.map(({ set, isDrop, number: n }, i) => {
+            const kind = set.setKind === "warmup" || set.setKind === "failure" || isDrop ? SET_KIND_TONE[isDrop ? "drop" : (set.setKind as "warmup" | "failure")] : null;
+            return (
+              <div
+                key={i}
+                className="flex min-h-[40px] items-center gap-3"
+                style={i > 0 ? { borderTop: "1px solid rgba(255,255,255,.05)" } : undefined}
+              >
+                {isDrop ? (
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center text-[15px] text-white/40" aria-hidden>
+                    ↳
+                  </span>
+                ) : (
+                  <span
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[12.5px] font-bold tabular-nums"
+                    style={kind ? { background: kind.bg, color: kind.color } : { background: "rgba(255,255,255,.08)", color: "rgba(255,255,255,.85)" }}
+                  >
+                    {set.setKind === "warmup" ? t("goals_history_warmup_short") : n}
+                  </span>
+                )}
+                <p className="min-w-0 flex-1 truncate text-white tabular-nums">
+                  {ex.isCardio ? (
+                    <CardioSetText kg={set.kg} km={set.reps} />
+                  ) : (
+                    <StrengthSetText kg={set.kg} reps={set.reps} language={language} />
+                  )}
+                </p>
+                {kind && (
+                  <span
+                    className="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                    style={{ background: kind.bg, color: kind.color }}
+                  >
+                    {t(kind.labelKey)}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** "80 kg × 8 reps" com os números em destaque; sem carga, só as repetições. */
+function StrengthSetText({ kg, reps, language }: { kg: number; reps: number; language: string }) {
+  const { t } = useLanguage();
+  const unit = "text-[12px] font-medium text-white/55";
+  return (
+    <>
+      {kg > 0 && (
+        <>
+          <span className="text-[15px] font-bold">{formatHistoryNumber(kg, language)}</span>
+          <span className={`ml-0.5 ${unit}`}>kg</span>
+          {reps > 0 && <span className="mx-2 text-[13px] text-white/35">×</span>}
+        </>
+      )}
+      {reps > 0 && (
+        <>
+          <span className="text-[15px] font-bold">{reps}</span>
+          <span className={`ml-1 ${unit}`}>{t("goals_history_reps_unit")}</span>
+        </>
+      )}
+      {kg <= 0 && reps <= 0 && <span className="text-white/40">—</span>}
+    </>
+  );
+}
+
+/** Cardio: a série guarda MINUTOS em `kg` (como digitados) e km em `reps`. */
+function CardioSetText({ kg, km }: { kg: number; km: number }) {
+  const minutes = cardioMinutesFromInput(kg);
+  const parts = [
+    minutes > 0 ? formatCardioMinutes(minutes) : null,
+    km > 0 ? `${formatCardioKm(km)} km` : null,
+  ].filter(Boolean);
+  return parts.length > 0 ? (
+    <span className="text-[15px] font-bold">{parts.join(" · ")}</span>
+  ) : (
+    <span className="text-white/40">—</span>
+  );
 }
 
 function ChallengeBlock({ link, onSharedToFeed }: { link: WorkoutHistoryChallengeLink; onSharedToFeed: () => void }) {
@@ -308,14 +450,33 @@ export function WorkoutHistoryDetail({
   session,
   onBack,
   onSharedToFeed,
+  onDelete,
 }: {
   session: WorkoutHistorySession;
   onBack: () => void;
   onSharedToFeed: () => void;
+  /** Apaga as séries desta sessão. Lança em caso de erro (o toast fica aqui). */
+  onDelete: () => Promise<void>;
 }) {
   const { t, language } = useLanguage();
   const style = HISTORY_KIND_STYLE[session.kind];
   const Icon = style.icon;
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = React.useState(false);
+  const [deleting, setDeleting] = React.useState(false);
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    try {
+      await onDelete();
+      setConfirmDeleteOpen(false);
+      toast({ title: t("goals_history_deleted_one") });
+    } catch (err) {
+      reportHandledError(err, "workout-history:delete-session");
+      toast({ title: t("goals_history_delete_error"), description: t("retry"), variant: "destructive" });
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const stats: Array<{ value: string; label: string }> = [
     { value: String(session.totalSeries), label: t("goals_history_stat_sets") },
@@ -343,7 +504,39 @@ export function WorkoutHistoryDetail({
           <Icon className="h-4 w-4" strokeWidth={2.2} />
           {t(style.labelKey)}
         </span>
+        <button
+          type="button"
+          onClick={() => setConfirmDeleteOpen(true)}
+          aria-label={t("goals_history_delete_one")}
+          className="ml-auto flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[#ff8a8a] active:scale-90 transition-transform"
+          style={{ background: "rgba(255,255,255,.08)", border: "1px solid rgba(255,255,255,.14)" }}
+        >
+          <Trash2 className="h-[18px] w-[18px]" />
+        </button>
       </div>
+
+      <AlertDialog open={confirmDeleteOpen} onOpenChange={(open) => !deleting && setConfirmDeleteOpen(open)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("goals_history_delete_one_title")}</AlertDialogTitle>
+            <AlertDialogDescription>{t("goals_history_delete_one_desc")}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>{t("goals_cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleting}
+              onClick={(e) => {
+                // Fecha só depois de apagar — o diálogo mostra o andamento.
+                e.preventDefault();
+                void handleDelete();
+              }}
+            >
+              {deleting ? <LoadingSpinner className="h-4 w-4" /> : t("goals_history_delete_one")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <div>
         <h1 className="text-[24px] font-extrabold text-white leading-tight">{session.title}</h1>
@@ -375,24 +568,9 @@ export function WorkoutHistoryDetail({
 
       <div className="space-y-2">
         <h2 className="text-[15px] font-bold text-white">{t("goals_history_exercises_title")}</h2>
-        <div className="space-y-1.5">
+        <div className="space-y-2.5">
           {session.exercises.map((ex) => (
-            <div
-              key={ex.workoutId}
-              className="flex items-center gap-3 rounded-2xl px-3 py-2.5"
-              style={{ background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.07)" }}
-            >
-              <div
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[11px] text-[13px] font-bold tabular-nums"
-                style={{ background: style.tint, color: style.color }}
-              >
-                {ex.seriesCount}×
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-[14px] font-semibold text-white">{ex.name}</p>
-                <p className="truncate text-[12px] text-white/60 tabular-nums">{exerciseDetail(ex, language)}</p>
-              </div>
-            </div>
+            <HistoryExerciseCard key={ex.workoutId} ex={ex} />
           ))}
         </div>
       </div>

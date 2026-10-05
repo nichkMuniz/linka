@@ -20,6 +20,7 @@ import { postShareUrl } from "@/lib/share-url";
 import { FollowListDrawer } from "@/components/profile/follow-list-drawer";
 import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
 import { PostCarousel } from "@/components/post/post-carousel";
+import { PostVideoMuteButton } from "@/components/post/post-video";
 import { WorkoutDetailButton } from "@/components/shared/workout-detail-dialog";
 import { formatTimeAgo, cn } from "@/lib/utils";
 import { PostIncentiveButton } from "@/components/shared/post-incentive-button";
@@ -199,6 +200,8 @@ export default function PostDetail() {
   const photos = post?.photos && post.photos.length > 0
     ? post.photos
     : post?.photo ? [post.photo] : null;
+  // Post em vídeo: `photo` é a capa (ver PostCard).
+  const videoUrl = post?.video_url || null;
 
   const handleOpenLikesModal = async () => {
     await flushPendingIncentivesDb(post!.id);
@@ -301,9 +304,9 @@ export default function PostDetail() {
             }
           }}
         >
-          {photos ? (
+          {photos || videoUrl ? (
             <PostCarousel
-              photos={photos}
+              photos={photos ?? []}
               alt="Post"
               hideDots
               // O contador "1/N" ficava atrás do menu "⋮" — a posição já é
@@ -311,6 +314,8 @@ export default function PostDetail() {
               hideCounter
               fill
               onIndexChange={setCarouselIndex}
+              videoUrl={videoUrl}
+              videoPaused={holdHidden}
             />
           ) : (
             <div className="w-full h-full" style={{ background: getPostGradient(post.id) }} />
@@ -379,7 +384,8 @@ export default function PostDetail() {
           </div>
 
           {/* Context menu (top-right) — compartilhar para todos; editar/excluir só para o dono */}
-          <div className="absolute top-3 right-3 z-10" style={holdHiddenStyle}>
+          <div className="absolute top-3 right-3 z-10 flex items-center gap-1.5" style={holdHiddenStyle}>
+            {videoUrl && <PostVideoMuteButton />}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
@@ -430,7 +436,7 @@ export default function PostDetail() {
           {/* Bottom: description + glass action bar */}
           <div className="absolute bottom-3 left-3 right-3 z-10 pointer-events-auto" style={holdHiddenStyle}>
             {/* Carousel indicator — ACIMA da legenda (2026-09-30) */}
-            {photos && photos.length > 1 && (
+            {!videoUrl && photos && photos.length > 1 && (
               <div className="flex justify-center gap-1 mb-2.5 pointer-events-none">
                 {photos.map((_, index) => (
                   <div

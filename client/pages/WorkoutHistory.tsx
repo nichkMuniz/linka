@@ -1,6 +1,6 @@
 import * as React from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { ArrowLeft, ChevronRight, History } from "lucide-react";
+import { ArrowLeft, ChevronRight, History, MoreVertical, Trash2 } from "lucide-react";
 
 import { ScreenAura } from "@/components/shared/screen-aura";
 import { UserAvatar } from "@/components/shared/user-avatar";
@@ -17,11 +17,28 @@ import {
   historyLocale,
 } from "@/components/goals/workout-history-detail";
 import { toast } from "@/components/ui/use-toast";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useLanguage } from "@/lib/language-context";
 import { useAppRefreshTick } from "@/lib/app-refresh";
 import { reportHandledError } from "@/lib/monitoring";
 import { FEATURES } from "@/lib/feature-flags";
 import {
+  deleteWorkoutHistoryDb,
   getWorkoutHistoryPageDb,
   type WorkoutHistoryKind,
   type WorkoutHistorySession,
@@ -59,7 +76,42 @@ export default function WorkoutHistory() {
   const [loading, setLoading] = React.useState(!lastFirstPage);
   const [loadingMore, setLoadingMore] = React.useState(false);
   const [filter, setFilter] = React.useState<Filter>("all");
+  const [clearConfirmOpen, setClearConfirmOpen] = React.useState(false);
+  const [clearing, setClearing] = React.useState(false);
   const refreshTick = useAppRefreshTick();
+
+  // Mantém o cache do módulo em dia com o que a tela mostra depois de apagar —
+  // senão voltar para cá pintaria por um instante o treino apagado.
+  const applySessions = (next: WorkoutHistorySession[], nextCursor: string | null) => {
+    setSessions(next);
+    setNextBefore(nextCursor);
+    if (lastFirstPage) lastFirstPage = { sessions: next, nextBefore: nextCursor };
+  };
+
+  const deleteSession = async (session: WorkoutHistorySession) => {
+    await deleteWorkoutHistoryDb(session.rowIds);
+    applySessions(sessions.filter((s) => s.key !== session.key), nextBefore);
+    // Fecha o detalhe (o `?s=` foi empilhado ao abrir).
+    navigate(-1);
+  };
+
+  // "Apagar histórico": todas as séries do usuário, inclusive as páginas ainda
+  // não carregadas (`null` na RPC = tudo).
+  const clearHistory = async () => {
+    setClearing(true);
+    try {
+      await deleteWorkoutHistoryDb(null);
+      applySessions([], null);
+      setFilter("all");
+      setClearConfirmOpen(false);
+      toast({ title: t("goals_history_cleared") });
+    } catch (err) {
+      reportHandledError(err, "workout-history:clear");
+      toast({ title: t("goals_history_delete_error"), description: t("retry"), variant: "destructive" });
+    } finally {
+      setClearing(false);
+    }
+  };
 
   React.useEffect(() => {
     let cancelled = false;
@@ -181,6 +233,7 @@ export default function WorkoutHistory() {
           session={selected}
           onBack={() => navigate(-1)}
           onSharedToFeed={() => navigate("/", { state: { refreshFeed: true, showFollowing: true } })}
+          onDelete={() => deleteSession(selected)}
         />
       </div>
     );
@@ -201,7 +254,52 @@ export default function WorkoutHistory() {
           <ArrowLeft className="h-5 w-5" />
         </button>
         <h1 className="text-[20px] font-bold text-white">{t("goals_history_title")}</h1>
+        {sessions.length > 0 && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                aria-label={t("goals_history_options")}
+                className="ml-auto flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white active:scale-90 transition-transform"
+                style={{ background: "rgba(255,255,255,.08)", border: "1px solid rgba(255,255,255,.14)" }}
+              >
+                <MoreVertical className="h-5 w-5" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-52">
+              <DropdownMenuItem
+                onClick={() => setClearConfirmOpen(true)}
+                className="text-red-500 focus:text-red-500 focus:bg-red-50 dark:focus:bg-red-950"
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                {t("goals_history_clear")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </div>
+
+      <AlertDialog open={clearConfirmOpen} onOpenChange={(open) => !clearing && setClearConfirmOpen(open)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("goals_history_clear_title")}</AlertDialogTitle>
+            <AlertDialogDescription>{t("goals_history_clear_desc")}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={clearing}>{t("goals_cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={clearing}
+              onClick={(e) => {
+                e.preventDefault();
+                void clearHistory();
+              }}
+            >
+              {clearing ? <LoadingSpinner className="h-4 w-4" /> : t("goals_history_clear_confirm")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {loading && sessions.length === 0 ? (
         <SkeletonLoader lines={6} className="mt-4" />

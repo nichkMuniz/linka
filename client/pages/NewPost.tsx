@@ -46,10 +46,14 @@ import {
   Images,
   FolderOpen,
   UserRoundPlus,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 import { useLanguage } from "@/lib/language-context";
 import { PhotoLibrary, type PhotoLibraryAsset, type PhotoLibraryAlbum } from "@capgo/capacitor-photo-library";
 import { getNativeMediaUrl, getCompressedVideoUrl, compressVideoBlob, purgeStaleMediaCache } from "@/lib/native-media";
+import { probeFlowVideo } from "@/lib/video-poster";
+import { videoPosterSrc } from "@/lib/video-thumb";
 import { Geolocation } from "@capacitor/geolocation";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { EmojiPickerDrawer } from "@/components/shared/emoji-picker-drawer";
@@ -91,6 +95,33 @@ type Step = "select" | "caption";
 type MediaType = "post" | "shot";
 
 const MAX_POST_PHOTOS = 5;
+
+// Post em vídeo no feed (2026-10-05): enquanto Shots está guardado, o vídeo
+// entra como post comum — até 5 fotos OU 1 vídeo. O teto segura o custo de
+// Storage e o tempo de upload (1080p comprimido ainda pesa ~1 MB/s).
+const MAX_POST_VIDEO_SECONDS = 60;
+const MAX_POST_VIDEO_BYTES = 100 * 1024 * 1024;
+// Arquivo cru (antes de comprimir) — acima disso nem tenta reencodar.
+const MAX_RAW_VIDEO_BYTES = 500 * 1024 * 1024;
+
+const VIDEO_EXTENSIONS = /\.(mp4|mov|m4v|webm|avi|mkv|3gp|hevc)$/i;
+const isVideoFile = (file: File) => file.type.startsWith("video/") || VIDEO_EXTENSIONS.test(file.name);
+
+/** Content-Type e extensão do upload de um vídeo (post ou shot). */
+function videoUploadMeta(file: File): { contentType: string; extension: string } {
+  const nameExtension = (file.name.split(".").pop() || "mp4").toLowerCase();
+  const contentTypeMap: Record<string, string> = {
+    mov: "video/quicktime", mp4: "video/mp4", m4v: "video/x-m4v",
+    webm: "video/webm", avi: "video/x-msvideo", mkv: "video/x-matroska", "3gp": "video/3gpp",
+  };
+  const contentType = file.type || contentTypeMap[nameExtension] || "video/mp4";
+  // Vídeo aparado no app Fotos é reexportado (pode virar mp4 mesmo vindo de
+  // um .MOV) — a extensão salva segue o tipo real, não o nome do original.
+  const extensionByType: Record<string, string> = {
+    "video/quicktime": "mov", "video/mp4": "mp4", "video/x-m4v": "m4v",
+  };
+  return { contentType, extension: extensionByType[contentType] || nameExtension };
+}
 
 function arrayMove<T>(arr: T[], from: number, to: number): T[] {
   const copy = arr.slice();
@@ -176,6 +207,8 @@ export default function NewPost() {
   const [isPreparingVideo, setIsPreparingVideo] = React.useState(false);
   const [profile, setProfile] = React.useState<UserProfile | null>(null);
   const [imagePreviewOpen, setImagePreviewOpen] = React.useState(false);
+  // Som do vídeo no preview da Etapa 1 (começa mudo, como no feed).
+  const [previewMuted, setPreviewMuted] = React.useState(true);
 
   const [galleryAssets, setGalleryAssets] = React.useState<PhotoLibraryAsset[]>([]);
   const [galleryLoading, setGalleryLoading] = React.useState(false);
@@ -195,7 +228,8 @@ export default function NewPost() {
 
   const imageInputRef = React.useRef<HTMLInputElement>(null);
   const videoInputRef = React.useRef<HTMLInputElement>(null);
-  const imageCameraRef = React.useRef<HTMLInputElement>(null);
+  // Câmera do POST: foto OU vídeo (o iOS abre a câmera com os dois modos).
+  const postCameraRef = React.useRef<HTMLInputElement>(null);
   const videoCameraRef = React.useRef<HTMLInputElement>(null);
   const hasAutoSelectedRef = React.useRef(false);
   // True enquanto a única foto presente é a pré-seleção automática (nunca tocada
@@ -207,6 +241,52 @@ export default function NewPost() {
   const cropContainerWidthRef = React.useRef<number>(
     typeof window !== "undefined" ? window.innerWidth : 375
   );
+
+  // ── Post em vídeo ──
+  // O vídeo do POST usa o mesmo estado do vídeo do SHOT (`selectedVideoFile` /
+  // `videoPreview`); o que muda é o destino. Invariante no modo POST: ou há
+  // fotos ou há vídeo — escolher um limpa o outro. Se os dois existirem (vindo
+  // do modo SHOT), as fotos vencem.
+  const postIsVideo = mediaType === "post" && !!videoPreview && previewUrls.length === 0;
+
+  const applySelectedVideo = React.useCallback((file: File) => {
+    setVideoPreview((prev) => {
+      if (prev?.startsWith("blob:")) URL.revokeObjectURL(prev);
+      return URL.createObjectURL(file);
+    });
+    setSelectedVideoFile(file);
+  }, []);
+
+  const clearSelectedVideo = React.useCallback(() => {
+    setVideoPreview((prev) => {
+      if (prev?.startsWith("blob:")) URL.revokeObjectURL(prev);
+      return null;
+    });
+    setSelectedVideoFile(null);
+  }, []);
+
+  const clearSelectedPhotos = React.useCallback(() => {
+    setSelectedFiles([]);
+    setPreviewUrls([]);
+    setCropTransforms({});
+    setCurrentPreviewIndex(0);
+  }, []);
+
+  const toastVideoTooLong = React.useCallback(() => {
+    toast({
+      title: t("newpost_video_too_long_title"),
+      description: t("newpost_video_too_long_desc").replace("{n}", String(MAX_POST_VIDEO_SECONDS)),
+      variant: "destructive",
+    });
+  }, [t]);
+
+  const toastSingleVideo = React.useCallback(() => {
+    toast({
+      title: t("newpost_video_single_title"),
+      description: t("newpost_video_single_desc"),
+      variant: "destructive",
+    });
+  }, [t]);
 
   // ── Cleanup video blob URL ──
   React.useEffect(() => {
@@ -277,7 +357,8 @@ export default function NewPost() {
           offset: page * GALLERY_PAGE_SIZE,
           limit: GALLERY_PAGE_SIZE,
           includeImages: mediaType === "post",
-          includeVideos: mediaType === "shot",
+          // POST também lista vídeos (post em vídeo no feed); SHOT só vídeos.
+          includeVideos: true,
           thumbnailWidth: 300,
           thumbnailHeight: 300,
           thumbnailQuality: 0.7,
@@ -299,7 +380,8 @@ export default function NewPost() {
           offset: albumScanOffsetRef.current,
           limit: ALBUM_SCAN_BATCH,
           includeImages: mediaType === "post",
-          includeVideos: mediaType === "shot",
+          // POST também lista vídeos (post em vídeo no feed); SHOT só vídeos.
+          includeVideos: true,
           includeAlbumData: true,
           thumbnailWidth: 300,
           thumbnailHeight: 300,
@@ -395,6 +477,8 @@ export default function NewPost() {
     if (mediaType !== "post") return;
     if (galleryAssets.length === 0) return;
     if (previewUrls.length > 0) return;
+    // Rascunho com vídeo (post em vídeo): a pré-seleção de foto o apagaria.
+    if (videoPreview) return;
 
     hasAutoSelectedRef.current = true;
     const firstAsset = galleryAssets.find((a) => a.type === "image");
@@ -464,8 +548,7 @@ export default function NewPost() {
         const response = await fetch(webPath);
         const blob = await response.blob();
         const file = new File([blob], asset.fileName, { type: mimeType || blob.type || "video/mp4" });
-        setSelectedVideoFile(file);
-        setVideoPreview(URL.createObjectURL(file));
+        applySelectedVideo(file);
       } catch {
         videoInputRef.current?.click();
       } finally {
@@ -473,8 +556,58 @@ export default function NewPost() {
       }
       return;
     }
+    if (mediaType === "post" && asset.type === "video") {
+      // Post em vídeo: um vídeo só, sem carrossel. No "Selecionar vários" os
+      // vídeos ficam esmaecidos — o toque explica por quê.
+      if (multiSelectMode) {
+        toastSingleVideo();
+        return;
+      }
+      // Tocar de novo no vídeo selecionado desmarca (igual à foto).
+      if (videoPreview && selectedAssetIds[0] === asset.id) {
+        clearSelectedVideo();
+        setSelectedAssetIds([]);
+        return;
+      }
+      // A galeria já sabe a duração: recusa ANTES de reencodar à toa.
+      if ((asset.duration ?? 0) > MAX_POST_VIDEO_SECONDS + 0.5) {
+        toastVideoTooLong();
+        return;
+      }
+      // Invalida um carregamento de foto em andamento (toque anterior).
+      const reqId = ++tapRequestRef.current;
+      setIsPreparingVideo(true);
+      try {
+        // Mesma compressão do shot (1080p, moov no início para tocar enquanto baixa).
+        const { webPath, mimeType } = await getCompressedVideoUrl(asset);
+        const response = await fetch(webPath);
+        const blob = await response.blob();
+        // Tipo explícito: o `blob.type` de um fetch(webPath) pode vir vazio, e o
+        // upload usaria um Content-Type errado.
+        const file = new File([blob], asset.fileName, { type: mimeType || blob.type || "video/mp4" });
+        if (tapRequestRef.current !== reqId) return;
+        if (file.size > MAX_POST_VIDEO_BYTES) {
+          toast({ title: t("newpost_file_too_large"), description: t("newpost_video_max_size"), variant: "destructive" });
+          return;
+        }
+        autoSelectedActiveRef.current = false;
+        clearSelectedPhotos();
+        setSelectedAssetIds([asset.id]);
+        applySelectedVideo(file);
+      } catch {
+        if (tapRequestRef.current === reqId) imageInputRef.current?.click();
+      } finally {
+        setIsPreparingVideo(false);
+      }
+      return;
+    }
     if (mediaType === "post" && asset.type === "image") {
-      const isSelected = selectedAssetIds.includes(asset.id);
+      // Foto escolhida com um vídeo selecionado: o post volta a ser de fotos.
+      if (postIsVideo) {
+        clearSelectedVideo();
+        setSelectedAssetIds([]);
+      }
+      const isSelected = !postIsVideo && selectedAssetIds.includes(asset.id);
 
       if (!multiSelectMode) {
         if (isSelected) {
@@ -569,12 +702,16 @@ export default function NewPost() {
   };
 
   // ── File handlers ──
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
-    e.target.value = "";
+  const addPickedImages = (files: File[]) => {
     if (files.length === 0) return;
+    // Fotos substituem um vídeo selecionado (post é fotos OU vídeo).
+    const replacingVideo = postIsVideo;
+    if (replacingVideo) {
+      clearSelectedVideo();
+      setSelectedAssetIds([]);
+    }
 
-    let remainingSlots = MAX_POST_PHOTOS - previewUrls.length;
+    let remainingSlots = MAX_POST_PHOTOS - (replacingVideo ? 0 : previewUrls.length);
     let skippedForLimit = 0;
 
     for (const file of files) {
@@ -611,13 +748,9 @@ export default function NewPost() {
     }
   };
 
-  const handleVideoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-    const isVideoMime = file.type.startsWith("video/");
-    const videoExtensions = /\.(mp4|mov|m4v|webm|avi|mkv|3gp|hevc)$/i;
-    if (!isVideoMime && !videoExtensions.test(file.name)) {
+  // Vídeo vindo de um <input type="file"> (câmera, seletor do sistema).
+  const acceptVideoFile = async (file: File) => {
+    if (!isVideoFile(file)) {
       toast({
         title: t("newpost_invalid_type"),
         description: t("newpost_invalid_video"),
@@ -625,7 +758,7 @@ export default function NewPost() {
       });
       return;
     }
-    if (file.size > 500 * 1024 * 1024) {
+    if (file.size > MAX_RAW_VIDEO_BYTES) {
       toast({
         title: t("newpost_file_too_large"),
         description: t("newpost_video_max_size"),
@@ -633,11 +766,23 @@ export default function NewPost() {
       });
       return;
     }
+    const forPost = mediaType === "post";
     // Este caminho entrega um `File` do WebView, sem `PHAsset` — então a
     // compressão vai pelo `compressVideoBlob` (remonta o arquivo no nativo),
     // não pelo `getCompressedVideoUrl` usado na galeria in-app.
     setIsPreparingVideo(true);
     try {
+      if (forPost) {
+        // Sem `PHAsset` não há duração pronta: mede no arquivo local (rápido)
+        // antes de gastar segundos reencodando um vídeo que seria recusado.
+        const probeUrl = URL.createObjectURL(file);
+        const { durationMs } = await probeFlowVideo(probeUrl);
+        URL.revokeObjectURL(probeUrl);
+        if (durationMs && durationMs > (MAX_POST_VIDEO_SECONDS + 0.5) * 1000) {
+          toastVideoTooLong();
+          return;
+        }
+      }
       const compressed = await compressVideoBlob(file);
       const finalFile =
         compressed === file
@@ -645,11 +790,41 @@ export default function NewPost() {
           : new File([compressed], `${file.name.replace(/\.[^.]+$/, "")}.mp4`, {
               type: compressed.type || "video/mp4",
             });
-      setSelectedVideoFile(finalFile);
-      setVideoPreview(URL.createObjectURL(finalFile));
+      if (forPost) {
+        if (finalFile.size > MAX_POST_VIDEO_BYTES) {
+          toast({ title: t("newpost_file_too_large"), description: t("newpost_video_max_size"), variant: "destructive" });
+          return;
+        }
+        ++tapRequestRef.current; // descarta foto da galeria ainda carregando
+        autoSelectedActiveRef.current = false;
+        clearSelectedPhotos();
+        setSelectedAssetIds([]);
+      }
+      applySelectedVideo(finalFile);
     } finally {
       setIsPreparingVideo(false);
     }
+  };
+
+  const handleVideoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (file) void acceptVideoFile(file);
+  };
+
+  // Seletor/câmera do POST: aceita fotos e vídeo. Um vídeo sozinho vira post em
+  // vídeo; misturado com fotos (ou vários vídeos), os vídeos são descartados.
+  const handlePostFilesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = "";
+    if (files.length === 0) return;
+    const videos = files.filter(isVideoFile);
+    if (videos.length === 1 && files.length === 1) {
+      void acceptVideoFile(videos[0]);
+      return;
+    }
+    if (videos.length > 0) toastSingleVideo();
+    addPickedImages(files.filter((f) => !isVideoFile(f)));
   };
 
   const removePhoto = (index: number) => {
@@ -904,18 +1079,7 @@ export default function NewPost() {
     setIsSubmitting(true);
     try {
       const timestamp = Date.now();
-      const nameExtension = (selectedVideoFile.name.split(".").pop() || "mp4").toLowerCase();
-      const contentTypeMap: Record<string, string> = {
-        mov: "video/quicktime", mp4: "video/mp4", m4v: "video/x-m4v",
-        webm: "video/webm", avi: "video/x-msvideo", mkv: "video/x-matroska", "3gp": "video/3gpp",
-      };
-      const contentType = selectedVideoFile.type || contentTypeMap[nameExtension] || "video/mp4";
-      // Vídeo aparado no app Fotos é reexportado (pode virar mp4 mesmo vindo de
-      // um .MOV) — a extensão salva segue o tipo real, não o nome do original.
-      const extensionByType: Record<string, string> = {
-        "video/quicktime": "mov", "video/mp4": "mp4", "video/x-m4v": "m4v",
-      };
-      const extension = extensionByType[contentType] || nameExtension;
+      const { contentType, extension } = videoUploadMeta(selectedVideoFile);
       const filePath = `${user.id}/shots/${timestamp}.${extension}`;
       const { error: uploadError } = await withNetworkRetry(() =>
         supabase!.storage
@@ -943,7 +1107,95 @@ export default function NewPost() {
     }
   }, [user, selectedVideoFile, videoDescription, navigate, t]);
 
-  const canAdvance = mediaType === "post" ? previewUrls.length > 0 : !!videoPreview;
+  // Post em vídeo no feed: sobe o vídeo + a CAPA (1º frame, 1:1). A capa vai
+  // para `posts.photo`, então grade do perfil, notificações, compartilhar e os
+  // builds antigos (que não leem `video_url`) mostram a capa como foto.
+  const handlePostVideoSubmit = React.useCallback(async () => {
+    if (!user || !selectedVideoFile || !videoPreview) {
+      toast({ title: t("error"), description: t("newpost_no_video"), variant: "destructive" });
+      return;
+    }
+    if (!hasSupabaseConfig || !supabase) {
+      toast({ title: t("error"), description: t("newpost_supabase_error"), variant: "destructive" });
+      return;
+    }
+    if (hasObjectionableContent(description)) {
+      toast({
+        title: t("content_filter_title"),
+        description: t("content_filter_desc"),
+        variant: "destructive",
+      });
+      return;
+    }
+    setIsSubmitting(true);
+    const uploadedPaths: string[] = [];
+    try {
+      // Arquivo local: medir e extrair a capa custa milissegundos. Repete a
+      // checagem de duração para o rascunho que voltou da sessão.
+      const probe = await probeFlowVideo(videoPreview, 1080, 0.82, true);
+      if (probe.durationMs && probe.durationMs > (MAX_POST_VIDEO_SECONDS + 0.5) * 1000) {
+        toastVideoTooLong();
+        return;
+      }
+
+      const timestamp = Date.now();
+      const { contentType, extension } = videoUploadMeta(selectedVideoFile);
+      const videoPath = `${user.id}/videos/${timestamp}.${extension}`;
+      const posterPath = `${user.id}/${timestamp}-poster.jpg`;
+      const [videoUpload, posterUpload] = await Promise.all([
+        withNetworkRetry(() =>
+          supabase!.storage
+            .from("posts")
+            .upload(videoPath, selectedVideoFile, { cacheControl: IMMUTABLE_CACHE_CONTROL, contentType, upsert: false }),
+        ),
+        probe.poster
+          ? withNetworkRetry(() =>
+              supabase!.storage
+                .from("posts")
+                .upload(posterPath, probe.poster!, { cacheControl: IMMUTABLE_CACHE_CONTROL, contentType: "image/jpeg", upsert: false }),
+            )
+          : Promise.resolve(null),
+      ]);
+      if (!videoUpload.error) uploadedPaths.push(videoPath);
+      if (posterUpload && !posterUpload.error) uploadedPaths.push(posterPath);
+      if (videoUpload.error) throw new Error(`${t("newpost_upload_error_video")}: ${videoUpload.error.message}`);
+
+      const videoUrl = supabase.storage.from("posts").getPublicUrl(videoPath).data.publicUrl;
+      // Sem capa o post ainda toca no feed — só a miniatura da grade fica vazia.
+      const posterUrl =
+        posterUpload && !posterUpload.error ? supabase.storage.from("posts").getPublicUrl(posterPath).data.publicUrl : null;
+
+      await withNetworkRetry(() =>
+        createPostDb(posterUrl, description, selectedGoalId || null, null, taggedUsers.map((u) => u.id), videoUrl),
+      );
+      if (selectedGoalId) {
+        try { await incrementGoalProgressDb(selectedGoalId); } catch {}
+      }
+      toast({ title: t("newpost_success"), description: t("newpost_post_published") });
+      videoDraft.file = null;
+      if (videoDraft.preview?.startsWith("blob:")) URL.revokeObjectURL(videoDraft.preview);
+      videoDraft.preview = null;
+      setSelectedVideoFile(null);
+      setVideoPreview(null);
+      setSelectedAssetIds([]);
+      setDescription("");
+      setSelectedGoalId("");
+      setTaggedUsers([]);
+      setStep("select");
+      sessionStorage.removeItem("newpost_description");
+      sessionStorage.removeItem("newpost_goal_id");
+      sessionStorage.removeItem("newpost_tagged_users");
+      sessionStorage.removeItem("newpost_step");
+      navigate("/", { state: { refreshFeed: true, showFollowing: true } });
+    } catch (err: any) {
+      if (uploadedPaths.length > 0) supabase!.storage.from("posts").remove(uploadedPaths).catch(() => {});
+      toast({ title: t("newpost_post_error"), description: err?.message || t("newpost_try_later"), variant: "destructive" });
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [user, selectedVideoFile, videoPreview, description, selectedGoalId, taggedUsers, navigate, t, toastVideoTooLong]);
+
+  const canAdvance = mediaType === "post" ? previewUrls.length > 0 || postIsVideo : !!videoPreview;
 
   // Always fullscreen on /postar — both steps hide the AppLayout header+nav.
   React.useLayoutEffect(() => {
@@ -987,7 +1239,7 @@ export default function NewPost() {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 2 }}>
         {/* Camera cell */}
         <button
-          onClick={() => (mediaType === "post" ? imageCameraRef : videoCameraRef).current?.click()}
+          onClick={() => (mediaType === "post" ? postCameraRef : videoCameraRef).current?.click()}
           style={{ aspectRatio: "1/1", display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(255,255,255,.06)", color: "#fff" }}
         >
           {mediaType === "post"
@@ -1004,8 +1256,11 @@ export default function NewPost() {
         {galleryAssets.map((asset) => {
           const selectedIdx = selectedAssetIds.indexOf(asset.id);
           const isSelected = mediaType === "post" ? selectedIdx !== -1 : selectedVideoFile?.name === asset.fileName;
+          const isVideoAsset = asset.type === "video";
           const atPhotoLimit =
             mediaType === "post" && multiSelectMode && !isSelected && selectedAssetIds.length >= MAX_POST_PHOTOS;
+          // Post é até 5 fotos OU 1 vídeo: no "Selecionar vários" o vídeo não entra.
+          const videoBlocked = mediaType === "post" && multiSelectMode && isVideoAsset;
           const thumbSrc = asset.thumbnail?.webPath;
           return (
             <button
@@ -1015,19 +1270,19 @@ export default function NewPost() {
                 position: "relative", aspectRatio: "1/1", overflow: "hidden",
                 outline: isSelected ? "2.5px solid #9d6bff" : "none",
                 outlineOffset: -2.5,
-                opacity: atPhotoLimit ? 0.35 : 1,
+                opacity: atPhotoLimit || videoBlocked ? 0.35 : 1,
               }}
             >
               {thumbSrc ? (
                 <img src={thumbSrc} alt={asset.fileName} className="w-full h-full object-cover" />
               ) : (
                 <div style={{ width: "100%", height: "100%", background: "rgba(255,255,255,.06)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  {mediaType === "post"
-                    ? <Camera className="h-4 w-4" style={{ color: "rgba(255,255,255,.3)" }} />
-                    : <Video className="h-4 w-4" style={{ color: "rgba(255,255,255,.3)" }} />}
+                  {isVideoAsset
+                    ? <Video className="h-4 w-4" style={{ color: "rgba(255,255,255,.3)" }} />
+                    : <Camera className="h-4 w-4" style={{ color: "rgba(255,255,255,.3)" }} />}
                 </div>
               )}
-              {isSelected && mediaType === "post" && (
+              {isSelected && mediaType === "post" && !isVideoAsset && (
                 <div style={{ position: "absolute", bottom: 4, left: 4, background: "#9d6bff", borderRadius: "50%", width: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 10, fontWeight: 700 }}>
                   {selectedIdx + 1}
                 </div>
@@ -1091,7 +1346,30 @@ export default function NewPost() {
             style={{ margin: "0 14px", aspectRatio: "1/1", borderRadius: 28, overflow: "hidden", position: "relative", boxShadow: "0 22px 50px -20px rgba(0,0,0,.6)", background: "#0a0b10" }}
           >
             {mediaType === "post" ? (
-              previewUrls.length > 0 ? (
+              postIsVideo ? (
+                <>
+                  {/* Mesmo enquadramento do feed: frame 1:1, centro do vídeo. */}
+                  <video
+                    key={videoPreview!}
+                    src={videoPreview!}
+                    autoPlay
+                    muted={previewMuted}
+                    loop
+                    playsInline
+                    onLoadedData={(e) => { e.currentTarget.play().catch(() => {}); }}
+                    className="w-full h-full object-cover"
+                  />
+                  <button
+                    onClick={() => setPreviewMuted((m) => !m)}
+                    aria-label={previewMuted ? t("post_video_unmute") : t("post_video_mute")}
+                    style={{ position: "absolute", right: 12, bottom: 12, background: "rgba(0,0,0,.5)", borderRadius: "50%", padding: 8 }}
+                  >
+                    {previewMuted
+                      ? <VolumeX className="h-4 w-4 text-white" />
+                      : <Volume2 className="h-4 w-4 text-white" />}
+                  </button>
+                </>
+              ) : previewUrls.length > 0 ? (
                 <>
                   <InlineCropPreview
                     imageSrc={previewUrls[currentPreviewIndex]}
@@ -1233,7 +1511,11 @@ export default function NewPost() {
                 onClick={() => {
                   const next = !multiSelectMode;
                   setMultiSelectMode(next);
-                  if (next && autoSelectedActiveRef.current) {
+                  if (next && postIsVideo) {
+                    // Vídeo não entra no carrossel: começa a seleção do zero.
+                    clearSelectedVideo();
+                    setSelectedAssetIds([]);
+                  } else if (next && autoSelectedActiveRef.current) {
                     // A única foto presente é a pré-seleção automática (o usuário
                     // nunca tocou nela) — não deve contar para o modo múltiplo.
                     autoSelectedActiveRef.current = false;
@@ -1368,9 +1650,10 @@ export default function NewPost() {
         </div>
 
         {/* Hidden file inputs */}
-        <input ref={imageInputRef} type="file" accept="image/*" multiple onChange={handleFileChange} className="hidden" />
+        {/* POST aceita fotos e vídeo — o vídeo vira post em vídeo no feed. */}
+        <input ref={imageInputRef} type="file" accept="image/*,video/*" multiple onChange={handlePostFilesChange} className="hidden" />
         <input ref={videoInputRef} type="file" accept="video/*" onChange={handleVideoFileChange} className="hidden" />
-        <input ref={imageCameraRef} type="file" accept="image/*" capture="environment" onChange={handleFileChange} className="hidden" />
+        <input ref={postCameraRef} type="file" accept="image/*,video/*" capture="environment" onChange={handlePostFilesChange} className="hidden" />
         <input ref={videoCameraRef} type="file" accept="video/*" capture="environment" onChange={handleVideoFileChange} className="hidden" />
       </div>
     );
@@ -1381,7 +1664,9 @@ export default function NewPost() {
   // ─────────────────────────────────────────
 
   const activeText = mediaType === "post" ? description : videoDescription;
-  const isDisabled = isSubmitting || (mediaType === "post" ? selectedFiles.length === 0 : !selectedVideoFile);
+  const isDisabled =
+    isSubmitting ||
+    (mediaType === "post" ? (postIsVideo ? !selectedVideoFile : selectedFiles.length === 0) : !selectedVideoFile);
 
   const goalEmoji = (typeGoal: number) => {
     if (typeGoal === 2) return "❤️";
@@ -1455,9 +1740,10 @@ export default function NewPost() {
               />
             </button>
           )}
-          {mediaType === "shot" && videoPreview && (
+          {(mediaType === "shot" || postIsVideo) && videoPreview && (
             <div style={{ width: 64, height: 64, borderRadius: 16, overflow: "hidden", flexShrink: 0, boxShadow: "0 8px 20px -8px rgba(0,0,0,.6)" }}>
-              <video src={videoPreview} playsInline muted className="w-full h-full object-cover" />
+              {/* #t=0.1 faz o WKWebView pintar o frame (docs/15 §7.4). */}
+              <video src={videoPosterSrc(videoPreview)} playsInline muted preload="metadata" className="w-full h-full object-cover" />
             </div>
           )}
         </div>
@@ -1799,7 +2085,7 @@ export default function NewPost() {
         }}
       >
         <button
-          onClick={mediaType === "post" ? handleImageSubmit : handleVideoSubmit}
+          onClick={mediaType === "post" ? (postIsVideo ? handlePostVideoSubmit : handleImageSubmit) : handleVideoSubmit}
           disabled={isDisabled}
           style={{
             width: "100%", height: 54, borderRadius: 27,

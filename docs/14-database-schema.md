@@ -805,6 +805,8 @@ Notificações geradas para os usuários (follows, likes, comentários, duelos).
 
 > **Dedup do type 1** (`docs/migrations/20260925-follow-notification-dedupe.sql`): a trigger `notifications_skip_duplicate_follow_trg` (BEFORE INSERT em `notifications`, `notifications_skip_duplicate_follow()`, SECURITY DEFINER) descarta uma type 1 se já existe outra do mesmo `follower_id` para o mesmo `user_id`. Por ser BEFORE, o push também não sai. Deixar de seguir **não** apaga a notificação antiga, de propósito: senão alternar seguir/deixar de seguir mandaria um push a cada vez. Índice parcial de apoio: `notifications_follow_pair_idx (user_id, follower_id) where type = 1`.
 >
+> **Janela de 24 h** (`docs/migrations/20261005-follow-notification-window.sql`): a regra acima valia **para sempre** — quem deixava de seguir e voltava semanas depois nunca mais notificava. Agora: última type 1 do par há **mais** de 24 h → a antiga é apagada e a nova entra (com push); há **menos** de 24 h → o INSERT é descartado (sem push) e a existente sobe (`created_at = now()`, `read = false`). Continua uma linha por par e no máximo um push por dia por par.
+>
 > A trigger `notify-push-on-notification` (AFTER INSERT em `notifications`) chama a edge function `send-push-notification` para qualquer linha inserida — ou seja, o push é automático.
 > As triggers de flow foram adicionadas em `docs/migrations/20260521-flow-notifications.sql`; a do tipo 18, em `docs/migrations/20260818-flow-comment-followup.sql`.
 >
@@ -875,7 +877,7 @@ Repost de um post em que a pessoa foi **marcada** — estilo Instagram: o post �
 - `trg_cleanup_post_reposts_row` (AFTER DELETE): apaga a type 21 correspondente.
 - Em `post_tags`: `trg_remove_repost_on_untag` (AFTER DELETE) — desmarcar tira o repost.
 
-`get_profile_counts` soma os reposts em `posts_count` (bate com a grade do perfil).
+`get_profile_counts` **não** soma os reposts (`posts_count` = só autorais): o repost aparece apenas na aba Marcações do perfil. A versão de `20261005-post-reposts-shared.sql` somava; corrigida em `20261005-profile-counts-authored-only.sql`.
 
 **Funções (`ritmofit-db.ts`):** `repostPostDb`, `unrepostPostDb`, `getRepostedPostIdsDb` (o viewer já repostou?), `getRepostedPostIdsByUsersDb` (feed/perfil), `getPostRepostersBatchDb` + `pickReposters` (`repostedBy` dos posts). Lidos por `getFeedPosts`, `getDiscoverPosts`, `getUserPostsDb`, `getTaggedPostsDb` e `getPostByIdDb`.
 
@@ -910,11 +912,12 @@ Posts publicados no feed principal.
 | `id` | uuid | PK | `gen_random_uuid()` | Identificador único |
 | `user_id` | uuid | — | `auth.uid()` | Autor do post |
 | `description` | text | — | — | Legenda do post |
-| `photo` | text | — | — | URL da foto principal |
+| `photo` | text | — | — | URL da foto principal. Num **post em vídeo** é a **capa** (1º frame recortado em 1:1, `{uid}/{timestamp}-poster.jpg`) — é o que grade, notificações, compartilhamento e builds antigos mostram |
 | `created_at` | timestamp | — | `now()` | Data de publicação |
 | `user_goal_id` | bigint | — | — | Meta vinculada ao post |
 | `updated_at` | timestamp | — | `now()` | Data de atualização |
 | `photos` | jsonb | — | — | Array JSON de fotos adicionais |
+| `video_url` | text | — | `NULL` | **(2026-10-05)** Post em vídeo: URL do arquivo no bucket `posts` (`{uid}/videos/{timestamp}.{ext}`, 1080p comprimido no aparelho, até 60 s). Um post é até 5 fotos **ou** 1 vídeo. Lida pelo app via `selectPostRows` (`ritmofit-db.ts`), que repete a consulta sem a coluna se ela ainda não existir; gravada por `createPostDb` (6º parâmetro). `deletePostDb` apaga o arquivo junto; `adminDeleteContentDb` lê a coluna antes da RPC (que só devolve `photo`/`photos`). O `scripts/sweep-orphan-media.mjs` a lê numa entrada própria. Migration: `docs/migrations/20261005-post-video.sql` |
 | `workout_summary` | jsonb | — | `NULL` | **(2026-07-06)** Snapshot estruturado do treino quando um "resumo do treino" é compartilhado no feed (rotina, duração, séries, volume, `caloriesKcal` (kcal da sessão, desde 21/08/2026), `imageUrl` do card gerado e a lista de exercícios com `sets: {kg, reps}` por série). Formato = `PostWorkoutSummary` (`client/lib/workout-summary-types.ts`). Habilita o pill "Ver treino" + o modal de detalhe no feed/Perfil/PostDetail. Desde **26/08/2026** traz também **`userPhotoCount`** — quantas fotos da galeria/câmera a pessoa anexou ao resumo (o card gerado e o mapa do trajeto não contam); `0` manda o post para a aba **Treinos** do perfil em vez da aba Posts (ver `docs/08-perfil.md`). Sem migração: é só mais uma chave do jsonb, e posts antigos caem no fallback de `isWorkoutCanvasPost`. Desde **26/08/2026** cada exercício da lista traz também **`workoutId`** (o id no catálogo `workouts`), que é a chave usada pela **comparação de treino** para casar o mesmo exercício entre duas pessoas — posts antigos caem no casamento por nome (ver `docs/01-feed.md` → Comparar treino). Também sem migração. `NULL` em posts comuns de imagem/texto. Herda as policies RLS de `posts`. Ver `docs/migrations/20260706-post-workout-summary.sql` |
 | `reposted_from` | uuid | — | `NULL` | **(2026-09-28, LEGADO desde 2026-10-05 — sempre NULL; ver `post_reposts`)** FK → `posts.id` (`on delete cascade`). Era preenchido quando o post é um **repost** de um post em que o usuário foi marcado. O repost reaproveita `photo`/`photos` do original (mesmas URLs, sem upload), nasce com `description` vazia (o app exibe a legenda do original) e não copia meta nem `workout_summary`. Migration: `docs/migrations/20260928-post-reposts.sql` |
 | `reposted_from_user` | uuid | — | `NULL` | **(2026-09-28)** Autor do original. Gravado pelo trigger `validate_post_repost`, nunca pelo app. Serve de crédito quando o original deixa de ser legível pelo viewer |
@@ -1683,6 +1686,84 @@ Armazena os tokens APNs (iOS) de cada dispositivo registrado pelo usuário para 
 
 **Um aparelho, um dono** (`docs/migrations/20260925-claim-push-token.sql`): o app grava o token pela RPC `claim_push_token(p_token, p_platform)` (SECURITY DEFINER), que apaga o mesmo token de qualquer outro usuário e faz o upsert para quem chamou. Antes, `savePushTokenDb` fazia esse delete direto no cliente, e a RLS o transformava em no-op silencioso: numa troca de conta sem logout, os pushes da conta anterior (inclusive prévia de DM) continuavam chegando no aparelho. Sem a migração, o app cai no caminho antigo.
 
+**Desde 2026-10-05** o app chama `claim_push_token` a **cada abertura** (não só quando o token muda), então `updated_at` passa a indicar a última sessão daquele aparelho e uma linha apagada se recria sozinha.
+
+---
+
+## account_deletion_requests
+
+**(2026-10-05)** Pedidos de exclusão de conta com prazo de 30 dias e justificativa. Migration: `docs/migrations/20261005-scheduled-account-deletion.sql`. Fluxo completo em `docs/08-perfil.md` → "Encerrar conta".
+
+| Coluna | Tipo | Obrigatório | Padrão | Descrição |
+|---|---|---|---|---|
+| `id` | bigserial | PK | — | — |
+| `user_id` | uuid | — | — | Quem pediu. **Sem FK** (o pedido sobrevive à conta); vira `NULL` quando a exclusão é concluída (anônimo) |
+| `reason` | text | ✓ | — | Chave estável: `no_longer_use`, `other_app`, `privacy`, `too_many_notifications`, `bugs`, `missing_features`, `new_account`, `other` |
+| `details` | text | — | — | Texto livre, até 1000 caracteres (obrigatório quando `reason = other`) |
+| `requested_at` | timestamptz | ✓ | `now()` | — |
+| `scheduled_for` | timestamptz | ✓ | — | `requested_at + 30 dias` |
+| `status` | text | ✓ | `pending` | `pending` (quarentena, conta escondida) · `cancelled` (reativou) · `completed` (apagada) |
+| `cancelled_at` / `completed_at` | timestamptz | — | — | — |
+
+**Índices:** único parcial `(user_id) where status = pending` (um pedido aberto por pessoa) e `(scheduled_for) where status = pending`.
+**RLS:** SELECT só do próprio pedido; escrita só pelas RPCs.
+**Fora do `delete_user_data` de propósito** — a linha é anonimizada pela edge function em vez de apagada.
+
+**RPCs:**
+- `request_account_deletion(p_reason, p_details)` → `timestamptz` (data da exclusão). Valida o motivo (`INVALID_REASON`, `DETAILS_REQUIRED`), mantém a data se já houver pedido aberto e apaga os `push_tokens` do usuário.
+- `cancel_account_deletion()` → `boolean`. Reativa.
+- `pending_deletion_user_ids()` → `uuid[]` (usada pela policy de `profiles` e por `banned_user_ids()`).
+- `due_account_deletions(p_limit)` → vencidos; **só `service_role`** (edge function `purge-scheduled-deletions`, pg_cron diário).
+
+---
+
+## apple_auth_tokens
+
+**(2026-10-05)** Refresh token do Sign in with Apple, guardado **só** para revogar a autorização quando a conta é excluída (Guideline 5.1.1(v)). Gravado pela edge function `apple-auth` logo após o login com Apple; revogado e apagado por ela no pedido de exclusão e pela `purge-scheduled-deletions` no fim do prazo. Migration: `docs/migrations/20261005-apple-signin-revoke.sql`.
+
+| Coluna | Tipo | Obrigatório | Padrão | Descrição |
+|---|---|---|---|---|
+| `user_id` | uuid | PK, FK → `auth.users` ON DELETE CASCADE | — | Dono |
+| `refresh_token` | text | ✓ | — | Credencial da Apple — nunca exposta ao app |
+| `created_at` / `updated_at` | timestamptz | ✓ | `now()` | — |
+
+**RLS:** ligada, sem policy, e `revoke all` de `anon`/`authenticated` — só service role. Sai junto com a conta pelo cascade (não precisa estar no `v_targets`).
+
+---
+
+## apns_provider_token
+
+**(2026-10-05)** JWT de provedor da APNs reaproveitado pelas edge functions de push (`supabase/functions/_shared/apns.ts`). A Apple recusa renovação a menos de 20 min (`429 TooManyProviderTokenUpdates`); a função renova aos 40 min. Migration: `docs/migrations/20261005-push-delivery-reliability.sql`.
+
+| Coluna | Tipo | Obrigatório | Padrão | Descrição |
+|---|---|---|---|---|
+| `id` | smallint | PK | — | Sempre `1` (`check (id = 1)`), linha única |
+| `jwt` | text | ✓ | — | Token assinado com a chave `.p8` |
+| `issued_at` | timestamptz | ✓ | — | `iat` do token |
+
+**RLS:** ligada, sem policy — só a service role (edge functions) lê e grava.
+
+---
+
+## push_delivery_log
+
+**(2026-10-05)** Uma linha por tentativa de push. Existe porque a resposta da Apple não ficava registrada em lugar nenhum consultável. Migration: `docs/migrations/20261005-push-delivery-reliability.sql`.
+
+| Coluna | Tipo | Obrigatório | Padrão | Descrição |
+|---|---|---|---|---|
+| `id` | bigserial | PK | — | — |
+| `created_at` | timestamptz | ✓ | `now()` | Momento da resposta da Apple |
+| `source` | text | ✓ | — | `notification` ou `reengagement:<kind>` |
+| `notification_id` | text | — | — | `notifications.id` (nulo no re-engajamento) |
+| `user_id` | uuid | — | — | Destinatário |
+| `type` | smallint | — | — | `notifications.type` (0 no re-engajamento) |
+| `token_prefix` | text | — | — | 8 primeiros caracteres do token (distingue aparelhos sem expor o token) |
+| `status` | smallint | ✓ | — | HTTP da Apple; `0` = sem token ou erro de rede |
+| `reason` | text | — | — | Motivo da Apple (`Unregistered`, `TooManyProviderTokenUpdates`…) ou `no_tokens` |
+| `delay_ms` | integer | — | — | Da criação da notificação até a resposta da Apple |
+
+**Retenção:** 30 dias, apagados pela própria função (~1 a cada 50 envios). **RLS:** ligada, sem policy — só service role.
+
 ---
 
 ## user_activity
@@ -1754,6 +1835,8 @@ Histórico de treinos realizados pelo usuário.
 | `set_kind` | text | — | — | **(2026-08-05)** Tipo da série executada, gravado só por rotinas no modo **expert** (`routines.training_mode`): `'warmup'` = aquecimento, `'normal'` = série válida, `'failure'` = série levada à falha, `'drop'` = queda de carga emendada na série anterior (**adicionado em `20260805-workout-techniques.sql`**, que recria o CHECK). `CHECK (set_kind IS NULL OR set_kind IN ('warmup','normal','failure','drop'))`. **`drop` conta como TRABALHO** (volume e PR incluem — é peso levantado de verdade) mas **não conta como SÉRIE** (`countsAsSeries` no `workout-session-dialog.tsx`): quem faz 3×10 com drop na última fez 3 séries, não 4. **`NULL` = série do modo simplificado ou anterior a 05/08/2026 → lida como `'normal'`.** O aquecimento **é gravado** (o registro do treino é fiel ao que foi feito) e **desde 12/08/2026 conta no volume e no contador de séries da sessão** (`countsAsSeries` só exclui o `drop`); o que ele não faz é virar marca — segue filtrado fora de toda leitura de carga/progressão: `getPreviousBestKgDb`, `getExerciseProgressionDb` e `getLastWorkoutSessionSeriesDb` aplicam `WORKING_SETS_FILTER` (`set_kind.is.null,set_kind.neq.warmup` — um `.neq` puro descartaria as linhas NULL, porque `NULL <> 'warmup'` é NULL e não TRUE no Postgres). Índice parcial `user_workouts_hist_working_sets_idx` cobre exatamente essas consultas. Migration: `docs/migrations/20260805-training-mode.sql`. |
 | `series` | smallint | — | — | **(2026-09-25)** Número da série, como aparece no cartão da sessão: aquecimento é numerado junto (2 de aquecimento + 3 normais = 1..5), drop **herda** o número da série de cima (é continuação dela, mesma regra de `countsAsSeries`), e série pulada não gera linha mas não renumera as seguintes (concluiu 1 e 3 → grava 1 e 3). Migração `20260925-workout-hist-series.sql`, que também preenche o histórico antigo (sessão = rajada do mesmo exercício sem intervalo > 5 min; ali a numeração é contínua, porque as puladas não existem). NULL = gravado por build antigo |
 
+**Apagar pelo Histórico de treinos (2026-10-05):** função `delete_my_workout_history(p_ids uuid[] default null) → integer` (SECURITY DEFINER, `search_path = public`, execute só para `authenticated`). Apaga só linhas com `user_id = auth.uid()`: as de `p_ids` (as séries de uma sessão) ou, com `NULL`, o histórico inteiro do usuário; devolve quantas saíram. Existe porque um DELETE do cliente barrado pela RLS é no-op silencioso. Chamada por `deleteWorkoutHistoryDb`. Migration: `docs/migrations/20261005-workout-history-delete.sql`. Ver `docs/22-historico-treinos.md`.
+
 **Remover exercício não apaga histórico.** Tirar um exercício da rotina durante o
 treino (`removeRoutineItemsKeepHistoryDb`) apaga só a linha de `user_workouts`;
 as linhas de `user_workouts_hist` ficam com `user_workout_id` **NULL** (FK
@@ -1801,7 +1884,7 @@ Exercícios criados manualmente pelo usuário ("Criar novo exercício" no modo t
 **RLS:** leitura para qualquer usuário logado (como o catálogo: o nome aparece na rotina de outra pessoa, em treinar junto e em comparar treino); escrita só do dono.
 
 **Triggers e funções:**
-- `assert_workout_ref()` (BEFORE INSERT/UPDATE OF workout_id em `user_workouts`, `user_workouts_hist` e `training_day_exercises`): substitui a FK para `workouts`, aceitando id de qualquer uma das duas tabelas (erro `23503` se não existir).
+- `assert_workout_ref()` (BEFORE INSERT/UPDATE OF workout_id em `user_workouts`, `user_workouts_hist` e `training_day_exercises`): substitui a FK para `workouts`, aceitando id de qualquer uma das duas tabelas (erro `23503` se não existir). Desde `20261005-workouts-dedupe.sql`, id de exercício apagado por duplicidade é **trocado** pelo id que ficou (via `workout_merges`, até 5 saltos) em vez de recusado — cache do catálogo no app e fila offline continuam gravando.
 - `user_custom_workouts_cleanup_trg` (AFTER DELETE): apaga o histórico e os itens de rotina **do dono** que usavam o exercício.
 - `move_custom_workouts_out_of_catalog()`: move os personalizados que ainda estão em `workouts`. O dono mantém o id; outro usuário que usava o exercício ganha uma cópia própria. Reexecutável (`select public.move_custom_workouts_out_of_catalog();`), porque builds antigos continuam criando exercício em `workouts`.
 
@@ -1860,7 +1943,26 @@ Catálogo de treinos disponíveis na plataforma.
 
 **RLS:** leitura pública, sem policy de escrita — só service role popula (mesma postura de `workouts` e `muscles`).
 
+**Saneamento 2026-10-05** (`20261005-workouts-dedupe.sql`): 24 exercícios que eram o MESMO exercício com outro nome foram fundidos no padrão do grupo (catálogo 273 → 249). Com isso `arranco_desenvolvimento` e `agachamento_goblet` deixaram de ser grupo (ficaram com 1 variação) e a rosca alternada passou para `rosca_direta` (grupo `rosca_alternada` apagado). Restam 42 grupos.
+
 ---
+
+## workout_merges
+
+Redirecionamento permanente de exercício do catálogo apagado por duplicidade → exercício que ficou. Criada por `20261005-workouts-dedupe.sql`.
+
+| Coluna | Tipo | Obrigatório | Padrão | Descrição |
+|---|---|---|---|---|
+| `old_id` | uuid | PK | — | Id apagado de `workouts` (sem FK: a linha não existe mais) |
+| `new_id` | uuid | ✓ | — | Id que ficou em `workouts` |
+| `old_name` | text | — | — | Nome do apagado, para auditoria |
+| `merged_at` | timestamptz | ✓ | `now()` | — |
+
+**Uso:** `assert_workout_ref()` consulta esta tabela quando recebe um `workout_id` que não existe — o app guarda o catálogo em cache por até 12h e a fila offline pode reenviar séries com o id antigo; a gravação vai para o id novo em vez de falhar. **Não apagar linhas.** Uma nova fusão é só mais uma linha aqui + o remapeamento (reaproveitar o script de 20261005).
+
+**O que a fusão remapeia:** `workout_id` em `user_workouts` (rotina com os dois vira um item só; o histórico do item redundante passa para o que fica), `user_workouts_hist`, `training_day_exercises`, `suggested_routine_exercises`, `admin_custom_workout_reviews`, `workout_groups.default_workout_id`; o id dentro de `posts.workout_summary`, `routines.last_summary`, `workout_parties.snapshot`, `workout_challenges.snapshot`, `workout_challenge_results.result`; e o **nome** em `routines.program_meta`. Os nomes dentro dos snapshots ficam como foram gravados.
+
+**RLS:** leitura pública, sem policy de escrita.
 
 ---
 
@@ -2043,7 +2145,7 @@ Migração `docs/migrations/20261001-hide-banned-users.sql`. Banido (`profiles.i
 
 | Helper | O que faz |
 |---|---|
-| `banned_user_ids()` | `uuid[]` com todos os banidos. SECURITY DEFINER (lê `profiles` sem recursar na RLS). Chamado sempre como `(select public.banned_user_ids())` → initplan, roda **uma vez por query**. Índice parcial `profiles_banned_idx` |
+| `banned_user_ids()` | `uuid[]` com todos os **escondidos**: banidos **e**, desde `20261005-scheduled-account-deletion.sql`, contas com exclusão agendada (`account_deletion_requests.status = pending`). SECURITY DEFINER (lê `profiles` sem recursar na RLS). Chamado sempre como `(select public.banned_user_ids())` → initplan, roda **uma vez por query**. Índice parcial `profiles_banned_idx`. A policy `profiles_hide_banned` também esconde a quarentena, via `pending_deletion_user_ids()` |
 | `viewer_sees_banned()` | `is_app_admin(auth.uid())` com `coalesce` — o **admin enxerga tudo** |
 
 - **SELECT** (`<tabela>_hide_banned_<coluna>`; em `profiles` é `profiles_hide_banned`, que também libera o próprio banido): `posts.user_id`/`reposted_from_user`, `flow.user_id`/`reposted_from_user`, `shots`, `comments`, `flow_comments`, `shots_comments`, `likes`, `shots_likes`, `flow_likes`, `following` (os 2 lados), `followers` (os 2 lados), `messages` (os 2 lados), `post_tags`, `flow_tags`, `notifications.follower_id`, `check_ins`, `duel_check_ins`, `duel_group_participants`, `ranking`, `workout_party_members`.

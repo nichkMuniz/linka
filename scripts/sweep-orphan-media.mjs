@@ -87,6 +87,10 @@ const MIN_AGE_HOURS = 24;
  */
 const MEDIA_SOURCES = [
   { table: "posts", textCols: ["photo"], arrayCols: ["photos"] },
+  // Post em vídeo (migração 20261005-post-video). Entrada SEPARADA de propósito:
+  // num banco sem a coluna, só esta é pulada — juntar com a de cima faria a
+  // leitura de `posts` inteira falhar e todas as fotos parecerem órfãs.
+  { table: "posts", textCols: ["video_url"], arrayCols: [] },
   { table: "shots", textCols: ["video_url"], arrayCols: [] },
   { table: "flow", textCols: ["media_url", "poster_url"], arrayCols: [] },
   { table: "duel_check_ins", textCols: ["photo"], arrayCols: ["photos"] },

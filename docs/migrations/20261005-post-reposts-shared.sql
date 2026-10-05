@@ -18,7 +18,9 @@
 --      notificações e denúncias levados para o original; a linha duplicada sai;
 --   3. mantém os builds antigos funcionando: um INSERT legado em `posts` com
 --      `reposted_from` vira um vínculo e a linha duplicada NÃO é gravada;
---   4. passa a contar os reposts no total de posts do perfil.
+--   4. (revertido em 20261005-profile-counts-authored-only.sql: o total de
+--      posts do perfil volta a contar só os autorais — o repost mora só na
+--      aba Marcações).
 --
 -- As colunas `posts.reposted_from*` FICAM (os builds da loja ainda pedem elas
 -- no select — o PostgREST derruba a query inteira se a coluna sumir).
@@ -354,8 +356,11 @@ create trigger trg_validate_post_repost
 -- O type 21 agora nasce em post_reposts; o trigger antigo em posts sai.
 drop trigger if exists trg_notify_post_repost on public.posts;
 
--- ─── 7. Contagem de posts do perfil inclui os reposts ───────────────────────
--- O número tem que bater com a grade, que agora mostra os dois.
+-- ─── 7. Contagem de posts do perfil (só autorais) ───────────────────────────
+-- Esta seção somava os reposts, porque a grade de Publicações os mostrava. Desde
+-- 20261005-profile-counts-authored-only o repost aparece só em Marcações, e o
+-- total voltou a ser só o que a pessoa publicou — mantido igual aqui para que
+-- reexecutar esta migração não traga a soma de volta.
 
 create or replace function public.get_profile_counts(target uuid)
 returns table (posts_count bigint, followers_count bigint, following_count bigint)
@@ -366,8 +371,7 @@ set search_path = public
 as $$
   with banned as (select public.banned_user_ids() as ids)
   select
-    (select count(*) from public.posts p where p.user_id = target)
-      + (select count(*) from public.post_reposts r where r.user_id = target),
+    (select count(*) from public.posts p where p.user_id = target),
     (select count(*) from public.following f, banned b
       where f.following_id = target and not (f.user_id = any (b.ids))),
     (select count(*) from public.following f, banned b

@@ -110,7 +110,7 @@ export const WEEKLY_PROGRAMS: WeeklyProgram[] = [
         key: "chest-tri",
         name: { pt: "A · Peito e Tríceps", en: "A · Chest & Triceps" },
         exercises: [
-          { name: "Supino reto", muscleGroup: "Peito", series: 4, reps: "10" },
+          { name: "Supino Reto com Barra", muscleGroup: "Peito", series: 4, reps: "10" },
           { name: "Supino inclinado com halteres", muscleGroup: "Peito", series: 3, reps: "10" },
           { name: "Crucifixo na máquina", muscleGroup: "Peito", series: 3, reps: "12" },
           { name: "Tríceps na Polia com Corda", muscleGroup: "Tríceps", series: 3, reps: "12" },
@@ -137,7 +137,7 @@ export const WEEKLY_PROGRAMS: WeeklyProgram[] = [
           { name: "Cadeira extensora", muscleGroup: "Pernas", series: 3, reps: "12" },
           { name: "Mesa flexora", muscleGroup: "Pernas", series: 3, reps: "12" },
           { name: "Desenvolvimento militar", muscleGroup: "Ombros", series: 3, reps: "10" },
-          { name: "Elevação lateral", muscleGroup: "Ombros", series: 3, reps: "12" },
+          { name: "Elevação Lateral com Halter", muscleGroup: "Ombros", series: 3, reps: "12" },
         ],
       },
     ],
@@ -158,11 +158,11 @@ export const WEEKLY_PROGRAMS: WeeklyProgram[] = [
         key: "push",
         name: { pt: "Push — Empurrar", en: "Push Day" },
         exercises: [
-          { name: "Supino reto", muscleGroup: "Peito", series: 4, reps: "8" },
+          { name: "Supino Reto com Barra", muscleGroup: "Peito", series: 4, reps: "8" },
           { name: "Supino inclinado com halteres", muscleGroup: "Peito", series: 4, reps: "10" },
           { name: "Crossover no Cabo", muscleGroup: "Peito", series: 3, reps: "12" },
           { name: "Desenvolvimento militar", muscleGroup: "Ombros", series: 4, reps: "8" },
-          { name: "Elevação lateral", muscleGroup: "Ombros", series: 4, reps: "12" },
+          { name: "Elevação Lateral com Halter", muscleGroup: "Ombros", series: 4, reps: "12" },
           { name: "Tríceps na Polia com Corda", muscleGroup: "Tríceps", series: 4, reps: "12" },
           { name: "Tríceps testa", muscleGroup: "Tríceps", series: 3, reps: "10" },
         ],
@@ -233,6 +233,9 @@ const EXERCISE_ALIASES: Record<string, string> = {
   "crossover": "crossover no cabo",
   "barra fixa": "barra fixa (chin-up)",
   "panturrilha em pé": "elevação de panturrilha em pé",
+  // Saneamento do catálogo (20261005-workouts-dedupe.sql).
+  "supino reto": "supino reto com barra",
+  "elevação lateral": "elevação lateral com halter",
 };
 
 /**

@@ -376,8 +376,8 @@ async function bakeTransformedCanvas(
     ctx.translate(cx + t.x * sx, cy + t.y * sx);
     ctx.scale(t.scale, t.scale);
     ctx.translate(-cx, -cy);
-    // "contain" (imagem inteira, sem cortar → galeria) ou "cover" (full-bleed → câmera),
-    // batendo com o object-fit usado no preview.
+    // "contain" (imagem inteira, sem cortar → semente 1:1) ou "cover" (tela cheia →
+    // câmera e galeria), batendo com o object-fit usado no preview.
     const fc = (fit === "contain" ? containRect : coverRect)(img.width, img.height, outW, outH);
     ctx.drawImage(img, fc.dx, fc.dy, fc.dw, fc.dh);
     ctx.restore();
@@ -906,10 +906,23 @@ export function FlowCreationDialog({
   const awaitingSeed = open && !!seed && appliedSeed !== seed;
   const [mediaPreview, setMediaPreview] = React.useState<string | null>(null);
   const [mediaIsVideo, setMediaIsVideo] = React.useState(false);
-  // Imagem veio da galeria (vs. capturada pela câmera). A da galeria é exibida
-  // inteira (object-contain + fundo desfocado) para não cortar o conteúdo; a da
-  // câmera é full-bleed (object-cover), pois o viewfinder já é WYSIWYG.
+  // Imagem veio da galeria/semente (vs. capturada pela câmera): é SEMPRE
+  // recomposta no frame da tela ao publicar, para sair igual ao preview.
   const [mediaFromGallery, setMediaFromGallery] = React.useState(false);
+  // Enquadramento inicial da imagem. Câmera e galeria → "cover": ocupa a tela
+  // inteira, como no Instagram (2026-10-05; a galeria era "contain"). Semente
+  // (resumo do treino, card, mapa, parciais) → "contain": são imagens 1:1 com
+  // informação até a borda, que o "cover" cortaria nas laterais. O fundo
+  // desfocado preenche o que sobra (e o que a pinça revela ao encolher).
+  const [mediaFit, setMediaFit] = React.useState<"cover" | "contain">("cover");
+  // Tamanho natural da imagem em preview (amarrado ao `src`, para nunca usar o
+  // da foto anterior) e do frame da etapa de legenda. Com os dois, a imagem é
+  // posicionada no MESMO retângulo do bake (`coverRect`/`containRect`) em vez de
+  // `object-fit`: o elemento fica do tamanho da foto INTEIRA, maior que a tela, e
+  // só a borda da tela corta. Com `object-cover` o corte acontecia dentro do
+  // próprio <img> — ao encolher ou arrastar, o que sobrava da foto não voltava.
+  const [mediaNaturalSize, setMediaNaturalSize] = React.useState<{ src: string; w: number; h: number } | null>(null);
+  const [captionFrameSize, setCaptionFrameSize] = React.useState<{ w: number; h: number } | null>(null);
   const [description, setDescription] = React.useState("");
   // Pessoas marcadas no flow (estilo Instagram) + drawer de seleção.
   const [taggedUsers, setTaggedUsers] = React.useState<SearchUser[]>([]);
@@ -1026,6 +1039,16 @@ export function FlowCreationDialog({
   const pinchRef = React.useRef<{ startDist: number; startZoom: number } | null>(null);
   const MAX_DIGITAL_ZOOM = 5;
   const captionFrameRef = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => {
+    const el = captionFrameRef.current;
+    if (!el) return;
+    const measure = () => setCaptionFrameSize({ w: el.clientWidth, h: el.clientHeight });
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [step, mediaPreview]);
   const transformRef = React.useRef<MediaTransform>(IDENTITY_TRANSFORM);
   const pointersRef = React.useRef<Map<number, { x: number; y: number }>>(new Map());
   const gestureStartRef = React.useRef<{
@@ -1254,6 +1277,7 @@ export function FlowCreationDialog({
       setMediaPreview(null);
       setMediaIsVideo(false);
       setMediaFromGallery(false);
+      setMediaFit("cover");
       setWorkoutSticker(null);
       setTexts([]);
       setSelectedGradient(POST_FLOW_BACKGROUND);
@@ -1271,6 +1295,7 @@ export function FlowCreationDialog({
     setPostSticker(null);
     setMediaIsVideo(false);
     setMediaFromGallery(true);
+    setMediaFit("contain");
     setMediaPreview(seed.mediaUrl);
     setWorkoutSticker(
       seed.workoutSticker
@@ -1430,6 +1455,7 @@ export function FlowCreationDialog({
     const dataUrl = canvas.toDataURL("image/jpeg", PHOTO_JPEG_QUALITY);
     setMediaIsVideo(false);
     setMediaFromGallery(false);
+    setMediaFit("cover");
     setMediaPreview(dataUrl);
     setStep("caption");
   };
@@ -1660,6 +1686,7 @@ export function FlowCreationDialog({
       const blobUrl = URL.createObjectURL(blob);
       setMediaIsVideo(true);
       setMediaFromGallery(false);
+      setMediaFit("cover");
       setMediaPreview(blobUrl);
       setStep("caption");
     };
@@ -1911,6 +1938,7 @@ export function FlowCreationDialog({
         // 1º frame (onLoadedData → finishPreparing), senão pisca um frame preto.
         setMediaIsVideo(true);
         setMediaFromGallery(true);
+        setMediaFit("cover");
         setMediaPreview(previewUrl);
         setStep("caption");
       };
@@ -1947,6 +1975,7 @@ export function FlowCreationDialog({
       finishPreparing();
       setMediaIsVideo(false);
       setMediaFromGallery(true);
+      setMediaFit("cover");
       setMediaPreview(e.target?.result as string);
       setStep("caption");
     };
@@ -2191,6 +2220,7 @@ export function FlowCreationDialog({
     });
     setMediaIsVideo(false);
     setMediaFromGallery(false);
+    setMediaFit("cover");
     setDescription("");
     setTaggedUsers([]);
     setPinOnPost(null);
@@ -2269,7 +2299,7 @@ export function FlowCreationDialog({
       fw,
       fh,
       transformRef.current,
-      mediaFromGallery ? "contain" : "cover",
+      mediaFit,
     );
     if (!canvas) return null;
     const ctx = canvas.getContext("2d");
@@ -2424,11 +2454,12 @@ export function FlowCreationDialog({
         // quando houve pinça/arraste; sem transform o viewer usa object-cover puro).
         if (isMediaTransformed(tf)) mediaTransformPayload = percentTransform;
       } else if (mediaFromGallery) {
-        // Imagem da galeria: SEMPRE compõe no frame 9:16 (imagem inteira via "contain"
-        // + fundo desfocado nas bordas), mesmo sem pinça/zoom. Assim o resultado postado
-        // é idêntico ao preview e nada é cortado — o viewer só dá object-cover sobre um
-        // frame que já tem o aspecto certo. Se a composição falhar, cai para o original.
-        const baked = await bakeTransformedImage(mediaPreview, fw, fh, tf, "contain");
+        // Imagem da galeria/semente: SEMPRE compõe no frame 9:16, mesmo sem
+        // pinça/zoom — com o mesmo `mediaFit` do preview (galeria = tela cheia,
+        // semente = imagem inteira + fundo desfocado). Assim o postado é idêntico
+        // ao preview, e a foto de 12 MP da galeria sai redimensionada. Se a
+        // composição falhar, cai para o original.
+        const baked = await bakeTransformedImage(mediaPreview, fw, fh, tf, mediaFit);
         if (baked) {
           mediaToShare = baked;
         } else if (isMediaTransformed(tf)) {
@@ -2506,6 +2537,7 @@ export function FlowCreationDialog({
     });
     setMediaIsVideo(false);
     setMediaFromGallery(false);
+    setMediaFit("cover");
     if (prepareSafetyRef.current) {
       clearTimeout(prepareSafetyRef.current);
       prepareSafetyRef.current = null;
@@ -3167,6 +3199,23 @@ export function FlowCreationDialog({
     </div>
   ));
 
+  // Retângulo da imagem no frame — o mesmo que o bake desenha no canvas, então o
+  // postado bate com o preview. `null` até medir imagem e frame.
+  const mediaImageRect =
+    !mediaIsVideo &&
+    mediaPreview &&
+    mediaNaturalSize?.src === mediaPreview &&
+    captionFrameSize &&
+    captionFrameSize.w > 0 &&
+    captionFrameSize.h > 0
+      ? (mediaFit === "contain" ? containRect : coverRect)(
+          mediaNaturalSize.w,
+          mediaNaturalSize.h,
+          captionFrameSize.w,
+          captionFrameSize.h,
+        )
+      : null;
+
   // Modo LEGENDA sobre a foto: as frases são **pointer-events-none** e todos os
   // gestos passam para a camada única de gestos da mídia (handleMediaPointer*), que
   // decide o alvo (legenda vs foto). Registramos o elemento em textElsRef para o
@@ -3750,11 +3799,31 @@ export function FlowCreationDialog({
                     src={mediaPreview}
                     alt="Preview"
                     draggable={false}
-                    // Galeria → object-contain: mostra a imagem INTEIRA por padrão (nada
-                    // cortado), com o fundo desfocado preenchendo as bordas; o usuário pode
-                    // dar pinça/zoom/arraste para reenquadrar/cortar como preferir.
-                    // Câmera → object-cover: full-bleed, pois o viewfinder já é WYSIWYG.
-                    className={`h-full w-full select-none ${mediaFromGallery ? "object-contain" : "object-cover"}`}
+                    onLoad={(e) => {
+                      const img = e.currentTarget;
+                      if (img.naturalWidth && img.naturalHeight) {
+                        setMediaNaturalSize({ src: mediaPreview, w: img.naturalWidth, h: img.naturalHeight });
+                      }
+                    }}
+                    // Câmera e galeria → "cover": ocupa a tela inteira (Instagram); a
+                    // pinça/arraste reenquadra. Semente (card 1:1) → "contain", imagem
+                    // inteira com o fundo desfocado nas bordas. Ver `mediaFit`.
+                    // Até medir (1º frame), cai no object-fit equivalente.
+                    className={
+                      mediaImageRect
+                        ? "absolute max-w-none select-none"
+                        : `h-full w-full select-none ${mediaFit === "contain" ? "object-contain" : "object-cover"}`
+                    }
+                    style={
+                      mediaImageRect
+                        ? {
+                            left: mediaImageRect.dx,
+                            top: mediaImageRect.dy,
+                            width: mediaImageRect.dw,
+                            height: mediaImageRect.dh,
+                          }
+                        : undefined
+                    }
                   />
                 )}
               </div>

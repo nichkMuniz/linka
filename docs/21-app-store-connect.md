@@ -62,6 +62,8 @@ rejeitada e a Apple recusa número repetido.
 | 6 | Decidir o **trader status** da UE | ASC → Informações de negócios | Antes de enviar |
 | 7 | Confirmar **`VITE_SENTRY_DSN`** nas variáveis do Appflow | Appflow | Antes do build |
 | 8 | **Deploy na Vercel** para `/suporte` ficar no ar | Vercel | Antes de enviar |
+| 9 | **Criar a chave de Sign in with Apple** e os secrets `APPLE_SIGNIN_KEY_P8` / `APPLE_SIGNIN_KEY_ID` (ver `docs/migrations/20261005-apple-signin-revoke.sql`) — sem ela, excluir conta criada com Apple **não revoga** o token (5.1.1(v)) | Apple Developer → Keys + Supabase → Edge Functions → Secrets | Antes de enviar |
+| 10 | Reconferir **ficha de privacidade** (§3.2: “Outro conteúdo do usuário” + Análise; “Outros dados de diagnóstico”) e **Notes for Review** (§3.5: login, localização/Face ID, exclusão agendada) — atualizados em 05/10/2026 | ASC | Antes de enviar |
 
 ---
 
@@ -113,7 +115,7 @@ jogos, apostas, criptomoeda, Kids Category, ARKit, extensões e Mac ficam fora.
 | Diretriz | O que exige | LinKa |
 |---|---|---|
 | **4.2** Funcionalidade mínima | Mais que um site empacotado | ✅ app nativo com plugins, câmera, push |
-| **4.8** Serviços de login | Se usa login social de terceiro, precisa oferecer alternativa equivalente (Sign in with Apple) | ✅ **não se aplica** — só e-mail/senha. Não adicionar login social sem adicionar Apple junto |
+| **4.8** Serviços de login | Se usa login social de terceiro, precisa oferecer alternativa equivalente (Sign in with Apple) | ✅ e-mail/senha + **Google + Sign in with Apple** (religados em 29/09/2026). A Apple aparece sempre junto do Google — nunca oferecer um sem o outro |
 | **4.5.4** Push | Push não pode ser obrigatório para o app funcionar; marketing exige opt-in | ✅ |
 
 ### 5.x — Legal
@@ -124,7 +126,7 @@ jogos, apostas, criptomoeda, Kids Category, ARKit, extensões e Mac ficam fora.
 | **5.1.1(ii)** Permissão | Consentimento para coleta; **purpose strings explicando uso com exemplo concreto** | ✅ corrigido em 31/08 (7 chaves, en + pt-BR) |
 | **5.1.1(iii)** Minimização | Só pedir dado relevante ao núcleo | ✅ idade/altura/peso opcionais |
 | **5.1.1(iv)** Acesso | Não forçar consentimento desnecessário | ✅ |
-| **5.1.1(v)** **Exclusão de conta** | Se cria conta, precisa **excluir dentro do app** — desativar não basta; apaga o registro e os dados | ✅ implementado e endpoint no ar (verificado) |
+| **5.1.1(v)** **Exclusão de conta** | Se cria conta, precisa **excluir dentro do app** — desativar não basta; apaga o registro e os dados. Conta criada com **Sign in with Apple** precisa ter a autorização **revogada** na Apple | ✅ agendada para 30 dias com o prazo informado antes de confirmar (05/10/2026); Sign in with Apple revogado no pedido (`apple-auth`) — **exige a chave de Sign in with Apple nos secrets** |
 | **5.1.2** Uso e compartilhamento | Consentimento antes de compartilhar; ATT se houver rastreio | ✅ sem ATT porque não há rastreio |
 | **5.1.3** Saúde | Dado de fitness **não pode** ser usado para publicidade ou mineração; não gravar dado falso em HealthKit | ✅ sem anúncios, sem HealthKit |
 | **5.1.4** Crianças | Cuidado com dados de menores (COPPA/GDPR) | ⚠️ nenhuma verificação de idade |
@@ -158,9 +160,10 @@ não é suposição.
 - Desfazer em Configurações → Contas bloqueadas (`settings-drawer.tsx:1699`).
 
 **Guideline 5.1.1(v) — exclusão de conta**
-- Fluxo in-app: Configurações → Conta e segurança → Encerrar Conta, com confirmação por digitação (`Profile.tsx:2127`).
+- Fluxo in-app: Configurações → Conta e segurança → Encerrar Conta → motivo → linha do tempo com a data → **Agendar exclusão** (`delete-account-drawer.tsx`). **Desde 2026-10-05 a exclusão é agendada para 30 dias** (conta desativada e escondida na hora; reativável ao entrar de novo). A Apple aceita prazo desde que informado antes da confirmação e sem exigir contato com suporte — as notas de revisão abaixo descrevem isso.
 - Apaga de verdade: 5 lotes de DELETE respeitando FK + purga do Storage (`ritmofit-db.ts:12137-12243`), depois `POST /api/delete-auth-user` que valida o dono do token e remove de `auth.users` (`api/delete-auth-user.ts:133-152`).
 - **O endpoint está no ar**: `https://linkafit.com.br/api/delete-auth-user` responde **HTTP 405** a GET — ou seja, existe e aceita só POST. Era a maior pendência do checklist da v1.
+- **Revogação do Sign in with Apple (05/10/2026):** no login com Apple, o app manda o `authorizationCode` à edge function `apple-auth`, que troca por refresh token (`apple_auth_tokens`, só service role). Ao pedir a exclusão, `apple-auth` revoga na Apple; a `purge-scheduled-deletions` revoga o que sobrar no fim do prazo. Contas Apple criadas antes disso só passam a ter token ao entrar de novo com a Apple. Migração `20261005-apple-signin-revoke.sql`.
 
 **Guideline 5.1.1(ii) — purpose strings**
 - 7 chaves no `Info.plist`, todas com uso + exemplo concreto + quando.
@@ -168,7 +171,8 @@ não é suposição.
 - **Paridade 7/7/7** — nenhuma chave sem tradução.
 
 **Guideline 4.8 — login**
-- Só e-mail/senha (`Login.tsx:457`, `:660`). Zero `signInWithOAuth`. **Sign in with Apple não é exigido.**
+- E-mail/senha, **Google** e **Sign in with Apple** (religados em 29/09/2026, `client/lib/social-auth.ts`). Como há login do Google, o Sign in with Apple é **obrigatório** e está presente — folha nativa (`@capacitor-community/apple-sign-in`), entitlement `com.apple.developer.applesignin` no `App.entitlements`.
+- Ao excluir a conta, a autorização do Sign in with Apple é revogada (`POST appleid.apple.com/auth/revoke`) — ver Guideline 5.1.1(v).
 
 **Guideline 5.1.2 — rastreio**
 - Nenhum SDK de anúncio ou analytics de terceiro. Sem ATT, sem IDFA, sem `NSUserTrackingUsageDescription` — e está correto, porque não há rastreio.
@@ -444,13 +448,14 @@ Nenhum dado do LinKa é anônimo: tudo está atrelado a uma conta.
 | **Conteúdo do usuário** | Fotos ou vídeos | Posts, flows, foto de perfil, mídia em conversas | Funcionalidade do app |
 | | Dados de áudio | Mensagens de voz na conversa privada | Funcionalidade do app |
 | | E-mails ou mensagens de texto | Conteúdo das mensagens diretas | Funcionalidade do app |
-| | Outro conteúdo do usuário | Legendas, comentários, bio, nomes de rotina | Funcionalidade do app |
+| | Outro conteúdo do usuário | Legendas, comentários, bio, nomes de rotina; **motivo e texto da exclusão de conta** (desde 05/10/2026 — anonimizado quando a conta é apagada) | Funcionalidade do app, **Análise** |
 | **Saúde e fitness** | Fitness | Treinos, séries, carga, repetições, calorias estimadas | Funcionalidade do app, Personalização do produto |
 | | Saúde | Peso, altura, idade, gênero, restrições articulares | Funcionalidade do app, Personalização do produto |
 | **Identificadores** | ID do usuário | UUID da conta | Funcionalidade do app, Análise |
 | | ID do dispositivo | Token APNs para notificações | Funcionalidade do app |
 | **Dados de uso** | Interação com o produto | `screen_time_logs` e `access_sessions` (tempo por tela e duração de sessão) | Funcionalidade do app, Análise |
 | **Diagnóstico** | Dados de falha | Sentry — evento de erro com `user.id` | Funcionalidade do app, Análise |
+| | Outros dados de diagnóstico | `push_delivery_log` — resultado de cada push (status da Apple, atraso) com `user_id` (desde 05/10/2026) | Funcionalidade do app |
 | **Localização** | Localização precisa | Corrida/caminhada por GPS (`FEATURES.gpsRun`, religada em 01/10/2026): o trajeto sai do aparelho ao carregar os tiles do mapa (CARTO) e na imagem do mapa publicada com o resumo | Funcionalidade do app |
 | | Dados de desempenho | Sentry | Funcionalidade do app, Análise |
 
@@ -771,6 +776,13 @@ Password: ⟨demo password⟩
 The account is pre-loaded with a routine, workout history, posts and a
 conversation, so no content needs to be created to review the app.
 
+SIGN IN OPTIONS (Guideline 4.8)
+Email/password, Google and Sign in with Apple. Sign in with Apple uses the
+native system sheet. When an account created with Sign in with Apple is
+deleted, the app revokes its Apple authorization through Apple's REST API
+(/auth/revoke), so Linka disappears from Settings -> Apple ID -> Sign in with
+Apple.
+
 SUGGESTED REVIEW PATH
 1. Sign in with the demo account. The Feed opens on "Seguindo" (Following).
 2. Tap "Metas" (Goals) in the bottom bar -> open the routine -> "Iniciar treino"
@@ -785,14 +797,15 @@ flow and no locked content anywhere in the app - every feature is available to
 every account. No In-App Purchase products are attached to this submission.
 The RevenueCat SDK is linked in the binary but is never initialized.
 
-ABOUT THE LOCATION AND FACE ID PURPOSE STRINGS
-Info.plist declares location and Face ID purpose strings, but the app never
-calls those APIs in this version - the corresponding features are disabled.
-The strings are required because the Capacitor plugins that reference those
-APIs are statically linked into the binary; removing the strings produced
-ITMS-90683 warnings on upload. Accordingly, location is NOT declared in the
-app privacy information, because no location data is ever collected.
-UIBackgroundModes is intentionally not declared.
+LOCATION AND FACE ID
+Location is used only for outdoor running and walking: when the user starts an
+outdoor run or walk in Goals, the app records the route with GPS to show
+distance, pace per km and a route map in the workout summary. Background
+location (UIBackgroundModes: location) keeps recording while the screen is
+locked during that workout, and stops when the workout ends. Precise location
+is declared in the app privacy information.
+Face ID is optional: after signing in, the user can enable quick sign-in with
+Face ID under Profile -> Settings. It is never required to use the app.
 
 USER-GENERATED CONTENT SAFETY (Guideline 1.2)
 All four required mechanisms are implemented:
@@ -827,9 +840,13 @@ day through an internal admin panel and acted on within 24 hours; content is
 removed and accounts are suspended or banned when warranted.
 
 ACCOUNT DELETION (Guideline 5.1.1(v))
-Profile -> Settings -> "Conta e segurança" -> "Encerrar Conta". Deletion is
-confirmed by typing DELETAR CONTA and permanently removes the account record
-and all associated data, including posts, media, workout history and messages.
+Profile -> Settings -> "Conta e segurança" -> "Encerrar Conta". The user picks a
+reason, sees the timeline and confirms. The account is deactivated immediately
+(hidden from everyone, user signed out) and is permanently deleted after 30
+days, including the account record and all associated data: posts, media,
+workout history and messages. The deletion date is shown before confirming.
+Signing in again during those 30 days offers to reactivate the account. No
+contact with support is required at any step.
 
 HEALTH DISCLAIMER
 The app does not diagnose or treat any condition. Suggested routines and

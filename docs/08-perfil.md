@@ -133,7 +133,7 @@ Tocar numa miniatura (abas Publicações, Treinos e Marcações) abre uma **tela
 ### Recompartilhar e reposts no viewer de post (2026-09-28)
 - **Botão "Recompartilhar"** (`Repeat2`) no viewer de post quando o usuário logado está **marcado** num post de **outra pessoa** (`canReshareSelectedPost`). Abre o `ShareDrawer` do perfil, agora configurável por `shareDrawerTitle`, com "Seu feed" e "Seu flow" (hook `usePostReshare`). "Seu flow" pergunta **Postar agora** ou **Editar antes de postar** (29/09/2026); editar leva ao Feed com o criador de flow aberto. O compartilhar do perfil chama `postReshare.prepare(null)`, então esses botões não aparecem lá.
 - O caminho natural é a aba **Marcações** do próprio perfil (flag `profileTaggedTab`, religada em 28/09/2026): lá estão justamente os posts em que o usuário foi marcado. Também funciona abrindo o post no perfil do autor.
-- **Repost na aba Posts (2026-10-05):** `getUserPostsDb` traz os posts que a pessoa publicou **e** os que ela repostou (`post_reposts`), juntos por data. O post repostado é o do autor (mesmo id, curtidas e comentários); o tile da grade ganha um selo `Repeat2` no canto superior esquerdo e o card mostra "{nome} repostou" (`RepostedBy`). Fica sempre em **Publicações**, nunca em **Treinos** (o treino é de outra pessoa). O total de posts (`get_profile_counts`) soma os repostados.
+- **Repost só na aba Marcações (2026-10-05, corrigido no mesmo dia):** a 1ª versão punha o post repostado também em **Publicações** — ele aparecia duas vezes no perfil, porque só quem está marcado pode repostar e o post já estava em **Marcações**. Agora `getUserPostsDb` traz **só os posts autorais**; o repostado fica apenas em Marcações, onde o tile ganha o selo `Repeat2` (canto superior esquerdo, quando `repostedBy` inclui o dono do perfil) e o card mostra "{nome} repostou" (`RepostedBy`, com o dono da aba primeiro). O total de posts (`get_profile_counts`) voltou a contar só os autorais — migração `20261005-profile-counts-authored-only.sql`. O repost continua levando o post ao **feed** de quem segue quem repostou; os toasts viraram "Repostado no seu feed" / "Removido do seu feed", casando com o botão "Seu feed" / "Remover do feed".
 
 ### Badge de Conta Verificada
 - Componente: `client/components/shared/VerifiedBadge.tsx`
@@ -205,6 +205,7 @@ Grade de imagens dos posts do usuário — **exceto** os resumos de treino sem f
 Cada post na grade:
 - Thumbnail da primeira imagem (`loading="lazy"` + `decoding="async"` — até 100 posts não carregam todos de uma vez)
 - **Várias fotos:** selo `MultiPhotoBadge` no canto (pílula de vidro escuro com o ícone `GalleryHorizontalEnd` + a quantidade — 2026-09-30; antes era um quadradinho branco com emoji 📷 que destoava do app)
+- **Post em vídeo (2026-10-05):** a miniatura é a capa (`posts.photo`) e o selo `VideoPostBadge` (▶ no mesmo vidro escuro) marca que é vídeo. No `ProfilePostsViewer` o post toca como no feed (mesmo `PostCard`)
 - Ao clicar → abre as **Publicações em tela cheia** (`ProfilePostsViewer`) rolada até este post
 
 **Menu de contexto (próprio perfil apenas):**
@@ -314,6 +315,8 @@ Grade das publicações **de outras pessoas** em que o dono do perfil foi marcad
 Cada item na grade:
 - Thumbnail da primeira imagem (`loading="lazy"` + `decoding="async"`)
 - Indicador de carrossel (`MultiPhotoBadge`: pílula de vidro escuro com ícone de carrossel + contagem) quando o post tem mais de uma foto — igual à aba Posts
+- Selo `VideoPostBadge` quando é post em vídeo — igual à aba Posts
+- Selo de **repost** (`Repeat2`, canto superior esquerdo) quando o dono do perfil repostou o post — é só aqui que o repost aparece no perfil (2026-10-05)
 - **Chip do autor no rodapé do tile** (avatar 16px + nickname sobre um gradiente preto). Diferente das abas Posts e Shots, a foto **não é do dono do perfil** — sem o chip não dá para saber de quem é a publicação sem abri-la
 - Ao clicar → abre o `ProfilePostsViewer` com a lista da aba **Marcações**, rolada até o post tocado
 
@@ -429,25 +432,30 @@ A correção tem três frentes (as duas primeiras valem para o app inteiro):
 | Configuração | Tipo | Descrição |
 |---|---|---|
 | Meu Perfil | Botão → Drawer aninhado com abas | Drawer unificado com duas abas: **Público** (foto, nome, bio, handle) e **Pessoal** (sexo, altura, peso, idade, objetivos). O campo **Peso** tem ao lado um botão **"Histórico"** (ícone `LineChart`) — ver abaixo |
-| Conta e Segurança | Botão → Drawer aninhado | Email (editável — ver abaixo), redefinir senha e zona de perigo (encerrar conta) |
+| Conta e Segurança | Botão → Drawer aninhado | Email (editável — ver abaixo), redefinir senha e zona de perigo (encerrar conta — exclusão agendada em 30 dias, com motivo) |
 
-#### Encerrar conta (`handleDeleteAccount`)
+#### Encerrar conta — exclusão agendada com justificativa (2026-10-05)
 
-Exige digitar a palavra de confirmação (`profile_close_account_confirm_word`) e chama `deleteAllUserDataDb`, que roda **três etapas, nesta ordem obrigatória**:
+Desde 2026-10-05 a exclusão **não é instantânea**. `DeleteAccountDrawer` (`client/components/profile/delete-account-drawer.tsx`), aberto pela zona de perigo de "Conta e Segurança", tem dois passos:
 
-| # | Etapa | Onde | Por que nessa ordem |
-|---|---|---|---|
-| 1 | `purgeUserStorageDb` | cliente | A policy de DELETE do Storage depende de `auth.uid()`. Depois que a conta sai de `auth.users` não há sessão para provar posse e o arquivo fica órfão para sempre. |
-| 2 | `delete_user_data(p_user_id)` | **RPC no banco** | Uma transação só, `security definer` (ignora RLS). Apaga as linhas **e** `auth.users`. |
-| 3 | `POST {SHARE_BASE_URL}/api/delete-auth-user` | servidor | **Só como fallback**: quando o retorno da etapa 2 não traz `"auth.users"`, ou seja, a função não teve privilégio no schema `auth`. |
+| Passo | Conteúdo | Ação |
+|---|---|---|
+| 1. Motivo | "Por que você quer sair?" — 8 opções (`no_longer_use`, `other_app`, `missing_features`, `bugs`, `too_many_notifications`, `privacy`, `new_account`, `other`) + campo de detalhes (opcional; **obrigatório** em "Outro motivo"; até 1000 caracteres) | **Continuar** só com motivo escolhido |
+| 2. Como funciona | Linha do tempo: **Hoje** (conta desativada, some para todos, sai do app) → **Nos próximos 30 dias** (entrar de novo e tocar em Reativar desfaz tudo) → **Em {data}** (apagado de vez, sem recuperação) | **Agendar exclusão** (destrutivo) ou voltar |
 
-**A etapa 2 virou função no banco (2026-09-15).** Antes eram ~45 DELETEs disparados do WebView, um por tabela, e isso falhava de duas formas ao mesmo tempo: **DELETE sob RLS é no-op silencioso** (tabela sem policy devolve "0 linhas" sem erro — o cliente logava um `console.error` que ninguém lê no device e seguia como se tivesse apagado) e **a lista atrasava** — conferindo o schema real contra o código, **31 tabelas com coluna de usuário nunca eram tocadas**, quase todas criadas depois da função original (`post_tags`, `flow_tags`, `user_blocks`, `workout_party_members`, `push_tokens`, `user_badges`, `user_weight_logs`, `user_food_logs`, `promotions`, `subscriptions`, `app_admins`, `routines.follower_id`, `diets/habits/workouts.created_by`, …). Toda tabela nova entrava com o mesmo defeito. Ver `docs/migrations/20260915-delete-user-data.sql` — **exige rodar a migração**; sem ela o erro é explícito ("Migração 20260915… não aplicada"), não um PGRST202 críptico.
+Confirmar chama `requestAccountDeletionDb` → RPC `request_account_deletion` (grava motivo + data = agora + 30 dias, apaga os tokens de push), mostra o toast com a data e desloga (`resetSupabaseAuth`). Não há mais a palavra de confirmação "DELETAR CONTA": a fricção agora é o passo de motivo + a linha do tempo, e o pedido é reversível.
 
-> ⚠️ Ao criar qualquer tabela com coluna de usuário, acrescente o par `tabela.coluna` ao array `v_targets` de `delete_user_data` **na mesma migração**. É o único lugar a manter.
+**Quarentena:** enquanto o pedido está `pending`, a conta é escondida de todos pelo banco — `banned_user_ids()` passou a incluir quem tem exclusão agendada, então as mesmas policies restritivas do banimento valem (ver `docs/migrations/20261001-hide-banned-users.sql`). Admin continua vendo.
 
-**Excluir uma conta pelo lado do admin:** `node scripts/delete-user.mjs <uuid>` (dry-run) e `--apply` para valer — faz Storage + linhas + `auth.users` num comando, na mesma ordem do app. Existe porque pelo painel do Supabase seriam dois lugares diferentes e é fácil parar no meio, deixando a conta viva e vazia.
+**Voltar dentro do prazo:** ao entrar, `usePendingDeletionGuard` (`App.tsx`, no `RequireAuth`, mesmo molde do `useBanGuard`) consulta `getPendingAccountDeletionDb` e, se houver pedido, mostra a `PendingDeletionScreen` (`client/components/shared/pending-deletion-screen.tsx`): **Reativar minha conta** (`cancel_account_deletion` + refresh global do cache) ou **Sair**.
 
-**A falha é reportada (`reportHandledError("profile:delete-account")`), não só exibida em toast (2026-09-14).** A ordem torna isso obrigatório: quando algo quebra depois dos lotes de DELETE e antes do `/api/delete-auth-user`, sobra uma **conta viva e vazia** — a pessoa entra, não vê nada e nem sempre alcança o botão de excluir de novo (o `profiles` já foi apagado). Com `catch` + toast sozinho esse caso era invisível no painel.
+**Exclusão definitiva:** a edge function `purge-scheduled-deletions` (pg_cron 1x/dia, 03:00 BRT) pega os vencidos e faz, nesta ordem: mídia pela API do Storage → `delete_user_data(p_user_id)` (linhas + `auth.users`) → `auth.admin.deleteUser` se a etapa anterior não encerrou a conta → pedido `completed` com `user_id = null` (fica só motivo e datas, anônimo). Pedido que falhar fica `pending` e é tentado no dia seguinte. A ordem Storage-antes-das-linhas continua obrigatória pelo mesmo motivo de sempre: apagar `storage.objects` pelo SQL deixa o arquivo físico no S3.
+
+**Por que as pessoas saem:** consultas prontas no rodapé de `docs/migrations/20261005-scheduled-account-deletion.sql` (contagem por motivo e quantos reativaram).
+
+> ⚠️ `delete_user_data` continua sendo o único lugar com a lista de tabelas: ao criar qualquer tabela com coluna de usuário, acrescente `tabela.coluna` ao `v_targets` **na mesma migração**. Exceção consciente: `account_deletion_requests` fica fora — o pedido sobrevive à conta, anonimizado.
+
+**Excluir uma conta pelo lado do admin (na hora, sem prazo):** `node scripts/delete-user.mjs <uuid>` (dry-run) e `--apply` para valer — Storage + linhas + `auth.users` num comando. Se a pessoa tinha pedido em aberto, o cron só fecha o pedido (`already_gone`).
 
 #### Troca do email de login (Conta e Segurança) — corrigido em 2026-09-14
 

@@ -36,37 +36,7 @@
  */
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
-
-// ─── APNs JWT (idêntico a send-push-notification) ────────────────────────────
-
-async function importP8Key(p8: string): Promise<CryptoKey> {
-  const base64 = p8
-    .replace(/-----BEGIN PRIVATE KEY-----/, "")
-    .replace(/-----END PRIVATE KEY-----/, "")
-    .replace(/\s/g, "");
-  const der = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
-  return crypto.subtle.importKey(
-    "pkcs8",
-    der,
-    { name: "ECDSA", namedCurve: "P-256" },
-    false,
-    ["sign"],
-  );
-}
-
-async function makeApnsJwt(keyId: string, teamId: string, p8: string): Promise<string> {
-  const key = await importP8Key(p8);
-  const now = Math.floor(Date.now() / 1000);
-  const header = btoa(JSON.stringify({ alg: "ES256", kid: keyId }))
-    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-  const payload = btoa(JSON.stringify({ iss: teamId, iat: now }))
-    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-  const sigInput = new TextEncoder().encode(`${header}.${payload}`);
-  const sigBuffer = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, key, sigInput);
-  const sig = btoa(String.fromCharCode(...new Uint8Array(sigBuffer)))
-    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-  return `${header}.${payload}.${sig}`;
-}
+import { logDeliveries, sendApns } from "../_shared/apns.ts";
 
 // ─── Datas em America/Sao_Paulo ──────────────────────────────────────────────
 
@@ -324,18 +294,12 @@ Deno.serve(async (req) => {
     return Response.json({ sent: 0, evaluated: candidates.length });
   }
 
-  // 4. Envia APNs (um JWT para toda a rodada).
-  const jwt = await makeApnsJwt(
-    Deno.env.get("APNS_KEY_ID")!,
-    Deno.env.get("APNS_TEAM_ID")!,
-    Deno.env.get("APNS_KEY_P8")!,
-  );
-  const apnsBundleId = Deno.env.get("APNS_BUNDLE_ID")!;
+  // 4. Envia APNs (JWT compartilhado e reaproveitado — ver _shared/apns.ts).
   let sent = 0;
   const delivered = new Set<string>();
 
-  await Promise.allSettled(
-    targets.flatMap(({ userId, nudge }) => {
+  await Promise.all(
+    targets.map(async ({ userId, nudge }) => {
       const payload = JSON.stringify({
         // Sem `badge`: o lembrete não é uma notificação não lida, e fixar 1
         // apagaria a contagem real do ícone.
@@ -346,31 +310,13 @@ Deno.serve(async (req) => {
         },
         url: nudge.url,
       });
-      return (tokensByUser.get(userId) ?? []).map((token) =>
-        fetch(`https://api.push.apple.com/3/device/${token}`, {
-          method: "POST",
-          headers: {
-            authorization: `bearer ${jwt}`,
-            "apns-topic": apnsBundleId,
-            "apns-push-type": "alert",
-            // 5 = entrega quando for conveniente para o aparelho (lembrete não
-            // é urgente; a Apple recomenda 5 para esse tipo).
-            "apns-priority": "5",
-            "content-type": "application/json",
-          },
-          body: payload,
-        }).then(async (res) => {
-          if (res.ok) {
-            sent++;
-            delivered.add(userId);
-            return;
-          }
-          const errBody = await res.json().catch(() => ({}));
-          if (errBody.reason === "BadDeviceToken" || errBody.reason === "Unregistered") {
-            await supabase.from("push_tokens").delete().eq("token", token);
-          }
-        }),
-      );
+      // 5 = entrega quando for conveniente para o aparelho (lembrete não é
+      // urgente; a Apple recomenda 5 para esse tipo).
+      const results = await sendApns(supabase, tokensByUser.get(userId) ?? [], payload, "5");
+      const ok = results.filter((r) => r.status === 200).length;
+      sent += ok;
+      if (ok > 0) delivered.add(userId);
+      await logDeliveries(supabase, { source: `reengagement:${nudge.kind}`, userId, type: 0 }, results);
     }),
   );
 

@@ -27,7 +27,6 @@ import {
   FLOW_PINNED_EVENT,
   getMyViewedFlowUserIdsDb,
   FLOW_CREATED_EVENT,
-  deleteAllUserDataDb,
   type UserProfile,
   type PostWithUser,
   type UserStats,
@@ -74,10 +73,11 @@ const FlowViewer = React.lazy(() => import("@/pages/FlowViewer"));
 import { FollowButton } from "@/components/shared/follow-button";
 import { FollowListDrawer } from "@/components/profile/follow-list-drawer";
 import { SettingsDrawer } from "@/components/profile/settings-drawer";
+import { DeleteAccountDrawer } from "@/components/profile/delete-account-drawer";
 import { ShotEditorDrawer } from "@/components/profile/shot-editor-drawer";
 import { GoalDetailDrawer } from "@/components/goals/goal-detail-drawer";
 import { ProfilePostsViewer } from "@/components/profile/profile-posts-viewer";
-import { MultiPhotoBadge } from "@/components/shared/multi-photo-badge";
+import { MultiPhotoBadge, VideoPostBadge } from "@/components/shared/multi-photo-badge";
 import type { PostWithStats } from "@/services/post.service";
 import {
   Dialog,
@@ -141,7 +141,7 @@ import {
   EyeOff,
   Repeat2,
 } from "lucide-react";
-import { resetSupabaseAuth, supabase } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { useLanguage } from "@/lib/language-context";
 import { Browser } from "@capacitor/browser";
@@ -335,8 +335,8 @@ export default function Profile() {
   // usuário publicou e o post simplesmente não aparece em lugar nenhum. Sem a
   // aba, "Publicações" volta a ser o que sempre foi: tudo.
   //
-  // Post REPOSTADO (de outro autor, ver getUserPostsDb) fica sempre em
-  // "Publicações": o treino do card é de outra pessoa.
+  // Post REPOSTADO não está nesta lista (ver getUserPostsDb): ele aparece só
+  // na aba Marcações, com o selo de repost.
   const isOwnWorkoutCanvas = React.useCallback(
     (p: PostWithUser) => p.user_id === profileUserId && isWorkoutCanvasPost(p),
     [profileUserId],
@@ -389,8 +389,6 @@ export default function Profile() {
 
   // Delete account state (UI trigger not yet implemented)
   const [isDeleteAccountOpen, setIsDeleteAccountOpen] = React.useState(false);
-  const [isDeleting, setIsDeleting] = React.useState(false);
-  const [deleteConfirmText, setDeleteConfirmText] = React.useState("");
 
   // Edit account state
 
@@ -940,53 +938,6 @@ export default function Profile() {
     ]);
     setRoutines(updatedRoutines);
     setUserGoals(updatedGoals);
-  };
-
-  const handleDeleteAccount = async () => {
-    if (!user) return;
-    if (deleteConfirmText !== t("profile_close_account_confirm_word")) {
-      toast({
-        title: t("profile_toast_delete_confirm_error"),
-        description: t("profile_toast_delete_confirm_error_desc"),
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setIsDeleting(true);
-    try {
-      // Delete all user data across every table, then sign out
-      await deleteAllUserDataDb(user.id);
-      await resetSupabaseAuth();
-
-      setIsDeleteAccountOpen(false);
-      setDeleteConfirmText("");
-
-      toast({
-        title: t("profile_toast_account_deleted"),
-        description: t("profile_toast_account_deleted_desc"),
-      });
-
-      // Redirect to login after a short delay
-      setTimeout(() => {
-        navigate("/");
-      }, 1500);
-    } catch (err: any) {
-      // Reportar é obrigatório aqui, não opcional: `deleteAllUserDataDb` apaga
-      // TODAS as linhas do usuário antes de encerrar a conta em `auth.users`.
-      // Falhar no meio deixa uma conta viva e vazia — a pessoa consegue entrar,
-      // não vê nada e nem sempre consegue voltar ao botão de excluir. Sem este
-      // reporte o toast some e o caso fica invisível para nós.
-      console.error("Error deleting account:", err);
-      reportHandledError(err, "profile:delete-account", { userId: user.id });
-      toast({
-        title: t("profile_toast_account_delete_error"),
-        description: err?.message || t("retry"),
-        variant: "destructive",
-      });
-    } finally {
-      setIsDeleting(false);
-    }
   };
 
   const handleCoverFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -2004,17 +1955,7 @@ export default function Profile() {
                   <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
                   {/* Multi-photo indicator */}
                   {post.photos && post.photos.length > 1 && <MultiPhotoBadge count={post.photos.length} />}
-                  {/* Repostado: post de outro autor que esta pessoa adicionou ao perfil */}
-                  {post.user_id !== profileUserId && (
-                    <span
-                      role="img"
-                      aria-label={t("profile_reposted_badge_aria")}
-                      className="pointer-events-none absolute left-2 top-2 inline-flex h-[22px] w-[22px] items-center justify-center rounded-full text-white"
-                      style={{ background: "rgba(10,11,18,.55)", border: "1px solid rgba(255,255,255,.18)", boxShadow: "0 2px 8px rgba(0,0,0,.35)" }}
-                    >
-                      <Repeat2 className="h-3 w-3" />
-                    </span>
-                  )}
+                  {post.video_url && <VideoPostBadge />}
                 </button>
               ))}
             </div>
@@ -2156,6 +2097,19 @@ export default function Profile() {
                   <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
                   {/* Multi-photo indicator */}
                   {post.photos && post.photos.length > 1 && <MultiPhotoBadge count={post.photos.length} />}
+                  {post.video_url && <VideoPostBadge />}
+                  {/* Repostado por esta pessoa (2026-10-05): o repost mora só aqui,
+                      não em Publicações. */}
+                  {post.repostedBy?.some((u) => u.id === profileUserId) && (
+                    <span
+                      role="img"
+                      aria-label={t("profile_reposted_badge_aria")}
+                      className="pointer-events-none absolute left-2 top-2 inline-flex h-[22px] w-[22px] items-center justify-center rounded-full text-white"
+                      style={{ background: "rgba(10,11,18,.55)", border: "1px solid rgba(255,255,255,.18)", boxShadow: "0 2px 8px rgba(0,0,0,.35)" }}
+                    >
+                      <Repeat2 className="h-3 w-3" />
+                    </span>
+                  )}
                   {/* Autor do post — a foto é de outra pessoa, então o tile precisa
                       dizer de quem é sem exigir que o post seja aberto. */}
                   <div className="absolute bottom-0 left-0 right-0 flex items-center gap-1 px-1.5 py-1 pointer-events-none" style={{ background: "linear-gradient(rgba(0,0,0,0),rgba(0,0,0,.6))" }}>
@@ -2441,35 +2395,14 @@ export default function Profile() {
         </React.Suspense>
       )}
 
-      {/* Delete Account Confirmation Dialog */}
-      <AlertDialog open={isDeleteAccountOpen} onOpenChange={(open) => { setIsDeleteAccountOpen(open); if (!open) setDeleteConfirmText(""); }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle className="text-destructive">{t("profile_close_account_title")}</AlertDialogTitle>
-            <AlertDialogDescription className="space-y-3">
-              <span className="block">{t("profile_close_account_desc1")}</span>
-              <span className="block">{t("profile_close_account_desc2")}</span>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <input
-            type="text"
-            value={deleteConfirmText}
-            onChange={(e) => setDeleteConfirmText(e.target.value)}
-            placeholder={t("profile_close_account_placeholder")}
-            className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:border-destructive focus:outline-none bg-background"
-          />
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setDeleteConfirmText("")}>{t("cancel")}</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={handleDeleteAccount}
-              disabled={isDeleting || deleteConfirmText !== t("profile_close_account_confirm_word")}
-            >
-              {isDeleting ? t("profile_deleting") : t("profile_close_account_action")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {/* Encerrar conta: motivo + aviso do prazo de 30 dias (exclusão agendada) */}
+      {user && (
+        <DeleteAccountDrawer
+          open={isDeleteAccountOpen}
+          onOpenChange={setIsDeleteAccountOpen}
+          userId={user.id}
+        />
+      )}
 
       {/* Centralized confirmation drawer — replaces all native confirm() calls */}
       <Drawer

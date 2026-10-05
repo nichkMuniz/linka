@@ -137,7 +137,7 @@ type PoolExercise = {
 const POOLS: Record<SlotCategory, PoolExercise[]> = {
   chest: [
     { name: "Supino com Halteres", muscleGroup: "Peito", minLevel: 1, gym: true, home: false, compound: true, goals: { hypertrophy: 3, strength: 2, fat_loss: 2, conditioning: 2 } },
-    { name: "Supino reto", muscleGroup: "Peito", minLevel: 1, gym: true, home: false, compound: true, goals: { strength: 3, hypertrophy: 2 }, joints: ["shoulder", "wrist"] },
+    { name: "Supino Reto com Barra", muscleGroup: "Peito", minLevel: 1, gym: true, home: false, compound: true, goals: { strength: 3, hypertrophy: 2 }, joints: ["shoulder", "wrist"] },
     { name: "Supino inclinado com halteres", muscleGroup: "Peito", minLevel: 2, gym: true, home: false, compound: true, goals: { hypertrophy: 3, strength: 2 } },
     { name: "Flexão de Braço", muscleGroup: "Peito", minLevel: 1, gym: false, home: true, compound: true, goals: { fat_loss: 3, conditioning: 3, hypertrophy: 2 }, joints: ["wrist"] },
     { name: "Supino na Máquina", muscleGroup: "Peito", minLevel: 1, gym: true, home: false, compound: true, machine: true, goals: { hypertrophy: 2, fat_loss: 2, conditioning: 2 } },
@@ -153,10 +153,9 @@ const POOLS: Record<SlotCategory, PoolExercise[]> = {
     { name: "Remada curvada", muscleGroup: "Costas", minLevel: 2, gym: true, home: false, compound: true, goals: { strength: 3, hypertrophy: 2 }, joints: ["lower_back"] },
     { name: "Remada unilateral com halter", muscleGroup: "Costas", minLevel: 1, gym: true, home: false, compound: true, goals: { hypertrophy: 2, fat_loss: 2, conditioning: 2 } },
     { name: "Remada Curvada com Halteres", muscleGroup: "Costas", minLevel: 1, gym: false, home: false, compound: true, goals: { strength: 2, hypertrophy: 2, fat_loss: 2, conditioning: 2 }, joints: ["lower_back"] },
-    { name: "Puxada no Pulley Pegada Fechada", muscleGroup: "Costas", minLevel: 2, gym: true, home: false, compound: true, machine: true, goals: { hypertrophy: 2 } },
+    { name: "Puxada Fechada", muscleGroup: "Costas", minLevel: 2, gym: true, home: false, compound: true, machine: true, goals: { hypertrophy: 2 } },
     { name: "Remada na Máquina", muscleGroup: "Costas", minLevel: 1, gym: true, home: false, compound: true, machine: true, goals: { hypertrophy: 2, fat_loss: 2, conditioning: 2 } },
     { name: "Barra Fixa (Chin-up)", muscleGroup: "Costas", minLevel: 3, gym: true, home: true, compound: true, goals: { strength: 3, hypertrophy: 2, conditioning: 2 }, joints: ["shoulder"] },
-    { name: "Remada Sentada no Cabo", muscleGroup: "Costas", minLevel: 2, gym: true, home: false, compound: true, machine: true, goals: { hypertrophy: 2 } },
     // Caseiros (peso do corpo / barra ou TRX de casa):
     { name: "Remada Invertida", muscleGroup: "Costas", minLevel: 1, gym: false, home: true, compound: true, goals: { strength: 2, hypertrophy: 2, fat_loss: 2, conditioning: 2 } },
     { name: "Superman", muscleGroup: "Costas", minLevel: 1, gym: false, home: true, goals: { conditioning: 2, fat_loss: 1 }, joints: ["lower_back"] },
@@ -188,7 +187,7 @@ const POOLS: Record<SlotCategory, PoolExercise[]> = {
   ],
   shoulders: [
     { name: "Desenvolvimento com halteres", muscleGroup: "Ombros", minLevel: 1, gym: true, home: false, compound: true, goals: { hypertrophy: 2, strength: 2, fat_loss: 2, conditioning: 2 } },
-    { name: "Elevação lateral", muscleGroup: "Ombros", minLevel: 1, gym: true, home: false, goals: { hypertrophy: 3, strength: 0 } },
+    { name: "Elevação Lateral com Halter", muscleGroup: "Ombros", minLevel: 1, gym: true, home: false, goals: { hypertrophy: 3, strength: 0 } },
     { name: "Desenvolvimento militar", muscleGroup: "Ombros", minLevel: 2, gym: true, home: false, compound: true, goals: { strength: 3, hypertrophy: 2 }, joints: ["shoulder", "lower_back"] },
     { name: "Elevação lateral na máquina", muscleGroup: "Ombros", minLevel: 2, gym: true, home: false, machine: true, goals: { hypertrophy: 2, strength: 0 } },
     { name: "Remada Alta com Halteres", muscleGroup: "Ombros", minLevel: 2, gym: true, home: false, compound: true, goals: { conditioning: 2, fat_loss: 2 }, joints: ["shoulder"] },

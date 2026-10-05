@@ -843,10 +843,11 @@ export function AppLayout() {
     ? (document.body.dataset.fullscreenStep === undefined ? true : bodyFullscreen)
     : bodyFullscreen;
 
-  // Scroll hide header — mobile only, only on feed, shots, vitrine, metas and perfil pages.
+  // Scroll hide header — mobile only, only on feed, shots, vitrine, metas (e
+  // subtelas, como /metas/historico) and perfil pages.
   // Comunidade ficou de fora de propósito: esconder header/abas atrapalhava a
   // usabilidade da tela (containers com scroll interno, uma aba por vez).
-  const isScrollHidePage = location.pathname === "/" || location.pathname === "/shots" || location.pathname === "/vitrine" || location.pathname === "/metas" || location.pathname === "/perfil" || location.pathname.startsWith("/usuario/");
+  const isScrollHidePage = location.pathname === "/" || location.pathname === "/shots" || location.pathname === "/vitrine" || location.pathname === "/metas" || location.pathname.startsWith("/metas/") || location.pathname === "/perfil" || location.pathname.startsWith("/usuario/");
 
   React.useEffect(() => {
     if (!isScrollHidePage) {

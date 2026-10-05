@@ -100,7 +100,7 @@ Em desktop (md+), o conteúdo é limitado a `max-w-[680px]` centralizado após a
 Header e Bottom Nav são `position: fixed` com `top`/`bottom` calculados a partir de `env(safe-area-inset-*)`. No WKWebView do iOS, o bounce elástico nativo (rubber-band) pode deslocar/"descolar" momentaneamente elementos fixos durante o overscroll — mais perceptível em telas com safe area maior (Dynamic Island). Como o Feed já implementa seu próprio gesto de pull-to-refresh via touch handlers (`Index.tsx`), o bounce nativo é redundante e foi desativado globalmente com `overscroll-behavior-y: none` em `html`/`body` (`global.css`), eliminando o glitch sem afetar o pull-to-refresh custom.
 
 #### Header flutuante — auto-ocultar ao rolar (mobile)
-Nas rotas `/`, `/shots`, `/vitrine`, `/metas`, `/perfil` e `/usuario/:id`, o header pill flutuante some ao rolar para baixo (>96px de scroll e delta > 30px) e reaparece ao rolar para cima (delta < -30px), controlado pelo estado `headerHidden` em `AppLayout` (classe `-translate-y-[200%]` quando oculto). O listener é sempre no `window` (a página inteira rola — `Goals.tsx` usa fluxo normal de documento, sem container de altura fixa).
+Nas rotas `/`, `/shots`, `/vitrine`, `/metas` (e subtelas `/metas/*`, como o histórico de treinos), `/perfil` e `/usuario/:id`, o header pill flutuante some ao rolar para baixo (>96px de scroll e delta > 30px) e reaparece ao rolar para cima (delta < -30px), controlado pelo estado `headerHidden` em `AppLayout` (classe `-translate-y-[200%]` quando oculto). O listener é sempre no `window` (a página inteira rola — `Goals.tsx` usa fluxo normal de documento, sem container de altura fixa).
 
 > **`/comunidade` está fora de propósito (2026-07-21).** A Comunidade tinha um caminho próprio: como a tela é um container de altura fixa com scroll interno, o `AppLayout` escutava `scroll` em fase de captura no `document` filtrando pelo atributo `data-community-scroll-container`, e a `Community.tsx` espelhava a mesma lógica para esconder a barra de abas. **Tudo isso foi removido** — o header e as abas atrapalhavam mais do que ajudavam ali: com uma aba montada por vez e vários containers roláveis (lista de conversas, duelos, ranking, grupo), o header ia e vinha em transições que não eram scroll do usuário, e a barra de abas — que é a navegação principal da tela — sumia justo quando se queria trocar de aba. Não reintroduzir o atributo `data-community-scroll-container`.
 
@@ -240,6 +240,7 @@ Carrossel de imagens de um post:
 - Hooks (ref + listener de swipe) declarados **antes** dos `return` de 1 foto — antes ficavam depois, e um post que passasse de 1 para 2+ fotos quebrava o React ("Rendered more hooks")
 - **Prop `priority` (2026-07-02):** força `loading="eager"` na primeira/única foto em vez de `"lazy"` — usar quando o carrossel já monta visível dentro de um modal/drawer (ex: detalhe do check-in de duelo), onde "lazy" só atrasa o fetch sem nenhum ganho (não há scroll para "chegar" até a imagem). Não usar em contextos de lista/feed, onde "lazy" evita baixar fotos fora da viewport.
 - **Fade-in ao carregar (2026-07-02):** a imagem interna (`ZoomableImage`) começa em `opacity: 0` e transiciona para `1` no `onLoad`, em vez de aparecer abruptamente — o fundo do frame já preenche o espaço, então não há flash de conteúdo vazio.
+- **Prop `videoUrl` (2026-10-05):** post em vídeo. O carrossel renderiza o `PostVideo` no mesmo frame (1:1, `object-cover`) e usa `photos[0]` — a capa — como poster. Sem pinça de zoom, sem swipe, sem dots. `videoPaused` pausa à força (o "segurar" do card). Usado por `PostCard` e `PostDetail`
 - **Constantes exportadas `POST_PHOTO_WIDTH`/`POST_PHOTO_QUALITY`:** usadas por quem quiser pré-aquecer (`new Image().src = cdnImg(url, { width: POST_PHOTO_WIDTH, quality: POST_PHOTO_QUALITY })`) a mesma URL que o carrossel vai pedir — ver o prefetch de fotos de check-in em `Community.tsx`, que evita o usuário sentir a latência do primeiro fetch ao abrir o modal de detalhe. Desde 2026-08-14 `cdnImg` devolve a URL original (ver *Pipeline de imagens* abaixo), então o prefetch aquece o próprio objeto no CDN — o padrão de uso não muda.
 
 ---
@@ -585,6 +586,20 @@ Responder um flow **em privado**: o texto digitado na doca do viewer, em vez de 
 **Usado em:** Perfil (grades Posts e Marcações), Hashtag
 
 Selo "post com várias fotos" das grades: pílula de vidro escuro (`rgba(10,11,18,.55)` + borda `white/18`, **sem** `backdrop-filter` — dezenas por grade) com o ícone `GalleryHorizontalEnd` e a quantidade; `aria-label` "{n} fotos" (`post_photo_count_aria`). Substitui o quadradinho branco com emoji 📷. Toda grade nova com posts de várias fotos usa este selo.
+
+### VideoPostBadge (2026-10-05)
+**Arquivo:** `client/components/shared/multi-photo-badge.tsx` (ao lado do `MultiPhotoBadge`)
+**Usado em:** Perfil (grades Posts e Marcações), Hashtag, Busca (aba Hashtags)
+
+Selo "post em vídeo": círculo de 22px no mesmo vidro escuro e no mesmo canto do `MultiPhotoBadge`, com o ícone `Play` preenchido; `aria-label` "Post em vídeo" (`post_video_badge_aria`). A miniatura de um post em vídeo é a capa (`posts.photo`) — sem o selo ele se passaria por foto. Nunca aparece junto do `MultiPhotoBadge` (vídeo é sempre um arquivo só).
+
+### PostVideo / PostVideoMuteButton (2026-10-05)
+**Arquivo:** `client/components/post/post-video.tsx`
+**Usado em:** `PostCarousel` (prop `videoUrl`) → Feed, Perfil (`ProfilePostsViewer`), PostDetail
+
+Vídeo de um post em vídeo. Capa (`<img>`) sempre por baixo; o `<video>` só existe com o post a até 300px da tela e só aparece (opacidade) depois do 1º frame. Toca mudo com ≥ 60% do frame visível; pilha `wantsToPlay` garante um tocando por vez e devolve a vez ao anterior. Libera o player com `releaseVideoElement` ao desmontar (teto de players do WKWebView). Toques atravessam o vídeo (`pointer-events: none`) — o card decide o gesto.
+
+`PostVideoMuteButton`: botão redondo de 36px no visual do ⋮ do card (fundo `rgba(0,0,0,.4)`, sem blur), `VolumeX`/`Volume2`. O estado de som é global (`usePostVideoMuted`, `togglePostVideoMuted`) — um só para todos os posts. Fica fora do frame do vídeo (no grupo de ações do canto superior direito), porque o rodapé do frame já é da legenda e da barra de incentivos.
 
 ### ScreenAura (2026-09-30)
 **Arquivo:** `client/components/shared/screen-aura.tsx`

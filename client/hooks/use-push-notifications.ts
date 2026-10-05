@@ -33,21 +33,21 @@ export function usePushNotifications(userId: string | null) {
       }
       if (permStatus.receive !== "granted") return;
 
-      // 2. Register with APNs
-      await PushNotifications.register();
-
-      // 3. Token received — save to Supabase
+      // 2. Ouvintes ANTES do register(): o plugin não guarda o evento
+      // "registration" (sem retainUntilConsumed) — se o iOS devolve o token
+      // antes do addListener, ele se perde e o aparelho fica sem push.
+      //
+      // Grava SEMPRE, mesmo com o token igual ao do localStorage: a linha no
+      // banco pode ter sumido (a edge function apaga token recusado pela
+      // Apple; outra conta no mesmo iPhone reivindica o token), e o atalho
+      // "não mudou, não grava" deixava o aparelho mudo para sempre.
+      // `claim_push_token` é idempotente — uma chamada por sessão.
       const regListener = await PushNotifications.addListener("registration", async (token) => {
         if (!isMounted) return;
-        const existingToken = localStorage.getItem(PUSH_TOKEN_KEY);
-        // Avoid redundant DB writes if token hasn't changed
-        if (existingToken !== token.value) {
-          await (await db()).savePushTokenDb(token.value, "ios");
-          localStorage.setItem(PUSH_TOKEN_KEY, token.value);
-        }
+        await (await db()).savePushTokenDb(token.value, "ios");
+        localStorage.setItem(PUSH_TOKEN_KEY, token.value);
       });
 
-      // 4. Registration error
       const errListener = await PushNotifications.addListener("registrationError", (err) => {
         console.error("Push registration error:", err.error);
       });
@@ -71,6 +71,9 @@ export function usePushNotifications(userId: string | null) {
           window.location.href = url.startsWith("/") ? url : `/${url}`;
         }
       );
+
+      // 7. Só agora pede o token à Apple (ouvintes já estão no lugar).
+      await PushNotifications.register();
 
       return () => {
         regListener.remove();

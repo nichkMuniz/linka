@@ -7,7 +7,7 @@ import { searchContentByHashtagDb, type HashtagItem } from "@/lib/ritmofit-db";
 import { getPostGradient } from "@/lib/post-visuals";
 import { ShotThumb } from "@/components/shared/shot-thumb";
 import { LoadingSpinner } from "@/components/shared/animated-loading";
-import { MultiPhotoBadge } from "@/components/shared/multi-photo-badge";
+import { MultiPhotoBadge, VideoPostBadge } from "@/components/shared/multi-photo-badge";
 
 /**
  * Página de uma hashtag — grade (estilo Instagram) com os posts do feed e os
@@ -136,6 +136,7 @@ export default function Hashtag() {
                 {!isShot && item.photos && item.photos.length > 1 && (
                   <MultiPhotoBadge count={item.photos.length} />
                 )}
+                {!isShot && item.video_url && <VideoPostBadge />}
               </button>
             );
           })}

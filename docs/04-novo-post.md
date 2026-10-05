@@ -5,6 +5,9 @@
 >   um shot. O default de `mediaType` também é forçado para `"post"`, senão um
 >   rascunho salvo em `sessionStorage` reabriria o editor em modo vídeo sem
 >   seletor para sair dele.
+> - **Vídeo vai para o feed (2026-10-05):** sem Shots, o modo POST aceita
+>   **um vídeo** no lugar das fotos — vira um post em vídeo no feed. Ver
+>   "Post em vídeo" abaixo.
 > - **Marcar pessoas** (`FEATURES.postTags`), o **atalho `#`**
 >   (`FEATURES.hashtags`) e o **alfinete de localização**
 >   (`FEATURES.postLocation`) ficam guardados na barra da legenda.
@@ -22,7 +25,7 @@
 
 ## Objetivo
 
-Tela de criação de conteúdo. Permite ao usuário publicar um post com imagens ou criar um clipe de vídeo (Shot). O draft é persistido na sessão para não perder o conteúdo ao navegar.
+Tela de criação de conteúdo. Permite ao usuário publicar um post com até 5 imagens **ou um vídeo** (post em vídeo no feed, desde 2026-10-05) ou criar um clipe de vídeo (Shot, hoje guardado). O draft é persistido na sessão para não perder o conteúdo ao navegar.
 
 ---
 
@@ -81,7 +84,7 @@ ETAPA 2 — Legenda e publicação
 
 ### Toolbar da Galeria
 - **Label do álbum atual** ("Recentes" por padrão) à esquerda, agora **clicável** — abre um `DropdownMenu` (padrão Instagram) para trocar de álbum/pasta da galeria do dispositivo:
-  - Itens fixos no topo: **Recentes** (sem filtro — biblioteca completa, comportamento padrão) e **Favoritos** — este último só aparece se o dispositivo realmente tiver esse álbum inteligente (detectado por título via `/favorit/i` na lista retornada por `PhotoLibrary.getAlbums()`). O atalho fixo de **Vídeos** foi removido (25/07/2026): no modo POST a consulta já pede só imagens, então filtrar por um álbum só-de-vídeo retornava grade vazia; no modo SHOT a galeria já só traz vídeos, tornando o atalho redundante. Se o dispositivo tiver um álbum "Vídeos", ele ainda aparece normalmente dentro de "Todos os álbuns"
+  - Itens fixos no topo: **Recentes** (sem filtro — biblioteca completa, comportamento padrão) e **Favoritos** — este último só aparece se o dispositivo realmente tiver esse álbum inteligente (detectado por título via `/favorit/i` na lista retornada por `PhotoLibrary.getAlbums()`). O atalho fixo de **Vídeos** foi removido (25/07/2026), quando o modo POST pedia só imagens e um álbum só-de-vídeo voltava vazio. Desde 2026-10-05 o modo POST lista fotos **e** vídeos (`includeVideos: true` nos dois modos), então um álbum de vídeos funciona nos dois. Se o dispositivo tiver um álbum "Vídeos", ele ainda aparece normalmente dentro de "Todos os álbuns"
   - Submenu **"Todos os álbuns"** — lista o restante dos álbuns do dispositivo (usuário + outros inteligentes), com contagem de itens; a opção **"Dos apps da Meta"** é **sempre excluída** (filtro `/meta/i` no título) por não fazer sentido no contexto do app
   - Item selecionado marcado com um ✓ azul; trocar de álbum recarrega a grade filtrada por aquele álbum (mantendo o filtro de tipo imagem/vídeo do `mediaType` atual)
   - **Limitação do plugin**: `PhotoLibrary.getLibrary` não filtra por álbum na consulta — ao selecionar um álbum específico, o app varre a biblioteca em lotes de 150 (`includeAlbumData: true`, até 1500 itens escaneados por chamada) filtrando client-side por `asset.albumIds`, acumulando até preencher uma página (40 itens) ou esgotar a biblioteca; "carregar mais" continua o scan de onde parou
@@ -90,7 +93,8 @@ ETAPA 2 — Legenda e publicação
 
 ### Grade de Fotos (somente POST)
 - 4 colunas, `gap-px`
-- Primeira célula: ícone `Camera` (abre file picker)
+- Primeira célula: ícone `Camera` — abre a **câmera com foto e vídeo** (`<input accept="image/*,video/*" capture>`; o iOS oferece os dois modos). Vídeo gravado segue o caminho do post em vídeo
+- Vídeos da galeria aparecem com a duração no canto. No "Selecionar vários" ficam esmaecidos (`opacity: .35`) e o toque explica que post em vídeo leva um vídeo só
 - Células seguintes: fotos selecionadas (toque define o preview principal)
 - Sobre cada foto: botão `X` para remover, número de ordem no canto inferior esquerdo, anel de destaque na foto ativa
 - Sem fotos: 12 células de placeholder (só a primeira tem ícone)
@@ -103,6 +107,19 @@ ETAPA 2 — Legenda e publicação
 - `MAX_POST_PHOTOS = 5` — no máximo **5 fotos** por publicação (somente POST; SHOT continua sendo 1 vídeo)
 - Contador **`n/5`** aparece embutido no próprio botão "Selecionar vários" (chip) quando o modo de seleção múltipla está ativo
 - Ao atingir o limite: as miniaturas **não selecionadas** da galeria ficam esmaecidas (`opacity: .35`) e tocar nelas exibe um toast de aviso (`newpost_max_photos_title`/`newpost_max_photos_desc`) em vez de adicionar — vale tanto para o toque na grade quanto para seleção via `<input type="file" multiple>` (fallback web/câmera), que descarta silenciosamente os arquivos excedentes e mostra o mesmo toast uma única vez ao final
+
+### Post em vídeo (2026-10-05)
+
+Enquanto Shots está guardado (`FEATURES.shots`), o vídeo vai para o feed como **post comum**: mesmas curtidas, comentários, marcações, meta vinculada e repost. Um post é **até 5 fotos OU 1 vídeo**.
+
+- **Escolher:** toque num vídeo da grade (modo único), vídeo gravado pela célula da câmera, ou um vídeo sozinho pelo seletor do sistema (o `<input>` do POST aceita `image/*,video/*`). Vídeo misturado com fotos no seletor do sistema é descartado com aviso, e as fotos seguem
+- **Fotos e vídeo se excluem:** escolher um vídeo limpa as fotos; escolher uma foto (ou ligar o "Selecionar vários") limpa o vídeo. Tocar de novo no vídeo selecionado o desmarca. O vídeo do POST usa o **mesmo estado** do vídeo do SHOT (`selectedVideoFile`/`videoPreview`), e `postIsVideo` = modo POST + vídeo + nenhuma foto
+- **Limites:** até **60 s** (`MAX_POST_VIDEO_SECONDS`) e **100 MB depois de comprimido** (`MAX_POST_VIDEO_BYTES`). A duração é checada **antes** de reencodar: pela galeria vem do `asset.duration`; pelo `<input>` é medida no arquivo local com `probeFlowVideo`. Toasts `newpost_video_too_long_*` / `newpost_video_max_size`
+- **Compressão:** a mesma do shot — `getCompressedVideoUrl` (galeria) ou `compressVideoBlob` (câmera/seletor), 1080p com o `moov` no início, sob o overlay "Preparando o vídeo...". O `File` é reembalado com tipo explícito (`blob.type` de `fetch(webPath)` pode vir vazio)
+- **Preview da Etapa 1:** o vídeo toca em loop, mudo, no frame 1:1 com `object-cover` — exatamente o enquadramento do feed. Botão de som (`VolumeX`/`Volume2`) no canto inferior direito
+- **Etapa 2:** miniatura 64×64 é o próprio vídeo com `videoPosterSrc` (`#t=0.1`, docs/15 §7.4). Meta, marcar pessoas e menções funcionam como no post de fotos
+- **Publicar (`handlePostVideoSubmit`):** extrai a **capa** (1º frame recortado em 1:1, 1080px — `probeFlowVideo(src, 1080, 0.82, true)`) e sobe vídeo e capa em paralelo: `posts/{uid}/videos/{timestamp}.{ext}` e `posts/{uid}/{timestamp}-poster.jpg`. Depois `createPostDb(capa, legenda, meta, null, marcados, videoUrl)`. A capa vira `posts.photo`, então grade do perfil, notificações, compartilhar e **builds antigos** mostram a capa como foto. Sem capa (extração falhou) o post ainda publica e toca, só a miniatura fica vazia. Falha no meio → apaga o que já subiu
+- **Banco:** coluna `posts.video_url` — migração `docs/migrations/20261005-post-video.sql`, **antes** do build. Ver `docs/14-database-schema.md` e, para a reprodução no feed, `docs/01-feed.md`
 
 ---
 
@@ -158,7 +175,7 @@ Seção "MARCAR PESSOAS · OPCIONAL" logo abaixo da seção de metas, para marca
 
 ### Botão Publicar
 - Fixo no rodapé com `env(safe-area-inset-bottom)`
-- "Publicar" (POST) ou "Publicar Shot" (SHOT)
+- "Publicar" (POST — fotos ou vídeo) ou "Publicar Shot" (SHOT)
 - Desabilitado durante envio
 
 ---
@@ -230,5 +247,5 @@ Campos automaticamente salvos na sessão:
 - URLs de preview são revogadas no unmount (evita memory leak)
 - Tab ativa é preservada em sessionStorage — ao voltar, usuário retorna na mesma aba
 - **Persistência do passo (step):** o passo atual (`select` ou `caption`) é salvo em `sessionStorage` (`newpost_step`) e restaurado ao montar a tela — desde que ainda haja conteúdo selecionado (fotos no `imageDraft` ou vídeo no `videoDraft`). Isso cobre o fluxo de "+ Nova meta": usuário está na etapa de legenda, sai para `/metas` para criar uma meta nova, e ao retornar cai direto na etapa de legenda com fotos e texto já preenchidos, em vez de reiniciar na galeria. O `newpost_step` é limpo ao publicar com sucesso (post ou shot)
-- A seleção de arquivos usa `<input type="file" multiple accept="image/*">` oculto
-- Para vídeos: `<input type="file" accept="video/*">` oculto
+- A seleção de arquivos do POST usa `<input type="file" multiple accept="image/*,video/*">` oculto (`handlePostFilesChange`: um vídeo sozinho vira post em vídeo; fotos seguem para `addPickedImages`). A câmera do POST é o mesmo `accept` com `capture="environment"`
+- Para vídeos de SHOT: `<input type="file" accept="video/*">` oculto

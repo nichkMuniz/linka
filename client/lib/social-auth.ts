@@ -19,6 +19,7 @@ import { Browser } from "@capacitor/browser";
 import { SignInWithApple } from "@capacitor-community/apple-sign-in";
 import { APP_URL_SCHEME } from "@shared/share-config";
 import { supabase } from "@/lib/supabase";
+import { reportHandledError } from "@/lib/monitoring";
 
 /** Destino do OAuth no app nativo. Precisa estar em Auth → URL Configuration → Redirect URLs. */
 export const OAUTH_NATIVE_REDIRECT = `${APP_URL_SCHEME}://login-callback`;
@@ -168,6 +169,30 @@ export async function signInWithApple(): Promise<AppleSignInResult | null> {
   });
   if (error) throw error;
 
+  // Guarda o token da Apple para poder REVOGAR a autorização se a conta for
+  // excluída (exigência da Apple, 5.1.1(v)). O code vale 5 min e é de uso
+  // único — tem que ir agora. Não segura o login: falhar aqui só significa
+  // que a revogação não vai acontecer para esta sessão.
+  if (response.authorizationCode) {
+    void storeAppleAuthorizationCode(response.authorizationCode);
+  }
+
   const fullName = [response.givenName, response.familyName].filter(Boolean).join(" ").trim();
   return { fullName: fullName || null };
+}
+
+/** Troca o code da Apple pelo refresh_token no servidor (edge function `apple-auth`). */
+async function storeAppleAuthorizationCode(authorizationCode: string): Promise<void> {
+  if (!supabase) return;
+  try {
+    const { data, error } = await supabase.functions.invoke("apple-auth", {
+      body: { action: "store", authorizationCode },
+    });
+    if (error) throw error;
+    if (data && (data as { stored?: boolean }).stored === false) {
+      console.warn("[apple-auth] token não guardado:", (data as { reason?: string }).reason);
+    }
+  } catch (err) {
+    reportHandledError(err, "social-auth:store-apple-code");
+  }
 }

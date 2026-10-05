@@ -1,4 +1,4 @@
-import { GalleryHorizontalEnd } from "lucide-react";
+import { GalleryHorizontalEnd, Play } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/lib/language-context";
 
@@ -30,6 +30,33 @@ export function MultiPhotoBadge({ count, className }: { count: number; className
     >
       <GalleryHorizontalEnd className="h-3 w-3" strokeWidth={2.4} aria-hidden />
       {count}
+    </span>
+  );
+}
+
+/**
+ * Selo "post em vídeo" nas mesmas grades (2026-10-05). A miniatura é a capa
+ * (`posts.photo`), então sem o selo o vídeo se passaria por foto. Mesmo vidro
+ * escuro e mesmo canto do `MultiPhotoBadge` — um post nunca tem os dois (vídeo
+ * é sempre um arquivo só).
+ */
+export function VideoPostBadge({ className }: { className?: string }) {
+  const { t } = useLanguage();
+  return (
+    <span
+      role="img"
+      aria-label={t("post_video_badge_aria")}
+      className={cn(
+        "pointer-events-none absolute right-2 top-2 inline-flex h-[22px] w-[22px] items-center justify-center rounded-full text-white",
+        className,
+      )}
+      style={{
+        background: "rgba(10,11,18,.55)",
+        border: "1px solid rgba(255,255,255,.18)",
+        boxShadow: "0 2px 8px rgba(0,0,0,.35)",
+      }}
+    >
+      <Play className="h-2.5 w-2.5 translate-x-[0.5px]" fill="currentColor" strokeWidth={0} aria-hidden />
     </span>
   );
 }

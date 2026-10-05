@@ -75,7 +75,7 @@ A busca cobre as **duas** superfícies com legenda: posts do feed e Shots. Cada 
 
 | `kind` | Miniatura | Badge | Ao tocar |
 |---|---|---|---|
-| `post` | `photo` / 1ª de `photos`; sem foto → gradiente por id + ícone `Hash` | — | `/post/:id` |
+| `post` | `photo` / 1ª de `photos`; sem foto → gradiente por id + ícone `Hash` | Post em vídeo (2026-10-05): `VideoPostBadge` — a miniatura é a capa e `video_url` vem preenchido | `/post/:id` |
 | `shot` | `ShotThumb` (`components/shared/shot-thumb.tsx`) — `<video>` mudo com `preload="metadata"`, que carrega só o que está perto da viewport e **libera o player do iOS** ao sair/desmontar (ver `docs/03-shots.md`) | Ícone `Video` sobre `bg-black/55` | `/shots` com `state: { shotId }` |
 
 > **Com `FEATURES.shots` desligada (26/09/2026)** a consulta a `shots` nem roda: a grade traz só posts, porque o destino `/shots` não existe e o toque cairia no feed.

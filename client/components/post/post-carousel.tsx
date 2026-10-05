@@ -2,6 +2,7 @@ import React from "react";
 import { ChevronLeft, ChevronRight, Trash2 } from "lucide-react";
 import { cdnImg } from "@/lib/image-url";
 import { useLanguage } from "@/lib/language-context";
+import { PostVideo } from "@/components/post/post-video";
 
 // Post photos are bounded by the post card width (max ~600px CSS on web,
 // ~430px on phones). Cap at 900px source so the WebView doesn't download the
@@ -33,6 +34,13 @@ interface PostCarouselProps {
   fill?: boolean;
   /** A primeira foto carrega "eager" mesmo com uma única imagem — usar quando o carrossel já abre visível (modal/drawer de detalhe), onde "lazy" só atrasa o fetch à toa. */
   priority?: boolean;
+  /**
+   * Post em vídeo (`posts.video_url`): toca o vídeo no frame 1:1 e usa
+   * `photos[0]` (a capa) como poster. Sem pinça de zoom e sem carrossel.
+   */
+  videoUrl?: string | null;
+  /** Pausa o vídeo (ex.: enquanto o usuário segura o post). */
+  videoPaused?: boolean;
 }
 
 function getPinchDist(touches: React.TouchList | TouchList) {
@@ -191,6 +199,8 @@ export function PostCarousel({
   fill,
   priority,
   onZoomChange,
+  videoUrl,
+  videoPaused,
 }: PostCarouselProps) {
   const { t } = useLanguage();
   const [currentIndex, setCurrentIndex] = React.useState(0);
@@ -238,6 +248,20 @@ export function PostCarousel({
   const frameBg = "bg-slate-900/10";
   const sizeClass = fill ? "h-full" : "aspect-square";
   const coverBox = `relative w-full ${sizeClass} ${frameBg} overflow-hidden rounded-lg`;
+
+  if (videoUrl) {
+    const poster = Array.isArray(photos) ? photos[0] : photos;
+    return (
+      <div className={coverBox}>
+        <PostVideo
+          src={videoUrl}
+          poster={poster ? cdnImg(poster, { width: POST_PHOTO_WIDTH, quality: POST_PHOTO_QUALITY }) ?? poster : null}
+          alt={alt}
+          paused={videoPaused}
+        />
+      </div>
+    );
+  }
 
   if (!Array.isArray(photos)) {
     return photos ? (

@@ -5,6 +5,7 @@ import { PostIncentiveButton } from "@/components/shared/post-incentive-button";
 import { QuickIncentiveOverlay } from "@/components/shared/quick-incentive-overlay";
 import { PostCommentsDialog } from "@/components/modals/post-comments-dialog";
 import { PostCarousel } from "@/components/post/post-carousel";
+import { PostVideoMuteButton } from "@/components/post/post-video";
 import { UserInsignias } from "@/components/profile/user-insignias";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { FollowButton } from "@/components/shared/follow-button";
@@ -146,6 +147,8 @@ function PostCardImpl({
   const photos = post.photos && post.photos.length > 0
     ? post.photos
     : post.photo ? [post.photo] : null;
+  // Post em vídeo: `photo` é a capa. Toca no mesmo frame 1:1 da foto.
+  const videoUrl = post.video_url || null;
 
   return (
     <div className="relative overflow-hidden fade-in mb-4" style={{ ...FEED_POST_CARD_STYLE, borderRadius: "28px", boxShadow: "0 20px 44px -16px rgba(0,0,0,.7)" }}>
@@ -175,15 +178,18 @@ function PostCardImpl({
           lastTapRef.current = now;
         }}
       >
-        {/* Photo or gradient background */}
-        {hasPhotos && photos ? (
+        {/* Photo, video or gradient background */}
+        {videoUrl || (hasPhotos && photos) ? (
           <PostCarousel
-            photos={photos}
+            photos={photos ?? []}
             alt="Post"
             hideDots
             hideCounter
             onIndexChange={setCarouselIndex}
             onZoomChange={setIsZooming}
+            videoUrl={videoUrl}
+            // Segurar o post esconde a interface e congela o vídeo junto.
+            videoPaused={holdHidden}
           />
         ) : (
           <div className="w-full aspect-square rounded-lg" style={{ background: getPostGradient(post.id) }} />
@@ -258,6 +264,8 @@ function PostCardImpl({
           style={holdHiddenStyle}
           onClick={(e) => e.stopPropagation()}
         >
+          {videoUrl && <PostVideoMuteButton />}
+
           {showFollowButton && !isOwner && (
             <FollowButton targetUserId={post.user_id} variant="overlay" />
           )}
@@ -333,7 +341,7 @@ function PostCardImpl({
         >
           {/* Carousel indicator — ACIMA da legenda (2026-09-30; antes ficava
               entre a legenda e a barra de incentivos). */}
-          {photos && photos.length > 1 && (
+          {!videoUrl && photos && photos.length > 1 && (
             <div className="flex justify-center gap-1 mb-2.5 pointer-events-none">
               {photos.map((_, index) => (
                 <div

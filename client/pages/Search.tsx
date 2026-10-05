@@ -27,6 +27,7 @@ import { FEATURES } from "@/lib/feature-flags";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { ScreenAura } from "@/components/shared/screen-aura";
 import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
+import { VideoPostBadge } from "@/components/shared/multi-photo-badge";
 import { FollowButton } from "@/components/shared/follow-button";
 import { SearchResultsSkeleton, GridSkeleton } from "@/components/shared/animated-loading";
 import { getPostGradient } from "@/lib/post-visuals";
@@ -737,6 +738,7 @@ export default function Search() {
                         <Video className="h-3 w-3 text-white" />
                       </div>
                     )}
+                    {!isShot && item.video_url && <VideoPostBadge className="right-1.5 top-1.5" />}
                   </button>
                 );
               })}

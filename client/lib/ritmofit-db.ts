@@ -764,6 +764,8 @@ export type PostWithLikes = {
   description: string;
   photo: string;
   photos?: string[] | null;
+  /** Post em vídeo — `photo` é a capa. Ver `PostWithUser.video_url`. */
+  video_url?: string | null;
   background_color?: string | null;
   created_at: string;
   user_id: string;
@@ -2173,6 +2175,8 @@ export type PostWithUser = {
   description: string;
   photo: string;
   photos?: string[] | null;
+  /** Post em vídeo: o arquivo. Aí `photo` é a CAPA (1º frame, 1:1). */
+  video_url?: string | null;
   created_at: string;
   user_id: string;
   user_goal_id?: string | null;
@@ -2192,8 +2196,32 @@ export type PostWithUser = {
 };
 
 /** Colunas de `posts` que as telas de post leem (feed, perfil, detalhe). */
-export const POST_READ_COLUMNS =
+const POST_READ_COLUMNS =
   "id, description, photo, photos, created_at, user_id, user_goal_id, workout_summary";
+
+// `video_url` (migração 20261005-post-video) fica FORA da lista fixa: se o
+// banco ainda não tiver a coluna, pedi-la derruba a consulta inteira e o feed
+// abre vazio. `selectPostRows` tenta com ela e, na falta, repete sem — uma vez
+// por sessão.
+let postVideoColumnAvailable = true;
+
+/**
+ * Lê `posts` com as colunas das telas de post + `video_url` quando existir.
+ * `run` recebe a lista de colunas e devolve a consulta já montada.
+ */
+export async function selectPostRows<R extends { error: any }>(
+  run: (columns: string) => PromiseLike<R>,
+  baseColumns: string = POST_READ_COLUMNS,
+): Promise<R> {
+  const withVideo = (cols: string) => (postVideoColumnAvailable ? `${cols}, video_url` : cols);
+  let result = await run(withVideo(baseColumns));
+  if (result.error && postVideoColumnAvailable && isMissingColumnError(result.error)) {
+    postVideoColumnAvailable = false;
+    console.warn("[posts] coluna video_url ausente — rode docs/migrations/20261005-post-video.sql");
+    result = await run(baseColumns);
+  }
+  return result;
+}
 
 /**
  * Quem repostou cada post, em UMA leitura de `post_reposts`. Devolve
@@ -2376,27 +2404,31 @@ export async function getPostGoalsBatchDb(
   return result;
 }
 
-/** Teto da grade de posts do perfil (autorais + repostados, juntos). */
+/** Teto da grade de posts do perfil. */
 const USER_POSTS_LIMIT = 100;
 
 /**
- * Posts do perfil: os que `userId` publicou E os que ele repostou (post único
- * compartilhado — o autor de um repost continua sendo a outra pessoa). Os dois
- * vêm juntos, do mais recente para o mais antigo, pela data de publicação.
+ * Posts do perfil (aba Publicações/Treinos): só os que `userId` PUBLICOU.
+ *
+ * Repostado NÃO entra (2026-10-05, pedido do usuário): só quem está marcado
+ * pode repostar, então o post já aparece na aba Marcações dessa pessoa — lá
+ * ganha o selo de repost. Antes ele aparecia nas duas abas. O repost continua
+ * levando o post ao feed dos seguidores de quem repostou (post.service).
  */
 export async function getUserPostsDb(userId: string): Promise<PostWithUser[]> {
   if (!hasSupabaseConfig || !supabase) return [];
   return cached(`userPosts:${userId}`, CACHE_TTL_SHORT, async () => {
-  // Posts, perfil do dono e ids dos repostados em paralelo.
-  const [postsRes, userProfile, repostedIds] = await Promise.all([
-    supabase
-      .from("posts")
-      .select(POST_READ_COLUMNS)
-      .eq("user_id", userId)
-      .order("created_at", { ascending: false })
-      .limit(USER_POSTS_LIMIT),
+  // Posts e perfil do dono em paralelo.
+  const [postsRes, userProfile] = await Promise.all([
+    selectPostRows((cols) =>
+      supabase!
+        .from("posts")
+        .select(cols)
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(USER_POSTS_LIMIT),
+    ),
     getUserProfileDb(userId),
-    getRepostedPostIdsByUsersDb([userId], { limit: USER_POSTS_LIMIT }),
   ]);
   const { data, error } = postsRes;
 
@@ -2410,59 +2442,35 @@ export async function getUserPostsDb(userId: string): Promise<PostWithUser[]> {
     throw error;
   }
 
-  // Repostados: posts de OUTROS autores. A RLS de `posts` vale (autor que
-  // passou a esconder os posts some daqui sozinho); autor bloqueado sai à mão.
-  let repostedRows: any[] = [];
-  if (repostedIds.length > 0) {
-    const [repostedRes, blockedIds] = await Promise.all([
-      supabase.from("posts").select(POST_READ_COLUMNS).in("id", repostedIds),
-      getBlockedIdsDb().catch(() => [] as string[]),
-    ]);
-    const blocked = new Set(blockedIds);
-    repostedRows = (repostedRes.data ?? []).filter(
-      (r: any) => String(r.user_id) !== userId && !blocked.has(String(r.user_id)),
-    );
-  }
-
-  const rows = [...(data ?? []), ...repostedRows]
-    .sort((a: any, b: any) => String(b.created_at).localeCompare(String(a.created_at)))
-    .slice(0, USER_POSTS_LIMIT);
+  const rows = data ?? [];
   const postIds = rows.map((r: any) => String(r.id));
-  const otherAuthorIds = [...new Set(repostedRows.map((r: any) => String(r.user_id)))];
 
-  const [tagsMap, goalsMap, repostersMap, authorsMap] = await Promise.all([
+  const [tagsMap, goalsMap, repostersMap] = await Promise.all([
     getPostTagsBatchDb(postIds),
     getPostGoalsBatchDb(rows.map((r: any) => r.user_goal_id).filter(Boolean)),
+    // Quem repostou os posts DELE ("Fulano repostou" no card).
     getPostRepostersBatchDb(postIds),
-    getProfilesBatchDb(otherAuthorIds),
   ]);
 
-  // O dono do perfil aparece primeiro no "repostado por" da grade dele.
-  const preferOwner = new Set([userId]);
-
   return rows.map((row: any) => {
-    const authorId = String(row.user_id ?? "");
-    const isOwn = authorId === userId;
-    const author = isOwn ? null : authorsMap.get(authorId);
     const taggedUsers = tagsMap.get(String(row.id)) ?? [];
     return {
       id: String(row.id ?? ""),
       description: String(row.description ?? ""),
       photo: String(row.photo ?? ""),
       photos: Array.isArray(row.photos) ? row.photos : null,
+      video_url: row.video_url ?? null,
       created_at: String(row.created_at ?? ""),
-      user_id: authorId,
+      user_id: String(row.user_id ?? userId),
       user_goal_id: row.user_goal_id ?? null,
-      userNickname: isOwn
-        ? userProfile?.nickname || tUi("user_fallback_name")
-        : author?.nickname || tUi("user_fallback_name"),
-      userPhoto: isOwn ? userProfile?.photo || null : author?.photo ?? null,
-      isVerified: isOwn ? userProfile?.is_verified === true : author?.is_verified === true,
-      verifiedTier: isOwn ? verifiedTierOf(userProfile) : author?.verified_tier ?? null,
+      userNickname: userProfile?.nickname || tUi("user_fallback_name"),
+      userPhoto: userProfile?.photo || null,
+      isVerified: userProfile?.is_verified === true,
+      verifiedTier: verifiedTierOf(userProfile),
       workoutSummary: (row.workout_summary as PostWorkoutSummary | null) ?? null,
       taggedUsers,
       userGoal: row.user_goal_id ? goalsMap.get(String(row.user_goal_id)) : undefined,
-      repostedBy: pickReposters(taggedUsers, repostersMap.get(String(row.id)), preferOwner),
+      repostedBy: pickReposters(taggedUsers, repostersMap.get(String(row.id))),
     };
   });
 
@@ -2474,11 +2482,9 @@ export async function getPostByIdDb(postId: string): Promise<PostWithUser | null
   return cached(`post:${postId}`, CACHE_TTL_SHORT, async () => {
   assertUUID(postId, "ID do post");
 
-  const { data, error } = await supabase
-    .from("posts")
-    .select(POST_READ_COLUMNS)
-    .eq("id", postId)
-    .maybeSingle();
+  const { data, error } = await selectPostRows((cols) =>
+    supabase!.from("posts").select(cols).eq("id", postId).maybeSingle<any>(),
+  );
 
   if (error || !data) return null;
 
@@ -2493,6 +2499,7 @@ export async function getPostByIdDb(postId: string): Promise<PostWithUser | null
     description: String(data.description ?? ""),
     photo: String(data.photo ?? ""),
     photos: Array.isArray(data.photos) ? data.photos : null,
+    video_url: data.video_url ?? null,
     created_at: String(data.created_at ?? ""),
     user_id: String(data.user_id),
     user_goal_id: data.user_goal_id ?? null,
@@ -2535,12 +2542,16 @@ export async function searchContentByHashtagDb(tag: string): Promise<HashtagItem
     // Post e shot de quem está bloqueado não aparecem no feed nem no perfil; a
     // hashtag não pode ser a exceção que devolve os dois.
     getBlockedIdsDb().catch(() => [] as string[]),
-    supabase
-      .from("posts")
-      .select("id, photo, photos, description, created_at, user_id")
-      .ilike("description", `%#${clean}%`)
-      .order("created_at", { ascending: false })
-      .limit(120),
+    selectPostRows(
+      (cols) =>
+        supabase!
+          .from("posts")
+          .select(cols)
+          .ilike("description", `%#${clean}%`)
+          .order("created_at", { ascending: false })
+          .limit(120),
+      "id, photo, photos, description, created_at, user_id",
+    ),
     // Com FEATURES.shots desligada a rota /shots não existe: o toque num
     // resultado de shot cairia no catch-all e jogaria o usuário no feed.
     // Excluir aqui cobre as duas telas (aba Hashtags do Buscar e /tag/:tag).
@@ -2572,7 +2583,8 @@ export async function searchContentByHashtagDb(tag: string): Promise<HashtagItem
       id: String(p.id),
       photo: String(p.photo ?? ""),
       photos: Array.isArray(p.photos) ? p.photos : null,
-      video_url: null,
+      // Post em vídeo: `photo` já é a capa; a URL só marca o selo na grade.
+      video_url: p.video_url ?? null,
       description: String(p.description ?? ""),
       created_at: String(p.created_at ?? ""),
       user_id: String(p.user_id),
@@ -2662,11 +2674,9 @@ export async function getTaggedPostsDb(userId: string): Promise<PostWithUser[]> 
 
     const postIds = [...new Set(tagRows.map((r: any) => String(r.post_id)))];
 
-    const { data, error } = await supabase
-      .from("posts")
-      .select(POST_READ_COLUMNS)
-      .in("id", postIds)
-      .order("created_at", { ascending: false });
+    const { data, error } = await selectPostRows((cols) =>
+      supabase!.from("posts").select(cols).in("id", postIds).order("created_at", { ascending: false }),
+    );
 
     if (error) {
       const errorMsg = error?.message || String(error);
@@ -2690,6 +2700,7 @@ export async function getTaggedPostsDb(userId: string): Promise<PostWithUser[]> 
         description: String(row.description ?? ""),
         photo: String(row.photo ?? ""),
         photos: Array.isArray(row.photos) ? row.photos : null,
+        video_url: row.video_url ?? null,
         created_at: String(row.created_at ?? ""),
         user_id: String(row.user_id ?? ""),
         user_goal_id: row.user_goal_id ?? null,
@@ -2700,7 +2711,8 @@ export async function getTaggedPostsDb(userId: string): Promise<PostWithUser[]> 
         workoutSummary: (row.workout_summary as PostWorkoutSummary | null) ?? null,
         taggedUsers: postTagsMap.get(String(row.id)) ?? [],
         userGoal: row.user_goal_id ? goalsMap.get(String(row.user_goal_id)) : undefined,
-        repostedBy: pickReposters(postTagsMap.get(String(row.id)), repostersMap.get(String(row.id))),
+        // O dono da aba primeiro no "repostou" — é o repost dele que a aba mostra.
+        repostedBy: pickReposters(postTagsMap.get(String(row.id)), repostersMap.get(String(row.id)), new Set([userId])),
       };
     });
   });
@@ -10212,6 +10224,8 @@ export async function createPostDb(
   userGoalId?: string | null,
   workoutSummary?: PostWorkoutSummary | null,
   taggedUserIds?: string[] | null,
+  /** Post em vídeo: URL do arquivo; `photoUrl` é a capa (1º frame, 1:1). */
+  videoUrl?: string | null,
 ): Promise<string> {
   if (!supabase) throw new Error("Supabase não configurado");
 
@@ -10235,6 +10249,9 @@ export async function createPostDb(
         // Resumo estruturado do treino (só em posts de "resumo do treino"
         // compartilhados no feed) — habilita o pill "Ver treino" + modal de detalhe.
         workout_summary: workoutSummary ?? null,
+        // Só entra no insert quando há vídeo: post de foto segue funcionando
+        // num banco sem a migração 20261005-post-video.
+        ...(videoUrl ? { video_url: videoUrl } : {}),
         created_at: new Date().toISOString(),
       })
       .select("id");
@@ -10274,10 +10291,11 @@ export async function deletePostDb(postId: string): Promise<boolean> {
     // Get the post first to verify ownership and get media URLs.
     // `photos` é o array do carrossel — sem ele, todas as fotos exceto a
     // primeira (e o card de resumo de treino, que entra como último slide)
-    // ficavam órfãs no bucket para sempre.
+    // ficavam órfãs no bucket para sempre. `*` em vez da lista para incluir
+    // `video_url` sem quebrar num banco que ainda não tem a coluna.
     const { data: postData, error: fetchError } = await supabase
       .from("posts")
-      .select("user_id, photo, photos")
+      .select("*")
       .eq("id", postId)
       .single();
 
@@ -10326,7 +10344,7 @@ export async function deletePostDb(postId: string): Promise<boolean> {
     // Best-effort: o post já saiu do banco, falhar aqui só deixa lixo.
     // (Repost não tem arquivo próprio: é só um vínculo em `post_reposts`, que
     // sai junto com o post pelo `on delete cascade`.)
-    await removeStorageObjects(collectMediaUrls(postData, ["photo"], ["photos"]));
+    await removeStorageObjects(collectMediaUrls(postData, ["photo", "video_url"], ["photos"]));
 
     // Invalidar ANTES do return — o post excluído não pode continuar sendo
     // servido pelo cache (memória/localStorage) na grade do perfil, e o
@@ -13492,68 +13510,90 @@ export async function recordAccessSessionDb(userId: string, durationSeconds: num
 // ─── Delete Account ──────────────────────────────────────────────────────────
 
 /**
- * Apaga as linhas do usuário chamando `delete_user_data` no banco.
- *
- * Existe como função no Postgres, e não como uma sequência de DELETEs aqui,
- * por dois motivos que já custaram exclusões incompletas:
- *
- * 1. **DELETE sob RLS é no-op silencioso.** Tabela sem policy de DELETE para o
- *    dono devolve "0 linhas" sem erro nenhum. Daqui era impossível distinguir
- *    "não havia nada" de "a policy barrou". A função é `security definer`.
- * 2. **A lista no cliente sempre atrasa.** Quando esta troca foi feita, 31
- *    tabelas com coluna de usuário não eram tocadas por ninguém — quase todas
- *    criadas depois da versão original. Ao lado do schema, a lista é revisada
- *    junto com a migração que cria a tabela.
- *
- * Ver `docs/migrations/20260915-delete-user-data.sql`.
+ * Exclusão de conta AGENDADA (2026-10-05): o pedido grava o motivo e a data
+ * (agora + 30 dias); a conta fica escondida de todos e só é apagada de vez pela
+ * edge function `purge-scheduled-deletions`. Entrar de novo dentro do prazo
+ * permite reativar. Ver `docs/migrations/20261005-scheduled-account-deletion.sql`.
  */
-async function deleteUserRowsDb(userId: string): Promise<Record<string, number> | null> {
-  const { data, error } = await (supabase as any).rpc("delete_user_data", {
-    p_user_id: userId,
+export type AccountDeletionReason =
+  | "no_longer_use"
+  | "other_app"
+  | "privacy"
+  | "too_many_notifications"
+  | "bugs"
+  | "missing_features"
+  | "new_account"
+  | "other";
+
+/** Devolve a data (ISO) em que a conta será apagada. */
+export async function requestAccountDeletionDb(
+  reason: AccountDeletionReason,
+  details: string | null,
+): Promise<string> {
+  if (!hasSupabaseConfig || !supabase) throw new Error("Supabase não configurado");
+  const { data, error } = await (supabase as any).rpc("request_account_deletion", {
+    p_reason: reason,
+    p_details: details?.trim() || null,
   });
   if (error) {
-    // PGRST202 = a função não está no schema cache do PostgREST. Na prática é
-    // sempre a migração que não rodou (ou rodou e o cache não recarregou). A
-    // mensagem crua do PostgREST não diz isso a ninguém; esta diz.
     if (error.code === "PGRST202") {
-      throw new Error(
-        "Migração 20260915-delete-user-data.sql não aplicada no Supabase",
-      );
+      throw new Error("Migração 20261005-scheduled-account-deletion.sql não aplicada no Supabase");
     }
     throw error;
   }
-  return (data ?? null) as Record<string, number> | null;
+  return String(data);
 }
 
 /**
- * Permanently deletes all data associated with a user across every table.
- *
- * Ordem obrigatória: mídia do Storage → linhas → `auth.users`.
- * A mídia vem primeiro porque a policy de DELETE do Storage depende de
- * `auth.uid()`; depois que a conta sai de `auth.users` não há mais sessão para
- * provar posse e o arquivo ficaria órfão para sempre.
- *
- * As duas últimas etapas normalmente acontecem juntas, dentro de
- * `delete_user_data`. O `POST /api/delete-auth-user` só entra quando a função
- * não teve privilégio para tocar no schema `auth`.
+ * Revoga o Sign in with Apple da conta logada (exigência da Apple ao excluir
+ * conta, 5.1.1(v)) pela edge function `apple-auth`. Só chama para quem tem a
+ * Apple como provedor. Melhor esforço com limite de 8 s: nunca impede a
+ * exclusão — a `purge-scheduled-deletions` tenta de novo no fim do prazo.
+ * Precisa da sessão viva: chamar ANTES do signOut.
  */
-export async function deleteAllUserDataDb(userId: string): Promise<void> {
+export async function revokeAppleSignInDb(): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+  try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const providers = (sessionData?.session?.user?.app_metadata?.providers ?? []) as string[];
+    const provider = sessionData?.session?.user?.app_metadata?.provider as string | undefined;
+    if (provider !== "apple" && !providers.includes("apple")) return;
+
+    const call = supabase.functions.invoke("apple-auth", { body: { action: "revoke" } });
+    const timeout = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("apple-auth revoke: timeout")), 8000),
+    );
+    const { error } = await Promise.race([call, timeout]);
+    if (error) throw error;
+  } catch (err) {
+    reportHandledError(err, "revokeAppleSignInDb");
+  }
+}
+
+/** Reativa a conta (cancela o pedido em aberto). */
+export async function cancelAccountDeletionDb(): Promise<void> {
   if (!hasSupabaseConfig || !supabase) throw new Error("Supabase não configurado");
-  assertUUID(userId, "ID do usuário");
+  const { error } = await (supabase as any).rpc("cancel_account_deletion");
+  if (error) throw error;
+}
 
-  // ── 1. Mídia no Storage — antes de tudo, enquanto a sessão existe ────────
-  await purgeUserStorageDb(userId);
-
-  // ── 2. Linhas nas tabelas + auth.users, numa transação só, ignorando RLS ─
-  const removed = await deleteUserRowsDb(userId);
-
-  // A função encerra a conta em `auth.users` quando o dono dela alcança o
-  // schema `auth` — o que depende de qual role aplicou a migração e varia por
-  // projeto. `"auth.users"` no retorno é esse sinal. Veio? Acabou aqui.
-  if (removed && removed["auth.users"] > 0) return;
-
-  // ── 3. Fallback: encerrar a conta com a service role, do servidor ────────
-  await deleteAuthUserViaServerDb(userId);
+/**
+ * Data (ISO) da exclusão agendada da conta logada, ou null. Lida sem cache: é
+ * a checagem do portão logo após o login. Tabela ausente (migração não rodada)
+ * = sem pedido.
+ */
+export async function getPendingAccountDeletionDb(): Promise<string | null> {
+  if (!hasSupabaseConfig || !supabase) return null;
+  const viewer = await getViewer();
+  if (!viewer) return null;
+  const { data, error } = await (supabase as any)
+    .from("account_deletion_requests")
+    .select("scheduled_for")
+    .eq("user_id", viewer.id)
+    .eq("status", "pending")
+    .maybeSingle();
+  if (error || !data) return null;
+  return String(data.scheduled_for);
 }
 
 /**
@@ -13572,6 +13612,8 @@ export async function discardIncompleteSocialSignupDb(userId: string): Promise<v
   if (!hasSupabaseConfig || !supabase) throw new Error("Supabase não configurado");
   assertUUID(userId, "ID do usuário");
 
+  // Conta criada com a Apple e apagada: a autorização também sai da Apple.
+  await revokeAppleSignInDb();
   const { data, error } = await (supabase as any).rpc("discard_incomplete_social_signup");
   if (error) throw error;
   const removed = (data ?? null) as Record<string, number> | null;
@@ -16617,91 +16659,6 @@ export async function removeStorageObjects(urls: string[]): Promise<void> {
 }
 
 /**
- * Lista recursivamente os caminhos de um prefixo do Storage.
- *
- * `storage.list()` não é recursivo e mistura arquivos com "pastas" (que vêm com
- * `id: null`), então a recursão é manual. Pagina de 100 em 100 — sem isso um
- * usuário com muitas fotos teria só as primeiras apagadas.
- */
-async function listStoragePaths(bucket: string, prefix: string): Promise<string[]> {
-  if (!supabase) return [];
-  const found: string[] = [];
-  const PAGE = 100;
-  let offset = 0;
-  for (;;) {
-    const { data, error } = await supabase.storage
-      .from(bucket)
-      .list(prefix, { limit: PAGE, offset });
-    if (error || !data || data.length === 0) break;
-    for (const entry of data) {
-      const full = prefix ? `${prefix}/${entry.name}` : entry.name;
-      // `id: null` = prefixo (pasta), não objeto — desce nele.
-      if ((entry as any).id === null) {
-        found.push(...(await listStoragePaths(bucket, full)));
-      } else {
-        found.push(full);
-      }
-    }
-    if (data.length < PAGE) break;
-    offset += PAGE;
-  }
-  return found;
-}
-
-/**
- * Apaga TODA a mídia de um usuário — usado na exclusão de conta.
- *
- * Precisa rodar **antes** de a conta sair de `auth.users`: a policy de DELETE do
- * Storage depende de `auth.uid()`, e depois da exclusão não há mais sessão.
- *
- * Best-effort: nenhuma falha aqui pode impedir a exclusão da conta, que é
- * direito do usuário e requisito da App Store. O que sobrar vira mídia órfã,
- * que o script `scripts/sweep-orphan-media.mjs` recolhe depois.
- */
-async function purgeUserStorageDb(userId: string): Promise<void> {
-  if (!supabase) return;
-  try {
-    // Pastas cujo caminho já isola o usuário.
-    const ownedPrefixes = [
-      userId, // {uid}/… → post, avatar, shot (shots/), flow (stories/)
-      `checkins/${userId}`,
-      `workout-summary/${userId}`,
-      `exercise-photos/${userId}`,
-    ];
-
-    const paths: string[] = [];
-    for (const prefix of ownedPrefixes) {
-      paths.push(...(await listStoragePaths("posts", prefix)));
-    }
-
-    // `covers/` é uma pasta comum a todo mundo: o uid está no NOME do arquivo
-    // (`covers/{uid}-{ts}.jpg`), então filtra em vez de varrer a pasta.
-    const covers = await listStoragePaths("posts", "covers");
-    paths.push(...covers.filter((p) => p.startsWith(`covers/${userId}-`)));
-
-    if (paths.length > 0) {
-      const { error } = await supabase.storage.from("posts").remove(paths);
-      if (error) console.error("[purgeUserStorageDb] posts:", error.message);
-    }
-
-    // Conversas privadas: a pasta é `{uidA}_{uidB}` (ordenados), então basta
-    // achar as que têm este uid numa das pontas.
-    const chatFolders = await supabase.storage.from(CHAT_MEDIA_BUCKET).list("", { limit: 1000 });
-    const mine = (chatFolders.data ?? [])
-      .filter((e: any) => e.id === null && String(e.name).split("_").includes(userId))
-      .map((e: any) => String(e.name));
-    for (const folder of mine) {
-      const chatPaths = await listStoragePaths(CHAT_MEDIA_BUCKET, folder);
-      if (chatPaths.length > 0) {
-        await supabase.storage.from(CHAT_MEDIA_BUCKET).remove(chatPaths);
-      }
-    }
-  } catch (err: any) {
-    console.error("[purgeUserStorageDb]", err?.message ?? err);
-  }
-}
-
-/**
  * Filtra as URLs que ainda são usadas por outra linha da tabela.
  *
  * Existe por causa do repost de flow: `repostStoryDb` reaproveita a `media_url`
@@ -16798,6 +16755,15 @@ export async function adminDeleteContentDb(
   if (!hasSupabaseConfig || !supabase) throw new Error("Supabase não configurado");
   if (tipo === "usuario") return { deleted: false, notified: false }; // ban handled separately
 
+  // A RPC devolve só `photo`/`photos` do post — o vídeo (`video_url`, migração
+  // 20261005-post-video) é lido ANTES, enquanto a linha existe. Best-effort:
+  // falhar aqui só deixa o arquivo para o sweep de órfãos.
+  let postVideoMedia: string[] = [];
+  if (tipo === "post") {
+    const { data: row } = await supabase.from("posts").select("*").eq("id", String(conteudo_id)).maybeSingle();
+    postVideoMedia = collectMediaUrls(row, ["video_url"]);
+  }
+
   // O servidor grava o aviso ao autor (type 22) na mesma transação do delete —
   // ver docs/migrations/20261001-moderation-removal-notice.sql.
   let { data, error } = await supabase.rpc("admin_delete_content", {
@@ -16828,12 +16794,12 @@ export async function adminDeleteContentDb(
   // — que sequer foi denunciado. Post: repost novo é só vínculo
   // (`post_reposts`), mas o filtro segue cobrindo as linhas legadas do modelo
   // antigo (20260928). Shot não tem esse compartilhamento.
-  const media = result.media ?? [];
+  const media = result.deleted === true ? [...(result.media ?? []), ...postVideoMedia] : result.media ?? [];
   await removeStorageObjects(
     tipo === "flow"
       ? await filterUnreferencedUrls(media, "flow", ["media_url", "poster_url"])
       : tipo === "post"
-        ? await filterUnreferencedUrls(media, "posts", ["photo"], ["photos"])
+        ? await filterUnreferencedUrls(media, "posts", ["photo", "video_url"], ["photos"])
         : media,
   );
 
@@ -18666,6 +18632,8 @@ export type WorkoutHistorySet = {
 export type WorkoutHistoryExercise = {
   workoutId: string;
   name: string;
+  /** Foto/ilustração do catálogo (ou do exercício personalizado), já resolvida. */
+  photo: string | null;
   muscleGroup: string | null;
   isCardio: boolean;
   sets: WorkoutHistorySet[];
@@ -18703,6 +18671,8 @@ export type WorkoutHistorySession = {
   party: WorkoutHistoryParty | null;
   /** Quem desafia várias pessoas do mesmo resumo liga N desafios à MESMA sessão. */
   challenges: WorkoutHistoryChallengeLink[];
+  /** `id` das séries (`user_workouts_hist`) da sessão — o que "Apagar este treino" apaga. */
+  rowIds: string[];
 };
 
 /** Linhas por página — ~75 treinos de 20 séries. */
@@ -18743,6 +18713,43 @@ function topMuscleGroupsTitle(exercises: WorkoutHistoryExercise[]): string | nul
  * mais antiga de uma página cheia pode ter sido cortada pelo `limit`, então ela
  * é descartada e volta inteira na próxima.
  */
+/**
+ * Apaga treinos do Histórico (`/metas/historico`): `rowIds` = as séries de UMA
+ * sessão (`WorkoutHistorySession.rowIds`); `null` = o histórico inteiro do
+ * usuário. Devolve quantas séries saíram.
+ *
+ * Vai pela RPC `delete_my_workout_history` (SECURITY DEFINER, migração
+ * 20261005-workout-history-delete): um DELETE barrado pela RLS volta 0 linhas
+ * sem erro. Banco sem a função → DELETE direto contando as linhas. Nos dois
+ * casos, 0 linhas com algo para apagar vira ERRO — a tela só oferece apagar o
+ * que mostrou, então 0 é sempre o no-op silencioso, nunca "nada a fazer".
+ */
+export async function deleteWorkoutHistoryDb(rowIds: string[] | null): Promise<number> {
+  if (!hasSupabaseConfig || !supabase) throw new Error("Supabase não configurado");
+  const viewer = await getViewer();
+  if (!viewer) throw new Error("Usuário não autenticado");
+  if (rowIds && rowIds.length === 0) return 0;
+
+  let deleted: number;
+  const { data, error } = await supabase.rpc("delete_my_workout_history", { p_ids: rowIds });
+  if (!error) {
+    deleted = Number(data ?? 0);
+  } else if (error.code === "PGRST202") {
+    // Função ausente: depende da policy de DELETE de 20260716-hist-delete-rls.
+    let query = supabase.from("user_workouts_hist").delete({ count: "exact" }).eq("user_id", viewer.id);
+    if (rowIds) query = query.in("id", rowIds);
+    const { count, error: deleteError } = await query;
+    if (deleteError) throw deleteError;
+    deleted = count ?? 0;
+  } else {
+    throw error;
+  }
+
+  if (deleted === 0) throw new Error(tUi("goals_history_delete_error"));
+  invalidateHistDerivedCaches();
+  return deleted;
+}
+
 export async function getWorkoutHistoryPageDb(
   before?: string | null,
 ): Promise<{ sessions: WorkoutHistorySession[]; nextBefore: string | null }> {
@@ -18918,6 +18925,7 @@ export async function getWorkoutHistoryPageDb(
         ex = {
           workoutId,
           name: pickLocalized(d?.name, d?.name_eng) || tUi("workout_fallback_name"),
+          photo: resolveWorkoutPhotoUrl(d?.photo, d?.wger_id),
           muscleGroup,
           isCardio: isCardioExercise(muscleGroup, workoutId),
           sets: [],
@@ -18955,6 +18963,7 @@ export async function getWorkoutHistoryPageDb(
         : (routineId && routineNames.get(routineId)) || fallbackTitle;
     return {
       key: s.firstRaw,
+      rowIds: s.rows.map((r) => String(r.id)),
       completedAt: new Date(s.endMs).toISOString(),
       kind,
       title,

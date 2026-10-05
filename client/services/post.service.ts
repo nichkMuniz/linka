@@ -7,7 +7,7 @@ import {
   getPostRepostersBatchDb,
   getRepostedPostIdsByUsersDb,
   pickReposters,
-  POST_READ_COLUMNS,
+  selectPostRows,
   togglePostIncentiveDb,
   getFollowingIdsDb,
   getBlockedIdsDb,
@@ -78,15 +78,16 @@ export const getFeedPosts = async (
     ...followingIds.filter((id) => !blocked.has(id)),
   ];
 
-  let query = supabase
-    .from("posts")
-    .select(POST_READ_COLUMNS)
-    .in("user_id", userIdsToShow)
-    .order("created_at", { ascending: false })
-    .limit(limit);
-  if (options.before) {
-    query = query.lt("created_at", options.before);
-  }
+  const query = selectPostRows((cols) => {
+    let q = supabase!
+      .from("posts")
+      .select(cols)
+      .in("user_id", userIdsToShow)
+      .order("created_at", { ascending: false })
+      .limit(limit);
+    if (options.before) q = q.lt("created_at", options.before);
+    return q;
+  });
   // Repost é o MESMO post (estilo Instagram): o que alguém que eu sigo repostou
   // entra no meu feed uma vez só, mesmo que eu siga o autor e mais de um
   // marcado. As duas fontes paginam pela data do post (`post_created_at` é a
@@ -103,10 +104,9 @@ export const getFeedPosts = async (
   const missingIds = repostedIds.filter((id) => !seen.has(id));
   let reposted: any[] = [];
   if (missingIds.length > 0) {
-    const { data: repostedData } = await supabase
-      .from("posts")
-      .select(POST_READ_COLUMNS)
-      .in("id", missingIds);
+    const { data: repostedData } = await selectPostRows((cols) =>
+      supabase!.from("posts").select(cols).in("id", missingIds),
+    );
     // A RLS de posts já tira autor que esconde os posts; bloqueio sai à mão.
     reposted = (repostedData ?? []).filter((p: any) => !blocked.has(String(p.user_id)));
   }
@@ -219,21 +219,21 @@ export const getDiscoverPosts = async (
     ...new Set([currentUser.id, ...followingIds, ...blockedIds]),
   ];
 
-  let query = supabase
-    .from("posts")
-    .select(POST_READ_COLUMNS)
-    .not("user_id", "in", `(${excludedIds.join(",")})`)
-    // Linhas de repost do modelo antigo (cópia do post, 20260928) ficam fora:
-    // a migração 20261005 as converte em `post_reposts`, mas o filtro protege
-    // até ela rodar.
-    .is("reposted_from", null)
-    .order("created_at", { ascending: false })
-    .limit(limit);
-  // Cursor de paginação (scroll infinito): busca posts mais antigos que o último já exibido.
-  if (options.before) {
-    query = query.lt("created_at", options.before);
-  }
-  const { data, error } = await query;
+  const { data, error } = await selectPostRows((cols) => {
+    let q = supabase!
+      .from("posts")
+      .select(cols)
+      .not("user_id", "in", `(${excludedIds.join(",")})`)
+      // Linhas de repost do modelo antigo (cópia do post, 20260928) ficam fora:
+      // a migração 20261005 as converte em `post_reposts`, mas o filtro protege
+      // até ela rodar.
+      .is("reposted_from", null)
+      .order("created_at", { ascending: false })
+      .limit(limit);
+    // Cursor de paginação (scroll infinito): busca posts mais antigos que o último já exibido.
+    if (options.before) q = q.lt("created_at", options.before);
+    return q;
+  });
 
   if (error) throw error;
 

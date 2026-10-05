@@ -474,6 +474,7 @@ Numa tela com **um CTA primário** (o resumo do treino: Publicar), decisões sec
 - Background: `card` token (não `background`)
 - Padding de conteúdo: `p-4` (mobile) / `p-6` (CardContent padrão)
 - **Mídia de post é SEMPRE 1:1 (2026-10-02):** frame `aspect-square` + `object-cover`, em qualquer aparelho e em qualquer tela (feed, perfil, detalhe). Nunca derive a altura do frame da altura da tela (`100dvh - …`): a proporção passa a variar por aparelho e a foto ora é cortada, ora ganha bordas. Para caber em telas baixas, limite a **largura** do card (`FEED_POST_CARD_STYLE` em `client/lib/post-visuals.tsx`), não a altura. Todo novo caminho que gera imagem de post deve exportá-la em 1:1 (≥ 1080px de lado), e nada de `contain` + fundo desfocado no post.
+- **Post em vídeo (2026-10-05):** mesmo frame 1:1 + `object-cover` (o centro do vídeo; vertical perde topo e base). A capa é o 1º frame recortado em 1:1 (`probeFlowVideo(…, square = true)`). Controles sobre o vídeo seguem o botão ⋮ do card (36px, `rgba(0,0,0,.4)`, sem blur) e ficam no grupo do canto superior direito, nunca no rodapé do frame. Nas grades, o selo é o `VideoPostBadge`.
 
 ### 7.4 Thumbnail de vídeo (preview de frame) — Obrigatório
 

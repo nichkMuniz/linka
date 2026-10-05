@@ -266,6 +266,21 @@ O corpo do push é montado em runtime por `buildBody()`, com os dados reais da n
 - **Deep link:** `deepLinkFor` monta a URL por tipo — tipos 3/6/7/11/14/15 **com `duel_check_in_id`** → `/comunidade?checkin=<id>`, tipos 10 e 17 → `/comunidade?user=<remetente>`, tipo 11 sem check-in → `/comunidade?group=<grupo>`, tipos 8/12/13 → `/vitrine`, tipo 19 → `/metas` (onde a sessão nasce; o app procura o convite pendente ao abrir), demais → `/notificacoes`.
 - ⚠️ **A edge function só muda em produção com redeploy.** Editar o arquivo no repo não basta: enquanto a versão publicada for antiga, o push continua com o texto genérico dela (`supabase functions deploy send-push-notification`).
 
+### Entrega confiável (2026-10-05)
+
+Sintoma investigado: o incentivo/comentário aparecia no sino, mas o push chegava tarde ou não chegava. A linha em `notifications` era gravada e o destinatário tinha token. O problema estava entre o webhook e a Apple, e no registro do token no app:
+
+| Causa | Correção |
+|---|---|
+| JWT da APNs recriado a **cada** notificação. A Apple exige reaproveitar o token de provedor por 20–60 min e recusa com `429 TooManyProviderTokenUpdates` — justo nas rajadas de incentivo. A função respondia 200 mesmo assim, então a falha era invisível | `supabase/functions/_shared/apns.ts`: JWT vive 40 min, em memória + tabela `apns_provider_token` (compartilhado entre isolates). `ExpiredProviderToken`/`InvalidProviderToken` → renova e repete uma vez. Usado também pela `reengagement-push` |
+| A função só respondia ao webhook depois de falar com a Apple; o Database Webhook (pg_net) desiste no timeout (padrão 1000 ms) e a partida a frio passa disso | Responde **202** logo após validar o segredo e entrega em segundo plano (`EdgeRuntime.waitUntil`). No painel, subir o timeout do webhook para 5000 ms |
+| App: ouvinte `registration` criado **depois** do `register()` — o plugin não retém o evento, o token podia se perder | `use-push-notifications.ts` registra os ouvintes antes do `register()` |
+| App: token só regravado se mudasse em relação ao `localStorage`. Se a linha sumisse do banco (token recusado pela Apple, outra conta no mesmo iPhone), o aparelho ficava sem push para sempre | Grava sempre ao abrir (via `claim_push_token`, idempotente) |
+
+**Observabilidade:** cada tentativa vai para `push_delivery_log` (status da Apple, motivo, `delay_ms` desde a criação da notificação; `reason = 'no_tokens'` quando o destinatário não tem aparelho). Retenção de 30 dias feita pela própria função. Consultas prontas no fim de `docs/migrations/20261005-push-delivery-reliability.sql`.
+
+**Publicação:** pela CLI (`supabase functions deploy send-push-notification` e `reengagement-push`), que empacota o `_shared/`. Colar o `index.ts` no editor do painel **quebra** a função (o import relativo não existe lá).
+
 ---
 
 ## Banner em primeiro plano (`client/lib/notification-copy.ts`)
