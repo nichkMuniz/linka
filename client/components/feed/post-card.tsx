@@ -26,10 +26,10 @@ import { useNavigate } from "react-router-dom";
 import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
 import { useLanguage } from "@/lib/language-context";
 import { hapticLight, hapticMedium } from "@/lib/haptics";
-import { getPostGradient, GLASS_TOP, GLASS_ACTION, GLASS_TEXT_SHADOW, renderWithHashtags, isCaptionTruncatable, collapsedCaption } from "@/lib/post-visuals";
+import { getPostGradient, GLASS_TOP, GLASS_ACTION, GLASS_TEXT_SHADOW, FEED_POST_CARD_STYLE, renderWithHashtags, isCaptionTruncatable, collapsedCaption } from "@/lib/post-visuals";
 import { FEATURES } from "@/lib/feature-flags";
 import { useHoldToHide } from "@/hooks/use-hold-to-hide";
-import { RepostAttribution, displayedPostDescription } from "@/components/post/repost-attribution";
+import { RepostedBy } from "@/components/post/reposted-by";
 
 /** Janela do duplo toque: acima disso o toque conta como simples (abre o post). */
 const DOUBLE_TAP_MS = 300;
@@ -107,7 +107,7 @@ function PostCardImpl({
   // recurso que o usuário não tem como usar nem encontrar. Zerar na origem
   // cobre tanto a linha "com fulano" quanto o drawer da lista completa.
   const taggedUsers = FEATURES.postTags ? (post.taggedUsers ?? []) : [];
-  const description = displayedPostDescription(post);
+  const description = post.description ?? "";
   // Contagem viva: comentar/apagar pelo drawer atualiza o ícone na hora (ele
   // fica preenchido quando há comentários). Uma nova carga do feed reescreve.
   const [commentCount, setCommentCount] = React.useState(post.commentCount);
@@ -148,7 +148,7 @@ function PostCardImpl({
     : post.photo ? [post.photo] : null;
 
   return (
-    <div className="relative overflow-hidden fade-in mb-4 mx-3" style={{ borderRadius: "28px", boxShadow: "0 20px 44px -16px rgba(0,0,0,.7)" }}>
+    <div className="relative overflow-hidden fade-in mb-4" style={{ ...FEED_POST_CARD_STYLE, borderRadius: "28px", boxShadow: "0 20px 44px -16px rgba(0,0,0,.7)" }}>
       {/* Área da mídia: toque simples abre a publicação; toque duplo abre o
           seletor rápido de incentivo. O toque simples só dispara depois da
           janela de duplo toque, senão o segundo toque navegaria antes do overlay. */}
@@ -180,15 +180,13 @@ function PostCardImpl({
           <PostCarousel
             photos={photos}
             alt="Post"
-            objectFit="cover"
             hideDots
             hideCounter
-            tall
             onIndexChange={setCarouselIndex}
             onZoomChange={setIsZooming}
           />
         ) : (
-          <div className="w-full rounded-lg" style={{ height: "calc(100dvh - max(14px, env(safe-area-inset-top) + 6px) - 314px - env(safe-area-inset-bottom))", maxHeight: "500px", background: getPostGradient(post.id) }} />
+          <div className="w-full aspect-square rounded-lg" style={{ background: getPostGradient(post.id) }} />
         )}
 
         {/* Dark gradient overlay */}
@@ -350,10 +348,10 @@ function PostCardImpl({
             </div>
           )}
 
-          {/* Repost — crédito do autor original; o toque abre o post dele */}
-          {post.repostOf && (
+          {/* Quem repostou — o post é um só, também no perfil dessas pessoas */}
+          {(post.repostedBy?.length ?? 0) > 0 && (
             <div className="mb-2" style={zoomHiddenStyle}>
-              <RepostAttribution origin={post.repostOf} />
+              <RepostedBy users={post.repostedBy!} />
             </div>
           )}
 

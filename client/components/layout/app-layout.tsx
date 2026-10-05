@@ -39,6 +39,7 @@ import { IncomingMessageToast } from "@/components/shared/incoming-message-toast
 import { showIncomingMessageToast, showIncomingNotificationToast } from "@/lib/incoming-message-toast";
 import { RoutineCompletedToast } from "@/components/shared/routine-completed-toast";
 import { FEATURES } from "@/lib/feature-flags";
+import { readNotifPrefs } from "@/lib/notification-prefs";
 import {
   RESUME_REFRESH_AFTER_MS,
   clearAppBackgrounded,
@@ -46,7 +47,7 @@ import {
   requestAppRefresh,
   useAppRefresh,
 } from "@/lib/app-refresh";
-import { getUnreadMessageCountDb, getUnreadNotificationsCountDb, getUserProfileDb, subscribeToUnreadNotificationsDb, recordAccessSessionDb, bufferScreenTime, flushScreenTimeDb, invalidateQueryCache, getPendingWorkoutPartyInviteDb, getWorkoutPartyInviteByIdDb, respondWorkoutPartyInviteDb, getOwnVerificationStatusDb, markVerificationSeenDb, type WorkoutPartyInvite } from "@/lib/ritmofit-db";
+import { getUnreadMessageCountDb, getUnreadNotificationsCountDb, getUserProfileDb, subscribeToUnreadNotificationsDb, recordAccessSessionDb, touchUserActivityDb, bufferScreenTime, flushScreenTimeDb, invalidateQueryCache, getPendingWorkoutPartyInviteDb, getWorkoutPartyInviteByIdDb, respondWorkoutPartyInviteDb, getOwnVerificationStatusDb, markVerificationSeenDb, type WorkoutPartyInvite } from "@/lib/ritmofit-db";
 import { WorkoutPartyInviteDialog } from "@/components/goals/workout-party-invite-dialog";
 import { VerifiedCongratsDialog } from "@/components/shared/verified-congrats-dialog";
 import { isVerifiedUpgrade, type VerifiedTier } from "@/lib/verified-tier";
@@ -476,6 +477,39 @@ export function AppLayout() {
       document.removeEventListener("visibilitychange", handleStorage);
     };
   }, []);
+
+  // "Abri o app" para os lembretes de volta (re-engajamento): última abertura +
+  // idioma + o interruptor "Lembretes e novidades". Na entrada e a cada volta
+  // do segundo plano — no máximo 1 escrita a cada 10 min (o servidor só
+  // precisa saber o DIA em que a pessoa apareceu).
+  React.useEffect(() => {
+    if (!user || !FEATURES.reengagementPush) return;
+    let lastTouch = 0;
+    const touch = () => {
+      if (Date.now() - lastTouch < 10 * 60 * 1000) return;
+      lastTouch = Date.now();
+      void touchUserActivityDb(readNotifPrefs().reminders).catch(() => {});
+    };
+    touch();
+
+    if (Capacitor.isNativePlatform()) {
+      let listener: { remove: () => void } | null = null;
+      let cancelled = false;
+      CapApp.addListener("appStateChange", ({ isActive }) => {
+        if (isActive) touch();
+      }).then((l) => {
+        if (cancelled) l.remove();
+        else listener = l;
+      });
+      return () => {
+        cancelled = true;
+        listener?.remove();
+      };
+    }
+    const onVisibility = () => { if (!document.hidden) touch(); };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [user]);
 
   // Always record access session on app background/close — independent of daily limit
   React.useEffect(() => {

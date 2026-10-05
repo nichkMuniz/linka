@@ -86,3 +86,81 @@ export function anatomySqlSnippet(
     `  ('${workoutId}', 'SLUG_DO_MUSCULO', 'primary', 80);`,
   ].join("\n");
 }
+
+// ─── imagens do catálogo ──────────────────────────────────────────────────────
+
+/** Nome do arquivo da imagem: kebab-case sem acento (`Tríceps testa` → `triceps-testa`). */
+export function exerciseImageSlug(name: string): string {
+  return name
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "exercicio";
+}
+
+/** Usado só quando o exercício ainda não tem anatomia mapeada. */
+const MUSCLE_GROUP_EN: Record<string, string> = {
+  peito: "pectoralis major, anterior deltoids and triceps",
+  costas: "latissimus dorsi, rhomboids and mid-trapezius",
+  pernas: "quadriceps, hamstrings and glutes",
+  ombros: "deltoids",
+  "tríceps": "triceps brachii",
+  gluteos: "gluteus maximus and gluteus medius",
+  "glúteos": "gluteus maximus and gluteus medius",
+  "bíceps": "biceps brachii",
+  panturrilha: "calves (gastrocnemius and soleus)",
+  "abdômen": "rectus abdominis and obliques",
+  core: "core muscles (rectus abdominis, obliques and transverse abdominis)",
+  "antebraço": "forearm flexors and extensors",
+  cardio: "legs, glutes and core",
+  "full body": "major muscle groups of the whole body",
+  alongamento: "stretched muscles",
+  mobilidade: "muscles being mobilized",
+};
+
+/**
+ * Prompt de IA pronto para gerar a imagem de um exercício — o mesmo template
+ * do `exercise-image-prompts.md` (render anatômico, figura cinza, músculos em
+ * vermelho, fundo branco 1:1), com movimento e músculos já preenchidos.
+ *
+ * Alongamento/mobilidade usa "posição única" (não tem início/fim claros).
+ */
+export function exerciseImagePrompt(gap: {
+  name: string;
+  nameEng?: string | null;
+  muscleGroup?: string | null;
+  description?: string | null;
+  muscles?: string[];
+  isStretch?: boolean;
+}): string {
+  const label = gap.nameEng && gap.nameEng !== gap.name
+    ? `"${gap.nameEng}" (in Portuguese: "${gap.name}")`
+    : `"${gap.name}" (Brazilian Portuguese gym exercise name)`;
+  // Só a 1ª frase: o resto das descrições costuma falar do app, não do movimento.
+  const desc = gap.description?.replace(/\s+/g, " ").trim().split(/\.\s/)[0]?.replace(/\.$/, "");
+  const movement = `performing the exercise ${label}${desc ? ` — ${desc}` : ""}`;
+
+  const muscles = gap.muscles?.length
+    ? gap.muscles.slice(0, 4).join(", ")
+    : MUSCLE_GROUP_EN[(gap.muscleGroup ?? "").toLowerCase()] ?? "target muscles";
+
+  const stages = gap.isStretch
+    ? "single held position, side view"
+    : "two stages side by side (start and end position)";
+
+  return (
+    "Fitness exercise illustration in 3D anatomical render style: a semi-transparent light gray " +
+    `anatomical human figure with visible muscle striations, ${movement}, ${stages}. ` +
+    `Highlight the ${muscles} in bright red. Full body visible, pure white background, soft studio ` +
+    "lighting, square 1:1 format, no text, no watermark, no logo."
+  );
+}
+
+/**
+ * Comando que sobe a imagem gerada e aponta `workouts.photo`
+ * (`scripts/upload-exercise-image.mjs`, roda no PC com a service key do .env).
+ */
+export function exerciseImageUploadCommand(workoutId: string, name: string): string {
+  return `node scripts/upload-exercise-image.mjs ${workoutId} ai-exercise-images/${exerciseImageSlug(name)}.png`;
+}

@@ -63,6 +63,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ImageWithFallback } from "@/components/shared/image-with-fallback";
 import { PinnedFlowsStrip } from "@/components/profile/pinned-flows-strip";
+import { FlowCoinAvatar } from "@/components/profile/flow-coin-avatar";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { UserInsignias } from "@/components/profile/user-insignias";
 import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
@@ -138,6 +139,7 @@ import {
   Ban,
   Eye,
   EyeOff,
+  Repeat2,
 } from "lucide-react";
 import { resetSupabaseAuth, supabase } from "@/lib/supabase";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
@@ -332,13 +334,20 @@ export default function Profile() {
   // manter o filtro faria os posts de canvas sumirem do perfil inteiro — o
   // usuário publicou e o post simplesmente não aparece em lugar nenhum. Sem a
   // aba, "Publicações" volta a ser o que sempre foi: tudo.
+  //
+  // Post REPOSTADO (de outro autor, ver getUserPostsDb) fica sempre em
+  // "Publicações": o treino do card é de outra pessoa.
+  const isOwnWorkoutCanvas = React.useCallback(
+    (p: PostWithUser) => p.user_id === profileUserId && isWorkoutCanvasPost(p),
+    [profileUserId],
+  );
   const workoutPosts = React.useMemo(
-    () => (FEATURES.profileWorkoutsTab ? posts.filter((p) => isWorkoutCanvasPost(p)) : []),
-    [posts],
+    () => (FEATURES.profileWorkoutsTab ? posts.filter(isOwnWorkoutCanvas) : []),
+    [posts, isOwnWorkoutCanvas],
   );
   const feedPosts = React.useMemo(
-    () => (FEATURES.profileWorkoutsTab ? posts.filter((p) => !isWorkoutCanvasPost(p)) : posts),
-    [posts],
+    () => (FEATURES.profileWorkoutsTab ? posts.filter((p) => !isOwnWorkoutCanvas(p)) : posts),
+    [posts, isOwnWorkoutCanvas],
   );
 
   // Edit form state
@@ -662,8 +671,9 @@ export default function Profile() {
 
   const postReshare = usePostReshare({
     context: "profile",
-    // O repost entra na aba Posts do PRÓPRIO perfil; se é ele que está aberto, recarrega.
-    onReposted: () => { if (!isViewingOtherProfile) loadProfile(); },
+    // O repost entra (ou sai) da aba Posts do PRÓPRIO perfil e muda o
+    // "fulano repostou" dos cards — recarrega o perfil aberto.
+    onRepostChanged: () => { loadProfile(); },
   });
 
   // Compartilhar a partir do card (⋮ → Compartilhar) — mesmo ShareDrawer do
@@ -1375,17 +1385,32 @@ export default function Profile() {
         >
           {/* Avatar + actions row */}
           <div className="flex items-end justify-between mb-3.5">
-            {/* Avatar with conic ring */}
+            {/* Avatar: anel cônico laranja→azul SÓ com flow ativo (é o sinal de
+                "tem flow para ver", igual ao feed); sem flow, anel neutro. */}
             {(() => {
+              // Abre no 1º flow ainda não visto (se todos foram vistos, no mais antigo).
+              const entryStory = pickFlowEntry(profileStories, viewedFlowIds);
               const ring = (
-                <div style={{ width: 88, height: 88, borderRadius: "50%", padding: "3px", background: "conic-gradient(from 200deg,#ff8a2a,#d8567a,#7b3ff2,#3a8dff,#ff8a2a)" }}>
-                  <div className="w-full h-full rounded-full overflow-hidden" style={{ border: "3px solid #06070c" }}>
-                    <UserAvatar photo={profile.photo} nickname={profile.nickname} size="2xl" quality={90} className="!h-full !w-full" />
+                <div
+                  style={{
+                    width: 88,
+                    height: 88,
+                    borderRadius: "50%",
+                    padding: "3px",
+                    background: entryStory
+                      ? "conic-gradient(from 200deg,#ff8a2a,#d8567a,#7b3ff2,#3a8dff,#ff8a2a)"
+                      : "linear-gradient(160deg,rgba(255,255,255,.32),rgba(255,255,255,.08))",
+                  }}
+                >
+                  <div className="w-full h-full rounded-full" style={{ border: "3px solid #06070c", background: "#06070c" }}>
+                    <FlowCoinAvatar
+                      flow={entryStory ?? null}
+                      flipKey={profileUserId}
+                      front={<UserAvatar photo={profile.photo} nickname={profile.nickname} size="2xl" quality={90} className="!h-full !w-full" />}
+                    />
                   </div>
                 </div>
               );
-              // Abre no 1º flow ainda não visto (se todos foram vistos, no mais antigo).
-              const entryStory = pickFlowEntry(profileStories, viewedFlowIds);
               return entryStory ? (
                 <button
                   // O dedo encostou → começa a baixar o clipe antes do modal montar.
@@ -1979,6 +2004,17 @@ export default function Profile() {
                   <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
                   {/* Multi-photo indicator */}
                   {post.photos && post.photos.length > 1 && <MultiPhotoBadge count={post.photos.length} />}
+                  {/* Repostado: post de outro autor que esta pessoa adicionou ao perfil */}
+                  {post.user_id !== profileUserId && (
+                    <span
+                      role="img"
+                      aria-label={t("profile_reposted_badge_aria")}
+                      className="pointer-events-none absolute left-2 top-2 inline-flex h-[22px] w-[22px] items-center justify-center rounded-full text-white"
+                      style={{ background: "rgba(10,11,18,.55)", border: "1px solid rgba(255,255,255,.18)", boxShadow: "0 2px 8px rgba(0,0,0,.35)" }}
+                    >
+                      <Repeat2 className="h-3 w-3" />
+                    </span>
+                  )}
                 </button>
               ))}
             </div>
@@ -2366,6 +2402,7 @@ export default function Profile() {
         onEditFlow={postReshare.editFlow}
         onRepostToFeed={postReshare.repostToFeed}
         repostedToFeed={postReshare.repostedToFeed}
+        onUndoRepostToFeed={postReshare.undoRepostToFeed}
       />
 
       {/* Flow Viewer — mesmo componente do feed, embutido sobre o perfil */}

@@ -43,6 +43,8 @@ import {
   ThumbsUp,
   PersonStanding,
   Copy,
+  ImageOff,
+  Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -74,11 +76,16 @@ import {
   adminSearchUsersDb,
   getAdminTodayActivityDb,
   getAdminAnatomyCoverageDb,
+  getAdminImageCoverageDb,
+  getAdminCustomWorkoutsDb,
   getAdminBannedUsersDb,
   adminResolveUserComplaintsDb,
   type AdminBannedUser,
   type AnatomyCoverage,
   type AnatomyGapItem,
+  type ImageCoverage,
+  type AdminCustomWorkouts,
+  type ImageGapItem,
   type AdminTodayUser,
   type AdminPremiumUser,
   type AdminUserSearchResult,
@@ -90,12 +97,18 @@ import {
   type AdminActiveUser,
 } from "@/lib/ritmofit-db";
 import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
+import { CustomExercisesPanel } from "@/components/admin/custom-exercises-panel";
 import { ImageWithFallback } from "@/components/shared/image-with-fallback";
 import type { VerifiedTier } from "@/lib/verified-tier";
 import { Input } from "@/components/ui/input";
 import { reportHandledError } from "@/lib/monitoring";
 import { copyToClipboard } from "@/lib/clipboard";
-import { anatomySqlSnippet } from "@/lib/admin";
+import {
+  anatomySqlSnippet,
+  exerciseImagePrompt,
+  exerciseImageSlug,
+  exerciseImageUploadCommand,
+} from "@/lib/admin";
 import { MODERATION_REASONS, type ModerationReason } from "@/lib/notification-copy";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
@@ -508,7 +521,16 @@ function SectionHeader({
 
 // ─── abas ─────────────────────────────────────────────────────────────────────
 
-type AdminTab = "indicadores" | "atividade" | "denuncias" | "banidos" | "selos" | "cortesia" | "anatomia";
+type AdminTab =
+  | "indicadores"
+  | "atividade"
+  | "denuncias"
+  | "banidos"
+  | "selos"
+  | "cortesia"
+  | "anatomia"
+  | "imagens"
+  | "exercicios";
 
 // Ordem = frequência de uso: números do dia primeiro, depois quem usou, a fila
 // de moderação e as ferramentas de gestão.
@@ -520,6 +542,8 @@ const ADMIN_TABS: { id: AdminTab; label: string; icon: React.ElementType }[] = [
   { id: "selos", label: "Selos", icon: BadgeCheck },
   { id: "cortesia", label: "Cortesia", icon: Crown },
   { id: "anatomia", label: "Anatomia", icon: PersonStanding },
+  { id: "imagens", label: "Imagens", icon: ImageOff },
+  { id: "exercicios", label: "Exercícios", icon: Dumbbell },
 ];
 
 function isAdminTab(value: string | null): value is AdminTab {
@@ -677,6 +701,61 @@ function AnatomyGapRow({ gap }: { gap: AnatomyGapItem }) {
       >
         <Copy className="w-3.5 h-3.5" />
       </Button>
+    </div>
+  );
+}
+
+// ─── imagens: linha de exercício sem foto ─────────────────────────────────────
+
+function ImageGapRow({ gap }: { gap: ImageGapItem }) {
+  const slug = exerciseImageSlug(gap.name);
+  return (
+    <div className="flex items-center justify-between gap-2 rounded-lg border border-border/40 bg-muted/20 px-3 py-2">
+      <div className="min-w-0">
+        <div className="flex items-center gap-1.5">
+          <span className="text-sm font-medium truncate">{gap.name}</span>
+          {gap.isCustom && (
+            <Badge variant="secondary" className="text-[10px] px-1.5 py-0 shrink-0">custom</Badge>
+          )}
+        </div>
+        <p className="text-xs text-muted-foreground truncate">
+          {gap.muscleGroup ?? "sem grupo"} · <span className="font-mono">{gap.id.slice(0, 8)}…</span>
+        </p>
+      </div>
+      <div className="flex items-center shrink-0">
+        <Button
+          size="sm"
+          variant="ghost"
+          title="Copiar prompt para gerar a imagem"
+          aria-label={`Copiar prompt da imagem de ${gap.name}`}
+          onClick={() => {
+            copyToClipboard(exerciseImagePrompt(gap));
+            toast({
+              title: "Prompt copiado",
+              description: `Cole no gerador de imagem e salve como ai-exercise-images/${slug}.png`,
+            });
+          }}
+          className="h-9 w-9 p-0 text-muted-foreground hover:text-foreground"
+        >
+          <Copy className="w-3.5 h-3.5" />
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          title="Copiar comando de upload"
+          aria-label={`Copiar comando de upload da imagem de ${gap.name}`}
+          onClick={() => {
+            copyToClipboard(exerciseImageUploadCommand(gap.id, gap.name));
+            toast({
+              title: "Comando copiado",
+              description: "Rode na raiz do projeto depois de salvar a imagem gerada.",
+            });
+          }}
+          className="h-9 w-9 p-0 text-muted-foreground hover:text-foreground"
+        >
+          <Upload className="w-3.5 h-3.5" />
+        </Button>
+      </div>
     </div>
   );
 }
@@ -1008,6 +1087,10 @@ export default function Admin() {
   const [anatomy, setAnatomy] = React.useState<AnatomyCoverage | null>(null);
   const [showStretchGaps, setShowStretchGaps] = React.useState(false);
 
+  // ── Imagens (curadoria de workouts.photo) ──────────────────────────────────
+  const [images, setImages] = React.useState<ImageCoverage | null>(null);
+  const [customWorkouts, setCustomWorkouts] = React.useState<AdminCustomWorkouts | null>(null);
+
   // Busca com debounce — cada tecla dispararia um round-trip por letra.
   React.useEffect(() => {
     const raw = premiumQuery.trim().replace(/^@/, "");
@@ -1058,7 +1141,7 @@ export default function Admin() {
     if (!silent) setLoading(true);
     else setRefreshing(true);
     try {
-      const [c, s, a, v, au, pu, ta, an] = await Promise.all([
+      const [c, s, a, v, au, pu, ta, an, im, cw] = await Promise.all([
         getAdminComplaintsDb(),
         getAdminStatsDb(),
         getAdminAnalyticsDb(),
@@ -1067,6 +1150,12 @@ export default function Admin() {
         getAdminPremiumUsersDb(),
         getAdminTodayActivityDb(),
         getAdminAnatomyCoverageDb(),
+        getAdminImageCoverageDb(),
+        // Falhar aqui não derruba o painel: a aba Exercícios mostra o erro.
+        getAdminCustomWorkoutsDb().catch((err) => {
+          reportHandledError(err, "admin:load-custom-workouts");
+          return null;
+        }),
       ]);
       setComplaints(c);
       setStats(s);
@@ -1076,6 +1165,8 @@ export default function Admin() {
       setPremiumUsers(pu);
       setTodayActivity(ta);
       setAnatomy(an);
+      setImages(im);
+      setCustomWorkouts(cw);
       await loadBanned();
       setLastUpdated(new Date().toISOString());
     } catch (err: any) {
@@ -1189,11 +1280,14 @@ export default function Admin() {
 
   // Contagens que viram selo nas abas e no "Precisa de atenção".
   const pendingAnatomy = anatomy ? anatomy.gaps.filter((g) => !g.isStretch).length : 0;
+  const pendingImages = images ? images.gaps.filter((g) => !g.isCustom).length : 0;
   const activePremiumCount = premiumUsers.filter((u) => u.isActive).length;
   const tabCounts: Partial<Record<AdminTab, { value: number; alert?: boolean }>> = {
     denuncias: { value: complaints.length, alert: true },
     banidos: { value: bannedUsers.length },
     anatomia: { value: pendingAnatomy, alert: true },
+    imagens: { value: pendingImages, alert: true },
+    exercicios: { value: customWorkouts ? customWorkouts.groups.filter((g) => !g.review).length : 0 },
     selos: { value: verifiedAccounts.length },
     cortesia: { value: activePremiumCount },
   };
@@ -1270,7 +1364,7 @@ export default function Admin() {
         {tab === "indicadores" && (
           <div className="space-y-8">
             {/* O que pede ação vem antes de qualquer número. */}
-            {(complaints.length > 0 || pendingAnatomy > 0) && (
+            {(complaints.length > 0 || pendingAnatomy > 0 || pendingImages > 0) && (
               <section className="rounded-xl border border-rose-500/30 bg-rose-500/5 overflow-hidden">
                 <p className="px-4 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-rose-400">
                   Precisa de atenção
@@ -1289,6 +1383,14 @@ export default function Admin() {
                     accent="text-orange-500"
                     label={`${pendingAnatomy} ${pendingAnatomy === 1 ? "exercício" : "exercícios"} sem anatomia`}
                     onClick={() => changeTab("anatomia")}
+                  />
+                )}
+                {pendingImages > 0 && (
+                  <AttentionRow
+                    icon={ImageOff}
+                    accent="text-sky-400"
+                    label={`${pendingImages} ${pendingImages === 1 ? "exercício" : "exercícios"} sem imagem`}
+                    onClick={() => changeTab("imagens")}
                   />
                 )}
               </section>
@@ -1949,6 +2051,84 @@ export default function Admin() {
               </section>
             );
           })()
+        )}
+
+        {/* ══ Imagens ═══════════════════════════════════════════════════════ */}
+        {tab === "imagens" && (
+          !images ? (
+            <EmptyState icon={ImageOff} text="Não foi possível carregar as imagens dos exercícios" />
+          ) : (() => {
+            // Catálogo = fila de verdade; custom (criado por usuário) só informa.
+            const pending = images.gaps.filter((g) => !g.isCustom);
+            const customs = images.gaps.filter((g) => g.isCustom);
+            const pct = images.total > 0 ? Math.round((images.withImage / images.total) * 100) : 0;
+
+            return (
+              <section className="space-y-4">
+                <SectionHeader
+                  icon={ImageOff}
+                  accent="text-sky-400"
+                  label="Exercícios sem imagem"
+                  count={pending.length}
+                  alert
+                />
+
+                <div className="rounded-xl border border-border bg-card p-4 space-y-2">
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-sm text-muted-foreground">Com imagem</span>
+                    <span className="text-sm font-semibold">
+                      {images.withImage} / {images.total}
+                      <span className="text-muted-foreground font-normal"> · {pct}%</span>
+                    </span>
+                  </div>
+                  <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
+                    <div className="h-full bg-sky-400/80 rounded-full transition-all" style={{ width: `${pct}%` }} />
+                  </div>
+                </div>
+
+                {pending.length === 0 ? (
+                  <EmptyState
+                    icon={CheckCircle}
+                    accent="text-emerald-400"
+                    text="Todo exercício do catálogo tem imagem"
+                  />
+                ) : (
+                  <div className="space-y-2">
+                    <p className="text-xs text-muted-foreground">
+                      Aparecem com o placeholder nos cards do app:
+                    </p>
+                    {pending.map((g) => <ImageGapRow key={g.id} gap={g} />)}
+                  </div>
+                )}
+
+                {customs.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-xs text-muted-foreground">
+                      {customs.length} {customs.length === 1 ? "criado" : "criados"} por usuários (opcional):
+                    </p>
+                    {customs.map((g) => <ImageGapRow key={g.id} gap={g} />)}
+                  </div>
+                )}
+
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  <Copy className="inline w-3 h-3 -mt-0.5" /> copia o prompt de IA já preenchido (render
+                  anatômico, fundo branco, 1:1 — mesmo template do{" "}
+                  <span className="font-mono">exercise-image-prompts.md</span>). Salve a imagem em{" "}
+                  <span className="font-mono">ai-exercise-images/</span> com o nome sugerido e rode o comando
+                  do <Upload className="inline w-3 h-3 -mt-0.5" />: ele converte para JPG 1024×1024, sobe em{" "}
+                  <span className="font-mono">exercises/manual/</span> e grava a URL em{" "}
+                  <span className="font-mono">workouts.photo</span>. Depois toque em Atualizar.
+                </p>
+              </section>
+            );
+          })()
+        )}
+
+        {/* ══ Exercícios criados pelos usuários ═════════════════════════════ */}
+        {tab === "exercicios" && (
+          // Recarrega o painel inteiro: o exercício novo entra nas filas de
+          // Anatomia e Imagens.
+          <CustomExercisesPanel data={customWorkouts} onChanged={() => load(true)} />
         )}
       </main>
       {/* Confirmar desbanir */}

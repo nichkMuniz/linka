@@ -204,6 +204,7 @@ const BannedScreen = React.lazy(() =>
 const Index = React.lazy(() => import("@/pages/Index"));
 const NewPost = React.lazy(() => import("@/pages/NewPost"));
 const Goals = React.lazy(() => import("@/pages/Goals"));
+const WorkoutHistory = React.lazy(() => import("@/pages/WorkoutHistory"));
 const Profile = React.lazy(() => import("@/pages/Profile"));
 const PostDetail = React.lazy(() => import("@/pages/PostDetail"));
 const Search = React.lazy(() => import("@/pages/Search"));
@@ -558,6 +559,7 @@ const App = () => {
                       {FEATURES.shots && <Route path="/shots" element={<Lazy skeleton={<ShotsSkeleton />}><Shots /></Lazy>} />}
                       <Route path="/postar" element={<Lazy skeleton={<GenericPageSkeleton />}><NewPost /></Lazy>} />
                       <Route path="/metas" element={<Lazy skeleton={<GoalsSkeleton />}><Goals /></Lazy>} />
+                      <Route path="/metas/historico" element={<Lazy skeleton={<GenericPageSkeleton />}><WorkoutHistory /></Lazy>} />
                       {FEATURES.store && <Route path="/vitrine" element={<Lazy skeleton={<StoreSkeleton />}><Store /></Lazy>} />}
                       <Route path="/perfil" element={<Lazy skeleton={<ProfileSkeleton />}><Profile /></Lazy>} />
                       <Route path="/usuario/:userId" element={<Lazy skeleton={<ProfileSkeleton />}><Profile /></Lazy>} />

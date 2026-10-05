@@ -9,7 +9,7 @@ import { sharePostToFlow } from "@/lib/post-to-flow";
 import {
   getRepostedPostIdsDb,
   repostPostDb,
-  type RepostOrigin,
+  unrepostPostDb,
   type SearchUser,
   type StoryPostSticker,
 } from "@/lib/ritmofit-db";
@@ -31,7 +31,6 @@ export type ResharablePost = {
   /** Legenda — vai junto na moldura do post no flow. */
   description?: string | null;
   taggedUsers?: SearchUser[];
-  repostOf?: RepostOrigin | null;
 };
 
 /**
@@ -39,8 +38,9 @@ export type ResharablePost = {
  * marcado). Um hook único para feed, detalhe do post e perfil — as três telas
  * abrem o mesmo `ShareDrawer`.
  *
- * Repost não se recompartilha: o crédito já aponta para o original, e o banco
- * recusaria repost de repost.
+ * "Seu feed" não cria post novo: o MESMO post passa a aparecer no perfil de
+ * quem repostou e no feed dos seguidores dele (`post_reposts`). Já repostado,
+ * o botão desfaz.
  *
  * `prepare(post)` na hora de abrir o drawer; as ações ficam `undefined` quando
  * não se aplicam, e o drawer esconde o botão correspondente.
@@ -49,26 +49,27 @@ export function usePostReshare(options: {
   /** Tag do Sentry ("feed", "post-detail", "profile"). */
   context: string;
   onFlowShared?: () => void;
-  onReposted?: () => void;
+  /** Depois de repostar ou desfazer — a tela recarrega o que mostra o vínculo. */
+  onRepostChanged?: () => void;
 }) {
   const { user } = useAuth();
   const { t } = useLanguage();
   const navigate = useNavigate();
   const [post, setPost] = React.useState<ResharablePost | null>(null);
   const [reposted, setReposted] = React.useState(false);
-  const { onFlowShared, onReposted, context } = options;
+  const { onFlowShared, onRepostChanged, context } = options;
 
   const viewerId = user?.id ?? null;
   const isOwner = !!post && post.user_id === viewerId;
   const isTagged = !!post && !!viewerId && (post.taggedUsers ?? []).some((u) => u.id === viewerId);
   const firstPhoto = post ? (post.photos?.length ? String(post.photos[0]) : post.photo || null) : null;
-  const canReshare = !!post && !post.repostOf && !!firstPhoto;
+  const canReshare = !!post && !!firstPhoto;
 
   const prepare = React.useCallback((next: ResharablePost | null) => {
     setPost(next);
     setReposted(false);
     const tagged = !!next && !!viewerId && (next.taggedUsers ?? []).some((u) => u.id === viewerId);
-    if (next && tagged && !next.repostOf) {
+    if (next && tagged) {
       getRepostedPostIdsDb([next.id])
         .then((ids) => setReposted(ids.has(next.id)))
         .catch(() => {});
@@ -114,7 +115,7 @@ export function usePostReshare(options: {
           await repostPostDb(post!.id);
           setReposted(true);
           toast({ title: t("repost_success"), description: t("repost_success_desc") });
-          onReposted?.();
+          onRepostChanged?.();
         } catch (err: any) {
           const code = err?.code as string | null | undefined;
           // Já repostado (outro aparelho) não é erro para o usuário: só sincroniza.
@@ -123,7 +124,7 @@ export function usePostReshare(options: {
             toast({ title: t("repost_already") });
             return;
           }
-          if (code !== "REPOST_PRIVATE_AUTHOR" && code !== "REPOST_NOT_TAGGED") {
+          if (code !== "REPOST_PRIVATE_AUTHOR" && code !== "REPOST_NOT_TAGGED" && code !== "REPOST_BLOCKED") {
             reportHandledError(err, `${context}:repost-post`);
           }
           toast({
@@ -131,6 +132,7 @@ export function usePostReshare(options: {
             description:
               code === "REPOST_PRIVATE_AUTHOR" ? t("repost_error_private")
               : code === "REPOST_NOT_TAGGED" ? t("repost_error_not_tagged")
+              : code === "REPOST_BLOCKED" ? t("repost_error_blocked")
               : t("retry"),
             variant: "destructive",
           });
@@ -139,5 +141,21 @@ export function usePostReshare(options: {
       }
     : undefined;
 
-  return { prepare, shareToFlow, editFlow, repostToFeed, repostedToFeed: reposted };
+  // Desfazer: o post sai do perfil de quem repostou (segue no do autor).
+  const undoRepostToFeed = repostToFeed && reposted
+    ? async () => {
+        try {
+          await unrepostPostDb(post!.id);
+          setReposted(false);
+          toast({ title: t("repost_removed"), description: t("repost_removed_desc") });
+          onRepostChanged?.();
+        } catch (err) {
+          reportHandledError(err, `${context}:unrepost-post`);
+          toast({ title: t("repost_remove_error"), description: t("retry"), variant: "destructive" });
+          throw err;
+        }
+      }
+    : undefined;
+
+  return { prepare, shareToFlow, editFlow, repostToFeed, undoRepostToFeed, repostedToFeed: reposted };
 }

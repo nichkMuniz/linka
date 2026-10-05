@@ -41,6 +41,30 @@ export const GLASS_ACTION: React.CSSProperties = {
   boxShadow: "inset 0 1px 0 rgba(255,255,255,.14)",
 };
 
+// ── Tamanho do post (2026-10-02) ─────────────────────────────────────────────
+// O frame da foto é SEMPRE quadrado (1:1), em qualquer iPhone/iPad: toda
+// imagem de post nasce 1:1 (recorte do Novo Post, foto do resumo, cards de
+// treino 1620×1620, mapa 1080×1080), então `object-cover` num frame 1:1
+// preenche 100% sem cortar, sem esticar e sem bordas.
+//
+// Antes a ALTURA vinha da tela (`100dvh - 314px`, teto 500px) e a largura era
+// 100% — a proporção mudava de aparelho para aparelho: em uns a foto era
+// cortada (saía do frame), em outros virava "contain" com fundo borrado.
+//
+// O lado do quadrado ainda é limitado pela altura útil da tela, para o post
+// inteiro (pílula do autor → barra de incentivos) caber sem rolar em telas
+// baixas (iPhone SE), e por 500px no iPad.
+export const FEED_POST_MAX_SIDE =
+  "min(500px, calc(100dvh - max(14px, env(safe-area-inset-top) + 6px) - 314px - env(safe-area-inset-bottom)))";
+
+/** Largura do card do post no feed — o frame dentro dele é 1:1. */
+export const FEED_POST_CARD_STYLE: React.CSSProperties = {
+  width: "calc(100% - 24px)",
+  maxWidth: FEED_POST_MAX_SIDE,
+  marginLeft: "auto",
+  marginRight: "auto",
+};
+
 /** Sombra do texto branco sobre o vidro leve — mantém nome/tempo legíveis em foto clara. */
 export const GLASS_TEXT_SHADOW = "0 1px 3px rgba(0,0,0,.6), 0 0 1px rgba(0,0,0,.4)";
 

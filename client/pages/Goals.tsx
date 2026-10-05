@@ -1019,6 +1019,8 @@ export default function Goals() {
       setWorkoutChallenge({
         id: challenge.id,
         challengerNickname: challenge.challengerNickname,
+        challengerId: challenge.challengerId,
+        challengerPhoto: challenge.challengerPhoto,
         snapshot: challenge.snapshot,
       });
       setSessionCardKey(null);
@@ -1172,7 +1174,12 @@ export default function Goals() {
       // RLS liberar os de quem desafiou). Treino de desafio não oferece
       // "Desafiar" de novo — o resumo é sobre o resultado.
       challengeResult: finishedChallenge
-        ? { challengerNickname: finishedChallenge.challengerNickname, status: "loading" }
+        ? {
+            challengerNickname: finishedChallenge.challengerNickname,
+            challengerId: finishedChallenge.challengerId,
+            challengerPhoto: finishedChallenge.challengerPhoto ?? null,
+            status: "loading",
+          }
         : null,
       // Corrida GPS da sessão (se houve) — vira o slide de mapa compartilhável
       // no resumo. Não entra no snapshot persistido (updateRoutineLastSummaryDb):
@@ -1212,13 +1219,19 @@ export default function Goals() {
                   challengeResult: res
                     ? {
                         challengerNickname: res.challenge.challengerNickname,
+                        challengerId: res.challenge.challengerId,
                         challengedNickname: res.challenge.challengedNickname,
                         challengerPhoto: res.challenge.challengerPhoto,
                         challengedPhoto: res.challenge.challengedPhoto,
                         status: "ready",
                         outcome: res.outcome,
                       }
-                    : { challengerNickname: finishedChallenge.challengerNickname, status: "error" },
+                    : {
+                        challengerNickname: finishedChallenge.challengerNickname,
+                        challengerId: finishedChallenge.challengerId,
+                        challengerPhoto: finishedChallenge.challengerPhoto ?? null,
+                        status: "error",
+                      },
                 }
               : prev,
           );
@@ -1226,7 +1239,17 @@ export default function Goals() {
         .catch((err) => {
           reportHandledError(err, "goals:submit-challenge");
           setSummaryData((prev) =>
-            prev ? { ...prev, challengeResult: { challengerNickname: finishedChallenge.challengerNickname, status: "error" } } : prev,
+            prev
+              ? {
+                  ...prev,
+                  challengeResult: {
+                    challengerNickname: finishedChallenge.challengerNickname,
+                    challengerId: finishedChallenge.challengerId,
+                    challengerPhoto: finishedChallenge.challengerPhoto ?? null,
+                    status: "error",
+                  },
+                }
+              : prev,
           );
         });
     }
@@ -1724,6 +1747,7 @@ export default function Goals() {
           onOpenCalendar={() => setCalendarOpen(true)}
           onOpenBadges={() => setBadgesOpen(true)}
           onOpenWeight={() => setWeightHistoryOpen(true)}
+          onOpenHistory={() => navigate("/metas/historico")}
         />
 
         <TodayDashboard
@@ -1982,7 +2006,13 @@ export default function Goals() {
         />
       )}
       {resultChallenge && (
-        <ChallengeResultDialog challenge={resultChallenge} onClose={() => setResultChallenge(null)} />
+        <ChallengeResultDialog
+          challenge={resultChallenge}
+          onClose={() => setResultChallenge(null)}
+          // Publicou o resultado: vai ao Feed (aba Seguindo, onde o próprio post
+          // aparece) recarregando sem cache — mesmo caminho do NewPost.
+          onSharedToFeed={() => navigate("/", { state: { refreshFeed: true, showFollowing: true } })}
+        />
       )}
 
       {summaryData && (

@@ -43,8 +43,10 @@ interface ShareDrawerProps {
    * `onShareToFlow`: fecha ao resolver, fica aberto em erro.
    */
   onRepostToFeed?: () => Promise<void>;
-  /** Já repostado: o botão aparece marcado e desabilitado. */
+  /** Já repostado: o botão aparece marcado (e desfaz, com `onUndoRepostToFeed`). */
   repostedToFeed?: boolean;
+  /** Tira o post do perfil do usuário. Sem a prop, "Repostado" fica travado. */
+  onUndoRepostToFeed?: () => Promise<void>;
 }
 
 export function ShareDrawer({
@@ -58,6 +60,7 @@ export function ShareDrawer({
   onEditFlow,
   onRepostToFeed,
   repostedToFeed = false,
+  onUndoRepostToFeed,
 }: ShareDrawerProps) {
   const { t } = useLanguage();
   const [sharingToFlow, setSharingToFlow] = React.useState(false);
@@ -318,11 +321,12 @@ export function ShareDrawer({
           {/* Repostar no próprio feed (post em que o usuário foi marcado) */}
           {onRepostToFeed && (
             <button
-              disabled={repostingToFeed || repostedToFeed}
+              disabled={repostingToFeed || (repostedToFeed && !onUndoRepostToFeed)}
               onClick={async () => {
                 setRepostingToFeed(true);
                 try {
-                  await onRepostToFeed();
+                  if (repostedToFeed) await onUndoRepostToFeed?.();
+                  else await onRepostToFeed();
                   onOpenChange(false);
                 } catch {
                   // o pai já mostrou o toast de erro; o drawer fica aberto
@@ -351,7 +355,9 @@ export function ShareDrawer({
                 )}
               </div>
               <span className="text-xs text-center" style={{ color: "rgba(255,255,255,.7)" }}>
-                {repostedToFeed ? t("share_btn_reposted") : t("share_btn_your_feed")}
+                {repostedToFeed
+                  ? (onUndoRepostToFeed ? t("share_btn_undo_repost") : t("share_btn_reposted"))
+                  : t("share_btn_your_feed")}
               </span>
             </button>
           )}

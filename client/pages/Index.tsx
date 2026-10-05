@@ -575,6 +575,19 @@ export default function Index() {
     loadFeed(false, true);
   }, [location.state?.refreshFeed, loadFeed, navigate, location.pathname]);
 
+  // Lembrete "Fulano postou algo novo" (push de re-engajamento) abre
+  // `/?feed=following` — o push só leva uma URL, não `location.state`. Mesmo
+  // efeito do showFollowing acima: aba Seguindo, do topo, sem cache.
+  React.useEffect(() => {
+    if (new URLSearchParams(location.search).get("feed") !== "following") return;
+    autoTabDecided.current = true;
+    setFeedTab("following");
+    navigate(location.pathname, { replace: true });
+    window.scrollTo({ top: 0, behavior: "auto" });
+    feedCache.scrollY = 0;
+    loadFeed(false, true);
+  }, [location.search, loadFeed, navigate, location.pathname]);
+
   // Infinite scroll: load more following-feed posts as the user approaches the
   // end of the current page. Cursor is the created_at of the oldest post.
   const feedBottomSentinelRef = React.useRef<HTMLDivElement | null>(null);
@@ -1156,8 +1169,8 @@ export default function Index() {
     // O ring de flows no topo do feed mostra o novo flow na hora.
     // O ring se atualiza sozinho via FLOW_CREATED_EVENT (refreshStories).
     onFlowShared: undefined,
-    // O repost entra no topo do próprio feed.
-    onReposted: () => { loadFeed(false, true); },
+    // Repostar/desfazer muda o "fulano repostou" do card e o feed de quem segue.
+    onRepostChanged: () => { loadFeed(false, true); },
   });
 
   const handleSharePost = React.useCallback((post: PostWithStats) => {
@@ -1869,6 +1882,7 @@ export default function Index() {
         onEditFlow={postReshare.editFlow}
         onRepostToFeed={postReshare.repostToFeed}
         repostedToFeed={postReshare.repostedToFeed}
+        onUndoRepostToFeed={postReshare.undoRepostToFeed}
       />
 
       <SendToFriendDrawer

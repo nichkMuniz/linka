@@ -41,6 +41,7 @@ import {
   recordAccessSessionDb,
   bufferScreenTime,
   flushScreenTimeDb,
+  touchUserActivityDb,
   type UserProfile,
   type UserStats,
   type CommercialProfile,
@@ -56,6 +57,7 @@ import { PushNotifications } from "@capacitor/push-notifications";
 import { LocalNotifications } from "@capacitor/local-notifications";
 import { useLanguage } from "@/lib/language-context";
 import { FEATURES } from "@/lib/feature-flags";
+import { readNotifPrefs, writeNotifPrefs, type NotifPrefs } from "@/lib/notification-prefs";
 import { hasPasswordIdentity } from "@/lib/social-signup-state";
 import { isStrongPassword, passwordRules } from "@/lib/password-rules";
 import { videoPosterSrc } from "@/lib/video-thumb";
@@ -519,31 +521,19 @@ export function SettingsDrawer({
   // --- Notifications ---
   const [isNotificationsOpen, setIsNotificationsOpen] = React.useState(false);
 
-  const NOTIF_PREFS_KEY = "linka_notif_prefs";
-  const defaultNotifPrefs = {
-    workoutReminders: true,
-    achievementAlerts: true,
-    friendActivity: true,
-    messages: true,
-    sound: true,
-  };
-
-  const [notifications, setNotifications] = React.useState<typeof defaultNotifPrefs>(() => {
-    try {
-      const stored = localStorage.getItem(NOTIF_PREFS_KEY);
-      if (stored) return { ...defaultNotifPrefs, ...(JSON.parse(stored) as Partial<typeof defaultNotifPrefs>) };
-    } catch {}
-    return defaultNotifPrefs;
-  });
+  const [notifications, setNotifications] = React.useState<NotifPrefs>(readNotifPrefs);
 
   const handleToggleNotification = React.useCallback(
-    async (key: keyof typeof defaultNotifPrefs) => {
+    async (key: keyof NotifPrefs) => {
       const newValue = !notifications[key];
       const newPrefs = { ...notifications, [key]: newValue };
       setNotifications(newPrefs);
-      try {
-        localStorage.setItem(NOTIF_PREFS_KEY, JSON.stringify(newPrefs));
-      } catch {}
+      writeNotifPrefs(newPrefs);
+
+      // "Lembretes e novidades" é enviado pelo SERVIDOR — ele precisa saber.
+      if (key === "reminders") {
+        void touchUserActivityDb(newValue).catch(() => {});
+      }
 
       if (key === "workoutReminders") {
         if (!newValue) {
@@ -560,12 +550,14 @@ export function SettingsDrawer({
         }
       }
 
-      if (key === "messages" || key === "achievementAlerts" || key === "friendActivity") {
+      if (key === "messages" || key === "achievementAlerts" || key === "friendActivity" || key === "reminders") {
         if (!Capacitor.isNativePlatform()) return;
+        // Os lembretes também chegam por push remoto: o token só sai do
+        // servidor quando TODOS os pushes remotos estão desligados.
         const wasAnyEnabled =
-          notifications.messages || notifications.achievementAlerts || notifications.friendActivity;
+          notifications.messages || notifications.achievementAlerts || notifications.friendActivity || notifications.reminders;
         const isAnyEnabled =
-          newPrefs.messages || newPrefs.achievementAlerts || newPrefs.friendActivity;
+          newPrefs.messages || newPrefs.achievementAlerts || newPrefs.friendActivity || newPrefs.reminders;
 
         if (wasAnyEnabled && !isAnyEnabled) {
           // Todas as push desativadas → remover token do servidor e cancelar registro no APNs
@@ -2180,13 +2172,24 @@ export function SettingsDrawer({
                       { notifKey: "achievementAlerts", labelKey: "settings_notif_achievements", descKey: "settings_notif_achievements_desc" },
                       { notifKey: "friendActivity", labelKey: "settings_notif_friends", descKey: "settings_notif_friends_desc" },
                       { notifKey: "messages", labelKey: "settings_notif_messages", descKey: "settings_notif_messages_desc" },
+                      // Lembretes de volta ao app (push agendado no servidor).
+                      // Guideline 4.5.4: lembrete precisa poder ser desligado aqui.
+                      ...(FEATURES.reengagementPush
+                        ? [{ notifKey: "reminders", labelKey: "settings_notif_reminders", descKey: "settings_notif_reminders_desc" }]
+                        : []),
                     ] as { notifKey: keyof typeof notifications; labelKey: import("../../lib/i18n").TranslationKey; descKey: import("../../lib/i18n").TranslationKey }[]).map(({ notifKey, labelKey, descKey }) => (
                       <div key={notifKey} className="flex items-center justify-between p-4 rounded-2xl transition-colors" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}>
                         <div>
                           <div className="text-sm font-medium" style={{ color: "#fff" }}>{t(labelKey)}</div>
                           <div className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>{t(descKey)}</div>
                         </div>
-                        <button onClick={() => handleToggleNotification(notifKey)} className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${notifications[notifKey] ? "bg-brand" : "bg-muted"}`}>
+                        <button
+                          role="switch"
+                          aria-checked={notifications[notifKey]}
+                          aria-label={t(labelKey)}
+                          onClick={() => handleToggleNotification(notifKey)}
+                          className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${notifications[notifKey] ? "bg-brand" : "bg-muted"}`}
+                        >
                           <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${notifications[notifKey] ? "translate-x-6" : "translate-x-1"}`} />
                         </button>
                       </div>

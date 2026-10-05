@@ -1,4 +1,4 @@
-import { ChevronRight, Flame, Scale } from "lucide-react";
+import { ChevronRight, Flame, History, Scale } from "lucide-react";
 import { useLanguage } from "@/lib/language-context";
 import { FEATURES } from "@/lib/feature-flags";
 
@@ -15,6 +15,8 @@ interface StreakBadgesCardProps {
   onOpenBadges: () => void;
   /** opens the body-weight history drawer — the ⚖️ icon in the top-right corner */
   onOpenWeight: () => void;
+  /** abre a tela de histórico de treinos — botão com o ícone de relógio no canto superior direito */
+  onOpenHistory: () => void;
 }
 
 /**
@@ -24,6 +26,9 @@ interface StreakBadgesCardProps {
  * - Tocar no card principal abre o calendário de check-ins.
  * - Tocar nos ícones de badge abre o sheet de insígnias.
  * - Tocar no ⚖️ do canto superior direito abre o histórico de peso.
+ * - Tocar no botão de relógio (canto superior direito) abre o histórico de
+ *   treinos (`/metas/historico`) — 2026-10-05. Só ícone, sem rótulo: o card é o
+ *   bloco "do que já fiz" da tela, e o relógio lê como "histórico" ali.
  */
 export function StreakBadgesCard({
   streakCount,
@@ -34,6 +39,7 @@ export function StreakBadgesCard({
   onOpenCalendar,
   onOpenBadges,
   onOpenWeight,
+  onOpenHistory,
 }: StreakBadgesCardProps) {
   const { t } = useLanguage();
 
@@ -167,6 +173,38 @@ export function StreakBadgesCard({
           </div>
         </div>
         )}
+
+        {/* Histórico de treinos. `div role="button"` pelo mesmo motivo do ⚖️ (o
+            card já é um <button>); área de toque de 44px via padding/margin. */}
+        <div
+          role="button"
+          tabIndex={0}
+          aria-label={t("goals_history_title")}
+          style={{ margin: "-5px", padding: "5px" }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenHistory();
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.stopPropagation();
+              onOpenHistory();
+            }
+          }}
+        >
+          <div
+            className="flex items-center justify-center active:scale-95 transition-transform"
+            style={{
+              width: "34px",
+              height: "34px",
+              borderRadius: "11px",
+              background: "rgba(91,140,255,.2)",
+              border: "1px solid rgba(147,180,255,.38)",
+            }}
+          >
+            <History className="h-[18px] w-[18px]" style={{ color: "#b9cfff" }} strokeWidth={2.2} />
+          </div>
+        </div>
 
         <ChevronRight className="h-5 w-5" style={{ color: "rgba(255,255,255,.4)" }} />
       </div>

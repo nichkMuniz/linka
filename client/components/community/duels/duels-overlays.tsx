@@ -1353,7 +1353,6 @@ export function DuelsOverlays({
                   <PostCarousel
                     photos={selectedCheckInForDetail.photos || [selectedCheckInForDetail.photo]}
                     alt="check-in"
-                    objectFit="contain"
                     priority
                   />
                 ) : selectedCheckInForDetail.photo ? (

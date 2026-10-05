@@ -18,18 +18,18 @@ interface PostCarouselProps {
   editMode?: boolean;
   onRemovePhoto?: (photoUrl: string, index: number) => void;
   removingPhoto?: boolean;
-  objectFit?: "cover" | "contain";
   /** Notifica a foto atual — usado para renderizar o indicador fora do frame. */
   onIndexChange?: (index: number) => void;
   /** Oculta os dots internos quando o indicador é renderizado externamente. */
   hideDots?: boolean;
   /** Oculta o contador "1/3" no canto superior direito — usar quando esse canto já tem outro elemento sobreposto (ex: menu de opções do post). */
   hideCounter?: boolean;
-  /** Frame alto ocupando a maior parte da viewport (usado no feed para "1 post por tela"). */
-  tall?: boolean;
   /** Avisa quando o gesto de pinça começa/termina — usado no feed para ocultar os overlays (nome, descrição, "Ver treino") enquanto o usuário dá zoom. */
   onZoomChange?: (zooming: boolean) => void;
-  /** Preenche 100% da altura do container pai (usado quando o pai já controla a altura via flexbox, ex: tela de detalhe do post). Tem prioridade sobre `tall`. */
+  /**
+   * Preenche 100% do container pai em vez de criar o próprio quadrado — o pai
+   * já é um quadrado (ex.: card da tela de detalhe, dimensionado por medição).
+   */
   fill?: boolean;
   /** A primeira foto carrega "eager" mesmo com uma única imagem — usar quando o carrossel já abre visível (modal/drawer de detalhe), onde "lazy" só atrasa o fetch à toa. */
   priority?: boolean;
@@ -50,66 +50,34 @@ function getPinchOrigin(touches: React.TouchList | TouchList, rect: DOMRect) {
   };
 }
 
-// Acima desse desvio entre a proporção da foto e a do frame, "cover" corta
-// demais (ex.: canvas quadrado de treino dentro do frame alto do feed) — nesse
-// caso a foto passa a usar "contain" (inteira, sem corte) com um fundo
-// desfocado da própria imagem preenchendo o frame.
-// Calibrado para pegar o canvas quadrado (1:1) do resumo de treino: nos
-// tamanhos de tela do iPhone o desvio real desse caso fica entre ~0.19 e
-// ~0.23 (frame "tall" do feed nunca é exatamente quadrado), então o limite
-// precisa ficar abaixo disso para o card de treino nunca ser cortado.
-const ADAPTIVE_FIT_LOG_THRESHOLD = 0.18;
-
-// Fotos que já carregaram nesta sessão → o enquadramento decidido no onLoad.
-// Ao voltar para uma tela, a foto já está no cache do WebView e aparece na hora:
-// sem isto ela recomeçava invisível (fade de entrada) e em "cover" até o onLoad
-// disparar de novo — um piscar e um salto de enquadramento a cada navegação.
-const loadedPhotoFit = new Map<string, "cover" | "contain">();
+// Fotos que já carregaram nesta sessão. Ao voltar para uma tela, a foto já está
+// no cache do WebView e aparece na hora: sem isto ela recomeçava invisível
+// (fade de entrada) até o onLoad disparar de novo — um piscar a cada navegação.
+const loadedPhotos = new Set<string>();
 
 function ZoomableImage({
   src,
   alt,
   className,
   loading,
-  adaptiveFit,
   onZoomChange,
 }: {
   src: string;
   alt: string;
   className: string;
   loading?: "eager" | "lazy";
-  /** Troca para "contain" + fundo desfocado quando a proporção da foto destoa muito do frame. */
-  adaptiveFit?: boolean;
   onZoomChange?: (zooming: boolean) => void;
 }) {
   const [scale, setScale] = React.useState(1);
   const [origin, setOrigin] = React.useState({ x: 50, y: 50 });
   const [isPinching, setIsPinching] = React.useState(false);
-  const [fitMode, setFitMode] = React.useState<"cover" | "contain">(
-    () => loadedPhotoFit.get(src) ?? "cover",
-  );
-  const [loaded, setLoaded] = React.useState(() => loadedPhotoFit.has(src));
+  const [loaded, setLoaded] = React.useState(() => loadedPhotos.has(src));
   const pinch = React.useRef({ active: false, startDist: 0, baseScale: 1 });
   const containerRef = React.useRef<HTMLDivElement>(null);
 
-  const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
+  const handleImageLoad = () => {
+    loadedPhotos.add(src);
     setLoaded(true);
-    if (!adaptiveFit) {
-      if (!loadedPhotoFit.has(src)) loadedPhotoFit.set(src, "cover");
-      return;
-    }
-    const img = e.currentTarget;
-    const rect = containerRef.current?.getBoundingClientRect();
-    if (!rect || !rect.width || !rect.height || !img.naturalWidth || !img.naturalHeight) {
-      if (!loadedPhotoFit.has(src)) loadedPhotoFit.set(src, "cover");
-      return;
-    }
-    const imageRatio = img.naturalWidth / img.naturalHeight;
-    const frameRatio = rect.width / rect.height;
-    const deviation = Math.abs(Math.log(imageRatio / frameRatio));
-    const fit = deviation > ADAPTIVE_FIT_LOG_THRESHOLD ? "contain" : "cover";
-    loadedPhotoFit.set(src, fit);
-    setFitMode(fit);
   };
 
   // O callback vive numa ref para o efeito abaixo depender só de `isPinching`:
@@ -176,7 +144,6 @@ function ZoomableImage({
   };
 
   const resolvedSrc = cdnImg(src, { width: POST_PHOTO_WIDTH, quality: POST_PHOTO_QUALITY }) ?? src;
-  const isContain = adaptiveFit && fitMode === "contain";
 
   return (
     <div
@@ -186,21 +153,11 @@ function ZoomableImage({
       onTouchEnd={handleTouchEnd}
       onTouchCancel={handleTouchCancel}
     >
-      {/* Fundo desfocado da própria foto — evita barras vazias quando a imagem usa "contain" */}
-      {isContain && (
-        <img
-          src={resolvedSrc}
-          alt=""
-          aria-hidden="true"
-          draggable={false}
-          className="absolute inset-0 w-full h-full object-cover scale-125 blur-2xl opacity-50"
-        />
-      )}
       <img
         src={resolvedSrc}
         alt={alt}
         onLoad={handleImageLoad}
-        className={isContain ? `${className.replace("object-cover", "object-contain")} relative block` : `${className} block`}
+        className={`${className} block`}
         loading={loading}
         decoding="async"
         draggable={false}
@@ -228,11 +185,9 @@ export function PostCarousel({
   editMode,
   onRemovePhoto,
   removingPhoto,
-  objectFit = "cover",
   onIndexChange,
   hideDots,
   hideCounter,
-  tall,
   fill,
   priority,
   onZoomChange,
@@ -247,36 +202,58 @@ export function PostCarousel({
   const touchStartY = React.useRef<number | null>(null);
   const touchCount = React.useRef(0);
 
+  const containerRef = React.useRef<HTMLDivElement>(null);
+  const isHorizontalSwipe = React.useRef<boolean | null>(null);
+  const isMulti = Array.isArray(photos) && photos.length > 1;
+
+  // Adiciona listener não-passivo para bloquear scroll apenas em swipe
+  // horizontal. Declarado ANTES dos returns de 1 foto: hooks depois de um return
+  // condicional quebram o React quando o post passa de 1 para 2+ fotos.
+  React.useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const onMove = (e: TouchEvent) => {
+      if (touchCount.current >= 2) return;
+      if (touchStartX.current === null || touchStartY.current === null) return;
+      const dx = e.touches[0].clientX - touchStartX.current;
+      const dy = e.touches[0].clientY - touchStartY.current;
+      // Determina direção do swipe na primeira leitura com deslocamento suficiente
+      if (isHorizontalSwipe.current === null && (Math.abs(dx) > 5 || Math.abs(dy) > 5)) {
+        isHorizontalSwipe.current = Math.abs(dx) > Math.abs(dy);
+      }
+      // Só bloqueia o scroll padrão se for swipe horizontal
+      if (isHorizontalSwipe.current === true) {
+        e.preventDefault();
+      }
+    };
+    el.addEventListener("touchmove", onMove, { passive: false });
+    return () => el.removeEventListener("touchmove", onMove);
+  }, [isMulti]);
+
+  // `object-cover` num frame SEMPRE 1:1 (ver FEED_POST_CARD_STYLE em
+  // post-visuals.tsx): toda imagem de post nasce 1:1, então ela preenche o
+  // frame inteiro sem cortar, esticar ou deixar borda — em qualquer aparelho.
+  // Imagem antiga fora de 1:1 é cortada no centro (nunca esticada).
   const imgClass = "w-full h-full object-cover";
   const frameBg = "bg-slate-900/10";
-  // "tall" height fills exactly one viewport, accounting for header, stories, tabs, and bottom nav.
-  // Formula: 100dvh minus header top offset, minus all fixed-height UI above/below the card (314px constant),
-  // minus bottom safe area. maxHeight caps the frame on large screens/iPads.
-  const tallFrameStyle: React.CSSProperties = tall && !fill ? {
-    height: "calc(100dvh - max(14px, env(safe-area-inset-top) + 6px) - 314px - env(safe-area-inset-bottom))",
-    maxHeight: "500px",
-  } : {};
-  const sizeClass = fill ? "h-full" : tall ? "" : "aspect-square md:aspect-auto md:h-[450px]";
+  const sizeClass = fill ? "h-full" : "aspect-square";
   const coverBox = `relative w-full ${sizeClass} ${frameBg} overflow-hidden rounded-lg`;
 
   if (!Array.isArray(photos)) {
     return photos ? (
-      <div className={coverBox} style={tallFrameStyle}>
-        <ZoomableImage src={String(photos)} alt={alt} className={imgClass} loading="eager" adaptiveFit={tall} onZoomChange={onZoomChange} />
+      <div className={coverBox}>
+        <ZoomableImage src={String(photos)} alt={alt} className={imgClass} loading="eager" onZoomChange={onZoomChange} />
       </div>
     ) : null;
   }
 
   if (photos.length === 1) {
     return (
-      <div className={coverBox} style={tallFrameStyle}>
-        <ZoomableImage src={photos[0]} alt={alt} className={imgClass} loading={priority ? "eager" : "lazy"} adaptiveFit={tall} onZoomChange={onZoomChange} />
+      <div className={coverBox}>
+        <ZoomableImage src={photos[0]} alt={alt} className={imgClass} loading={priority ? "eager" : "lazy"} onZoomChange={onZoomChange} />
       </div>
     );
   }
-
-  const containerRef = React.useRef<HTMLDivElement>(null);
-  const isHorizontalSwipe = React.useRef<boolean | null>(null);
 
   const goTo = (index: number) => {
     setCurrentIndex((index + photos.length) % photos.length);
@@ -312,33 +289,10 @@ export function PostCarousel({
     isHorizontalSwipe.current = null;
   };
 
-  // Adiciona listener não-passivo para bloquear scroll apenas em swipe horizontal
-  React.useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const onMove = (e: TouchEvent) => {
-      if (touchCount.current >= 2) return;
-      if (touchStartX.current === null || touchStartY.current === null) return;
-      const dx = e.touches[0].clientX - touchStartX.current;
-      const dy = e.touches[0].clientY - touchStartY.current;
-      // Determina direção do swipe na primeira leitura com deslocamento suficiente
-      if (isHorizontalSwipe.current === null && (Math.abs(dx) > 5 || Math.abs(dy) > 5)) {
-        isHorizontalSwipe.current = Math.abs(dx) > Math.abs(dy);
-      }
-      // Só bloqueia o scroll padrão se for swipe horizontal
-      if (isHorizontalSwipe.current === true) {
-        e.preventDefault();
-      }
-    };
-    el.addEventListener("touchmove", onMove, { passive: false });
-    return () => el.removeEventListener("touchmove", onMove);
-  }, []);
-
   return (
     <div
       ref={containerRef}
       className={`relative group overflow-hidden rounded-lg w-full ${sizeClass} ${frameBg}`}
-      style={tallFrameStyle}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
     >
@@ -357,7 +311,6 @@ export function PostCarousel({
               alt={`${alt} - ${i + 1}`}
               className={imgClass}
               loading={i === 0 ? "eager" : "lazy"}
-              adaptiveFit={tall}
               onZoomChange={onZoomChange}
             />
           </div>

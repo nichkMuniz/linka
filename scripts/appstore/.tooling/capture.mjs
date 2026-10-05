@@ -11,7 +11,7 @@
 import { chromium } from "playwright";
 import sharp from "sharp";
 import { mkdirSync } from "node:fs";
-import { LANG, REF, SESSION, TABLES } from "./fixtures.mjs";
+import { LANG, PARTY_ID, REF, SESSION, TABLES } from "./fixtures.mjs";
 
 const BASE = "http://localhost:8080";
 // `LK_LANG=en node capture.mjs` gera o conjunto em inglês em docs/appstore/en/.
@@ -20,8 +20,37 @@ const OUT = EN ? "../../../docs/appstore/en" : "../../../docs/appstore";
 
 /** Textos da interface que o script procura/clica — seguem o idioma do app. */
 const UI = EN
-  ? { iniciar: "Start workout", seguindo: "Following", concluir: "Mark set as done" }
-  : { iniciar: "Iniciar treino", seguindo: "Seguindo", concluir: "Marcar série como concluída" };
+  ? { iniciar: "Start workout", seguindo: "Following", concluir: "Mark set as done", emAndamento: "Workout in progress", desafiou: "challenged you", cobertura: "Muscle coverage" }
+  : { iniciar: "Iniciar treino", seguindo: "Seguindo", concluir: "Marcar série como concluída", emAndamento: "Treino em andamento", desafiou: "te desafiou", cobertura: "Cobertura muscular" };
+
+/**
+ * Sessão de TREINAR JUNTO já em andamento, no formato que o app persiste em
+ * `linka_active_workout` (ver `loadPersistedWorkout` em workout-context.tsx).
+ * Restaurar é o único caminho: no headless o "concluir série" não fecha a
+ * série, e criar a party exige convidar alguém pelo drawer. Restaurada, a
+ * sessão já mostra séries feitas, contadores e a faixa com os amigos — que vêm
+ * de `workout_party_members` nas fixtures.
+ */
+const serie = (n, kg, reps, completed) => ({ series: n, kg, reps, completed });
+const SEED_PARTY = {
+  workoutSeries: {
+    101: [serie(1, 70, 10, true), serie(2, 75, 8, true), serie(3, 80, 8, true), serie(4, 80, 7, true)],
+    102: [serie(1, 20, 12, true), serie(2, 22, 12, true), serie(3, 22, 10, false)],
+  },
+  workoutStartTime: Date.now() - 31 * 60000,
+  selectedRoutineName: EN ? "Chest & Triceps" : "Peito e Tríceps",
+  workoutExerciseRestTimes: {},
+  workoutExerciseNotes: {},
+  workoutExpandedId: "102",
+  workoutPartyId: PARTY_ID,
+  workoutPartyRole: "host",
+  workoutPartySnapshot: null,
+  workoutPartyHostName: null,
+  workoutQuickSession: false,
+  workoutChallenge: null,
+};
+/** `?lkseed=<chave>` na URL da tela → o init script grava este estado. */
+const SEEDS = { party: { linka_active_workout: JSON.stringify(SEED_PARTY) } };
 
 /**
  * Tamanhos exatos que a App Store exige. `viewport × deviceScaleFactor` dá o
@@ -54,7 +83,15 @@ const SCREENS = [
   { id: "3-feed", path: "/", wait: UI.seguindo },
   { id: "4-perfil", path: "/perfil" },
   { id: "5-comunidade", path: "/comunidade" },
+  // 02/10/2026 — funções da 1.0.69.
+  { id: "6-treinar-junto", path: "/metas?lkseed=party", acoes: [UI.emAndamento], espera: 3500 },
+  { id: "7-desafio", path: "/metas", acoes: [UI.desafiou], espera: 1800 },
+  { id: "8-cobertura-muscular", path: "/metas", acoes: [UI.cobertura], espera: 2200 },
 ];
+
+/** `LK_ONLY=6,7,8` captura só as telas cujo id começa com esses prefixos. */
+const ONLY = (process.env.LK_ONLY ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+const TELAS = ONLY.length ? SCREENS.filter((s) => ONLY.some((p) => s.id.startsWith(p))) : SCREENS;
 
 const FONTE = "Segoe UI, Arial, sans-serif";
 const esc = (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;");
@@ -203,7 +240,9 @@ async function main() {
   const browser = await chromium.launch();
   const cacheImg = new Map();
 
-  for (const dev of DEVICES) {
+  // `LK_DEVICE=iphone-6.9` limita a um aparelho (iteração rápida).
+  const devices = process.env.LK_DEVICE ? DEVICES.filter((d) => d.id === process.env.LK_DEVICE) : DEVICES;
+  for (const dev of devices) {
     mkdirSync(`${OUT}/${dev.id}`, { recursive: true });
 
     const ctx = await browser.newContext({
@@ -289,7 +328,7 @@ async function main() {
     });
 
     await ctx.addInitScript(
-      ([ref, sess, lang]) => {
+      ([ref, sess, lang, seeds]) => {
         localStorage.setItem(`sb-${ref}-auth-token`, JSON.stringify(sess));
         // O app localiza pelo idioma do aparelho; fixamos para as duas telas
         // saírem no mesmo idioma.
@@ -302,11 +341,14 @@ async function main() {
         // andamento" reaparece flutuando sobre TODA tela seguinte.
         localStorage.removeItem("linka_active_workout");
         localStorage.removeItem("rest_timer_end_at");
+        // Estado semeado por tela (`?lkseed=`), gravado DEPOIS da limpeza.
+        const seed = seeds[new URLSearchParams(location.search).get("lkseed") ?? ""];
+        for (const [k, v] of Object.entries(seed ?? {})) localStorage.setItem(k, v);
       },
-      [REF, SESSION, LANG],
+      [REF, SESSION, LANG, SEEDS],
     );
 
-    for (const s of SCREENS) {
+    for (const s of TELAS) {
       // Página NOVA a cada tela. Sem isto, iniciar o treino na tela 2 deixava
       // o FAB "Treino em andamento" flutuando sobre o feed e o perfil — estado
       // de uma captura contaminando a seguinte.

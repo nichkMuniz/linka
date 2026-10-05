@@ -17,7 +17,7 @@ import { ExerciseImage } from "@/components/shared/exercise-image";
 import { ExerciseAnatomy } from "@/components/shared/exercise-anatomy";
 import { TechniqueInfoOverlay } from "@/components/goals/technique-info-overlay";
 import { PartyTurnStatus, useWorkoutPartyMembers } from "@/components/goals/workout-party-live";
-import { WorkoutPartyBar } from "@/components/goals/workout-party-bar";
+import { WorkoutSessionContextPill } from "@/components/goals/workout-session-context";
 import { buildPartySnapshot } from "@/components/goals/workout-party-helpers";
 import { getCoachingAdaptations, getExerciseCoaching } from "@/lib/exercise-coaching";
 import {
@@ -43,8 +43,8 @@ import {
   WorkoutReorderOverlay,
   type ReorderUnit,
 } from "@/components/goals/workout-reorder-overlay";
-import { hapticMedium } from "@/lib/haptics";
-import { GripVertical } from "lucide-react";
+import { hapticMedium, hapticSuccess } from "@/lib/haptics";
+import { GripVertical, TrendingUp } from "lucide-react";
 import { beatsE1rm, estimateOneRepMax, roundE1rm } from "@/lib/one-rep-max";
 import { toast } from "@/components/ui/use-toast";
 import {
@@ -73,10 +73,9 @@ import {
   isWorkingSet,
   isBlockTechnique,
   getExercisePersonalRecordsDb,
-  createWorkoutPartyDb,
-  inviteToWorkoutPartyDb,
   finishWorkoutPartyMemberDb,
   updateWorkoutPartyLiveDb,
+  updateWorkoutPartyProgressDb,
   endWorkoutPartyDb,
   type WorkoutPartyLiveStats,
   type ExercisePersonalRecords,
@@ -1216,8 +1215,8 @@ export function WorkoutSessionDialog({
     globalRestTimerPaused, setGlobalRestTimerPaused,
     globalRestTimerTotal, setGlobalRestTimerTotal,
     globalRestTimerKey, setGlobalRestTimerKey,
-    workoutPartyId, setWorkoutPartyId,
-    workoutPartyRole, setWorkoutPartyRole,
+    workoutPartyId,
+    workoutPartyRole,
     workoutQuickSession,
     workoutChallenge,
     resetWorkoutState,
@@ -1615,9 +1614,17 @@ export function WorkoutSessionDialog({
   // depois é elevado ao maior peso concluído nesta sessão, para não repetir o
   // aviso em séries iguais/menores. Mapa: workout_id → melhor kg conhecido.
   const prevBestRef = React.useRef<Map<string, number>>(new Map());
+  // Recorde de REPETIÇÕES por carga (2026-10-02): workout_id → (kg → mais reps
+  // já feitas com essa carga). Mesma origem do anterior (prevKg × prevReps da
+  // última sessão) e sobe a cada série concluída — "10kg × 8" antes e "10kg ×
+  // 10" agora celebra; repetir os 10 não celebra de novo.
+  const prevRepsAtKgRef = React.useRef<Map<string, Map<number, number>>>(new Map());
 
   React.useEffect(() => {
-    if (!open) prevBestRef.current = new Map();
+    if (!open) {
+      prevBestRef.current = new Map();
+      prevRepsAtKgRef.current = new Map();
+    }
   }, [open]);
 
   // Carrega catálogo quando picker é aberto
@@ -1894,9 +1901,19 @@ export function WorkoutSessionDialog({
 
   // ── Treinar junto ao vivo: a VEZ de cada um (2026-10-02) ─────────────────
   // Fonte única dos participantes (faixa do topo + modal/barra de descanso).
-  const { members: partyMembers, reload: reloadPartyMembers } = useWorkoutPartyMembers(
+  const { members: partyMembers } = useWorkoutPartyMembers(
     FEATURES.workoutParty ? workoutPartyId : null,
   );
+  // Pílula de contexto no header: desafio em curso ou treino com party.
+  const pillVisible = !!workoutChallenge || (FEATURES.workoutParty && !!workoutPartyId);
+
+  // Progresso por EXERCÍCIO concluído ("Ana 3/6" na folha de quem treina
+  // junto). Morava na faixa do topo, que saiu da sessão em 02/10/2026; muda uma
+  // vez por exercício, nunca por série.
+  React.useEffect(() => {
+    if (!FEATURES.workoutParty || !workoutPartyId) return;
+    void updateWorkoutPartyProgressDb(workoutPartyId, stats.doneEx, allItems.length).catch(() => {});
+  }, [workoutPartyId, stats.doneEx, allItems.length]);
   // Os OUTROS: quem está treinando e quem já terminou (aparece "terminou").
   const partyPartners = React.useMemo(
     () => partyMembers.filter(
@@ -1926,6 +1943,9 @@ export function WorkoutSessionDialog({
       }
       bestKg = Math.max(bestKg, exBest);
       exerciseStats.push({
+        // O resumo compara exercício a exercício pelo id do catálogo (o nome
+        // chega no idioma de cada um).
+        workoutId: item.workout_id,
         name: item.workoutName ?? "",
         sets: exSets,
         bestKg: exBest,
@@ -2203,7 +2223,9 @@ export function WorkoutSessionDialog({
   // porque o overlay é `position:fixed z-9999` portado ao body; um toast global
   // (mesmo z-index, porém antes no DOM) ficaria atrás desta tela e nunca apareceria.
   type SessionNotice =
-    | { kind: "pr"; title: string; desc: string }
+    // Recorde ao vivo: mais CARGA que o melhor anterior, ou mais REPETIÇÕES com
+    // a mesma carga. Só o tipo — a pílula é curta de propósito ("PR batido!").
+    | { kind: "pr"; metric: "kg" | "reps" }
     | { kind: "warn"; title: string; desc: string };
   const [notice, setNotice] = React.useState<SessionNotice | null>(null);
   const noticeTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -2908,10 +2930,13 @@ export function WorkoutSessionDialog({
         startRestTimer(restAnchor, kind === "warmup" ? WARMUP_REST_SECS : undefined);
       }
 
-      // PR em tempo real — ao concluir uma série de força com peso acima do
-      // melhor peso anterior, avisa que o usuário bateu o recorde.
+      // Recorde em tempo real — ao concluir uma série de força:
+      //  - CARGA acima do melhor peso anterior → "+5 kg";
+      //  - mesma carga com MAIS REPETIÇÕES que o melhor feito com ela → "+2 reps"
+      //    (vale com peso do corpo, kg = 0: flexão 12 → 15).
       const kg = row?.kg || 0;
-      if (!isCardio && kg > 0 && isWorkingSet(kind)) {
+      const reps = row?.reps || 0;
+      if (!isCardio && (kg > 0 || reps > 0) && isWorkingSet(kind)) {
         // Baseline: na primeira série concluída do exercício, parte do maior
         // "anterior" (prevKg da última sessão, o mesmo valor exibido na coluna
         // ANTERIOR). Nas próximas, usa o recorde corrente já elevado.
@@ -2922,6 +2947,18 @@ export function WorkoutSessionDialog({
             .reduce((m, s) => Math.max(m, (s as any).prevKg || 0), 0);
           prevBestRef.current.set(workoutId, best);
         }
+        let repsAtKg = prevRepsAtKgRef.current.get(workoutId);
+        if (!repsAtKg) {
+          repsAtKg = new Map();
+          for (const s of workoutSeries[workoutId] ?? []) {
+            if (!isWorkingSet(s.kind)) continue;
+            const pk = (s as any).prevKg || 0;
+            const pr = (s as any).prevReps || 0;
+            if (pr > 0) repsAtKg.set(pk, Math.max(repsAtKg.get(pk) ?? 0, pr));
+          }
+          prevRepsAtKgRef.current.set(workoutId, repsAtKg);
+        }
+        const bestRepsAtKg = repsAtKg.get(kg) ?? 0;
         const item = allItems.find((i) => i.workout_id === workoutId);
         const name = item?.workoutName ?? "";
         // "Zerou a máquina?" — série completa pesada o bastante para a região
@@ -2936,18 +2973,18 @@ export function WorkoutSessionDialog({
         ) {
           showMachinePrompt({ workoutId, name, kg });
         } else if (best > 0 && kg > best) {
-          showNotice({
-            kind: "pr",
-            title: t("goals_pr_toast_title"),
-            desc: t("goals_pr_toast_desc")
-              .replace("{exercise}", name)
-              .replace("{kg}", String(kg))
-              .replace("{prev}", String(best)),
-          });
+          void hapticSuccess();
+          showNotice({ kind: "pr", metric: "kg" });
+        } else if (bestRepsAtKg > 0 && reps > bestRepsAtKg && kg >= best) {
+          // Só com a carga de TOPO (kg >= melhor): mais reps numa série leve não
+          // é recorde — seria celebrar o aquecimento de quem já pega mais.
+          void hapticSuccess();
+          showNotice({ kind: "pr", metric: "reps" });
         }
-        // Sobe o recorde corrente para não repetir o aviso em séries
-        // iguais/menores; só dispara de novo se superar este novo valor.
+        // Sobe os recordes correntes para não repetir o aviso em séries
+        // iguais/menores; só dispara de novo se superar o novo valor.
         if (kg > best) prevBestRef.current.set(workoutId, kg);
+        if (reps > bestRepsAtKg) repsAtKg.set(kg, reps);
       }
     } else {
       // Desmarcou uma série concluída. Se o exercício ficou SEM nenhuma série
@@ -2976,50 +3013,6 @@ export function WorkoutSessionDialog({
   const handleFinishClick = () => {
     setSaveError(null);
     setConfirmOpen(true);
-  };
-
-  // ── Treinar junto ───────────────────────────────────────────
-  /**
-   * Convida gente para esta sessão. Na primeira vez cria a party (congelando o
-   * treino como está AGORA na tela); depois só adiciona convidados à mesma.
-   *
-   * O snapshot é congelado de propósito: o host pode trocar variação ou
-   * adicionar exercício depois sem que a tela de quem já aceitou mude embaixo
-   * dele no meio de uma série.
-   */
-  const handlePartyInvite = async (userIds: string[]) => {
-    try {
-      if (workoutPartyId) {
-        await inviteToWorkoutPartyDb(workoutPartyId, userIds);
-      } else {
-        const snapshot = buildPartySnapshot({
-          routineName: routineName ?? routineLabel,
-          trainingMode: isExpert ? "expert" : "simple",
-          items: allItems,
-          seriesByWorkout: workoutSeries,
-        });
-        const partyId = await createWorkoutPartyDb({
-          snapshot,
-          routineId: routineId ?? null,
-          inviteeIds: userIds,
-        });
-        if (partyId) {
-          setWorkoutPartyId(partyId);
-          setWorkoutPartyRole("host");
-        }
-      }
-      toast({
-        title: t("goals_party_invites_sent"),
-        description: t("goals_party_invites_sent_desc").replace("{n}", String(userIds.length)),
-      });
-    } catch (err: any) {
-      reportHandledError(err, "workout-session:party-invite", { count: userIds.length });
-      toast({
-        title: t("goals_party_invite_error"),
-        description: err?.message || t("goals_create_error_retry"),
-        variant: "destructive",
-      });
-    }
   };
 
   const handleConfirmFinish = async () => {
@@ -3948,10 +3941,52 @@ export function WorkoutSessionDialog({
       <style>{`@keyframes prToastIn{from{opacity:0;transform:translateY(-12px) scale(0.96)}to{opacity:1;transform:translateY(0) scale(1)}}`}</style>
 
       {/* ── AVISO DA SESSÃO (PR/recorde ou validação) ────────── */}
-      {notice && (() => {
-        const isPr = notice.kind === "pr";
-        const accent = isPr ? ORANGE : "hsl(var(--destructive))";
-        const tintBg = isPr ? "rgba(30,22,14,0.82)" : "rgba(34,16,16,0.82)";
+      {/* Recorde: pílula verde mínima — só o ícone e "PR batido!" / "Mais
+          repetições!", sem nome do exercício (pedido do usuário, 02/10/2026).
+          Conquista, não alerta. Tocar fecha. */}
+      {notice && notice.kind === "pr" && (
+        <div
+          style={{
+            position: "absolute", zIndex: 60,
+            top: "max(56px, calc(env(safe-area-inset-top) + 8px))",
+            left: 12, right: 12,
+            display: "flex", justifyContent: "center",
+            pointerEvents: "none",
+          }}
+        >
+          <div
+            onClick={() => setNotice(null)}
+            role="status"
+            style={{
+              pointerEvents: "auto", cursor: "pointer",
+              maxWidth: "100%",
+              display: "flex", alignItems: "center", gap: 8,
+              padding: "5px 14px 5px 5px", borderRadius: 999,
+              background: "rgba(6,38,24,0.88)",
+              border: "1px solid rgba(52,211,153,0.55)",
+              backdropFilter: GLASS_BLUR, WebkitBackdropFilter: GLASS_BLUR,
+              boxShadow: "0 10px 30px rgba(0,0,0,0.4), 0 0 24px rgba(52,211,153,0.25)",
+              animation: "prToastIn 0.3s cubic-bezier(0.2,0.8,0.2,1)",
+            }}
+          >
+            <span style={{
+              width: 24, height: 24, borderRadius: "50%", flexShrink: 0,
+              background: "#34d399", color: "#052e1a",
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
+              <TrendingUp style={{ width: 14, height: 14 }} strokeWidth={2.8} />
+            </span>
+            <span style={{ fontSize: 13.5, fontWeight: 800, color: "#34d399", whiteSpace: "nowrap" }}>
+              {notice.metric === "kg" ? t("goals_pr_pill_kg") : t("goals_pr_pill_reps")}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Aviso de validação (série incompleta etc.) — card vermelho de sempre. */}
+      {notice && notice.kind === "warn" && (() => {
+        const accent = "hsl(var(--destructive))";
+        const tintBg = "rgba(34,16,16,0.82)";
         return (
           <div
             style={{
@@ -3981,7 +4016,7 @@ export function WorkoutSessionDialog({
                 background: `${accent}26`, display: "flex",
                 alignItems: "center", justifyContent: "center", fontSize: 20,
               }}>
-                {isPr ? "🏆" : "⚠️"}
+                ⚠️
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 14, fontWeight: 800, color: accent, lineHeight: 1.2 }}>
@@ -4104,26 +4139,49 @@ export function WorkoutSessionDialog({
           }}>
             {routineLabel}
           </div>
-          {/* Selo do modo: a rotina expert se comporta de forma diferente
-              (séries tipadas, aquecimento fora do PR/progressão), então o
-              usuário precisa saber em qual tela está. Tocável: o selo sozinho
-              nomeia o modo mas não explica o que ele muda — abre o verbete. */}
-          {isExpert && (
-            <button
-              onClick={() => setExpertInfoOpen(true)}
-              aria-label={t("goals_expert_info_title")}
-              style={{
-                fontSize: 9, fontWeight: 800, letterSpacing: 0.8,
-                textTransform: "uppercase", fontFamily: "'Inter', system-ui",
-                color: "#9dbaff", background: "rgba(91,140,255,0.16)",
-                border: "1px solid rgba(91,140,255,0.4)",
-                borderRadius: 20, padding: "1px 8px", lineHeight: 1.6,
-                cursor: "pointer", display: "flex", alignItems: "center", gap: 3,
-              }}
-            >
-              {t("goals_mode_expert")}
-              <span style={{ opacity: 0.75 }}>?</span>
-            </button>
+          {/* Linha de contexto: selo do modo + pílula social (treinar junto ou
+              desafio). Antes eram faixas próprias abaixo do header, fixas e
+              fora do scroll — a pílula ocupa a linha que o selo já usava. */}
+          {(isExpert || pillVisible) && (
+            <div style={{
+              display: "flex", alignItems: "center", gap: 6,
+              maxWidth: "100%", minWidth: 0, justifyContent: "center",
+            }}>
+              {/* Selo do modo: a rotina expert se comporta de forma diferente
+                  (séries tipadas, aquecimento fora do PR/progressão), então o
+                  usuário precisa saber em qual tela está. Tocável: o selo
+                  sozinho nomeia o modo mas não explica o que ele muda — abre o
+                  verbete. */}
+              {isExpert && (
+                <button
+                  onClick={() => setExpertInfoOpen(true)}
+                  aria-label={t("goals_expert_info_title")}
+                  style={{
+                    fontSize: 9, fontWeight: 800, letterSpacing: 0.8,
+                    textTransform: "uppercase", fontFamily: "'Inter', system-ui",
+                    color: "#9dbaff", background: "rgba(91,140,255,0.16)",
+                    border: "1px solid rgba(91,140,255,0.4)",
+                    borderRadius: 20, padding: "1px 8px", lineHeight: 1.6,
+                    cursor: "pointer", display: "flex", alignItems: "center", gap: 3,
+                    flexShrink: 0,
+                  }}
+                >
+                  {t("goals_mode_expert")}
+                  <span style={{ opacity: 0.75 }}>?</span>
+                </button>
+              )}
+              {pillVisible && (
+                <WorkoutSessionContextPill
+                  members={partyMembers}
+                  currentUserId={userId}
+                  selfResting={globalRestTimerActive}
+                  progressDone={stats.doneEx}
+                  progressTotal={allItems.length}
+                  challenge={workoutChallenge}
+                  routineName={routineName ?? routineLabel}
+                />
+              )}
+            </div>
           )}
         </div>
 
@@ -4142,44 +4200,6 @@ export function WorkoutSessionDialog({
           </svg>
         </button>
       </div>
-
-      {/* ── DESAFIO ──────────────────────────────────────────── */}
-      {/* Lembra o modo: os números de quem desafiou só aparecem no resumo. */}
-      {workoutChallenge && (
-        <div style={{
-          flexShrink: 0, margin: "0 16px 8px", padding: "8px 12px", borderRadius: 14,
-          background: "rgba(248,113,113,.10)", border: "1px solid rgba(248,113,113,.35)",
-          display: "flex", alignItems: "center", gap: 8, minWidth: 0,
-        }}>
-          <span style={{ fontSize: 16 }}>⚔️</span>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 12.5, fontWeight: 800, color: "#fca5a5", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {t("goals_challenge_session_title").replace("{name}", workoutChallenge.challengerNickname)}
-            </div>
-            <div style={{ fontSize: 11.5, color: MUTED_FG }}>
-              {t("goals_challenge_session_hint")}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── TREINAR JUNTO ────────────────────────────────────── */}
-      {/* Sem party, encolhe para um botão discreto: quem treina sozinho (a
-          maioria) não perde espaço, e quem quer chamar alguém depois de já ter
-          começado tem onde tocar. */}
-      {FEATURES.workoutParty && (
-      <WorkoutPartyBar
-        partyId={workoutPartyId}
-        currentUserId={userId}
-        routineName={routineName ?? routineLabel}
-        exerciseCount={allItems.length}
-        progressDone={stats.doneEx}
-        canInvite={!isEphemeral}
-        onInvite={handlePartyInvite}
-        members={partyMembers}
-        onMembersChanged={reloadPartyMembers}
-      />
-      )}
 
       {/* ── STATS ROW ────────────────────────────────────────── */}
       <div style={{
@@ -5514,17 +5534,6 @@ export function WorkoutSessionDialog({
       </div>
 
       {/* ── REST TIMER ───────────────────────────────────────── */}
-      {/* Treinar junto: a vez do amigo também na barra fina (modal fechado). */}
-      {globalRestTimerActive && restHasTime && partyPartners.length > 0 && (
-        <div style={{
-          flexShrink: 0, display: "flex", minWidth: 0,
-          padding: "6px 20px 0",
-          background: GLASS_BAR_BG,
-          borderTop: `1px solid ${BORDER}`,
-        }}>
-          <PartyTurnStatus partners={partyPartners} mode="rest" compact />
-        </div>
-      )}
       {globalRestTimerActive && restHasTime && (
         <div style={{
           flexShrink: 0,
@@ -6450,7 +6459,7 @@ export function WorkoutSessionDialog({
                   da Ana · fazendo Supino" ou "Ana descansando 0:42". */}
               {partyPartners.length > 0 && (
                 <div style={{ width: "100%", marginTop: -8, marginBottom: 18 }}>
-                  <PartyTurnStatus partners={partyPartners} mode="rest" />
+                  <PartyTurnStatus partners={partyPartners} />
                 </div>
               )}
 

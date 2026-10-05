@@ -35,6 +35,7 @@ Documentação técnica de todas as tabelas do banco de dados público (`public`
 | [notifications](#notifications) | Notificações de usuários |
 | [post_complaint](#post_complaint) | Denúncias de posts |
 | [post_tags](#post_tags) | Pessoas marcadas em posts (estilo Instagram) |
+| [post_reposts](#post_reposts) | Reposts de posts: o mesmo post no perfil de quem foi marcado (2026-10-05) |
 | [flow_tags](#flow_tags) | Pessoas marcadas em Flows (estilo Instagram) |
 | [posts](#posts) | Posts do feed |
 | [promotion_comments](#promotion_comments) | Comentários em promoções da Vitrine |
@@ -51,6 +52,7 @@ Documentação técnica de todas as tabelas do banco de dados público (`public`
 | [shot_user_viewed](#shot_user_viewed) | Registro de visualizações de Shots |
 | [store_catalog](#store_catalog) | Catálogo de produtos de vitrines |
 | [subscriptions](#subscriptions) | Assinatura premium por usuário (Fase 1: manual; Fase 2: RevenueCat) |
+| [user_activity](#user_activity) | Última abertura do app + lembretes de volta (privada) |
 | [user_complaint](#user_complaint) | Denúncias de usuários |
 | [user_diets](#user_diets) | Dietas ativas do usuário |
 | [user_diets_hist](#user_diets_hist) | Histórico de dietas do usuário |
@@ -766,7 +768,7 @@ Notificações geradas para os usuários (follows, likes, comentários, duelos).
 | 18 | **Comentaram num flow em que o destinatário também comentou** | `follower_id` (quem comentou agora), `flow_id` |
 | 19 | **Convite para treinar junto** (26/08/2026) | `follower_id` (quem convidou), `post_id` (= `workout_parties.id`) |
 | 20 | **Mencionado com "@" num comentário** (27/09/2026) | `follower_id` (quem comentou), `post_id` ou `shots_id` ou `flow_id` |
-| 21 | **Repostaram sua publicação** (28/09/2026) | `follower_id` (quem repostou), `post_id` (o **repost**, não o original) |
+| 21 | **Repostaram sua publicação** (28/09/2026) | `follower_id` (quem repostou), `post_id` (o **próprio post** desde 2026-10-05; antes era a cópia) |
 | 22 | **Conteúdo removido pela moderação** (01/10/2026) | `follower_id` **NULL** (sistema), `meta` = `{kind, reason, preview}`; sem `post_id`/`shots_id`/`flow_id` (o conteúdo já foi apagado). Gravado por `admin_delete_content` |
 | 23 | **Responderam seu comentário** (01/10/2026) | `follower_id` (quem respondeu), `post_id` |
 | 24 | **Te desafiaram** (02/10/2026) | `follower_id` (quem desafiou), `post_id` = **id do desafio**, `meta.routine_name` |
@@ -793,7 +795,7 @@ Notificações geradas para os usuários (follows, likes, comentários, duelos).
 | `notifications` (BEFORE INSERT) | `notifications_skip_comment_when_reply_trg` | `notifications_skip_comment_when_reply()` | descarta a type 3 quando já existe a 23 do mesmo remetente/destinatário/post na mesma transação (`created_at = now()`) — dono do post respondido recebe um push só |
 | `shots_comments` | `trg_notify_shot_comment_mentions` | `notify_shot_comment_mentions()` | type 20 |
 | `flow_comments` | `trg_notify_flow_comment_mentions` | `notify_flow_comment_mentions()` | type 20 |
-| `posts` | `trg_notify_post_repost` | `notify_post_repost()` | type 21 — para o autor do original, quando `reposted_from` vem preenchido; pula se houver bloqueio (migração `20260928-repost-notification.sql`) |
+| `post_reposts` | `trg_notify_post_reposts_row` | `notify_post_reposts_row()` | type 21 — para o autor do post (migração `20261005-post-reposts-shared.sql`, substitui o `trg_notify_post_repost` de `posts`, que foi removido) |
 
 > **Menções (type 20):** os três triggers usam `comment_mention_recipients(text, autor, dono)` (`SECURITY DEFINER`, `stable`): extrai até 10 `@handle` do texto (regex `(?:^|\s)@([a-z0-9._-]+)`, ponto/hífen final removidos), casa com `lower(profiles.handle)` e exclui o autor, o **dono do conteúdo** (já recebe o type 3) e qualquer par com bloqueio (`user_blocks`, as duas direções). Só no INSERT — editar comentário não renotifica. Cada trigger engole o próprio erro (`raise warning`): uma menção nunca impede o comentário de ser salvo. Legenda de post/flow não passa por aqui — lá a menção escolhida no autocomplete vira `post_tags`/`flow_tags` (types 9/16).
 | `post_tags` | `trg_notify_post_tag` | `notify_post_tag()` | type 9 (marcado em post) |
@@ -854,6 +856,31 @@ Pessoas marcadas em posts do feed (estilo Instagram — "marcar quem está junto
 
 ---
 
+## post_reposts
+
+Repost de um post em que a pessoa foi **marcada** — estilo Instagram: o post é **um só**, aparece no perfil do autor e no de quem repostou, e no feed dos seguidores de ambos, com as **mesmas** curtidas, comentários e marcações. Criada na migração `docs/migrations/20261005-post-reposts-shared.sql`, que substitui o modelo de 28/09 (cópia do post em `posts.reposted_from`).
+
+| Coluna | Tipo | Obrigatório | Padrão | Descrição |
+|---|---|---|---|---|
+| `post_id` | uuid | FK → `posts.id` ON DELETE CASCADE | — | Post repostado |
+| `user_id` | uuid | FK → `auth.users` ON DELETE CASCADE | — | Quem repostou |
+| `post_created_at` | timestamptz | ✓ | — | Cópia de `posts.created_at` (gravada pelo trigger). O feed pagina por ela, junto com os posts autorais |
+| `created_at` | timestamptz | ✓ | `now()` | Quando repostou |
+
+**PK:** `(post_id, user_id)` — um repost por pessoa. **Índice:** `post_reposts_user_feed_idx (user_id, post_created_at desc)`.
+**RLS:** SELECT público; INSERT só `user_id = auth.uid()`; DELETE por quem repostou **ou** pelo autor do post; restrictive `post_reposts_hide_banned_user_id` (banido some).
+**Triggers:**
+- `trg_validate_post_reposts_row` (BEFORE INSERT, SECURITY DEFINER): post existe e não é cópia legada, não é do próprio usuário, usuário **marcado** (`post_tags`), autor não esconde posts (`profile_hides_posts`), sem bloqueio. Erros: `REPOST_ORIGINAL_NOT_FOUND`, `REPOST_OF_REPOST`, `REPOST_OWN_POST`, `REPOST_NOT_TAGGED`, `REPOST_PRIVATE_AUTHOR`, `REPOST_BLOCKED`. Preenche `post_created_at`.
+- `trg_notify_post_reposts_row` (AFTER INSERT): notificação **type 21** ao autor.
+- `trg_cleanup_post_reposts_row` (AFTER DELETE): apaga a type 21 correspondente.
+- Em `post_tags`: `trg_remove_repost_on_untag` (AFTER DELETE) — desmarcar tira o repost.
+
+`get_profile_counts` soma os reposts em `posts_count` (bate com a grade do perfil).
+
+**Funções (`ritmofit-db.ts`):** `repostPostDb`, `unrepostPostDb`, `getRepostedPostIdsDb` (o viewer já repostou?), `getRepostedPostIdsByUsersDb` (feed/perfil), `getPostRepostersBatchDb` + `pickReposters` (`repostedBy` dos posts). Lidos por `getFeedPosts`, `getDiscoverPosts`, `getUserPostsDb`, `getTaggedPostsDb` e `getPostByIdDb`.
+
+---
+
 ## flow_tags
 
 Pessoas marcadas em **Flows** (mesma ideia de `post_tags`, mas para a tabela `flow`; `flow.id` é **bigint**). Criada na migração `docs/migrations/20260729-flow-tags.sql`.
@@ -889,10 +916,10 @@ Posts publicados no feed principal.
 | `updated_at` | timestamp | — | `now()` | Data de atualização |
 | `photos` | jsonb | — | — | Array JSON de fotos adicionais |
 | `workout_summary` | jsonb | — | `NULL` | **(2026-07-06)** Snapshot estruturado do treino quando um "resumo do treino" é compartilhado no feed (rotina, duração, séries, volume, `caloriesKcal` (kcal da sessão, desde 21/08/2026), `imageUrl` do card gerado e a lista de exercícios com `sets: {kg, reps}` por série). Formato = `PostWorkoutSummary` (`client/lib/workout-summary-types.ts`). Habilita o pill "Ver treino" + o modal de detalhe no feed/Perfil/PostDetail. Desde **26/08/2026** traz também **`userPhotoCount`** — quantas fotos da galeria/câmera a pessoa anexou ao resumo (o card gerado e o mapa do trajeto não contam); `0` manda o post para a aba **Treinos** do perfil em vez da aba Posts (ver `docs/08-perfil.md`). Sem migração: é só mais uma chave do jsonb, e posts antigos caem no fallback de `isWorkoutCanvasPost`. Desde **26/08/2026** cada exercício da lista traz também **`workoutId`** (o id no catálogo `workouts`), que é a chave usada pela **comparação de treino** para casar o mesmo exercício entre duas pessoas — posts antigos caem no casamento por nome (ver `docs/01-feed.md` → Comparar treino). Também sem migração. `NULL` em posts comuns de imagem/texto. Herda as policies RLS de `posts`. Ver `docs/migrations/20260706-post-workout-summary.sql` |
-| `reposted_from` | uuid | — | `NULL` | **(2026-09-28)** FK → `posts.id` (`on delete cascade`). Preenchido quando o post é um **repost** de um post em que o usuário foi marcado. O repost reaproveita `photo`/`photos` do original (mesmas URLs, sem upload), nasce com `description` vazia (o app exibe a legenda do original) e não copia meta nem `workout_summary`. Migration: `docs/migrations/20260928-post-reposts.sql` |
+| `reposted_from` | uuid | — | `NULL` | **(2026-09-28, LEGADO desde 2026-10-05 — sempre NULL; ver `post_reposts`)** FK → `posts.id` (`on delete cascade`). Era preenchido quando o post é um **repost** de um post em que o usuário foi marcado. O repost reaproveita `photo`/`photos` do original (mesmas URLs, sem upload), nasce com `description` vazia (o app exibe a legenda do original) e não copia meta nem `workout_summary`. Migration: `docs/migrations/20260928-post-reposts.sql` |
 | `reposted_from_user` | uuid | — | `NULL` | **(2026-09-28)** Autor do original. Gravado pelo trigger `validate_post_repost`, nunca pelo app. Serve de crédito quando o original deixa de ser legível pelo viewer |
 
-**Reposts (migration `20260928-post-reposts.sql`):**
+**Reposts — modelo ANTIGO (migration `20260928-post-reposts.sql`, substituído em 2026-10-05 por [post_reposts](#post_reposts)).** As colunas `reposted_from*` ficam só porque os builds da loja ainda as pedem no select; depois de `20261005-post-reposts-shared.sql` nenhuma linha as preenche (o trigger `validate_post_repost` converte o INSERT legado em vínculo e devolve NULL):
 - `posts_one_repost_per_user`: índice único parcial `(user_id, reposted_from) where reposted_from is not null`, um repost por pessoa por post. Apagar o repost libera repostar de novo.
 - `validate_post_repost()` (trigger `before insert or update`, SECURITY DEFINER). No INSERT exige que o original exista, que **não seja repost** (sem repost de repost), que **não seja do próprio usuário**, que o usuário esteja **marcado** nele (`post_tags`) e que o autor **não esconda os posts** de não seguidores (`profile_hides_posts`). Erros: `REPOST_ORIGINAL_NOT_FOUND`, `REPOST_OF_REPOST`, `REPOST_OWN_POST`, `REPOST_NOT_TAGGED`, `REPOST_PRIVATE_AUTHOR`. No UPDATE congela `reposted_from`/`reposted_from_user`.
 - `delete_reposts_of_post()` (trigger `before delete`, SECURITY DEFINER). Antes de o original sair, apaga cada repost com as dependências dele (`notifications`, `likes`, `comments`, `post_tags`, `post_complaint`). O `on delete cascade` sozinho falharia (comments/likes do repost não têm cascade), e o autor do original não consegue apagar linhas alheias pela RLS.
@@ -1658,6 +1685,31 @@ Armazena os tokens APNs (iOS) de cada dispositivo registrado pelo usuário para 
 
 ---
 
+## user_activity
+
+**(2026-10-02)** Última abertura do app, idioma do aparelho e controle dos **lembretes de volta ao app** (push de re-engajamento — ver `docs/10-notificacoes.md`). Migration: `docs/migrations/20261002-reengagement-activity.sql`.
+
+| Coluna | Tipo | Obrigatório | Padrão | Descrição |
+|---|---|---|---|---|
+| `user_id` | uuid | PK, FK → `auth.users` (on delete cascade) | — | Dono da linha |
+| `last_active_at` | timestamptz | ✓ | `now()` | Última vez que abriu/voltou ao app (`touch_user_activity`, no máximo 1 escrita a cada 10 min) |
+| `app_language` | text | ✓ | `'pt'` | `pt` ou `en` — idioma resolvido no aparelho; o push sai nele |
+| `reminders_enabled` | boolean | ✓ | `true` | Interruptor "Lembretes e novidades" (Configurações → Notificações) |
+| `last_reengagement_at` | timestamptz | — | — | Último lembrete enviado (limite de 1 por dia; posts contados a partir daqui) |
+| `last_reengagement_kind` | text | — | — | `streak`, `social` ou `inactive_{dias}` |
+| `updated_at` | timestamptz | ✓ | `now()` | — |
+
+**RLS:** ligada e **sem nenhuma policy** (`revoke all` de `anon`/`authenticated`). O "visto por último" é privado — por isso não mora em `profiles`, que é legível por todos. Só as RPCs abaixo e o service role tocam na tabela.
+**Exclusão de conta:** coberta pelo `on delete cascade` de `auth.users` (o `delete_user_data` apaga `auth.users` na mesma transação), sem entrar no `v_targets`.
+
+| RPC | Quem chama | O que faz |
+|---|---|---|
+| `touch_user_activity(p_language text, p_reminders_enabled boolean)` | `authenticated` (o app, `touchUserActivityDb`) | Upsert da própria linha: `last_active_at = now()`, idioma e (se informado) o interruptor |
+| `get_reengagement_candidates()` | só `service_role` (`reengagement-push`) | Quem tem push iOS, não está banido e tem lembretes ligados → `last_active_at` (fallback: última `access_sessions`), idioma, último lembrete e `new_posts_count`/`new_post_authors` — posts de quem a pessoa segue desde `max(última abertura, último lembrete)`, últimos 7 dias, sem autor banido nem bloqueio em nenhum sentido |
+| `mark_reengagement_sent(p_rows jsonb)` | só `service_role` | Grava `last_reengagement_at`/`kind` sem tocar em `last_active_at` de linha existente |
+
+---
+
 ## user_workouts
 
 Treinos salvos / atribuídos a um usuário.
@@ -1709,6 +1761,24 @@ as linhas de `user_workouts_hist` ficam com `user_workout_id` **NULL** (FK
 coluna ANTERIOR e progressão, que leem por `workout_id`. Não confundir com
 `deleteRoutineItemDb`, que apaga o histórico primeiro de propósito. Ver
 `docs/05-metas.md` → "A rotina é o que foi executado".
+
+---
+
+## admin_custom_workout_reviews
+
+**(2026-10-05)** Decisões do Admin sobre exercícios criados pelos usuários, por **nome normalizado** (`20261005-admin-custom-workouts.sql`). Ver `docs/18-admin.md` → "Exercícios criados pelos usuários".
+
+| Coluna | Tipo | Obrigatório | Padrão | Descrição |
+|---|---|---|---|---|
+| `name_key` | text | PK | — | Nome normalizado (sem acento, minúsculas, pontuação = espaço) — `normalizeExerciseName` |
+| `decision` | text | ✓ | — | `promoted` (virou catálogo), `linked` (ligado a exercício existente) ou `ignored` (específico do usuário) |
+| `workout_id` | uuid | — | — | Exercício do catálogo resultante (`promoted`/`linked`) |
+| `reviewed_by` | uuid | — | — | FK → `auth.users` ON DELETE SET NULL |
+| `reviewed_at` | timestamptz | ✓ | `now()` | — |
+
+**RLS:** tudo (select/insert/update/delete) só para `is_app_admin(auth.uid())`.
+
+**RPC `admin_promote_custom_workouts(p_custom_ids uuid[], p_name_key text, p_target_id uuid, p_name, p_name_eng, p_description, p_description_eng, p_muscle_group, p_merge boolean)`** — SECURITY DEFINER, recusa sem `is_app_admin` (`NOT_ADMIN`). Sem `p_target_id`, insere em `workouts`; com ele, confere que é catálogo (`TARGET_NOT_IN_CATALOG`). Com `p_merge`, troca `workout_id` das cópias pelo do catálogo em `user_workouts`, `user_workouts_hist` e `training_day_exercises` e apaga as cópias (o gatilho de limpeza não acha mais nada para apagar). Grava a decisão e devolve `{ workout_id, merged, remapped }`.
 
 ---
 

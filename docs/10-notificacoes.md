@@ -248,7 +248,7 @@ O corpo do push é montado em runtime por `buildBody()`, com os dados reais da n
 | 24 | "{nome} te desafiou: {treino}. Bora bater os números?" | `profiles`, `notifications.meta.routine_name` |
 | 25 | "{nome} completou seu desafio — você venceu (3×2)" / "…e venceu (2×3)" / "…: empate (2×2)" | `profiles`, `notifications.meta` (`winner`, placar) |
 
-**Type 21 — repost (2026-09-28):** gerado pelo trigger `notify_post_repost` (migração `20260928-repost-notification.sql`) quando alguém marcado reposta uma publicação. Destinatário é o **autor do original**, `follower_id` é quem repostou e `post_id` é o **repost**: o toque (card, banner e push) abre `/post/{repost}`, e apagar o repost ou o original apaga a notificação junto. Não notifica se houver bloqueio. Na lista: ícone `Repeat2` violeta, miniatura da foto e agrupamento por usuário (`isUserBased`).
+**Type 21 — repost (2026-09-28; modelo novo em 2026-10-05):** gerado pelo trigger `notify_post_reposts_row` em `post_reposts` (migração `20261005-post-reposts-shared.sql`; o antigo `notify_post_repost` em `posts` foi removido) quando alguém marcado reposta uma publicação. Destinatário é o **autor**, `follower_id` é quem repostou e `post_id` é o **próprio post** (repost não é mais uma cópia): o toque (card, banner e push) abre `/post/{id}`. Desfazer o repost apaga a notificação (`cleanup_post_reposts_row`); apagar o post também. Não notifica autorrepost; bloqueio já impede o repost. Na lista: ícone `Repeat2` violeta, miniatura da foto e agrupamento por usuário (`isUserBased`).
 
 **Types 24/25 — desafio de treino (2026-10-02):** gerados por triggers em `workout_challenges` (migração `20261002-workout-challenges.sql`). **24** no INSERT do desafio → para o desafiado, `follower_id` = quem desafiou, `post_id` = **id do desafio**, `meta.routine_name`. **25** quando o status vira `completed` → para quem desafiou, `follower_id` = quem cumpriu, `meta` = `{ routine_name, winner, challenger_score, challenged_score }` (placar do ponto de vista de quem desafiou). Na lista: ícone `Swords` rosa; não buscam foto de post (`NOTIF_TYPES_WITHOUT_POST`). Toque: 24 → `/metas?challenge=<id>` (convite), 25 → `/metas?challengeResult=<id>` (placar). O `meta` cru vai para `NotificationItem.challengeMeta`. Ver `docs/05-metas.md` → "Desafio de treino".
 
@@ -385,20 +385,45 @@ O **tipo 17 é irmão do 10**, não um tipo de card novo: mesma tabela `messages
 
 ---
 
-## Push de Re-engajamento (proativo, agendado)
+## Lembretes de volta ao app — push de re-engajamento (v2, 02/10/2026)
 
-Além do push **reativo** (evento social → trigger/webhook → `send-push-notification`), há um push **proativo de retenção**, enviado por uma Edge Function **agendada** (`supabase/functions/reengagement-push`), 1x/dia via **pg_cron** (19:00 BRT):
+Além do push **reativo** (evento social → trigger/webhook → `send-push-notification`), há um push **proativo de retenção**: a Edge Function **agendada** `supabase/functions/reengagement-push`, 1x/dia via **pg_cron** (19:00 de Brasília). A v1 (13/07/2026) nunca foi publicada (flag `reengagementPush` desligada no lançamento) e só olhava check-ins de treino; a v2 sabe **quando a pessoa abriu o app** e **o que quem ela segue postou**.
 
-| Gatilho | Condição | Mensagem (PT) | Destino |
-|---|---|---|---|
-| **Sequência em risco** | Fez check-in **ontem** mas ainda não **hoje**, e streak ≥ 3 | "🔥 Sua sequência está em risco! Você está há {n} dias seguidos…" | `/metas` |
-| **Inatividade** | Último check-in foi há **exatamente 3 ou 7 dias** | "Sentimos sua falta 💪 Faz {n} dias que você não treina…" | `/metas` |
+### O que dispara (no máximo UM por pessoa por dia, nesta ordem)
 
-- **Não cria card in-app:** ao contrário das notificações sociais, o re-engajamento **não** insere linha em `notifications` — é um lembrete efêmero que vira só o push do iOS (não polui a lista nem o badge de não lidas). Envia APNs direto, reaproveitando os mesmos secrets/JWT do `send-push-notification`.
-- **Datas em America/Sao_Paulo** (público majoritariamente BR) — mesma premissa do resto do app. Copy em PT, igual ao push social.
-- **Dedup sem tabela de controle:** os limiares são de **dia exato** (ontem / há 3 / há 7 dias), então cada usuário recebe no máximo um nudge por dia (cron diário) sem precisar registrar "já enviado".
-- **Só usuários com push ativo** entram no cálculo (join com `push_tokens`); tokens inválidos (`BadDeviceToken`/`Unregistered`) são removidos na hora, como no push social.
-- **Deploy:** `supabase functions deploy reengagement-push` + rodar `docs/migrations/20260713-reengagement-cron.sql` (habilita `pg_cron`/`pg_net` e agenda o job; requer preencher `PROJECT_REF`/`SERVICE_ROLE_KEY`/`CRON_SECRET`).
+| # | Gatilho | Condição | Mensagem (PT) | Destino |
+|---|---|---|---|---|
+| 1 | **Sequência em risco** | Fez check-in **ontem**, ainda não **hoje**, sequência ≥ 3 (vale mesmo para quem abriu o app hoje) | "🔥 Sua sequência está em risco!" / "Você está há {n} dias seguidos…" | `/metas` |
+| 2 | **Novidades de quem você segue** | Não abriu o app hoje **e** há posts novos de quem ela segue desde a última abertura (ou o último lembrete) | "{Ana} postou algo novo 📸" / "{Ana} e mais {n} pessoas postaram 📸" | `/?feed=following` |
+| 3 | **Saudade** | Sem abrir o app há **1, 3, 7, 14 ou 30** dias e sem post novo de amigo | Dia 1: "Seu treino de hoje te espera 💪"; 3: "Sentimos sua falta"; 7: "Uma semana sem você por aqui"; 14: "Bora recomeçar?"; 30: "A porta continua aberta" | `/` |
+
+### Regras anti-spam
+- **1 por dia** (`user_activity.last_reengagement_at`) — também protege de uma 2ª execução manual no mesmo dia.
+- **Escala de quem sumiu:** só nos dias **1, 2, 3, 5, 7, 14 e 30** sem abrir o app. Nos dias 2 e 5, só se houver post novo de amigo. Depois do 30º dia, **nada** — insistir com quem foi embora só gera desinstalação.
+- **O mesmo post nunca motiva dois lembretes:** a contagem começa em `max(última abertura, último lembrete)`.
+- **Quem abriu o app hoje** só pode receber o da sequência em risco.
+- **Interruptor no app:** Configurações → Notificações → **"Lembretes e novidades"** (Guideline 4.5.4 — lembrete precisa poder ser desligado dentro do app). Desligado → `user_activity.reminders_enabled = false` → a pessoa nem entra nos candidatos.
+- **Posts contados:** só de quem a pessoa segue, dos últimos 7 dias, sem autor banido e sem bloqueio em nenhum sentido (a RPC é `security definer` e filtra isso à mão).
+
+### Como o servidor sabe
+- **Última abertura + idioma:** o `AppLayout` chama `touchUserActivityDb()` → RPC `touch_user_activity(p_language, p_reminders_enabled)` ao abrir o app e a cada volta do segundo plano (no máximo 1 escrita a cada 10 min). Grava em `user_activity` — tabela **privada** (RLS sem policies): o "visto por último" nunca vai para `profiles`, que todo mundo lê. Sem linha ainda (quem não abriu numa versão nova), vale a última `access_sessions`.
+- **Idioma:** o push sai em **PT ou EN** conforme `user_activity.app_language` (o idioma resolvido no aparelho, `resolveLanguage()`).
+- **Candidatos:** RPC `get_reengagement_candidates()` (só `service_role`) — quem tem push iOS, não está banido e tem lembretes ligados, com a última atividade e a contagem/autores de posts novos.
+- **Registro do envio:** RPC `mark_reengagement_sent(rows)` — só os campos do lembrete; nunca atropela uma abertura que aconteceu no meio da rodada.
+
+### Detalhes do push
+- **Não cria card in-app** nem mexe no **badge**: não insere em `notifications` (é lembrete, não notificação não lida) e o payload não leva `badge` — fixar 1 apagaria a contagem real do ícone. `thread-id: "reengagement"` agrupa os lembretes na central do iOS. `apns-priority: 5` (não urgente, recomendado pela Apple para esse tipo).
+- **Toque:** `url` do payload → `use-push-notifications.ts`. `/?feed=following` abre o Feed na aba **Seguindo**, do topo e sem cache (efeito em `Index.tsx`, o mesmo do `showFollowing`).
+- **Tokens inválidos** (`BadDeviceToken`/`Unregistered`) são removidos na hora, como no push social. Consultas por usuário em lotes de 200 ids (limite de URL do PostgREST).
+- **Teste sem enviar:** `POST` com body `{"dryRun": true}` (e o header `x-cron-secret`) devolve quem receberia o quê.
+- **Teste com uma pessoa só:** `{"onlyUserId": "<uuid>"}` aplica as mesmas regras só a esse usuário (combina com `dryRun`). Sem ele, uma chamada manual envia para **todo mundo** que se qualifica no dia.
+
+### Para ativar (manual, no Supabase)
+1. Rodar `docs/migrations/20261002-reengagement-activity.sql`.
+2. Secret `REENGAGEMENT_CRON_SECRET` (obrigatório — sem ele a função recusa tudo). Os de APNs já existem (os mesmos do `send-push-notification`).
+3. `supabase functions deploy reengagement-push`.
+4. Rodar `docs/migrations/20260713-reengagement-cron.sql` preenchendo `PROJECT_REF`/`ANON_KEY`/`CRON_SECRET` (a chave **anon**, não a service role: o texto do job fica salvo em `cron.job`).
+5. Testar com `dryRun` antes de deixar o cron rodar.
 
 ---
 

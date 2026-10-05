@@ -315,20 +315,20 @@ export const FEATURES = {
   biometricLogin: true,
 
   /**
-   * Push proativo de re-engajamento (agendado).
+   * Lembretes de volta ao app (push agendado de re-engajamento).
    *
-   * ⚠️ **Esta flag não controla nada no cliente** — e é proposital que ela
-   * exista mesmo assim. O disparo vive inteiramente no servidor
-   * (`supabase/functions/reengagement-push`, agendada no Supabase), então o
-   * interruptor real é **não fazer o deploy da função / não criar o cron**.
-   * A flag está aqui como registro da decisão, para que ninguém agende a
-   * função achando que ela já estava prevista para o v1.
+   * RELIGADA em 02/10/2026 a pedido do usuário, já na v2: além da sequência
+   * em risco, avisa quando quem a pessoa segue postou e quando ela some por
+   * 1/3/7/14/30 dias — no máximo 1 por dia. Ver `docs/10-notificacoes.md`.
    *
-   * Adiado por estratégia, não por bug: push não solicitado na primeira semana
-   * de um app desconhecido é a receita para opt-out em massa — e opt-out de
-   * push é irreversível na prática. Ligue quando souber quem fica.
+   * No cliente a flag liga: o "toque de atividade" ao abrir o app
+   * (`touchUserActivityDb`, última abertura + idioma) e o interruptor
+   * "Lembretes e novidades" em Configurações → Notificações (Guideline 4.5.4:
+   * lembrete tem que poder ser desligado dentro do app). O disparo em si vive
+   * no servidor (`supabase/functions/reengagement-push` + pg_cron): sem o
+   * deploy/cron, nada é enviado.
    */
-  reengagementPush: false,
+  reengagementPush: true,
 } as const;
 
 export type FeatureFlag = keyof typeof FEATURES;

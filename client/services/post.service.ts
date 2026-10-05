@@ -4,7 +4,10 @@ import {
   getCommentCountsBatchDb,
   getProfilesBatchDb,
   getPostTagsBatchDb,
-  getRepostOriginsBatchDb,
+  getPostRepostersBatchDb,
+  getRepostedPostIdsByUsersDb,
+  pickReposters,
+  POST_READ_COLUMNS,
   togglePostIncentiveDb,
   getFollowingIdsDb,
   getBlockedIdsDb,
@@ -14,7 +17,6 @@ import {
   type PostWithUser,
   type PostIncentiveType,
   type SearchUser,
-  type RepostOrigin,
 } from "@/lib/ritmofit-db";
 import type { PostWorkoutSummary } from "@/lib/workout-summary-types";
 import type { VerifiedTier } from "@/lib/verified-tier";
@@ -26,8 +28,8 @@ export type PostWithStats = PostWithLikes & {
   userPhoto: string | null;
   isVerified?: boolean;
   verifiedTier?: VerifiedTier | null;
-  /** Preenchido quando o post é um repost — crédito e legenda do original. */
-  repostOf?: RepostOrigin | null;
+  /** Quem repostou (adicionou ao próprio perfil) — ver `getPostRepostersBatchDb`. */
+  repostedBy?: SearchUser[];
   workoutSummary?: PostWorkoutSummary | null;
   taggedUsers?: SearchUser[];
   userGoal?: {
@@ -78,18 +80,42 @@ export const getFeedPosts = async (
 
   let query = supabase
     .from("posts")
-    .select("id, description, photo, photos, created_at, user_id, user_goal_id, workout_summary, reposted_from, reposted_from_user")
+    .select(POST_READ_COLUMNS)
     .in("user_id", userIdsToShow)
     .order("created_at", { ascending: false })
     .limit(limit);
   if (options.before) {
     query = query.lt("created_at", options.before);
   }
-  const { data, error } = await query;
+  // Repost é o MESMO post (estilo Instagram): o que alguém que eu sigo repostou
+  // entra no meu feed uma vez só, mesmo que eu siga o autor e mais de um
+  // marcado. As duas fontes paginam pela data do post (`post_created_at` é a
+  // cópia dela), então o mesmo cursor `before` vale para as duas.
+  const [{ data, error }, repostedIds] = await Promise.all([
+    query,
+    getRepostedPostIdsByUsersDb(userIdsToShow, { limit, before: options.before }),
+  ]);
 
   if (error) throw error;
 
-  const rows = data ?? [];
+  const authored = data ?? [];
+  const seen = new Set(authored.map((p: any) => String(p.id)));
+  const missingIds = repostedIds.filter((id) => !seen.has(id));
+  let reposted: any[] = [];
+  if (missingIds.length > 0) {
+    const { data: repostedData } = await supabase
+      .from("posts")
+      .select(POST_READ_COLUMNS)
+      .in("id", missingIds);
+    // A RLS de posts já tira autor que esconde os posts; bloqueio sai à mão.
+    reposted = (repostedData ?? []).filter((p: any) => !blocked.has(String(p.user_id)));
+  }
+
+  // Junta, ordena e corta na página: o que sobrar volta na próxima (o cursor é
+  // o created_at do último exibido).
+  const rows = [...authored, ...reposted]
+    .sort((a: any, b: any) => String(b.created_at).localeCompare(String(a.created_at)))
+    .slice(0, limit);
   if (rows.length === 0) return [];
 
   const postIds = rows.map((p: any) => p.id);
@@ -101,7 +127,7 @@ export const getFeedPosts = async (
   )];
 
   // Batch-fetch ALL enrichment data in parallel (3 queries total — likes + viewer-likes merged into one round-trip)
-  const [likesBundle, commentCountsMap, profilesMap, tagsMap, goalMap, repostMap] = await Promise.all([
+  const [likesBundle, commentCountsMap, profilesMap, tagsMap, goalMap, repostersMap] = await Promise.all([
     getPostLikesWithViewerBatchDb(postIds),
     getCommentCountsBatchDb(postIds),
     getProfilesBatchDb(userIds),
@@ -133,9 +159,11 @@ export const getFeedPosts = async (
       }
       return map;
     })(),
-    getRepostOriginsBatchDb(rows),
+    getPostRepostersBatchDb(postIds),
   ]);
   const { likesMap, userLikesMap } = likesBundle;
+
+  const followedOrMe = new Set(userIdsToShow);
 
   // Assemble posts synchronously — no more per-post queries
   const posts: PostWithStats[] = rows.map((post: any) => {
@@ -160,7 +188,8 @@ export const getFeedPosts = async (
       workoutSummary: (post.workout_summary as PostWorkoutSummary | null) ?? null,
       taggedUsers: tagsMap.get(post.id) ?? [],
       userGoal,
-      repostOf: repostMap.get(String(post.id)) ?? null,
+      // Quem eu sigo (ou eu) vem primeiro: foi por essa pessoa que o post chegou.
+      repostedBy: pickReposters(tagsMap.get(post.id), repostersMap.get(String(post.id)), followedOrMe),
     };
   });
 
@@ -192,10 +221,11 @@ export const getDiscoverPosts = async (
 
   let query = supabase
     .from("posts")
-    .select("id, description, photo, photos, created_at, user_id, user_goal_id, workout_summary")
+    .select(POST_READ_COLUMNS)
     .not("user_id", "in", `(${excludedIds.join(",")})`)
-    // Reposts ficam fora do Descobrir: o original já pode aparecer aqui, e o
-    // mesmo post em dobro, de autores diferentes, confunde.
+    // Linhas de repost do modelo antigo (cópia do post, 20260928) ficam fora:
+    // a migração 20261005 as converte em `post_reposts`, mas o filtro protege
+    // até ela rodar.
     .is("reposted_from", null)
     .order("created_at", { ascending: false })
     .limit(limit);
@@ -214,7 +244,7 @@ export const getDiscoverPosts = async (
   const userIds = [...new Set(rows.map((p: any) => p.user_id))];
   const goalIds = [...new Set(rows.map((p: any) => p.user_goal_id).filter(Boolean))];
 
-  const [likesBundle, commentCountsMap, profilesMap, tagsMap, goalMap] = await Promise.all([
+  const [likesBundle, commentCountsMap, profilesMap, tagsMap, goalMap, repostersMap] = await Promise.all([
     getPostLikesWithViewerBatchDb(postIds),
     getCommentCountsBatchDb(postIds),
     getProfilesBatchDb(userIds),
@@ -246,6 +276,7 @@ export const getDiscoverPosts = async (
       }
       return map;
     })(),
+    getPostRepostersBatchDb(postIds),
   ]);
   const { likesMap, userLikesMap } = likesBundle;
 
@@ -271,6 +302,7 @@ export const getDiscoverPosts = async (
       workoutSummary: (post.workout_summary as PostWorkoutSummary | null) ?? null,
       taggedUsers: tagsMap.get(post.id) ?? [],
       userGoal,
+      repostedBy: pickReposters(tagsMap.get(post.id), repostersMap.get(String(post.id))),
     };
   });
 

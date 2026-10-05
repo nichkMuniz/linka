@@ -1,4 +1,5 @@
 import { useEffect, useCallback, useRef } from "react";
+import { readNotifPrefs } from "@/lib/notification-prefs";
 import { useNavigate } from "react-router-dom";
 import { LocalNotifications, type LocalNotificationSchema } from "@capacitor/local-notifications";
 import { Capacitor } from "@capacitor/core";
@@ -356,13 +357,7 @@ export function useRoutineNotifications(userId: string | null) {
     lastSyncRef.current = now;
 
     // Respect user preference stored by settings-drawer
-    try {
-      const stored = localStorage.getItem("linka_notif_prefs");
-      if (stored) {
-        const prefs = JSON.parse(stored);
-        if (prefs.workoutReminders === false) return;
-      }
-    } catch {}
+    if (!readNotifPrefs().workoutReminders) return;
 
     try {
       const permission = await requestNotificationPermission();

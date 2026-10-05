@@ -11,7 +11,8 @@ import { hapticLight } from "@/lib/haptics";
  *
  *  1. nasce ESCONDIDO no canto inferior direito, mostrando só uma fresta
  *     (`PEEK_FRACTION` da largura — 30%: com 10% o botão quase não era notado);
- *  2. pouco depois desliza até o CENTRO da tela com o rótulo à mostra;
+ *  2. pouco depois sai do canto só o bastante para o rótulo inteiro aparecer
+ *     (encostado na borda direita, com margem) — não cruza a tela;
  *  3. segura alguns segundos e volta a se esconder na fresta.
  *
  * Toque em qualquer fase → inicia o treino rápido. Os 30% de fresta (~69px)
@@ -24,6 +25,8 @@ import { hapticLight } from "@/lib/haptics";
 const PEEK_FRACTION = 0.2;
 /** Piso para a fresta nunca ficar menor que um alvo de toque (44px). */
 const MIN_PEEK_PX = 44;
+/** Distância da borda direita quando o botão sai inteiro (mesma margem do modo sem animação). */
+const REVEAL_MARGIN_PX = 16;
 const REVEAL_DELAY_MS = 700;
 const HOLD_MS = 3200;
 /** Acima da barra de navegação flutuante (14px + 66px) com folga. */
@@ -36,11 +39,11 @@ export function QuickWorkoutButton({ onStart }: { onStart: () => void }) {
   const reduceMotion = useReducedMotion();
   const pillRef = React.useRef<HTMLButtonElement>(null);
 
-  // Largura do botão e da tela — as duas posições (fresta e centro) dependem delas.
+  // Largura do botão — a posição da fresta depende dela (e muda com a fonte/idioma).
   const [geom, setGeom] = React.useState<{ w: number; vw: number } | null>(null);
   // A 1ª colocação na fresta é instantânea; só depois disso as trocas animam.
   const [placed, setPlaced] = React.useState(false);
-  const [phase, setPhase] = React.useState<"peek" | "center">("peek");
+  const [phase, setPhase] = React.useState<"peek" | "reveal">("peek");
 
   React.useLayoutEffect(() => {
     const el = pillRef.current;
@@ -57,13 +60,13 @@ export function QuickWorkoutButton({ onStart }: { onStart: () => void }) {
     return () => cancelAnimationFrame(id);
   }, [geom, placed]);
 
-  // Sai para o centro, segura, volta para a fresta — uma vez por entrada na tela.
+  // Sai do canto até o rótulo aparecer, segura, volta para a fresta — uma vez por entrada na tela.
   React.useEffect(() => {
     if (!placed || reduceMotion) return;
-    const toCenter = setTimeout(() => setPhase("center"), REVEAL_DELAY_MS);
+    const toReveal = setTimeout(() => setPhase("reveal"), REVEAL_DELAY_MS);
     const toPeek = setTimeout(() => setPhase("peek"), REVEAL_DELAY_MS + HOLD_MS);
     return () => {
-      clearTimeout(toCenter);
+      clearTimeout(toReveal);
       clearTimeout(toPeek);
     };
   }, [placed, reduceMotion]);
@@ -82,7 +85,10 @@ export function QuickWorkoutButton({ onStart }: { onStart: () => void }) {
   }
 
   const peekX = geom ? geom.w - Math.max(geom.w * PEEK_FRACTION, MIN_PEEK_PX) : 0;
-  const centerX = geom ? -(geom.vw / 2 - geom.w / 2) : 0;
+  // Aberto = o botão inteiro à mostra, encostado na borda direita com a margem
+  // de sempre — só o suficiente para ler o rótulo, sem cruzar a tela (pedido do
+  // usuário em 02/10/2026; antes deslizava até o centro).
+  const revealX = -REVEAL_MARGIN_PX;
   const isPeek = phase === "peek";
 
   return (
@@ -90,7 +96,7 @@ export function QuickWorkoutButton({ onStart }: { onStart: () => void }) {
       className="fixed z-40"
       style={{ right: 0, bottom: BOTTOM }}
       initial={false}
-      animate={{ x: isPeek ? peekX : centerX, opacity: geom ? 1 : 0 }}
+      animate={{ x: isPeek ? peekX : revealX, opacity: geom ? 1 : 0 }}
       transition={placed ? SPRING : { duration: 0 }}
     >
       <Pill

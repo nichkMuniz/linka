@@ -82,6 +82,24 @@ screenshot cuja interface é verdadeira — como seria a foto de um usuário.
 
 Telas atrás de interação são alcançadas por cliques declarados em `SCREENS.acoes`.
 
+### Telas da 1.0.69 (02/10/2026)
+
+6. **Treinar junto** — sessão em andamento com a faixa dos amigos (Camila e
+   Rafael, "Sua vez!" / "Vez de Camila"). A sessão é **restaurada** pelo
+   `localStorage` (`?lkseed=party` → `SEED_PARTY` em `capture.mjs`), já com
+   séries concluídas — por isso os contadores aqui NÃO saem zerados. Os amigos
+   vêm de `workout_party_members` nas fixtures.
+7. **Desafio** — modal "Camila te desafiou!" (toque na faixa de desafio em Metas).
+8. **Cobertura muscular** — drawer com o boneco. Exige `muscles`,
+   `workout_muscles` e o histórico **uma linha por série** com `kilos`/`volume`.
+
+Para gerar só essas: `LK_ONLY=6,7,8 node capture.mjs` (`LK_DEVICE=iphone-6.9`
+limita a um aparelho).
+
+> Foram capturadas do código **commitado** (`eab6afc`, worktree separado), não
+> do working tree: as correções ainda não commitadas mudam a tela de treinar
+> junto (a `workout-party-bar` foi apagada). Ao commitá-las, recapture a 6.
+
 ## Por que isto vale mais que mockup
 
 Além de ser fiel por construção, a captura **verifica o recorte do v1**: as

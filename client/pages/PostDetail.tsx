@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/use-toast";
 import { usePostReshare } from "@/hooks/use-post-reshare";
 import { useHoldToHide } from "@/hooks/use-hold-to-hide";
-import { RepostAttribution, displayedPostDescription } from "@/components/post/repost-attribution";
+import { RepostedBy } from "@/components/post/reposted-by";
 import { useAuth } from "@/hooks/useAuth";
 import { useLanguage } from "@/lib/language-context";
 import { ArrowLeft, Edit2, Trash2, MoreVertical, UsersRound, Share2, Ban } from "lucide-react";
@@ -56,7 +56,14 @@ export default function PostDetail() {
   const { t } = useLanguage();
 
   const [post, setPost] = React.useState<PostWithUser | null>(null);
-  const postReshare = usePostReshare({ context: "post-detail" });
+  const postReshare = usePostReshare({
+    context: "post-detail",
+    // Atualiza o "fulano repostou" depois de repostar/desfazer.
+    onRepostChanged: () => {
+      if (!postId) return;
+      getPostByIdDb(postId).then((fresh) => { if (fresh) setPost(fresh); }).catch(() => {});
+    },
+  });
   // Segurar a foto esconde a interface por cima — mesmo gesto do flow e do feed.
   const { hidden: holdHidden, consumeHoldClick, holdHandlers } = useHoldToHide();
   const holdHiddenStyle: React.CSSProperties = {
@@ -107,6 +114,26 @@ export default function PostDetail() {
     openLikesConsumedRef.current = false;
     navStateRef.current = location.state as { openComments?: boolean; openLikes?: boolean } | null;
   }, [postId]);
+
+  // ── Card quadrado (2026-10-02) ───────────────────────────────────────────
+  // Toda foto de post nasce 1:1. O card ocupava TODA a área livre (h-full):
+  // num iPhone isso é um retrato alto, e o `object-cover` cortava as laterais
+  // da foto. Agora o card é o MAIOR QUADRADO que cabe na área — mesmo frame
+  // 1:1 do feed. Medido (ResizeObserver) porque o CSS puro não consegue
+  // "min(largura, altura)" sem container queries (iOS 16+).
+  const [stageEl, setStageEl] = React.useState<HTMLDivElement | null>(null);
+  const [cardSide, setCardSide] = React.useState<number | null>(null);
+  React.useEffect(() => {
+    if (!stageEl) return;
+    const measure = () => {
+      const side = Math.floor(Math.min(stageEl.clientWidth, stageEl.clientHeight));
+      setCardSide(side > 0 ? side : null);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(stageEl);
+    return () => ro.disconnect();
+  }, [stageEl]);
 
   // Volta ao app depois de 5+ min fora: relê o post, incentivos e comentários.
   const refreshTick = useAppRefreshTick();
@@ -166,7 +193,7 @@ export default function PostDetail() {
 
   const totalLikes = likeStats.apoio + likeStats.continua + likeStats.ganhador + likeStats.consegueMais + likeStats.limiteMaior + likeStats.maisAlgum;
 
-  const description = post ? displayedPostDescription(post) : "";
+  const description = post?.description ?? "";
   const isDescTruncatable = isCaptionTruncatable(description);
   const truncatedDescription = collapsedCaption(description);
   const photos = post?.photos && post.photos.length > 0
@@ -255,9 +282,15 @@ export default function PostDetail() {
 
       {/* Post Detail */}
       <div className="flex-1 min-h-0 max-w-2xl mx-auto w-full px-4 py-4 flex">
+        <div ref={setStageEl} className="flex-1 min-w-0 min-h-0 flex items-center justify-center">
         <div
-          className="relative overflow-hidden fade-in w-full h-full select-none"
-          style={{ borderRadius: "28px", boxShadow: "0 20px 44px -16px rgba(0,0,0,.7)", WebkitTouchCallout: "none" }}
+          className="relative overflow-hidden fade-in select-none"
+          style={{
+            // Antes da 1ª medição: quadrado pela largura (o caso comum no iPhone).
+            ...(cardSide ? { width: cardSide, height: cardSide } : { width: "100%", aspectRatio: "1 / 1" }),
+            flexShrink: 0,
+            borderRadius: "28px", boxShadow: "0 20px 44px -16px rgba(0,0,0,.7)", WebkitTouchCallout: "none",
+          }}
           {...holdHandlers}
           /* O clique que encerra um "segurar" não chega aos filhos (ex.: a
              legenda, que expandiria ao toque). */
@@ -272,7 +305,6 @@ export default function PostDetail() {
             <PostCarousel
               photos={photos}
               alt="Post"
-              objectFit="cover"
               hideDots
               // O contador "1/N" ficava atrás do menu "⋮" — a posição já é
               // mostrada pelos dots próprios da tela, no rodapé do card.
@@ -413,10 +445,10 @@ export default function PostDetail() {
               </div>
             )}
 
-            {/* Repost — crédito do autor original; o toque abre o post dele */}
-            {post.repostOf && (
+            {/* Quem repostou — o post é um só, também no perfil dessas pessoas */}
+            {(post.repostedBy?.length ?? 0) > 0 && (
               <div className="mb-2">
-                <RepostAttribution origin={post.repostOf} />
+                <RepostedBy users={post.repostedBy!} />
               </div>
             )}
 
@@ -449,10 +481,15 @@ export default function PostDetail() {
                   // pre-wrap: respeita as quebras de linha que a pessoa digitou.
                   "text-[13px] text-white leading-snug mb-2.5 px-1 whitespace-pre-wrap break-words",
                   isDescTruncatable && "cursor-pointer",
-                  isDescTruncatable && descExpanded && "max-h-[40vh] overflow-y-auto",
+                  isDescTruncatable && descExpanded && "overflow-y-auto",
                 )}
                 style={{
                   textShadow: "0 1px 8px rgba(0,0,0,.5)",
+                  // Teto proporcional ao card quadrado (40vh cobria o card
+                  // inteiro num iPhone pequeno); rola por dentro.
+                  ...(isDescTruncatable && descExpanded
+                    ? { maxHeight: cardSide ? Math.round(cardSide * 0.42) : "40vh" }
+                    : {}),
                   ...(isDescTruncatable && descExpanded ? {
                     background: "rgba(0,0,0,.45)",
                     backdropFilter: "blur(14px)",
@@ -534,6 +571,7 @@ export default function PostDetail() {
             </div>
           </div>
         </div>
+        </div>
       </div>
 
       <PostLikesModal
@@ -589,6 +627,7 @@ export default function PostDetail() {
         onEditFlow={postReshare.editFlow}
         onRepostToFeed={postReshare.repostToFeed}
         repostedToFeed={postReshare.repostedToFeed}
+        onUndoRepostToFeed={postReshare.undoRepostToFeed}
       />
 
       <SendToFriendDrawer

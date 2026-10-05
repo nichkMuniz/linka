@@ -12,8 +12,10 @@ const BUBBLE = 64;
  * Capa do flow fixado. Ordem de preferência: `poster_url` (JPEG do 1º frame,
  * leve) → a própria imagem → o vídeo com media fragment (pinta o 1º frame no
  * WKWebView) → flow só de texto, com o fundo dele.
+ *
+ * Exportada: também é o verso da "moeda" do avatar do perfil (`FlowCoinAvatar`).
  */
-function PinnedFlowCover({ flow }: { flow: StoryWithUser }) {
+export function PinnedFlowCover({ flow, thumbSize = BUBBLE }: { flow: StoryWithUser; thumbSize?: number }) {
   const media = flow.media_url ?? null;
   const isVideo = !!media && VIDEO_RE.test(media);
 
@@ -22,7 +24,7 @@ function PinnedFlowCover({ flow }: { flow: StoryWithUser }) {
       <ImageWithFallback
         src={flow.poster_url || media!}
         alt=""
-        thumbSize={BUBBLE}
+        thumbSize={thumbSize}
         className="w-full h-full object-cover"
       />
     );

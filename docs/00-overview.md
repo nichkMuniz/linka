@@ -39,6 +39,7 @@ O objetivo central é motivar pessoas a manterem uma rotina saudável através d
 | 11 | [Vitrine / Loja](./11-loja.md) | `/vitrine` | Hub comunitário de promoções fitness e diretório de profissionais |
 | 12 | ~~Página não encontrada~~ | `*` | **Removida em 21/08/2026** — rota desconhecida redireciona para o Feed |
 | 16 | [Hashtag](./16-hashtag.md) | `/tag/:tag` | Grade de posts de uma hashtag |
+| 22 | [Histórico de treinos](./22-historico-treinos.md) | `/metas/historico` | Todos os treinos finalizados: rotina, rápido, em conjunto e desafio (2026-10-05) |
 | 13 | [Layouts e Componentes](./13-layouts-e-componentes.md) | — | Componentes compartilhados e layouts |
 | 14 | [Database Schema](./14-database-schema.md) | — | Documentação técnica de todas as tabelas do banco |
 | 15 | [Design System](./15-design-system.md) | — | Paleta de cores, tipografia, componentes, padrões visuais |

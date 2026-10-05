@@ -187,7 +187,82 @@ const WORKOUTS_CAT = [
   { id: 110, name: "Rosca Martelo", name_eng: "Hammer Curl", description: "Halteres em pegada neutra.", muscle_group: "Bíceps", type: 1, photo: null, created_by_user: false },
   { id: 111, name: "Leg Press 45", name_eng: "Leg Press", description: "Empurre a plataforma com as pernas.", muscle_group: "Pernas", type: 1, photo: null, created_by_user: false },
   { id: 112, name: "Cadeira Extensora", name_eng: "Leg Extension", description: "Estenda os joelhos sentado.", muscle_group: "Pernas", type: 1, photo: null, created_by_user: false },
+  // Fora das rotinas: só aparecem no histórico, para a cobertura muscular ter
+  // ombro/abdômen na semana e panturrilha/posterior como lacuna antiga.
+  { id: 113, name: "Elevação Lateral", name_eng: "Lateral Raise", description: "Eleve os halteres até a linha do ombro.", muscle_group: "Ombros", type: 1, photo: null, created_by_user: false },
+  { id: 114, name: "Abdominal Supra", name_eng: "Crunch", description: "Flexione o tronco deitado.", muscle_group: "Abdômen", type: 1, photo: null, created_by_user: false },
+  { id: 115, name: "Panturrilha em Pé", name_eng: "Standing Calf Raise", description: "Suba na ponta dos pés.", muscle_group: "Panturrilha", type: 1, photo: null, created_by_user: false },
+  { id: 116, name: "Stiff", name_eng: "Stiff-Leg Deadlift", description: "Desça a barra com as pernas quase estendidas.", muscle_group: "Pernas", type: 1, photo: null, created_by_user: false },
 ];
+
+// ─── Anatomia (cobertura muscular) ───────────────────────────────────────────
+
+/** Mesmo catálogo de `docs/migrations/20260805-muscle-anatomy.sql`. */
+const MUSCLES = [
+  ["peitoral_clavicular", "Peito", "Peitoral superior (clavicular)", "Upper chest (clavicular)", "chest", "front", 10],
+  ["peitoral_esternal", "Peito", "Peitoral médio (esternal)", "Mid chest (sternal)", "chest", "front", 20],
+  ["peitoral_abdominal", "Peito", "Peitoral inferior (abdominal)", "Lower chest (abdominal)", "chest", "front", 30],
+  ["serratil_anterior", "Peito", "Serrátil anterior", "Serratus anterior", "chest", "front", 40],
+  ["latissimo_dorsal", "Costas", "Grande dorsal (latíssimo)", "Latissimus dorsi", "lats", "back", 10],
+  ["redondo_maior", "Costas", "Redondo maior", "Teres major", "lats", "back", 20],
+  ["trapezio_superior", "Costas", "Trapézio superior", "Upper trapezius", "traps", "back", 30],
+  ["trapezio_medio", "Costas", "Trapézio médio", "Mid trapezius", "traps", "back", 40],
+  ["trapezio_inferior", "Costas", "Trapézio inferior", "Lower trapezius", "traps", "back", 50],
+  ["romboides", "Costas", "Romboides", "Rhomboids", "traps", "back", 60],
+  ["eretores_espinha", "Costas", "Eretores da espinha (lombar)", "Erector spinae", "lower_back", "back", 70],
+  ["deltoide_anterior", "Ombros", "Deltoide anterior", "Front delt", "shoulders_front", "front", 10],
+  ["deltoide_lateral", "Ombros", "Deltoide lateral", "Side delt", "shoulders_front", "front", 20],
+  ["deltoide_posterior", "Ombros", "Deltoide posterior", "Rear delt", "shoulders_rear", "back", 30],
+  ["manguito_rotador", "Ombros", "Manguito rotador", "Rotator cuff", "shoulders_rear", "back", 40],
+  ["biceps_cabeca_longa", "Bíceps", "Bíceps — cabeça longa", "Biceps long head", "biceps", "front", 10],
+  ["biceps_cabeca_curta", "Bíceps", "Bíceps — cabeça curta", "Biceps short head", "biceps", "front", 20],
+  ["braquial", "Bíceps", "Braquial", "Brachialis", "biceps", "front", 30],
+  ["triceps_cabeca_longa", "Tríceps", "Tríceps — cabeça longa", "Triceps long head", "triceps", "back", 10],
+  ["triceps_cabeca_lateral", "Tríceps", "Tríceps — cabeça lateral", "Triceps lateral head", "triceps", "back", 20],
+  ["triceps_cabeca_medial", "Tríceps", "Tríceps — cabeça medial", "Triceps medial head", "triceps", "back", 30],
+  ["flexores_antebraco", "Antebraço", "Flexores do antebraço", "Forearm flexors", "forearms", "front", 10],
+  ["braquiorradial", "Antebraço", "Braquiorradial", "Brachioradialis", "forearms", "front", 30],
+  ["quadriceps_reto_femoral", "Pernas", "Quadríceps — reto femoral", "Rectus femoris", "quads", "front", 10],
+  ["quadriceps_vasto_lateral", "Pernas", "Quadríceps — vasto lateral", "Vastus lateralis", "quads", "front", 20],
+  ["quadriceps_vasto_medial", "Pernas", "Quadríceps — vasto medial", "Vastus medialis", "quads", "front", 30],
+  ["isquiotibiais", "Pernas", "Isquiotibiais", "Hamstrings", "hamstrings", "back", 40],
+  ["gluteo_maximo", "Pernas", "Glúteo máximo", "Gluteus maximus", "glutes", "back", 50],
+  ["adutores", "Pernas", "Adutores", "Adductors", "adductors", "front", 70],
+  ["gastrocnemio", "Panturrilha", "Gastrocnêmio", "Gastrocnemius", "calves", "back", 10],
+  ["soleo", "Panturrilha", "Sóleo", "Soleus", "calves", "back", 20],
+  ["reto_abdominal_superior", "Abdômen", "Reto abdominal superior", "Upper abs", "abs", "front", 10],
+  ["reto_abdominal_inferior", "Abdômen", "Reto abdominal inferior", "Lower abs", "abs", "front", 20],
+  ["obliquos", "Abdômen", "Oblíquos", "Obliques", "obliques", "front", 30],
+].map(([id, group_name, name, name_eng, body_part, view, sort_order]) => ({
+  id, group_name, name, name_eng, region: null, body_part, view, sort_order,
+}));
+
+/** Exercício → músculos com ênfase (0–100), como o seed da anatomia grava. */
+const WORKOUT_MUSCLES = Object.entries({
+  101: { peitoral_esternal: 100, peitoral_clavicular: 60, deltoide_anterior: 50, triceps_cabeca_lateral: 50, triceps_cabeca_medial: 40 },
+  102: { peitoral_clavicular: 100, peitoral_esternal: 60, deltoide_anterior: 40 },
+  103: { triceps_cabeca_lateral: 100, triceps_cabeca_medial: 80, triceps_cabeca_longa: 60 },
+  104: { latissimo_dorsal: 100, romboides: 80, trapezio_medio: 70, deltoide_posterior: 50, biceps_cabeca_longa: 40 },
+  105: { quadriceps_reto_femoral: 100, quadriceps_vasto_lateral: 90, quadriceps_vasto_medial: 90, gluteo_maximo: 80, adutores: 50, eretores_espinha: 40 },
+  106: { peitoral_clavicular: 100, deltoide_anterior: 60, triceps_cabeca_lateral: 40 },
+  107: { triceps_cabeca_longa: 100, triceps_cabeca_medial: 70 },
+  108: { latissimo_dorsal: 100, redondo_maior: 70, biceps_cabeca_curta: 50, trapezio_inferior: 40 },
+  109: { biceps_cabeca_curta: 100, biceps_cabeca_longa: 90, braquial: 60, flexores_antebraco: 30 },
+  110: { braquial: 100, braquiorradial: 80, biceps_cabeca_longa: 60 },
+  111: { quadriceps_vasto_lateral: 100, quadriceps_vasto_medial: 90, gluteo_maximo: 60, isquiotibiais: 30 },
+  112: { quadriceps_reto_femoral: 100, quadriceps_vasto_lateral: 90, quadriceps_vasto_medial: 90 },
+  113: { deltoide_lateral: 100, trapezio_superior: 40 },
+  114: { reto_abdominal_superior: 100, reto_abdominal_inferior: 60, obliquos: 40 },
+  115: { gastrocnemio: 100, soleo: 70 },
+  116: { isquiotibiais: 100, gluteo_maximo: 70, eretores_espinha: 50 },
+}).flatMap(([workout_id, musculos]) =>
+  Object.entries(musculos).map(([muscle_id, emphasis]) => ({
+    workout_id: Number(workout_id),
+    muscle_id,
+    role: emphasis >= 60 ? "primary" : "secondary",
+    emphasis,
+  })),
+);
 
 /**
  * `getUserWorkoutsDb` faz `select(... workouts(name, name_eng, ...))`, ou seja,
@@ -235,32 +310,91 @@ const USER_WORKOUTS = [
 ];
 
 /**
- * Histórico: alimenta "último treino", o progresso semanal do card de rotina e
- * o gráfico de carga. Sem ele a tela mostrava "0 de 3 treinos na semana".
+ * Histórico: alimenta "último treino", o progresso semanal do card de rotina,
+ * o gráfico de carga e a cobertura muscular. Sem ele a tela mostrava "0 de 3
+ * treinos na semana".
+ *
+ * UMA LINHA POR SÉRIE, como o app grava: a cobertura muscular conta séries
+ * efetivas (linhas × ênfase) e lê a carga de `kilos` e as reps de `volume`.
+ * `uwId: null` = exercício fora das rotinas (só no histórico).
  */
 const USER_WORKOUTS_HIST = (() => {
   const out = [];
   let id = 500;
   const sessoes = [
-    { uwIds: [201, 202, 203, 206, 207], diasAtras: 1 },
-    { uwIds: [204, 208, 209, 210], diasAtras: 3 },
-    { uwIds: [205, 211, 212], diasAtras: 5 },
-    { uwIds: [201, 202, 203], diasAtras: 8 },
-    { uwIds: [204, 208], diasAtras: 10 },
+    // [workout_id, user_workout_id, séries, kg, reps]
+    { diasAtras: 1, ex: [[101, 201, 4, 80, 8], [102, 202, 3, 22, 12], [103, 203, 4, 35, 12], [106, 206, 3, 30, 10], [107, 207, 3, 20, 12]] },
+    { diasAtras: 2, ex: [[113, null, 4, 10, 15], [114, null, 3, 0, 20]] },
+    { diasAtras: 3, ex: [[104, 204, 4, 60, 10], [108, 208, 4, 55, 12], [109, 209, 3, 14, 12], [110, 210, 3, 25, 12]] },
+    { diasAtras: 5, ex: [[105, 205, 4, 100, 8], [111, 211, 4, 90, 12], [112, 212, 3, 40, 15]] },
+    { diasAtras: 6, ex: [[101, 201, 4, 77.5, 8], [102, 202, 3, 20, 12], [103, 203, 4, 32.5, 12]] },
+    { diasAtras: 10, ex: [[104, 204, 4, 57.5, 10], [108, 208, 4, 52.5, 12]] },
+    { diasAtras: 12, ex: [[116, null, 4, 60, 10]] },
+    { diasAtras: 16, ex: [[115, null, 4, 40, 15]] },
   ];
-  for (const { uwIds, diasAtras } of sessoes) {
+  for (const { diasAtras, ex } of sessoes) {
     const d = new Date(Date.now() - diasAtras * 86400000).toISOString();
-    for (const uwId of uwIds) {
-      out.push({
-        id: id++, user_id: ME, user_workout_id: uwId,
-        workout_id: 100 + (uwId % 20), date_completed: d,
-        series: 4, repetitions: 10, weight: 60 + (uwId % 5) * 8,
-        set_kind: "work", created_at: d,
-      });
+    for (const [workoutId, uwId, series, kg, reps] of ex) {
+      for (let s = 0; s < series; s++) {
+        out.push({
+          id: id++, user_id: ME, user_workout_id: uwId,
+          workout_id: workoutId, date_completed: d,
+          series: s + 1, repetitions: reps, weight: kg,
+          kilos: kg, volume: String(reps),
+          set_kind: null, created_at: d,
+        });
+      }
     }
   }
   return out;
 })();
+
+// ─── Desafio de treino ───────────────────────────────────────────────────────
+
+/**
+ * Camila desafiou a Marina com o treino de pernas dela. O snapshot leva só a
+ * LISTA (sem carga nem reps) — é o que o desafiado vê no modal.
+ */
+const desafioItem = (workoutId, series) => {
+  const cat = WORKOUTS_CAT.find((w) => w.id === workoutId);
+  return { workoutId: String(workoutId), name: cat.name, muscleGroup: cat.muscle_group, photo: null, series, isCardio: false };
+};
+const WORKOUT_CHALLENGES = [
+  {
+    id: "ch1",
+    challenger_id: CAMILA,
+    challenged_id: ME,
+    routine_name: "Pernas completo",
+    snapshot: {
+      routineName: "Pernas completo",
+      items: [desafioItem(105, 4), desafioItem(111, 4), desafioItem(112, 3), desafioItem(116, 3), desafioItem(115, 4)],
+    },
+    status: "pending",
+    winner: null,
+    challenger_score: null,
+    challenged_score: null,
+    created_at: iso(45),
+    expires_at: new Date(Date.now() + 2 * 86400000).toISOString(),
+  },
+];
+
+// ─── Treinar junto ───────────────────────────────────────────────────────────
+
+/**
+ * A party da sessão restaurada em `capture.mjs` (`SEED_PARTY`). Camila acabou
+ * de fechar uma série (é a vez dela) e o Rafael está no descanso — é o que a
+ * faixa do topo da sessão mostra.
+ */
+export const PARTY_ID = "party-1";
+const emSegundos = (s) => new Date(Date.now() + s * 1000).toISOString();
+const WORKOUT_PARTIES = [
+  { id: PARTY_ID, host_id: ME, routine_name: "Peito e Tríceps", status: "active", created_at: iso(30) },
+];
+const WORKOUT_PARTY_MEMBERS = [
+  { party_id: PARTY_ID, user_id: ME, role: "host", status: "accepted", progress_done: 1, progress_total: 5, sets_done: 6, volume_kg: 2840, best_kg: 80, current_exercise: "Crucifixo Inclinado", last_set_at: iso(2), rest_ends_at: null, finished_at: null, exercise_stats: null },
+  { party_id: PARTY_ID, user_id: CAMILA, role: "guest", status: "accepted", progress_done: 2, progress_total: 5, sets_done: 8, volume_kg: 2410, best_kg: 60, current_exercise: "Crucifixo Inclinado", last_set_at: iso(1), rest_ends_at: null, finished_at: null, exercise_stats: null },
+  { party_id: PARTY_ID, user_id: RAFAEL, role: "guest", status: "accepted", progress_done: 1, progress_total: 5, sets_done: 5, volume_kg: 2950, best_kg: 90, current_exercise: "Supino Reto com Barra", last_set_at: iso(1), rest_ends_at: emSegundos(140), finished_at: null, exercise_stats: null },
+];
 
 /** Check-ins dos últimos 12 dias — alimenta a sequência e o calendário. */
 const CHECK_INS = (() => {
@@ -306,6 +440,12 @@ const TABLES_PT = {
   check_ins: CHECK_INS,
   user_goals: USER_GOALS,
   goals: GOALS,
+  muscles: MUSCLES,
+  workout_muscles: WORKOUT_MUSCLES,
+  workout_challenges: WORKOUT_CHALLENGES,
+  workout_challenge_results: [],
+  workout_parties: WORKOUT_PARTIES,
+  workout_party_members: WORKOUT_PARTY_MEMBERS,
   // Vazias de propósito: recursos guardados atrás de flag no v1.
   shots: [],
   promotions: [],
@@ -349,6 +489,10 @@ const EN_TEXT = {
   "Correr 40 km no mês": "Run 40 km a month",
   "Pernas": "Legs", "Costas": "Back", "Bíceps": "Biceps", "Ombros": "Shoulders",
   "Peitoral": "Chest", "Tríceps": "Triceps",
+  "Abdômen": "Abs", "Panturrilha": "Calves",
+  // `current_exercise` da party não passa pela chave `name` — vai por aqui.
+  "Crucifixo Inclinado": "Incline Fly",
+  "Supino Reto com Barra": "Barbell Bench Press",
 };
 const NOMES_EN = Object.fromEntries(WORKOUTS_CAT.map((w) => [w.name, w.name_eng]));
 Object.assign(NOMES_EN, {

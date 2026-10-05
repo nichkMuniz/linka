@@ -384,7 +384,7 @@ metadata.
 | Campo | Valor |
 |---|---|
 | **Nome** (máx. 30) | `Linka: Treino e Progresso` *(25 caracteres)* |
-| **Subtítulo** (máx. 30) | `Ficha de treino e evolução` *(26 caracteres)* |
+| **Subtítulo** (máx. 30) | `A rede social de quem treina` *(28 caracteres — trocado em 02/10/2026; antes era "Musculação, academia e amigos")* |
 | **Bundle ID** | `com.linka.meuapp` |
 | **SKU** | `linka-ios-001` |
 | **Apple ID do app** | `6761916728` *(já existente)* |
@@ -451,13 +451,14 @@ Nenhum dado do LinKa é anônimo: tudo está atrelado a uma conta.
 | | ID do dispositivo | Token APNs para notificações | Funcionalidade do app |
 | **Dados de uso** | Interação com o produto | `screen_time_logs` e `access_sessions` (tempo por tela e duração de sessão) | Funcionalidade do app, Análise |
 | **Diagnóstico** | Dados de falha | Sentry — evento de erro com `user.id` | Funcionalidade do app, Análise |
+| **Localização** | Localização precisa | Corrida/caminhada por GPS (`FEATURES.gpsRun`, religada em 01/10/2026): o trajeto sai do aparelho ao carregar os tiles do mapa (CARTO) e na imagem do mapa publicada com o resumo | Funcionalidade do app |
 | | Dados de desempenho | Sentry | Funcionalidade do app, Análise |
 
 ### O que **NÃO** declarar nesta versão
 
 | Tipo | Por quê |
 |---|---|
-| **Localização** (precisa ou aproximada) | `FEATURES.gpsRun` e `postLocation` estão desligadas; nenhuma API de localização é chamada. As purpose strings existem só porque os SDKs estão **linkados** (ITMS-90683) — purpose string é permissão, ficha é coleta. **Mas corrija a política de privacidade antes**, que hoje descreve coleta de localização |
+| **Localização aproximada** | `postLocation` segue desligada. A **precisa** passou a ser declarada (tabela acima) desde que `gpsRun` foi religada em 01/10/2026. Onde fica no ASC: App Privacy → Data Types → Edit → Location → Precise Location → App Functionality / vinculado: sim / rastreio: não → **Publish** |
 | **Histórico de compras** | Sem IAP no v1; `Purchases.configure` nunca é chamado |
 | **Contatos, Histórico de busca, Info. financeira, Info. sensível** | Não coletados |
 
@@ -521,28 +522,35 @@ app. Isso é o correto para este produto — não tente fugir da classificação
 > Guideline 2.3 exige que a descrição descreva a experiência real.
 
 ```
-O Linka organiza seu treino e mostra sua evolução.
+O Linka é a rede social de quem treina: o lugar para registrar seus treinos,
+se inspirar em quem você segue e desafiar seus amigos.
 
-MONTE SUA ROTINA
-Crie a rotina do zero ou responda algumas perguntas e receba uma sugestão
-montada para o seu corpo e o seu objetivo — com séries, repetições e descanso
-para cada exercício. Marque articulações em cuidado e os exercícios de risco
-saem da lista.
+SEU TREINO VIRA POST
+Terminou o treino? O resumo vira um post pronto, com exercícios, volume e
+tempo. Publique no feed, compartilhe fotos e vídeos nos flows, marque quem
+treinou com você e use hashtags para ser encontrado.
 
-REGISTRE ENQUANTO TREINA
-Abra a sessão e vá marcando série por série, com carga e repetições. O app
-acompanha o tempo, o volume e uma estimativa de calorias. No fim, você recebe um
-resumo do treino.
+INSPIRE-SE
+No feed você acompanha quem segue e, na aba Descobrir, encontra gente nova
+treinando. Abra o treino por trás de um post e compare com o seu, exercício por
+exercício. Reaja com seis formas de incentivo — porque "curtir" não diz muita
+coisa para quem acabou de bater um recorde — e converse por mensagem.
 
-VEJA A CARGA SUBIR
-Cada treino registrado vira histórico. Acompanhe a sequência de dias, o
-progresso das metas e a evolução de cada exercício ao longo das semanas.
+DESAFIE SEUS AMIGOS
+Desafie seus seguidores a bater os números do seu treino nos mesmos exercícios,
+sem revelar quais são: o placar só aparece depois que eles treinam. Ou chame a
+turma para treinar junto, em tempo real, cada um no próprio celular.
 
-TREINE ACOMPANHADO
-Publique o resumo do treino no feed e receba incentivo de quem treina com você.
-São seis formas de reagir a um post — porque "curtir" não diz muita coisa para
-quem acabou de bater um recorde. Siga amigos, converse por mensagem e acompanhe
-quem está mantendo a constância.
+REGISTRE CADA SÉRIE
+Monte sua rotina do zero ou responda algumas perguntas e receba uma sugestão
+feita para o seu corpo e o seu objetivo, com séries, repetições e descanso.
+Durante o treino, marque série por série com carga e repetições — ou comece um
+treino rápido e adicione os exercícios na hora. Corridas e caminhadas ao ar
+livre são registradas por GPS, com o ritmo de cada quilômetro.
+
+VEJA SUA EVOLUÇÃO
+Cada treino vira histórico: sequência de dias, gráficos de progressão de carga
+e os músculos que você trabalhou na semana.
 
 SEU ESPAÇO, SUAS REGRAS
 Você controla quem vê suas listas de seguidores e suas publicações. Denuncie ou
@@ -569,13 +577,115 @@ indexa aqueles). Sem nome de marca, sem preço — 2.3.7.
 ### Texto promocional (máx. 170, alterável sem novo build)
 
 ```
-Monte a rotina, registre cada série e veja a carga subir. Publique o treino e
-receba incentivo de quem treina com você.
+Registre cada série, poste o treino e desafie seus amigos a bater seus números sem saber quais são. Ou chame a turma para treinar junto, em tempo real.
+```
+
+*151 caracteres.*
+
+### Localização English (U.S.)
+
+Mesmo conteúdo, para a versão em inglês da página (seletor de idioma no topo
+direito da página da versão no ASC).
+
+**Subtitle** (máx. 30): `Where your workouts get social` *(30 caracteres)*
+
+**Promotional Text** (máx. 170):
+
+```
+Log every set, post your workout and challenge friends to beat your numbers without knowing what they are. Or bring the crew to train together, live.
+```
+
+*149 caracteres.*
+
+**Keywords** (máx. 100):
+
+```
+gym,training,lifting,bodybuilding,hypertrophy,exercise,sets,reps,tracker,running,challenge,friends
+```
+
+*98 caracteres.*
+
+**Description:**
+
+```
+Linka is the social network for people who train: the place to log your
+workouts, get inspired by the people you follow and challenge your friends.
+
+YOUR WORKOUT BECOMES A POST
+Finished training? Your summary turns into a ready-made post with exercises,
+volume and time. Share it on the feed, post photos and videos as flows, tag who
+trained with you and use hashtags to get discovered.
+
+GET INSPIRED
+Follow your friends on the feed and find new people training in the Discover
+tab. Open the workout behind a post and compare it with yours, exercise by
+exercise. React with six kinds of encouragement — because a "like" doesn't say
+much to someone who just hit a PR — and chat by direct message.
+
+CHALLENGE YOUR FRIENDS
+Challenge your followers to beat your numbers on the same exercises, without
+revealing what they are: the scoreboard only shows up after they train. Or
+bring the crew to train together, live, each on their own phone.
+
+LOG EVERY SET
+Build your routine from scratch or answer a few questions and get a suggestion
+made for your body and your goal, with sets, reps and rest. During your
+workout, check off set by set with weight and reps — or start a quick workout
+and add exercises as you go. Outdoor runs and walks are tracked by GPS, with
+your pace for every kilometer.
+
+SEE YOUR PROGRESS
+Every workout becomes history: your streak, weight progression charts and the
+muscles you trained this week.
+
+YOUR SPACE, YOUR RULES
+You control who sees your follower lists and your posts. Report or block anyone
+in one tap, and undo it anytime in Settings. You can delete your account inside
+the app, along with all of your data.
+
+Available in English and Portuguese.
+
+Linka is a tool for organizing and logging workouts. Suggested routines and
+calorie estimates are for informational purposes only and do not replace
+guidance from a health or fitness professional. Consult a doctor before
+starting an exercise program.
 ```
 
 ### Novidades desta versão
 
 Na 1.0 o campo normalmente não aparece. Se aparecer: `Primeira versão do Linka.`
+
+#### 1.0.69 (02/10/2026)
+
+Cobre só o que está commitado desde a 1.0.66 (`c6eaa72`): commits `fb881fa`,
+`1bae87e` e `eab6afc`. Os lembretes de volta ao app (re-engajamento v2) ficaram
+de fora de propósito — ainda não estavam commitados.
+
+**Português (Brasil):**
+
+```
+• Desafie seus amigos: no fim do treino, desafie seus seguidores a bater os seus números nos mesmos exercícios — sem revelar quais são. O placar só aparece depois que eles treinam.
+• Treinar junto: chame amigos para uma sessão em tempo real, revezando a vez a cada série, e veja o resumo do treino do grupo no final.
+• Treino rápido: comece a treinar sem rotina, adicione os exercícios na hora e salve tudo como rotina no final.
+• Corrida e caminhada ao ar livre: registro por GPS com mapa do trajeto e ritmo de cada quilômetro.
+• Flows fixados: dê um nome aos seus flows favoritos e deixe-os em destaque no topo do perfil.
+• Agora dá para responder comentários nos posts.
+• Sugestões dos perfis mais seguidos do Linka para você começar a seguir pessoas.
+• Corrigimos o envio de vídeos da galeria nos flows, além de melhorias visuais e outras correções.
+```
+
+**English (U.S.):**
+
+```
+• Challenge your friends: after a workout, challenge your followers to beat your numbers on the same exercises — without revealing what they are. The scoreboard only shows up after they train.
+• Train together: invite friends to a live session, take turns set by set, and see the group's workout summary at the end.
+• Quick workout: start training without a routine, add exercises as you go and save it all as a routine at the end.
+• Outdoor runs and walks: GPS tracking with a route map and your pace for every kilometer.
+• Pinned flows: name your favorite flows and feature them at the top of your profile.
+• You can now reply to comments on posts.
+• Suggestions of the most-followed profiles on Linka to help you start following people.
+• Fixed uploading gallery videos to flows, plus visual improvements and other fixes.
+```
 
 ### URLs
 

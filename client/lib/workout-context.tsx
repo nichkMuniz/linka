@@ -52,6 +52,9 @@ export type WorkoutSeriesEntry = {
 export type ActiveWorkoutChallenge = {
   id: string;
   challengerNickname: string;
+  /** Quem desafiou — já nasce MARCADO no resumo (opcional: sessões salvas antes de 02/10). */
+  challengerId?: string;
+  challengerPhoto?: string | null;
   snapshot: WorkoutChallengeSnapshot;
 };
 

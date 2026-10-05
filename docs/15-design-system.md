@@ -387,6 +387,26 @@ Variante do 6.5 para **filtrar uma lista** dentro de um sheet glass escuro — o
 - Um chip "Todos/Todas" abre a fileira e representa "sem filtro" — nunca deixe a fileira sem estado neutro.
 - Se um filtro esvazia um agrupamento, **esconda o agrupamento** em vez de mostrá-lo com contagem 0.
 
+### 6.7 Pílula de contexto (status social numa tela de tarefa) — 2026-10-02
+
+Quando uma tela de **tarefa** (a sessão de treino) precisa mostrar um contexto social que muda o tempo todo (de quem é a vez, desafio em curso), **não** crie uma faixa fixa nova: use **uma pílula** na linha de apoio embaixo do título. Introduzida em `WorkoutSessionContextPill` (`client/components/goals/workout-session-context.tsx`), no lugar das faixas de "treinar junto" e de desafio.
+
+- **26px visíveis, 44px de toque**: `padding: 9px 0; margin: -9px 0` no `<button>` externo — a área cresce sem empurrar o layout.
+- Conteúdo: até 3 avatares de 16px com **anel na cor do estado** (verde `#34d399` = fazendo, azul `#93b4ff` = descansando, tracejado = pendente) + **uma frase curta** com elipse + `ChevronDown` (ou `Lock` no desafio). Nunca duas linhas.
+- **A frase muda com o momento**; a pílula diz só o mais acionável agora. O estado "é com você" (Sua vez!) é a única variante de **fundo sólido**, chega com pulso único (framer-motion, respeitando Reduzir movimento) e `hapticMedium()` — uma vez por virada, nunca a cada tique.
+- Cores com tinta fixa (`TURN_TINTS`), **sem `color-mix()`** — o WebView do iOS 15 não suporta.
+- O toque abre uma **folha** (vaul + `GLASS_SHEET_*`) com o detalhe completo. Informação que já está na pílula não ganha outro lugar fixo na tela.
+- Divide a linha com outros selos do título (EXPERT) em vez de criar outra.
+
+### 6.8 Lista de próximos passos (decisões secundárias) — 2026-10-02
+
+Numa tela com **um CTA primário** (o resumo do treino: Publicar), decisões secundárias (desafiar, salvar como rotina) **não** viram cards com botão colorido próprio — viram **linhas** de uma lista agrupada, que abrem folhas. Introduzida em `NextStepRow` (`workout-summary-overlay.tsx`).
+
+- Card glass único; linhas de **≥ 68px**: ícone Lucide de 19px num quadrado 38×38 `rounded-12` com tinta da cor da ação, título 15px/700, uma linha de apoio 12px `MUTED`, `ChevronRight` à direita; divisor `1px` entre linhas.
+- Estado concluído: ícone vira `Check` verde, a linha de apoio diz o que aconteceu ("Salva nas suas rotinas"), sem chevron e sem toque. A linha **não some** ("sumiu do nada" lê como bug).
+- Formulário (ex.: nome da rotina) vai **dentro da folha**, nunca inline na lista.
+- Posição: **antes** do CTA primário quando ele tira a pessoa da tela.
+
 ---
 
 ## 7. Componentes — Cards
@@ -453,6 +473,7 @@ Variante do 6.5 para **filtrar uma lista** dentro de um sheet glass escuro — o
 - Rounded: `rounded-lg` (não `rounded-xl` ou `rounded-2xl`)
 - Background: `card` token (não `background`)
 - Padding de conteúdo: `p-4` (mobile) / `p-6` (CardContent padrão)
+- **Mídia de post é SEMPRE 1:1 (2026-10-02):** frame `aspect-square` + `object-cover`, em qualquer aparelho e em qualquer tela (feed, perfil, detalhe). Nunca derive a altura do frame da altura da tela (`100dvh - …`): a proporção passa a variar por aparelho e a foto ora é cortada, ora ganha bordas. Para caber em telas baixas, limite a **largura** do card (`FEED_POST_CARD_STYLE` em `client/lib/post-visuals.tsx`), não a altura. Todo novo caminho que gera imagem de post deve exportá-la em 1:1 (≥ 1080px de lado), e nada de `contain` + fundo desfocado no post.
 
 ### 7.4 Thumbnail de vídeo (preview de frame) — Obrigatório
 
@@ -929,11 +950,15 @@ Conteúdo **de outra pessoa** exibido dentro do próprio flow (repost) vai num c
 Padrão do **`QuickWorkoutButton`** (Metas), inspirado no "Instants" do Instagram, para um CTA que precisa ser **descoberto** sem ocupar a tela:
 
 - repouso: escondido na borda, com uma **fresta** de ~30% da largura visível (10% foi testado e ficou pouco visível) — o suficiente para o ícone aparecer inteiro;
-- ao entrar na tela: desliza até o **centro** com o rótulo (spring `stiffness 240 / damping 26`), segura ~3 s e volta à fresta;
+- ao entrar na tela: sai do canto **só até o rótulo inteiro aparecer** (encostado na borda, 16px de margem — não cruza a tela), com spring `stiffness 240 / damping 26`; segura ~3 s e volta à fresta;
 - a fresta nunca fica abaixo de **44px** (alvo mínimo de toque);
 - `useReducedMotion()` → sem animação, botão inteiro parado no canto.
 
 Usar com parcimônia: no máximo um por tela, para uma ação que vale a pena descobrir (a animação roda uma vez por entrada na tela; depois fica só a fresta).
+
+### 13.3.1 Moeda girando (avatar com flow ativo) — 2026-10-05
+
+`FlowCoinAvatar` (`client/components/profile/flow-coin-avatar.tsx`): disco com duas faces 3D (frente = foto, verso = capa do flow), Web Animations API, 3,4s — gira 180° (com `scale 1.08` no meio do giro, que dá o "salto" de moeda), segura, gira mais 180° de volta. Regras: **o anel cônico laranja→azul significa "tem flow ativo"** — sem flow, anel neutro e nada gira; `overflow-hidden` vai em cada **face**, nunca no elemento que gira (no WebKit, `overflow` em `preserve-3d` achata o 3D); o verso só gira depois que a capa carregou (teto 1,5s); respeitar `prefers-reduced-motion`; uma vez por entrada na tela, não em loop.
 
 ### 13.4 Hover não existe no device (obrigatório)
 

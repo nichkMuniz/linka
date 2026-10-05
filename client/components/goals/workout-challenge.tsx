@@ -5,9 +5,14 @@ import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { useLanguage } from "@/lib/language-context";
 import {
+  createPostDb,
   getWorkoutChallengeResultsDb,
+  uploadWorkoutImageDb,
   type WorkoutChallenge,
 } from "@/lib/ritmofit-db";
+import { renderChallengeCardBlob } from "@/components/goals/challenge-card";
+import { toast } from "@/components/ui/use-toast";
+import { reportHandledError } from "@/lib/monitoring";
 import {
   compareChallenge,
   type ChallengeOutcome,
@@ -179,6 +184,25 @@ function sideValue(
   return t("goals_challenge_value_reps").replace("{reps}", String(ex.reps));
 }
 
+/** Veredito do desafio do ponto de vista de `perspective`: texto, cor e placar. */
+export function challengeVerdict(
+  outcome: ChallengeOutcome,
+  perspective: ChallengeSide,
+  t: (k: any) => string,
+): { label: string; color: string; won: boolean; myScore: number; theirScore: number } {
+  const myScore = perspective === "challenger" ? outcome.challengerScore : outcome.challengedScore;
+  const theirScore = perspective === "challenger" ? outcome.challengedScore : outcome.challengerScore;
+  const won = outcome.winner === perspective;
+  const label =
+    outcome.winner === "tie"
+      ? t("goals_challenge_result_tie")
+      : won
+        ? t("goals_challenge_result_won")
+        : t("goals_challenge_result_lost");
+  const color = outcome.winner === "tie" ? "#fbbf24" : won ? "#34d399" : "#f87171";
+  return { label, color, won, myScore, theirScore };
+}
+
 /**
  * Placar do desafio, do ponto de vista de `perspective` ("eu" = esse lado).
  * Carga + repetições de cada um por exercício, com o vencedor destacado.
@@ -187,25 +211,24 @@ export function ChallengeComparison({
   outcome,
   perspective,
   opponentName,
+  showHeadline = true,
 }: {
   outcome: ChallengeOutcome;
   perspective: ChallengeSide;
   opponentName: string;
+  /**
+   * `false` no resumo do treino: lá o veredito ("Você venceu · 3 × 2") mora no
+   * título da seção, e o componente vira só a tabela por exercício.
+   */
+  showHeadline?: boolean;
 }) {
   const { t } = useLanguage();
   const other: ChallengeSide = perspective === "challenger" ? "challenged" : "challenger";
-  const myScore = perspective === "challenger" ? outcome.challengerScore : outcome.challengedScore;
-  const theirScore = perspective === "challenger" ? outcome.challengedScore : outcome.challengerScore;
-  const headline =
-    outcome.winner === "tie"
-      ? t("goals_challenge_result_tie")
-      : outcome.winner === perspective
-        ? t("goals_challenge_result_won")
-        : t("goals_challenge_result_lost");
-  const headlineColor = outcome.winner === "tie" ? "#fbbf24" : outcome.winner === perspective ? "#34d399" : "#f87171";
+  const { label: headline, color: headlineColor, myScore, theirScore } = challengeVerdict(outcome, perspective, t);
 
   return (
     <div>
+      {showHeadline && (
       <div className="text-center">
         <div className="text-[22px] font-extrabold" style={{ color: headlineColor }}>
           {outcome.winner === perspective ? "🏆 " : outcome.winner === "tie" ? "🤝 " : ""}{headline}
@@ -216,8 +239,9 @@ export function ChallengeComparison({
           <span className="text-[13px] text-white/60 max-w-[110px] truncate">{opponentName}</span>
         </div>
       </div>
+      )}
 
-      <div className="mt-3 grid text-[10.5px] font-bold uppercase tracking-wide text-white/45" style={{ gridTemplateColumns: "minmax(0,1fr) 92px 92px" }}>
+      <div className={`${showHeadline ? "mt-3 " : ""}grid text-[10.5px] font-bold uppercase tracking-wide text-white/45`} style={{ gridTemplateColumns: "minmax(0,1fr) 92px 92px" }}>
         <span>{t("goals_challenge_col_exercise")}</span>
         <span className="text-center">{t("goals_challenge_you")}</span>
         <span className="text-center truncate">{opponentName}</span>
@@ -260,17 +284,76 @@ export function ChallengeComparison({
   );
 }
 
-/** Resultado para QUEM DESAFIOU — aberto pelo push/notificação type 25. */
+/**
+ * Publica no feed o card do desafio, com a legenda montada pelo resultado —
+ * sempre do ponto de vista de QUEM DESAFIOU ("Desafiei Ciclano…"). Usado pelo
+ * `ChallengeResultDialog` (push 25) e pelo detalhe do histórico de treinos.
+ */
+export async function shareChallengeResultToFeed(
+  challenge: WorkoutChallenge,
+  outcome: ChallengeOutcome,
+  t: (k: any) => string,
+): Promise<void> {
+  const blob = await renderChallengeCardBlob({
+    challengerNickname: challenge.challengerNickname,
+    challengedNickname: challenge.challengedNickname,
+    challengerPhoto: challenge.challengerPhoto,
+    challengedPhoto: challenge.challengedPhoto,
+    outcome,
+  });
+  const score = `${outcome.challengerScore}×${outcome.challengedScore}`;
+  const captionKey =
+    outcome.winner === "challenger"
+      ? "goals_challenge_share_caption_won"
+      : outcome.winner === "challenged"
+        ? "goals_challenge_share_caption_lost"
+        : "goals_challenge_share_caption_tie";
+  const caption = t(captionKey)
+    .replace("{name}", challenge.challengedNickname)
+    .replace("{routine}", challenge.routineName)
+    .replace("{score}", score);
+  const url = await uploadWorkoutImageDb(challenge.challengerId, blob);
+  await createPostDb([url], caption);
+}
+
+/**
+ * Resultado para QUEM DESAFIOU — aberto pelo push/notificação type 25. Só um
+ * botão "Compartilhar no feed": publica o card do desafio (o mesmo do resumo de
+ * quem cumpriu, `renderChallengeCardBlob`) com a legenda montada pelo
+ * resultado. Sem prévia nem campo de texto de propósito (02/10/2026) — editar
+ * a legenda é com o post já publicado.
+ */
 export function ChallengeResultDialog({
   challenge,
   onClose,
+  onSharedToFeed,
 }: {
   challenge: WorkoutChallenge;
   onClose: () => void;
+  /** Publicou no feed — quem renderiza leva ao Feed para ver o post. */
+  onSharedToFeed?: () => void;
 }) {
   const { t } = useLanguage();
   const [outcome, setOutcome] = React.useState<ChallengeOutcome | null>(null);
   const [failed, setFailed] = React.useState(false);
+  const [sharing, setSharing] = React.useState(false);
+
+  // O card é desenhado na hora do toque (fontes, logo e as duas fotos) — sem
+  // prévia na tela, não há por que gerá-lo antes.
+  const handleShare = async () => {
+    if (!outcome || sharing) return;
+    setSharing(true);
+    try {
+      await shareChallengeResultToFeed(challenge, outcome, t);
+      toast({ title: t("goals_challenge_shared_toast"), description: t("goals_challenge_shared_desc") });
+      onSharedToFeed?.();
+      onClose();
+    } catch (err: any) {
+      reportHandledError(err, "challenge-result:share-feed");
+      toast({ title: t("goals_challenge_share_error"), description: err?.message, variant: "destructive" });
+      setSharing(false);
+    }
+  };
 
   React.useEffect(() => {
     let cancelled = false;
@@ -298,7 +381,18 @@ export function ChallengeResultDialog({
         </p>
       </div>
       {outcome ? (
-        <ChallengeComparison outcome={outcome} perspective="challenger" opponentName={challenge.challengedNickname} />
+        <>
+          <ChallengeComparison outcome={outcome} perspective="challenger" opponentName={challenge.challengedNickname} />
+
+          <Button
+            className="mt-4 w-full rounded-full h-12 font-semibold active:scale-[0.985]"
+            style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}
+            disabled={sharing}
+            onClick={handleShare}
+          >
+            {sharing ? t("goals_challenge_sharing") : t("goals_challenge_share_cta")}
+          </Button>
+        </>
       ) : (
         <p className="py-6 text-center text-[13px] text-white/55">
           {failed ? t("goals_challenge_result_pending") : t("goals_challenge_loading")}

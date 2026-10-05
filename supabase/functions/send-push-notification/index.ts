@@ -257,7 +257,7 @@ async function buildBody(
     case 20:
       return `${name} mencionou você num comentário.`;
     // Repost de uma publicação em que o reposter foi marcado (trigger
-    // notify_post_repost). `post_id` é o REPOST — o toque abre ele.
+    // notify_post_reposts_row). `post_id` é o próprio post (repost = vínculo).
     case 21:
       return `${name} repostou sua publicação no feed.`;
     // Conteúdo removido pela moderação (admin_delete_content). Aviso do sistema:
@@ -315,7 +315,7 @@ function deepLinkFor(type: number, record: NotifRecord): string {
     // convite pendente ao abrir e mostra o diálogo de aceitar/recusar.
     case 19:
       return "/metas";
-    // 21 = repost: abre o repost (post_id), como o card da lista.
+    // 21 = repost: abre o post (post_id), como o card da lista.
     case 21:
       return record.post_id ? `/post/${record.post_id}` : "/notificacoes";
     // 23 = resposta a um comentário: abre o post da conversa.

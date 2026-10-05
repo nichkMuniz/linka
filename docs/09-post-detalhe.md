@@ -50,8 +50,9 @@ Como a tela sempre exibe exatamente **1 post**, ela não tem scroll de página �
 
 - Container raiz é `flex flex-col` com `height` calculada via `calc(100dvh - <chrome do AppLayout>)`, reservando a mesma altura que o header flutuante e o bottom nav do `AppLayout` já consomem via padding em `<main>` (`client/components/layout/app-layout.tsx`) — se essas dimensões mudarem lá, a fórmula aqui precisa ser atualizada junto
 - Header próprio (`shrink-0`) fica fixo no topo; a área do post é `flex-1 min-h-0`, ocupando todo o espaço restante
-- A foto/carrossel usa a prop `fill` do `PostCarousel` (`client/components/post/post-carousel.tsx`) para preencher 100% da altura do card via `h-full`, em vez do `aspect-square` padrão ou do cálculo de `tall` do feed
-- Legenda expandida ("ver mais") ganha `max-h-[40vh] overflow-y-auto` — mesmo padrão usado em Shots (`docs/03-shots.md`) — para permitir scroll interno apenas do texto em legendas muito longas, sem nunca rolar a tela inteira
+- **Card quadrado (2026-10-02):** a área do post é um palco `flex-1` e o card é o **maior quadrado que cabe** nele (`min(largura, altura)`, medido com `ResizeObserver` — CSS puro precisaria de container queries, só iOS 16+), centralizado. Antes o card ocupava a área inteira, um retrato alto no iPhone, e o `object-cover` cortava as laterais da foto (que nasce 1:1). Antes da primeira medição: `width: 100%` + `aspect-ratio: 1/1`
+- A foto/carrossel usa a prop `fill` do `PostCarousel` (`client/components/post/post-carousel.tsx`) para preencher 100% do card quadrado
+- Legenda expandida ("ver mais") ganha `overflow-y-auto` com teto de **42% do lado do card** (antes `40vh`, que num iPhone pequeno cobria o card quadrado inteiro) — mesmo padrão usado em Shots (`docs/03-shots.md`) — para permitir scroll interno apenas do texto em legendas muito longas, sem nunca rolar a tela inteira
 
 ---
 
@@ -96,12 +97,11 @@ Como a tela sempre exibe exatamente **1 post**, ela não tem scroll de página �
 - O clique que encerra o gesto é barrado em `onClickCapture`, para não expandir a legenda.
 
 ### Repost e recompartilhar (2026-09-28)
-- **Post que é repost** (`post.repostOf`): o `RepostAttribution` (`client/components/post/repost-attribution.tsx`) aparece no topo do overlay inferior ("🔁 Repost de {autor}", com avatar e selo). O toque abre o **post original**. A legenda exibida é a do original quando o repost não tem legenda própria (`displayedPostDescription`).
+- **Quem repostou** (`post.repostedBy`, 2026-10-05): o chip `RepostedBy` (`client/components/post/reposted-by.tsx`) aparece no topo do overlay inferior ("🔁 {nome} repostou" / "{nome} e mais {n} repostaram"). Repost é o **mesmo post** — não existe mais "post original" separado.
 - **Compartilhar** (menu ⋮): o `ShareDrawer` recebe as ações do hook `usePostReshare`:
   - **"Seu flow"**: para o **dono** e, agora, para quem foi **marcado**.
     - Tocar abre a escolha **Postar agora** / **Editar antes de postar** (29/09/2026). Editar leva ao Feed com o criador de flow aberto e a moldura do post colada (ver `docs/01-feed.md`).
-  - **"Seu feed"** (`Repeat2`): só para quem foi **marcado** e não é o dono. Chama `repostPostDb`. Se o usuário já repostou, o botão aparece como "Repostado" (verde, desabilitado), conferido via `getRepostedPostIdsDb`.
-  - Nenhuma das duas aparece num post que já é repost.
+  - **"Seu feed"** (`Repeat2`): só para quem foi **marcado** e não é o dono. Chama `repostPostDb` (vínculo em `post_reposts`). Se o usuário já repostou (`getRepostedPostIdsDb`), o botão aparece com check verde e o rótulo "Remover do feed" — tocar chama `unrepostPostDb`. Depois de repostar/desfazer o detalhe relê o post para atualizar o chip.
 
 ### Pill "Ver treino" + comparação (só em posts de resumo de treino)
 - Quando o post carrega um `workout_summary`, renderiza o `WorkoutDetailButton` (`client/components/shared/workout-detail-dialog.tsx`) no overlay inferior, acima do indicador de carrossel

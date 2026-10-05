@@ -97,7 +97,7 @@ meta, e seus amigos incentivam com os 6 tipos.
 | `profileWorkoutsTab` | ✅ | **Religada em 28/09/2026.** Aba "Treinos" separada das demais: tira de Publicações os posts de resumo de treino sem foto do usuário. Tem conteúdo desde o primeiro treino compartilhado |
 | `signupSuggestions` | ❌ | Já estava fora do fluxo; a flag registra a decisão |
 | `biometricLogin` | ✅ | Religado em 2026-09-29 (só contas com senha) |
-| `reengagementPush` | ❌ | Push não solicitado na 1ª semana gera opt-out irreversível. **Não controla nada no cliente** — o interruptor real é não agendar a edge function |
+| `reengagementPush` | ✅ (religada 02/10/2026) | v2: sequência em risco + posts novos de quem a pessoa segue + saudade em 1/3/7/14/30 dias, no máximo 1 por dia, com interruptor em Configurações. No cliente liga o "toque de atividade" e o interruptor; o envio depende do deploy da função + cron (ver `docs/10-notificacoes.md`) |
 
 ---
 
@@ -691,4 +691,4 @@ Uma flag por release, cada uma com seu ciclo de TestFlight:
 | 1.3 | `shots` | Só com gente postando com frequência |
 | 1.4 | `duels` + `ranking` | Precisam de densidade social |
 | 1.5 | `iap` | Com dados reais de quem usa o quê, o gate certo fica óbvio |
-| depois | `store`, `gpsRun` (religada 01/10), `workoutParty` (religada 02/10), `workoutStickerOnFlow`, `muscleAnatomy`, `biometricLogin`, `reengagementPush` | Conforme demanda observada |
+| depois | `store`, `gpsRun` (religada 01/10), `workoutParty` (religada 02/10), `workoutStickerOnFlow`, `muscleAnatomy`, `biometricLogin`, `reengagementPush` (religada 02/10) | Conforme demanda observada |

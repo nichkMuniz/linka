@@ -489,8 +489,8 @@ export default function Notifications() {
       else navigate(`/usuario/${notification.userId}`);
       return;
     }
-    // Type 21 (repostaram sua publicação) — abre o repost, onde o autor vê como
-    // a publicação apareceu no feed de quem repostou.
+    // Type 21 (repostaram sua publicação) — abre a publicação (o repost é o
+    // mesmo post, com "fulano repostou"; ver post_reposts).
     if (notification.type === 21) {
       if (notification.postId) navigate(`/post/${notification.postId}`);
       else navigate(`/usuario/${notification.userId}`);

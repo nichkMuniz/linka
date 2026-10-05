@@ -1,3 +1,4 @@
+import { FEED_POST_CARD_STYLE } from "@/lib/post-visuals";
 
 export function LoadingSpinner({ className = "h-8 w-8" }: { className?: string }) {
   return (
@@ -315,12 +316,14 @@ export function AdminSkeleton({ className = "" }: { className?: string }) {
 /** Skeleton that mimics a social feed post card */
 export function PostSkeleton({ className = "", tall = false }: { className?: string; tall?: boolean }) {
   return (
-    <div className={`rounded-lg border border-border/40 bg-card overflow-hidden ${className}`}>
-      {/* Image placeholder */}
-      <div
-        className={`w-full bg-gradient-to-br from-muted via-muted/60 to-muted animate-pulse ${tall ? "" : "aspect-square"}`}
-        style={tall ? { height: "calc(100dvh - max(14px, env(safe-area-inset-top) + 6px) - 314px - env(safe-area-inset-bottom))", maxHeight: "500px" } : undefined}
-      />
+    <div
+      className={`rounded-lg border border-border/40 bg-card overflow-hidden ${className}`}
+      // `tall` = esqueleto do feed: mesma largura do PostCard (frame 1:1), para
+      // não haver salto de layout quando os posts chegam.
+      style={tall ? FEED_POST_CARD_STYLE : undefined}
+    >
+      {/* Image placeholder — sempre 1:1, como o frame do post */}
+      <div className="w-full aspect-square bg-gradient-to-br from-muted via-muted/60 to-muted animate-pulse" />
       <div className="p-3 space-y-2">
         {/* User row */}
         <div className="flex items-center gap-2">

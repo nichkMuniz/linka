@@ -2,6 +2,7 @@ import * as React from "react";
 
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { useLanguage } from "@/lib/language-context";
+import type { TranslationKey } from "@/lib/i18n";
 import { supabase } from "@/lib/supabase";
 import { getWorkoutPartyMembersDb, type WorkoutPartyMember } from "@/lib/ritmofit-db";
 
@@ -76,7 +77,7 @@ export function useWorkoutPartyMembers(partyId: string | null) {
 }
 
 /** Agora, re-renderizando a cada segundo só enquanto `active` (contagem visível). */
-function useNow(active: boolean): number {
+export function useNow(active: boolean): number {
   const [now, setNow] = React.useState(() => Date.now());
   React.useEffect(() => {
     if (!active) return;
@@ -87,117 +88,90 @@ function useNow(active: boolean): number {
   return now;
 }
 
-function fmtSecs(total: number): string {
+export function fmtSecs(total: number): string {
   const m = Math.floor(total / 60);
   const s = total % 60;
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-const LIFT = "#34d399";
-const REST = "#93b4ff";
-const MUTED = "rgba(255,255,255,.6)";
+/** Cor de cada estado — anel do avatar, ponto e texto (pílula, folha e descanso). */
+export const TURN_COLORS = {
+  lifting: "#34d399",
+  resting: "#93b4ff",
+  finished: "rgba(255,255,255,.45)",
+  starting: "#fbbf24",
+} as const;
+
+/** Fundo e borda translúcidos de cada estado (sem `color-mix`: o WebView do iOS 15 não tem). */
+export const TURN_TINTS = {
+  lifting: { bg: "rgba(52,211,153,.12)", border: "rgba(52,211,153,.40)" },
+  resting: { bg: "rgba(147,180,255,.12)", border: "rgba(147,180,255,.40)" },
+  finished: { bg: "rgba(255,255,255,.05)", border: "rgba(255,255,255,.14)" },
+  starting: { bg: "rgba(251,191,36,.10)", border: "rgba(251,191,36,.38)" },
+} as const;
+
+/** Está descansando AGORA (descanso publicado no futuro)? */
+export function isRestingNow(member: WorkoutPartyMember, nowMs = Date.now()): boolean {
+  const end = member.restEndsAt ? Date.parse(member.restEndsAt) : NaN;
+  return Number.isFinite(end) && end > nowMs;
+}
+
+/** Texto do estado de um amigo: "Vez de Ana · fazendo Supino", "Ana descansando · 0:42"… */
+export function turnText(
+  name: string,
+  turn: PartnerTurn,
+  t: (key: TranslationKey) => string,
+): string {
+  switch (turn.kind) {
+    case "resting":
+      return t("goals_party_turn_resting").replace("{name}", name).replace("{time}", fmtSecs(turn.secsLeft));
+    case "lifting":
+      return turn.exercise
+        ? `${t("goals_party_turn_their").replace("{name}", name)} · ${t("goals_party_turn_doing").replace("{exercise}", turn.exercise)}`
+        : t("goals_party_turn_their").replace("{name}", name);
+    case "finished":
+      return t("goals_party_turn_finished").replace("{name}", name);
+    default:
+      return t("goals_party_turn_starting").replace("{name}", name);
+  }
+}
 
 /**
- * Indicador de vez.
- *
- * - `mode="rest"` (eu estou descansando — modal e barra de descanso): destaca
- *   quem está fazendo a série AGORA ("💪 Vez da Ana · fazendo Supino").
- * - `mode="bar"` (faixa do topo, fora do descanso): uma linha por amigo, e
- *   "Sua vez!" quando o amigo está descansando.
+ * De quem é a vez, enquanto EU descanso — uma linha por amigo, com avatar, no
+ * modal de descanso ("Vez de Ana · fazendo Supino" / "Ana descansando 0:42").
+ * Fora do descanso, a vez mora na pílula do topo da sessão
+ * (`WorkoutSessionContextPill`), que é o único outro lugar onde ela aparece.
  *
  * Componente pequeno de propósito: é o único que re-renderiza a cada segundo
  * (a contagem do descanso do amigo) — o diálogo de treino nunca re-renderiza
  * por causa do relógio (ver "Relógio do treino fora do contexto").
  */
-export function PartyTurnStatus({
-  partners,
-  mode,
-  compact = false,
-}: {
-  partners: WorkoutPartyMember[];
-  mode: "rest" | "bar";
-  /** Uma linha só (barra fina de descanso). */
-  compact?: boolean;
-}) {
+export function PartyTurnStatus({ partners }: { partners: WorkoutPartyMember[] }) {
   const { t } = useLanguage();
-  const anyResting = partners.some((m) => {
-    const end = m.restEndsAt ? Date.parse(m.restEndsAt) : NaN;
-    return Number.isFinite(end) && end > Date.now();
-  });
-  const now = useNow(anyResting);
+  const now = useNow(partners.some((m) => isRestingNow(m)));
   if (partners.length === 0) return null;
-
-  const rows = partners.map((m) => ({ member: m, turn: partnerTurn(m, now) }));
-
-  const lineFor = ({ member, turn }: (typeof rows)[number]) => {
-    const name = member.nickname;
-    switch (turn.kind) {
-      case "resting":
-        return {
-          color: REST,
-          emoji: "⏸",
-          text: t("goals_party_turn_resting").replace("{name}", name).replace("{time}", fmtSecs(turn.secsLeft)),
-        };
-      case "lifting":
-        return {
-          color: LIFT,
-          emoji: "💪",
-          text: turn.exercise
-            ? `${t("goals_party_turn_their").replace("{name}", name)} · ${t("goals_party_turn_doing").replace("{exercise}", turn.exercise)}`
-            : t("goals_party_turn_their").replace("{name}", name),
-        };
-      case "finished":
-        return { color: MUTED, emoji: "✅", text: t("goals_party_turn_finished").replace("{name}", name) };
-      default:
-        return { color: MUTED, emoji: "⏳", text: t("goals_party_turn_starting").replace("{name}", name) };
-    }
-  };
-
-  // Fora do descanso: se algum amigo está descansando, a vez é MINHA.
-  const myTurn = mode === "bar" && rows.some((r) => r.turn.kind === "resting");
-
-  if (compact) {
-    // Prioridade: quem está fazendo a série agora > descansando > o resto.
-    const order = { lifting: 0, resting: 1, starting: 2, finished: 3 } as const;
-    const top = [...rows].sort((a, b) => order[a.turn.kind] - order[b.turn.kind])[0];
-    const line = lineFor(top);
-    return (
-      <span style={{ fontSize: 12, fontWeight: 700, color: line.color, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-        {myTurn && <span style={{ color: LIFT }}>🔥 {t("goals_party_turn_yours")} · </span>}
-        {line.emoji} {line.text}
-        {rows.length > 1 ? ` +${rows.length - 1}` : ""}
-      </span>
-    );
-  }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6, width: "100%" }}>
-      {myTurn && (
-        <div style={{ fontSize: 13, fontWeight: 800, color: LIFT }}>
-          🔥 {t("goals_party_turn_yours")}
-        </div>
-      )}
-      {rows.slice(0, 3).map((row) => {
-        const line = lineFor(row);
+      {partners.slice(0, 3).map((member) => {
+        const turn = partnerTurn(member, now);
+        const color = TURN_COLORS[turn.kind];
         return (
           <div
-            key={row.member.userId}
+            key={member.userId}
             style={{
               display: "flex", alignItems: "center", gap: 8, minWidth: 0,
-              padding: mode === "rest" ? "8px 10px" : 0,
-              borderRadius: 12,
-              background: mode === "rest" ? `${line.color}1f` : "transparent",
-              border: mode === "rest" ? `1px solid ${line.color}55` : "none",
+              padding: "8px 10px", borderRadius: 12,
+              background: TURN_TINTS[turn.kind].bg,
+              border: `1px solid ${TURN_TINTS[turn.kind].border}`,
             }}
           >
-            {mode === "rest" && (
-              <UserAvatar photo={row.member.photo} nickname={row.member.nickname} size="sm" className="h-7 w-7 shrink-0" />
-            )}
+            <UserAvatar photo={member.photo} nickname={member.nickname} size="sm" className="h-7 w-7 shrink-0" />
             <span style={{
-              fontSize: mode === "rest" ? 13 : 12, fontWeight: 700, color: line.color,
+              fontSize: 13, fontWeight: 700, color,
               overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0,
             }}>
-              {line.emoji} {line.text}
+              {turnText(member.nickname, turn, t)}
             </span>
           </div>
         );

@@ -4,11 +4,12 @@ import {
   parseChallengeResult,
   parseChallengeSnapshot,
   type ChallengeOutcome,
+  type ChallengeSide,
   type ChallengeWinner,
   type WorkoutChallengeResult,
   type WorkoutChallengeSnapshot,
 } from "@/lib/workout-challenge";
-import { cardioTotalMinutes } from "@/lib/cardio-exercises";
+import { cardioTotalMinutes, isCardioExercise } from "@/lib/cardio-exercises";
 import { IMMUTABLE_CACHE_CONTROL } from "@/lib/storage-cache";
 import { resolveLanguage, tUi, type TranslationKey } from "@/lib/i18n";
 import { getUserSafe, hasSupabaseConfig, supabase, registerViewerCacheInvalidator, registerAuthUserReadyHandler } from "@/lib/supabase";
@@ -2182,73 +2183,95 @@ export type PostWithUser = {
   workoutSummary?: PostWorkoutSummary | null;
   taggedUsers?: SearchUser[];
   userGoal?: PostUserGoal;
-  /** Preenchido quando este post é um repost (ver `RepostOrigin`). */
-  repostOf?: RepostOrigin | null;
+  /**
+   * Quem repostou este post (marcados que o adicionaram ao próprio perfil). O
+   * post é UM só: aparece no perfil do autor e no de cada um destes, com as
+   * mesmas curtidas e comentários. Ver `getPostRepostersBatchDb`.
+   */
+  repostedBy?: SearchUser[];
 };
 
-/**
- * De onde veio um repost. O repost em si não tem legenda: o card mostra a do
- * original, com o crédito do autor. Migration: `20260928-post-reposts.sql`.
- */
-export type RepostOrigin = {
-  postId: string;
-  userId: string;
-  nickname: string;
-  photo: string | null;
-  verifiedTier: VerifiedTier | null;
-  /** null quando o original não é legível pelo viewer (privacidade do autor). */
-  description: string | null;
-};
+/** Colunas de `posts` que as telas de post leem (feed, perfil, detalhe). */
+export const POST_READ_COLUMNS =
+  "id, description, photo, photos, created_at, user_id, user_goal_id, workout_summary";
 
 /**
- * Crédito + legenda dos originais de uma lista de posts, numa leitura de posts
- * e uma de perfis. Recebe as linhas cruas (`reposted_from`/`reposted_from_user`)
- * e devolve Map<id do post REPOST, origem>. Se o original não puder ser lido
- * (autor passou a esconder os posts), o crédito vem de `reposted_from_user` e a
- * legenda fica vazia — o card nunca perde a atribuição.
+ * Quem repostou cada post, em UMA leitura de `post_reposts`. Devolve
+ * Map<post_id, user_id[]> em ordem de repost. Só marcados podem repostar, então
+ * o perfil de cada um já vem em `taggedUsers` — ver `pickReposters`.
+ * Migration: `20261005-post-reposts-shared.sql`.
  */
-export async function getRepostOriginsBatchDb(
-  rows: Array<{ id: unknown; reposted_from?: unknown; reposted_from_user?: unknown }>,
-): Promise<Map<string, RepostOrigin>> {
-  const result = new Map<string, RepostOrigin>();
-  const reposts = rows.filter((r) => r.reposted_from);
-  if (reposts.length === 0 || !hasSupabaseConfig || !supabase) return result;
-
-  const originalIds = [...new Set(reposts.map((r) => String(r.reposted_from)))];
-  const { data: originals } = await supabase
-    .from("posts")
-    .select("id, user_id, description")
-    .in("id", originalIds);
-  const originalMap = new Map((originals ?? []).map((o: any) => [String(o.id), o]));
-
-  const authorIds = reposts.map((r) => {
-    const o = originalMap.get(String(r.reposted_from));
-    return String(o?.user_id ?? r.reposted_from_user ?? "");
-  }).filter(Boolean);
-  const authors = await getProfilesBatchDb(authorIds);
-
-  for (const r of reposts) {
-    const original = originalMap.get(String(r.reposted_from));
-    const authorId = String(original?.user_id ?? r.reposted_from_user ?? "");
-    const author = authors.get(authorId);
-    result.set(String(r.id), {
-      postId: String(r.reposted_from),
-      userId: authorId,
-      nickname: author?.nickname ?? tUi("user_fallback_name"),
-      photo: author?.photo ?? null,
-      verifiedTier: author?.verified_tier ?? null,
-      description: original ? String(original.description ?? "") : null,
-    });
+export async function getPostRepostersBatchDb(
+  postIds: string[],
+): Promise<Map<string, string[]>> {
+  const result = new Map<string, string[]>();
+  const ids = [...new Set(postIds.filter(Boolean))];
+  if (!ids.length || !hasSupabaseConfig || !supabase) return result;
+  const { data, error } = await supabase
+    .from("post_reposts")
+    .select("post_id, user_id")
+    .in("post_id", ids)
+    .order("created_at", { ascending: true });
+  // Tabela pode ainda não existir (migração pendente) — degrada sem reposts.
+  if (error || !data) return result;
+  for (const row of data as any[]) {
+    const postId = String(row.post_id);
+    if (!result.has(postId)) result.set(postId, []);
+    result.get(postId)!.push(String(row.user_id));
   }
   return result;
 }
 
 /**
- * Reposta no feed do usuário logado um post em que ele foi marcado. Reaproveita
- * as fotos do original (mesmas URLs, sem upload) e não copia legenda, meta nem
- * resumo de treino — são do autor. As regras (marcado, não é o dono, não é
- * repost de repost, autor não esconde os posts, um por pessoa) valem no banco
- * (`validate_post_repost`); aqui só traduzimos os erros.
+ * Perfis de quem repostou, a partir das marcações do post (bloqueados já
+ * ficaram de fora lá). `preferIds` vem primeiro — no feed, quem o viewer segue:
+ * é por essa pessoa que o post chegou até ele.
+ */
+export function pickReposters(
+  taggedUsers: SearchUser[] | undefined,
+  reposterIds: string[] | undefined,
+  preferIds?: Set<string>,
+): SearchUser[] {
+  if (!reposterIds?.length || !taggedUsers?.length) return [];
+  const byId = new Map(taggedUsers.map((u) => [u.id, u]));
+  const list = reposterIds.map((id) => byId.get(id)).filter(Boolean) as SearchUser[];
+  if (!preferIds?.size) return list;
+  return [
+    ...list.filter((u) => preferIds.has(u.id)),
+    ...list.filter((u) => !preferIds.has(u.id)),
+  ];
+}
+
+/**
+ * Posts repostados pelas pessoas informadas, mais recentes primeiro (pela data
+ * do POST, não do repost — o post entra no feed na data em que foi publicado).
+ * `before` pagina igual ao feed. Devolve só os ids; quem chama lê os posts (a
+ * RLS de `posts` vale ali) e decide como juntar.
+ */
+export async function getRepostedPostIdsByUsersDb(
+  userIds: string[],
+  options: { limit: number; before?: string },
+): Promise<string[]> {
+  const ids = [...new Set(userIds.filter(Boolean))];
+  if (!ids.length || !hasSupabaseConfig || !supabase) return [];
+  let query = supabase
+    .from("post_reposts")
+    .select("post_id, post_created_at")
+    .in("user_id", ids)
+    .order("post_created_at", { ascending: false })
+    .limit(options.limit);
+  if (options.before) query = query.lt("post_created_at", options.before);
+  const { data, error } = await query;
+  if (error || !data) return [];
+  return [...new Set((data as any[]).map((r) => String(r.post_id)))];
+}
+
+/**
+ * Reposta (adiciona ao próprio perfil) um post em que o usuário logado foi
+ * marcado. Não cria post novo: grava o vínculo em `post_reposts`, e o MESMO
+ * post passa a aparecer no perfil dele e no feed de quem o segue. As regras
+ * (marcado, não é o dono, autor não esconde os posts, sem bloqueio) valem no
+ * banco (`validate_post_reposts_row`); aqui só traduzimos os erros.
  */
 export async function repostPostDb(postId: string): Promise<void> {
   if (!hasSupabaseConfig || !supabase) throw new Error("Supabase não configurado");
@@ -2256,22 +2279,9 @@ export async function repostPostDb(postId: string): Promise<void> {
   const viewer = await getViewer();
   if (!viewer) throw new Error("Usuário não autenticado");
 
-  const { data: original, error: readError } = await supabase
-    .from("posts")
-    .select("id, photo, photos, reposted_from")
-    .eq("id", postId)
-    .maybeSingle();
-  if (readError) throw readError;
-  if (!original) throw new Error(tUi("error_post_not_found"));
-
-  const { error } = await supabase.from("posts").insert({
-    user_id: viewer.id,
-    description: "",
-    photo: original.photo,
-    photos: original.photos,
-    // Repost de repost credita a origem (o banco também recusaria o contrário).
-    reposted_from: original.reposted_from ?? original.id,
-  });
+  const { error } = await supabase
+    .from("post_reposts")
+    .insert({ post_id: postId, user_id: viewer.id });
 
   if (error) {
     const code =
@@ -2282,24 +2292,49 @@ export async function repostPostDb(postId: string): Promise<void> {
     throw err;
   }
 
+  invalidateRepostCaches(viewer.id, postId);
+}
+
+/** Desfaz o repost: o post sai do perfil do usuário logado (continua no do autor). */
+export async function unrepostPostDb(postId: string): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) throw new Error("Supabase não configurado");
+  assertUUID(postId, "ID do post");
+  const viewer = await getViewer();
+  if (!viewer) throw new Error("Usuário não autenticado");
+
+  const { error } = await supabase
+    .from("post_reposts")
+    .delete()
+    .eq("post_id", postId)
+    .eq("user_id", viewer.id);
+  if (error) throw error;
+
+  invalidateRepostCaches(viewer.id, postId);
+}
+
+function invalidateRepostCaches(viewerId: string, postId: string) {
+  // Todas as grades: o "fulano repostou" aparece também no perfil do autor e
+  // na aba Marcações.
   invalidateQueryCache("userPosts");
-  invalidateQueryCache(`userStats:${viewer.id}`);
+  invalidateQueryCache("taggedPosts");
+  invalidateQueryCache(`userStats:${viewerId}`);
+  invalidateQueryCache(`post:${postId}`);
   invalidateQueryCache("feed");
 }
 
-/** Ids (dos originais) que o usuário logado já repostou, dentre os informados. */
+/** Ids, dentre os informados, que o usuário logado já repostou. */
 export async function getRepostedPostIdsDb(postIds: string[]): Promise<Set<string>> {
   const ids = [...new Set(postIds.filter(Boolean))];
   if (!ids.length || !hasSupabaseConfig || !supabase) return new Set();
   const viewer = await getViewer();
   if (!viewer) return new Set();
   const { data, error } = await supabase
-    .from("posts")
-    .select("reposted_from")
+    .from("post_reposts")
+    .select("post_id")
     .eq("user_id", viewer.id)
-    .in("reposted_from", ids);
+    .in("post_id", ids);
   if (error) return new Set();
-  return new Set((data ?? []).map((r: any) => String(r.reposted_from)));
+  return new Set((data ?? []).map((r: any) => String(r.post_id)));
 }
 
 // Busca em lote as metas vinculadas de vários posts, no mesmo formato usado
@@ -2341,19 +2376,27 @@ export async function getPostGoalsBatchDb(
   return result;
 }
 
+/** Teto da grade de posts do perfil (autorais + repostados, juntos). */
+const USER_POSTS_LIMIT = 100;
+
+/**
+ * Posts do perfil: os que `userId` publicou E os que ele repostou (post único
+ * compartilhado — o autor de um repost continua sendo a outra pessoa). Os dois
+ * vêm juntos, do mais recente para o mais antigo, pela data de publicação.
+ */
 export async function getUserPostsDb(userId: string): Promise<PostWithUser[]> {
   if (!hasSupabaseConfig || !supabase) return [];
   return cached(`userPosts:${userId}`, CACHE_TTL_SHORT, async () => {
-  // Fetch posts and the author's profile in parallel — the profile lookup used
-  // to run sequentially after the posts query, adding a needless round-trip.
-  const [postsRes, userProfile] = await Promise.all([
+  // Posts, perfil do dono e ids dos repostados em paralelo.
+  const [postsRes, userProfile, repostedIds] = await Promise.all([
     supabase
       .from("posts")
-      .select("id, description, photo, photos, created_at, user_id, user_goal_id, workout_summary, reposted_from, reposted_from_user")
+      .select(POST_READ_COLUMNS)
       .eq("user_id", userId)
       .order("created_at", { ascending: false })
-      .limit(100),
+      .limit(USER_POSTS_LIMIT),
     getUserProfileDb(userId),
+    getRepostedPostIdsByUsersDb([userId], { limit: USER_POSTS_LIMIT }),
   ]);
   const { data, error } = postsRes;
 
@@ -2367,35 +2410,61 @@ export async function getUserPostsDb(userId: string): Promise<PostWithUser[]> {
     throw error;
   }
 
-  const userNickname = userProfile?.nickname || tUi("user_fallback_name");
-  const userPhoto = userProfile?.photo || null;
-  const isVerified = userProfile?.is_verified === true;
-  const verifiedTier = verifiedTierOf(userProfile);
+  // Repostados: posts de OUTROS autores. A RLS de `posts` vale (autor que
+  // passou a esconder os posts some daqui sozinho); autor bloqueado sai à mão.
+  let repostedRows: any[] = [];
+  if (repostedIds.length > 0) {
+    const [repostedRes, blockedIds] = await Promise.all([
+      supabase.from("posts").select(POST_READ_COLUMNS).in("id", repostedIds),
+      getBlockedIdsDb().catch(() => [] as string[]),
+    ]);
+    const blocked = new Set(blockedIds);
+    repostedRows = (repostedRes.data ?? []).filter(
+      (r: any) => String(r.user_id) !== userId && !blocked.has(String(r.user_id)),
+    );
+  }
 
-  const rows = data ?? [];
-  const [tagsMap, goalsMap, repostMap] = await Promise.all([
-    getPostTagsBatchDb(rows.map((r: any) => String(r.id))),
+  const rows = [...(data ?? []), ...repostedRows]
+    .sort((a: any, b: any) => String(b.created_at).localeCompare(String(a.created_at)))
+    .slice(0, USER_POSTS_LIMIT);
+  const postIds = rows.map((r: any) => String(r.id));
+  const otherAuthorIds = [...new Set(repostedRows.map((r: any) => String(r.user_id)))];
+
+  const [tagsMap, goalsMap, repostersMap, authorsMap] = await Promise.all([
+    getPostTagsBatchDb(postIds),
     getPostGoalsBatchDb(rows.map((r: any) => r.user_goal_id).filter(Boolean)),
-    getRepostOriginsBatchDb(rows),
+    getPostRepostersBatchDb(postIds),
+    getProfilesBatchDb(otherAuthorIds),
   ]);
 
-  return rows.map((row: any) => ({
-    id: String(row.id ?? ""),
-    description: String(row.description ?? ""),
-    photo: String(row.photo ?? ""),
-    photos: Array.isArray(row.photos) ? row.photos : null,
-    created_at: String(row.created_at ?? ""),
-    user_id: String(row.user_id ?? ""),
-    user_goal_id: row.user_goal_id ?? null,
-    userNickname,
-    userPhoto,
-    isVerified,
-    verifiedTier,
-    workoutSummary: (row.workout_summary as PostWorkoutSummary | null) ?? null,
-    taggedUsers: tagsMap.get(String(row.id)) ?? [],
-    userGoal: row.user_goal_id ? goalsMap.get(String(row.user_goal_id)) : undefined,
-    repostOf: repostMap.get(String(row.id)) ?? null,
-  }));
+  // O dono do perfil aparece primeiro no "repostado por" da grade dele.
+  const preferOwner = new Set([userId]);
+
+  return rows.map((row: any) => {
+    const authorId = String(row.user_id ?? "");
+    const isOwn = authorId === userId;
+    const author = isOwn ? null : authorsMap.get(authorId);
+    const taggedUsers = tagsMap.get(String(row.id)) ?? [];
+    return {
+      id: String(row.id ?? ""),
+      description: String(row.description ?? ""),
+      photo: String(row.photo ?? ""),
+      photos: Array.isArray(row.photos) ? row.photos : null,
+      created_at: String(row.created_at ?? ""),
+      user_id: authorId,
+      user_goal_id: row.user_goal_id ?? null,
+      userNickname: isOwn
+        ? userProfile?.nickname || tUi("user_fallback_name")
+        : author?.nickname || tUi("user_fallback_name"),
+      userPhoto: isOwn ? userProfile?.photo || null : author?.photo ?? null,
+      isVerified: isOwn ? userProfile?.is_verified === true : author?.is_verified === true,
+      verifiedTier: isOwn ? verifiedTierOf(userProfile) : author?.verified_tier ?? null,
+      workoutSummary: (row.workout_summary as PostWorkoutSummary | null) ?? null,
+      taggedUsers,
+      userGoal: row.user_goal_id ? goalsMap.get(String(row.user_goal_id)) : undefined,
+      repostedBy: pickReposters(taggedUsers, repostersMap.get(String(row.id)), preferOwner),
+    };
+  });
 
   }).catch(() => [] as PostWithUser[]);
 }
@@ -2407,17 +2476,18 @@ export async function getPostByIdDb(postId: string): Promise<PostWithUser | null
 
   const { data, error } = await supabase
     .from("posts")
-    .select("id, description, photo, photos, created_at, user_id, user_goal_id, workout_summary, reposted_from, reposted_from_user")
+    .select(POST_READ_COLUMNS)
     .eq("id", postId)
     .maybeSingle();
 
   if (error || !data) return null;
 
-  const [userProfile, tagsMap, repostMap] = await Promise.all([
+  const [userProfile, tagsMap, repostersMap] = await Promise.all([
     getUserProfileDb(String(data.user_id)),
     getPostTagsBatchDb([String(data.id)]),
-    getRepostOriginsBatchDb([data]),
+    getPostRepostersBatchDb([String(data.id)]),
   ]);
+  const taggedUsers = tagsMap.get(String(data.id)) ?? [];
   return {
     id: String(data.id),
     description: String(data.description ?? ""),
@@ -2431,8 +2501,8 @@ export async function getPostByIdDb(postId: string): Promise<PostWithUser | null
     isVerified: userProfile?.is_verified === true,
     verifiedTier: verifiedTierOf(userProfile),
     workoutSummary: (data.workout_summary as PostWorkoutSummary | null) ?? null,
-    taggedUsers: tagsMap.get(String(data.id)) ?? [],
-    repostOf: repostMap.get(String(data.id)) ?? null,
+    taggedUsers,
+    repostedBy: pickReposters(taggedUsers, repostersMap.get(String(data.id))),
   };
 
   });
@@ -2594,7 +2664,7 @@ export async function getTaggedPostsDb(userId: string): Promise<PostWithUser[]> 
 
     const { data, error } = await supabase
       .from("posts")
-      .select("id, description, photo, photos, created_at, user_id, user_goal_id, workout_summary")
+      .select(POST_READ_COLUMNS)
       .in("id", postIds)
       .order("created_at", { ascending: false });
 
@@ -2606,10 +2676,11 @@ export async function getTaggedPostsDb(userId: string): Promise<PostWithUser[]> 
     }
 
     const rows = data ?? [];
-    const [authorsMap, postTagsMap, goalsMap] = await Promise.all([
+    const [authorsMap, postTagsMap, goalsMap, repostersMap] = await Promise.all([
       getProfilesBatchDb(rows.map((r: any) => String(r.user_id))),
       getPostTagsBatchDb(rows.map((r: any) => String(r.id))),
       getPostGoalsBatchDb(rows.map((r: any) => r.user_goal_id).filter(Boolean)),
+      getPostRepostersBatchDb(rows.map((r: any) => String(r.id))),
     ]);
 
     return rows.map((row: any) => {
@@ -2629,6 +2700,7 @@ export async function getTaggedPostsDb(userId: string): Promise<PostWithUser[]> 
         workoutSummary: (row.workout_summary as PostWorkoutSummary | null) ?? null,
         taggedUsers: postTagsMap.get(String(row.id)) ?? [],
         userGoal: row.user_goal_id ? goalsMap.get(String(row.user_goal_id)) : undefined,
+        repostedBy: pickReposters(postTagsMap.get(String(row.id)), repostersMap.get(String(row.id))),
       };
     });
   });
@@ -10205,7 +10277,7 @@ export async function deletePostDb(postId: string): Promise<boolean> {
     // ficavam órfãs no bucket para sempre.
     const { data: postData, error: fetchError } = await supabase
       .from("posts")
-      .select("user_id, photo, photos, reposted_from")
+      .select("user_id, photo, photos")
       .eq("id", postId)
       .single();
 
@@ -10252,13 +10324,9 @@ export async function deletePostDb(postId: string): Promise<boolean> {
 
     // Apaga TODA a mídia do post do storage — foto principal + carrossel.
     // Best-effort: o post já saiu do banco, falhar aqui só deixa lixo.
-    //
-    // Repost NÃO: as fotos são as mesmas URLs do original, de outra pessoa.
-    // (Apagar um ORIGINAL leva os reposts junto — trigger
-    // `delete_reposts_of_post` — então os arquivos dele ficam sem referência.)
-    if (!postData.reposted_from) {
-      await removeStorageObjects(collectMediaUrls(postData, ["photo"], ["photos"]));
-    }
+    // (Repost não tem arquivo próprio: é só um vínculo em `post_reposts`, que
+    // sai junto com o post pelo `on delete cascade`.)
+    await removeStorageObjects(collectMediaUrls(postData, ["photo"], ["photos"]));
 
     // Invalidar ANTES do return — o post excluído não pode continuar sendo
     // servido pelo cache (memória/localStorage) na grade do perfil, e o
@@ -13388,6 +13456,24 @@ export async function flushScreenTimeDb(userId: string): Promise<void> {
   } catch (err) {
     console.error("Error flushing screen time:", err);
   }
+}
+
+/**
+ * "Abri o app" para os lembretes de volta (re-engajamento). Grava a última
+ * abertura, o idioma do aparelho (o push sai em PT/EN) e, quando informado, o
+ * interruptor "Lembretes e novidades". RPC `touch_user_activity` — a tabela
+ * `user_activity` é privada (sem policies), ninguém lê o "visto por último" de
+ * outra pessoa. Sem a migração 20261002-reengagement-activity: no-op.
+ */
+export async function touchUserActivityDb(remindersEnabled?: boolean): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+  const { error } = await supabase.rpc("touch_user_activity", {
+    p_language: resolveLanguage(),
+    p_reminders_enabled: remindersEnabled ?? null,
+  });
+  if (!error) return;
+  const rpcMissing = error.code === "PGRST202" || error.code === "42883";
+  if (!rpcMissing) reportHandledError(error, "touchUserActivityDb");
 }
 
 export async function recordAccessSessionDb(userId: string, durationSeconds: number): Promise<void> {
@@ -16737,11 +16823,11 @@ export async function adminDeleteContentDb(
 
   const result = (data ?? {}) as { deleted?: boolean; media?: string[]; notified?: boolean };
 
-  // Flow e post: a mídia pode estar compartilhada com um repost
-  // (`repostStoryDb`/`repostPostDb` não copiam o arquivo). Remover a lista crua
-  // apagaria o conteúdo de outra pessoa — que sequer foi denunciado. Remover um
-  // REPOST de post devolve as URLs do original, que continuam referenciadas.
-  // Shot não tem esse compartilhamento.
+  // Flow: a mídia pode estar compartilhada com um repost (`repostStoryDb` não
+  // copia o arquivo). Remover a lista crua apagaria o conteúdo de outra pessoa
+  // — que sequer foi denunciado. Post: repost novo é só vínculo
+  // (`post_reposts`), mas o filtro segue cobrindo as linhas legadas do modelo
+  // antigo (20260928). Shot não tem esse compartilhamento.
   const media = result.media ?? [];
   await removeStorageObjects(
     tipo === "flow"
@@ -16986,6 +17072,96 @@ export async function getAdminAnatomyCoverageDb(): Promise<AnatomyCoverage> {
   return { total: workouts.length, mapped: workouts.length - gaps.length, gaps };
 }
 
+// ─── Admin: exercícios sem imagem (curadoria de workouts.photo) ──────────────
+//
+// Exercício sem `photo` cai no placeholder em todo card do app. Mesmo motivo do
+// inventário de anatomia: a lacuna só aparecia para quem esbarrava nela.
+
+/** Um exercício do catálogo com `workouts.photo` vazio. */
+export type ImageGapItem = {
+  id: string;
+  /** Nome bruto em PT (é o que vira nome do arquivo). */
+  name: string;
+  nameEng: string | null;
+  muscleGroup: string | null;
+  /** `description_eng` ou, sem ela, `description` — guia o movimento no prompt. */
+  description: string | null;
+  /** Nomes em inglês dos músculos de `workout_muscles` (primários primeiro). */
+  muscles: string[];
+  isCustom: boolean;
+  /** Alongamento/mobilidade: o prompt pede posição única, não início/fim. */
+  isStretch: boolean;
+};
+
+export type ImageCoverage = {
+  total: number;
+  withImage: number;
+  gaps: ImageGapItem[];
+};
+
+/**
+ * Inventário de exercícios sem imagem. "Sem imagem" = `photo` vazio: quando
+ * escrito (2026-10-02) todas as 271 URLs preenchidas respondiam 200, então não
+ * vale o custo de um HEAD por linha a cada abertura do painel.
+ *
+ * Os músculos mapeados (quando há) entram no prompt de IA no lugar do grupo
+ * genérico — "upper chest and anterior deltoids" gera imagem bem melhor que
+ * "chest". Sem cache, pelo mesmo motivo da anatomia.
+ */
+export async function getAdminImageCoverageDb(): Promise<ImageCoverage> {
+  if (!hasSupabaseConfig || !supabase) return { total: 0, withImage: 0, gaps: [] };
+
+  const workouts = await fetchAllRows(
+    "workouts",
+    "id, name, name_eng, muscle_group, description, description_eng, photo, created_by_user",
+  );
+  const missing = workouts.filter((w) => !String(w.photo ?? "").trim());
+
+  const musclesByWorkout = new Map<string, string[]>();
+  if (missing.length > 0) {
+    const ids = missing.map((w) => String(w.id));
+    const [{ data: links }, { data: muscles }] = await Promise.all([
+      supabase.from("workout_muscles").select("workout_id, muscle_id, role, emphasis").in("workout_id", ids),
+      supabase.from("muscles").select("id, name_eng"),
+    ]);
+    const muscleName = new Map((muscles ?? []).map((m: any) => [String(m.id), String(m.name_eng ?? m.id)]));
+    const roleRank: Record<string, number> = { primary: 0, secondary: 1, stabilizer: 2 };
+    const sorted = [...(links ?? [])].sort(
+      (a: any, b: any) =>
+        (roleRank[a.role] ?? 3) - (roleRank[b.role] ?? 3) || Number(b.emphasis ?? 0) - Number(a.emphasis ?? 0),
+    );
+    for (const l of sorted as any[]) {
+      // Estabilizador não é o que a imagem deve destacar.
+      if (l.role === "stabilizer") continue;
+      const key = String(l.workout_id);
+      const list = musclesByWorkout.get(key) ?? [];
+      const name = muscleName.get(String(l.muscle_id));
+      if (name && !list.includes(name)) list.push(name);
+      musclesByWorkout.set(key, list);
+    }
+  }
+
+  const gaps: ImageGapItem[] = missing
+    .map((w) => ({
+      id: String(w.id ?? ""),
+      name: String(w.name ?? ""),
+      nameEng: w.name_eng ? String(w.name_eng) : null,
+      muscleGroup: w.muscle_group ? String(w.muscle_group) : null,
+      description: String(w.description_eng || w.description || "").trim() || null,
+      muscles: musclesByWorkout.get(String(w.id)) ?? [],
+      isCustom: !!w.created_by_user,
+      isStretch: ANATOMY_STRETCH_GROUPS.includes(String(w.muscle_group ?? "").toLowerCase()),
+    }))
+    .sort(
+      (a, b) =>
+        Number(a.isCustom) - Number(b.isCustom) ||
+        (a.muscleGroup ?? "").localeCompare(b.muscleGroup ?? "") ||
+        a.name.localeCompare(b.name),
+    );
+
+  return { total: workouts.length, withImage: workouts.length - gaps.length, gaps };
+}
+
 // ─── Admin: verified accounts ─────────────────────────────────────────────────
 
 /**
@@ -17117,6 +17293,257 @@ export async function adminSetPremiumDb(
   // O alvo costuma ser outro device, onde o cache `premium:{uid}` expira sozinho
   // em 60s. Se o admin ativou para si mesmo, reflete na hora.
   invalidateQueryCache(`premium:${userId}`);
+}
+
+// ─── Curadoria de exercícios criados pelos usuários (2026-10-05) ──────────────
+// Aba "Exercícios" do Admin (docs/18-admin.md). Lê `user_custom_workouts` (a
+// leitura é liberada para qualquer usuário logado) e agrupa por nome
+// normalizado; tornar oficial / vincular passa pela RPC
+// `admin_promote_custom_workouts` (migração 20261005-admin-custom-workouts).
+
+export type AdminCustomWorkoutItem = {
+  id: string;
+  userId: string;
+  nickname: string;
+  name: string;
+  description: string;
+  photo: string | null;
+  muscleGroup: string | null;
+  createdAt: string;
+};
+
+export type AdminCatalogMatch = { id: string; name: string; nameEng: string | null; score: number };
+
+export type AdminCustomWorkoutReview = {
+  decision: "promoted" | "linked" | "ignored";
+  workoutId: string | null;
+  reviewedAt: string;
+};
+
+export type AdminCustomWorkoutGroup = {
+  /** Nome normalizado — chave do grupo e da revisão. */
+  key: string;
+  /** Grafia mais usada entre os usuários. */
+  name: string;
+  items: AdminCustomWorkoutItem[];
+  userCount: number;
+  muscleGroup: string | null;
+  /** Maior descrição escrita (a mais completa). */
+  description: string;
+  latestAt: string;
+  /** Exercícios do catálogo com nome parecido (melhor primeiro). */
+  matches: AdminCatalogMatch[];
+  review: AdminCustomWorkoutReview | null;
+};
+
+export type AdminCatalogWorkout = { id: string; name: string; nameEng: string | null; muscleGroup: string | null };
+
+export type AdminCustomWorkouts = {
+  groups: AdminCustomWorkoutGroup[];
+  catalog: AdminCatalogWorkout[];
+  /** Grupos musculares em uso no catálogo — opções do formulário. */
+  muscleGroups: string[];
+  /** `false` = tabela de revisões ausente (migração não rodou). */
+  reviewsAvailable: boolean;
+};
+
+const NAME_STOPWORDS = new Set(["com", "de", "da", "do", "na", "no", "em", "e", "a", "o", "the", "with", "on", "in", "of", "and"]);
+
+/** "Supino Inclinado c/ Halteres!" → "supino inclinado c halteres". */
+export function normalizeExerciseName(name: string): string {
+  return String(name ?? "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function exerciseNameTokens(key: string): Set<string> {
+  return new Set(key.split(" ").filter((t) => t && !NAME_STOPWORDS.has(t)));
+}
+
+/**
+ * Parecença de nomes: Jaccard das palavras (sem preposições). Se todas as
+ * palavras do personalizado estão no nome do catálogo ("supino reto" ⊂ "supino
+ * reto com barra"), conta no mínimo 0,75 — é o caso mais comum de "já existia".
+ */
+function exerciseNameScore(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 || b.size === 0) return 0;
+  let inter = 0;
+  for (const t of a) if (b.has(t)) inter += 1;
+  const jaccard = inter / (a.size + b.size - inter);
+  return inter === a.size ? Math.max(jaccard, 0.75) : jaccard;
+}
+
+export async function getAdminCustomWorkoutsDb(): Promise<AdminCustomWorkouts> {
+  const empty: AdminCustomWorkouts = { groups: [], catalog: [], muscleGroups: [], reviewsAvailable: false };
+  if (!hasSupabaseConfig || !supabase) return empty;
+
+  const [customs, catalogRows] = await Promise.all([
+    fetchAllRows("user_custom_workouts", "id, user_id, name, description, photo, muscle_group, created_at"),
+    fetchAllRows("workouts", "id, name, name_eng, muscle_group, created_by_user"),
+  ]);
+
+  let reviewsAvailable = true;
+  const reviews = new Map<string, AdminCustomWorkoutReview>();
+  const { data: reviewRows, error: reviewError } = await supabase
+    .from("admin_custom_workout_reviews")
+    .select("name_key, decision, workout_id, reviewed_at");
+  if (reviewError) {
+    reviewsAvailable = false;
+  } else {
+    for (const r of (reviewRows ?? []) as any[]) {
+      reviews.set(String(r.name_key), {
+        decision: r.decision,
+        workoutId: r.workout_id ? String(r.workout_id) : null,
+        reviewedAt: String(r.reviewed_at ?? ""),
+      });
+    }
+  }
+
+  const userIds = [...new Set(customs.map((c) => String(c.user_id)))];
+  const nicknames = new Map<string, string>();
+  for (let i = 0; i < userIds.length; i += 100) {
+    const { data } = await supabase.from("profiles").select("user_id, nickname").in("user_id", userIds.slice(i, i + 100));
+    for (const p of (data ?? []) as any[]) nicknames.set(String(p.user_id), String(p.nickname ?? ""));
+  }
+
+  const catalog: AdminCatalogWorkout[] = catalogRows
+    .filter((w) => w.created_by_user !== true)
+    .map((w) => ({
+      id: String(w.id),
+      name: String(w.name ?? ""),
+      nameEng: w.name_eng ? String(w.name_eng) : null,
+      muscleGroup: w.muscle_group ? String(w.muscle_group) : null,
+    }));
+  const catalogTokens = catalog.map((w) => ({
+    w,
+    pt: exerciseNameTokens(normalizeExerciseName(w.name)),
+    en: w.nameEng ? exerciseNameTokens(normalizeExerciseName(w.nameEng)) : new Set<string>(),
+  }));
+  const muscleGroups = [...new Set(catalog.map((w) => w.muscleGroup).filter((g): g is string => !!g))].sort((a, b) =>
+    a.localeCompare(b, "pt-BR"),
+  );
+
+  const byKey = new Map<string, AdminCustomWorkoutItem[]>();
+  for (const c of customs) {
+    const key = normalizeExerciseName(c.name);
+    if (!key) continue;
+    const item: AdminCustomWorkoutItem = {
+      id: String(c.id),
+      userId: String(c.user_id),
+      nickname: nicknames.get(String(c.user_id)) || tUi("user_fallback_name"),
+      name: String(c.name ?? ""),
+      description: String(c.description ?? ""),
+      photo: c.photo ? String(c.photo) : null,
+      muscleGroup: c.muscle_group ? String(c.muscle_group) : null,
+      createdAt: String(c.created_at ?? ""),
+    };
+    const list = byKey.get(key) ?? [];
+    list.push(item);
+    byKey.set(key, list);
+  }
+
+  const mostCommon = (values: string[]): string | null => {
+    const counts = new Map<string, number>();
+    for (const v of values) if (v) counts.set(v, (counts.get(v) ?? 0) + 1);
+    return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+  };
+
+  const groups: AdminCustomWorkoutGroup[] = [...byKey.entries()].map(([key, items]) => {
+    const tokens = exerciseNameTokens(key);
+    const matches = catalogTokens
+      .map(({ w, pt, en }) => ({
+        id: w.id,
+        name: w.name,
+        nameEng: w.nameEng,
+        score: Math.max(exerciseNameScore(tokens, pt), exerciseNameScore(tokens, en)),
+      }))
+      .filter((m) => m.score >= 0.5)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 3);
+    return {
+      key,
+      name: mostCommon(items.map((i) => i.name.trim())) ?? items[0].name,
+      items: items.sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+      userCount: new Set(items.map((i) => i.userId)).size,
+      muscleGroup: mostCommon(items.map((i) => i.muscleGroup ?? "")),
+      description: items.reduce((best, i) => (i.description.length > best.length ? i.description : best), ""),
+      latestAt: items.reduce((max, i) => (i.createdAt > max ? i.createdAt : max), ""),
+      matches,
+      review: reviews.get(key) ?? null,
+    };
+  });
+
+  // Mais gente criando o mesmo exercício = sinal mais forte de que faltou.
+  groups.sort((a, b) => b.userCount - a.userCount || b.latestAt.localeCompare(a.latestAt));
+  return { groups, catalog, muscleGroups, reviewsAvailable };
+}
+
+/**
+ * Torna oficial (sem `targetId`) ou vincula a um exercício do catálogo (com
+ * `targetId`). Com `merge`, as cópias pessoais viram a linha do catálogo nas
+ * rotinas, no histórico e nos programas dos usuários, e são apagadas.
+ */
+export async function adminPromoteCustomWorkoutsDb(params: {
+  customIds: string[];
+  nameKey: string;
+  targetId?: string | null;
+  name?: string;
+  nameEng?: string;
+  description?: string;
+  descriptionEng?: string;
+  muscleGroup?: string | null;
+  merge: boolean;
+}): Promise<{ workoutId: string; merged: number; remapped: number }> {
+  if (!hasSupabaseConfig || !supabase) throw new Error("Supabase não configurado");
+  const { data, error } = await supabase.rpc("admin_promote_custom_workouts", {
+    p_custom_ids: params.customIds,
+    p_name_key: params.nameKey,
+    p_target_id: params.targetId ?? null,
+    p_name: params.name ?? null,
+    p_name_eng: params.nameEng ?? null,
+    p_description: params.description ?? null,
+    p_description_eng: params.descriptionEng ?? null,
+    p_muscle_group: params.muscleGroup ?? null,
+    p_merge: params.merge,
+  });
+  if (error) {
+    if (error.message?.includes("NOT_ADMIN")) throw new Error("Sua conta não tem permissão de admin no servidor.");
+    if (error.code === "PGRST202") throw new Error("Rode a migração 20261005-admin-custom-workouts no Supabase.");
+    if (error.message?.includes("TARGET_NOT_IN_CATALOG")) throw new Error("O exercício escolhido não está no catálogo.");
+    throw new Error(error.message);
+  }
+  invalidateQueryCache("workouts:");
+  invalidateQueryCache("catalogWorkouts:");
+  invalidateQueryCache("workoutHistory:");
+  invalidateQueryCache("completedRoutines:");
+  const out = (data ?? {}) as any;
+  return { workoutId: String(out.workout_id ?? ""), merged: Number(out.merged ?? 0), remapped: Number(out.remapped ?? 0) };
+}
+
+/** Marca o grupo como "específico do usuário" (some da fila) ou desfaz (`ignored = false`). */
+export async function adminSetCustomWorkoutIgnoredDb(nameKey: string, ignored: boolean): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) throw new Error("Supabase não configurado");
+  const viewer = await getViewer();
+  if (ignored) {
+    const { data, error } = await supabase
+      .from("admin_custom_workout_reviews")
+      .upsert({ name_key: nameKey, decision: "ignored", workout_id: null, reviewed_by: viewer?.id ?? null, reviewed_at: new Date().toISOString() })
+      .select("name_key");
+    if (error) throw new Error(error.message);
+    // Sob RLS, gravação negada pode voltar sem erro e sem linha.
+    if (!data || data.length === 0) throw new Error("Sua conta não tem permissão de admin no servidor.");
+  } else {
+    const { data, error } = await supabase
+      .from("admin_custom_workout_reviews")
+      .delete()
+      .eq("name_key", nameKey)
+      .select("name_key");
+    if (error) throw new Error(error.message);
+    if (!data || data.length === 0) throw new Error("Nada foi desfeito — confira a permissão de admin.");
+  }
 }
 
 /** Busca usuários por @handle ou nome, para o painel admin. */
@@ -17420,6 +17847,8 @@ export type WorkoutPartyMember = {
 
 /** Uma linha do "com quanto peso" de cada participante. */
 export type WorkoutPartyExerciseStat = {
+  /** Id do catálogo — casa o exercício entre participantes (ausente em linhas antigas). */
+  workoutId?: string;
   name: string;
   sets: number;
   bestKg: number;
@@ -17441,6 +17870,7 @@ function parseExerciseStats(raw: unknown): WorkoutPartyExerciseStat[] {
   if (!Array.isArray(raw)) return [];
   return raw
     .map((e: any) => ({
+      ...(e?.workoutId ? { workoutId: String(e.workoutId) } : {}),
       name: String(e?.name ?? ""),
       sets: Number(e?.sets ?? 0),
       bestKg: Number(e?.bestKg ?? 0),
@@ -18207,6 +18637,339 @@ export async function submitWorkoutChallengeResultDb(
     },
     outcome,
   };
+}
+
+// ─────────────────────────── Histórico de treinos (2026-10-05) ───────────────────────────
+// Tela `/metas/historico` (docs/22-historico-treinos.md). Cada sessão é um
+// "Finalizar" do modo treino, montada a partir de `user_workouts_hist`, e o TIPO
+// sai do cruzamento com o que já existe no banco — sem migração:
+//  - desafio  → um resultado MEU em `workout_challenge_results` gravado logo
+//               depois da sessão (quem desafia grava ao enviar, no resumo; quem
+//               cumpre grava ao finalizar);
+//  - conjunto → uma linha minha em `workout_party_members` cujo `finished_at`
+//               (ou, sem ele, a janela da party) cai na sessão;
+//  - rápido   → sessão sem `routine_id` que não é nenhum dos dois;
+//  - rotina   → o resto.
+// Treino rápido salvo como rotina ganha `routine_id` (RPC
+// link_session_history_to_routine) e passa a aparecer como rotina.
+
+export type WorkoutHistoryKind = "routine" | "quick" | "party" | "challenge";
+
+export type WorkoutHistorySet = {
+  /** Musculação: carga (kg). Cardio: MINUTOS como digitados (ver cardioMinutesFromInput). */
+  kg: number;
+  /** Musculação: repetições. Cardio: km. */
+  reps: number;
+  setKind: SetKind | null;
+};
+
+export type WorkoutHistoryExercise = {
+  workoutId: string;
+  name: string;
+  muscleGroup: string | null;
+  isCardio: boolean;
+  sets: WorkoutHistorySet[];
+  /** Séries contadas (drop fica de fora, como na tela de treino). */
+  seriesCount: number;
+  bestKg: number;
+  volumeKg: number;
+};
+
+export type WorkoutHistoryParty = {
+  partyId: string;
+  hostId: string;
+  /** Outros participantes que aceitaram (sem o próprio usuário). */
+  others: Array<{ userId: string; nickname: string; photo: string | null }>;
+};
+
+export type WorkoutHistoryChallengeLink = {
+  challenge: WorkoutChallenge;
+  /** Meu lado no desafio. */
+  side: ChallengeSide;
+};
+
+export type WorkoutHistorySession = {
+  /** Chave estável: `date_completed` cru da primeira série gravada. */
+  key: string;
+  /** ISO (UTC) da última série gravada — o momento do "Finalizar". */
+  completedAt: string;
+  kind: WorkoutHistoryKind;
+  title: string;
+  routineId: string | null;
+  exercises: WorkoutHistoryExercise[];
+  totalSeries: number;
+  volumeKg: number;
+  caloriesKcal: number | null;
+  party: WorkoutHistoryParty | null;
+  /** Quem desafia várias pessoas do mesmo resumo liga N desafios à MESMA sessão. */
+  challenges: WorkoutHistoryChallengeLink[];
+};
+
+/** Linhas por página — ~75 treinos de 20 séries. */
+const HISTORY_PAGE_ROWS = 1500;
+/** Séries de um mesmo "Finalizar" ficam a milissegundos umas das outras. */
+const HISTORY_SESSION_GAP_MS = 60_000;
+/** Até quanto tempo depois do treino um desafio ainda é "daquele treino" (o resumo pode ficar aberto). */
+const HISTORY_CHALLENGE_WINDOW_MS = 3 * 60 * 60_000;
+/** Folga entre o `finished_at` da party e o carimbo das séries. */
+const HISTORY_PARTY_SLACK_MS = 15 * 60_000;
+
+/**
+ * `user_workouts_hist.date_completed` é `timestamp` SEM fuso, gravado em UTC: o
+ * PostgREST devolve "2026-10-05T10:40:00.123" sem o "Z", e `new Date()` leria
+ * como hora LOCAL (3h de erro no Brasil). Sem designador de fuso → é UTC.
+ */
+function parseHistTimestampMs(raw: unknown): number {
+  const str = String(raw ?? "");
+  if (!str) return NaN;
+  const hasZone = /([zZ]|[+-]\d{2}(:?\d{2})?)$/.test(str);
+  return new Date(hasZone ? str : `${str.replace(" ", "T")}Z`).getTime();
+}
+
+function topMuscleGroupsTitle(exercises: WorkoutHistoryExercise[]): string | null {
+  const counts = new Map<string, number>();
+  for (const ex of exercises) {
+    const group = (ex.muscleGroup ?? "").trim();
+    if (group) counts.set(group, (counts.get(group) ?? 0) + ex.seriesCount);
+  }
+  const top = [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([g]) => g).slice(0, 2);
+  if (top.length === 2) return tUi("goals_quick_name_and").replace("{a}", top[0]).replace("{b}", top[1]);
+  return top[0] ?? null;
+}
+
+/**
+ * Uma página do histórico, da sessão mais recente para a mais antiga.
+ * `before` = o `nextBefore` da página anterior (ausente na primeira). A sessão
+ * mais antiga de uma página cheia pode ter sido cortada pelo `limit`, então ela
+ * é descartada e volta inteira na próxima.
+ */
+export async function getWorkoutHistoryPageDb(
+  before?: string | null,
+): Promise<{ sessions: WorkoutHistorySession[]; nextBefore: string | null }> {
+  const empty = { sessions: [] as WorkoutHistorySession[], nextBefore: null };
+  if (!hasSupabaseConfig || !supabase) return empty;
+  const viewer = await getViewer();
+  if (!viewer) return empty;
+
+  let query = supabase
+    .from("user_workouts_hist")
+    .select("id, workout_id, kilos, volume, calories, date_completed, routine_id, set_kind")
+    .eq("user_id", viewer.id)
+    .order("date_completed", { ascending: false })
+    .limit(HISTORY_PAGE_ROWS);
+  if (before) query = query.lt("date_completed", before);
+  const { data, error } = await query;
+  if (error) throw error;
+  const rows = (data ?? []) as any[];
+  if (rows.length === 0) return empty;
+
+  // ── Sessões (da mais antiga para a mais recente durante o agrupamento) ──
+  type RawSession = { rows: any[]; startMs: number; endMs: number; firstRaw: string };
+  const raw: RawSession[] = [];
+  const asc = rows
+    .map((r) => ({ r, ms: parseHistTimestampMs(r.date_completed) }))
+    .sort((a, b) => a.ms - b.ms);
+  for (const { r, ms } of asc) {
+    const current = raw[raw.length - 1];
+    // Data inválida cola na sessão em aberto em vez de abrir uma nova por linha.
+    const at = Number.isFinite(ms) ? ms : current?.endMs ?? 0;
+    if (current && at - current.endMs <= HISTORY_SESSION_GAP_MS) {
+      current.rows.push(r);
+      current.endMs = at;
+    } else {
+      raw.push({ rows: [r], startMs: at, endMs: at, firstRaw: String(r.date_completed) });
+    }
+  }
+
+  let nextBefore: string | null = null;
+  if (rows.length >= HISTORY_PAGE_ROWS && raw.length > 1) {
+    raw.shift();
+    // A próxima página começa ANTES da primeira série da sessão mais antiga
+    // que ficou — a cortada volta inteira.
+    nextBefore = raw[0].firstRaw;
+  }
+
+  // ── Nomes de exercícios e rotinas ──
+  const details = await fetchWorkoutDetailsByIds(rows.map((r) => String(r.workout_id ?? "")));
+  const routineIds = [...new Set(rows.map((r) => r.routine_id).filter((v) => v != null).map(String))];
+  const routineNames = new Map<string, string>();
+  if (routineIds.length > 0) {
+    const { data: rData } = await supabase.from("routines").select("id, name").in("id", routineIds);
+    for (const r of (rData ?? []) as any[]) if (r.name) routineNames.set(String(r.id), String(r.name));
+  }
+
+  // ── Desafios: meus resultados no período → desafios ──
+  const challengeLinks = new Map<number, WorkoutHistoryChallengeLink[]>();
+  if (FEATURES.workoutChallenge) {
+    try {
+      const { data: results } = await supabase
+        .from("workout_challenge_results")
+        .select("challenge_id, created_at")
+        .eq("user_id", viewer.id)
+        .gte("created_at", new Date(raw[0].startMs - 120_000).toISOString())
+        .lte("created_at", new Date(raw[raw.length - 1].endMs + HISTORY_CHALLENGE_WINDOW_MS).toISOString());
+      const resultRows = (results ?? []) as any[];
+      if (resultRows.length > 0) {
+        const { data: chRows } = await supabase
+          .from("workout_challenges")
+          .select(CHALLENGE_COLS)
+          .in("id", resultRows.map((r) => String(r.challenge_id)));
+        const challenges = await mapChallenges((chRows ?? []) as any[]);
+        const byId = new Map(challenges.map((c) => [c.id, c]));
+        for (const res of resultRows) {
+          const challenge = byId.get(String(res.challenge_id));
+          if (!challenge) continue;
+          const at = new Date(String(res.created_at)).getTime();
+          // A sessão mais recente terminada até o resultado (2 min de folga para
+          // o relógio), dentro da janela.
+          let idx = -1;
+          for (let i = raw.length - 1; i >= 0; i--) {
+            if (raw[i].endMs <= at + 120_000) { idx = i; break; }
+          }
+          if (idx < 0 || at - raw[idx].endMs > HISTORY_CHALLENGE_WINDOW_MS) continue;
+          const side: ChallengeSide = challenge.challengerId === viewer.id ? "challenger" : "challenged";
+          const list = challengeLinks.get(idx) ?? [];
+          list.push({ challenge, side });
+          challengeLinks.set(idx, list);
+        }
+      }
+    } catch (err) {
+      console.error("Histórico: falha ao ler desafios", err);
+    }
+  }
+
+  // ── Treinar junto: minhas participações no período ──
+  const partyLinks = new Map<number, WorkoutHistoryParty>();
+  if (FEATURES.workoutParty) {
+    try {
+      const { data: parties } = await supabase
+        .from("workout_parties")
+        .select("id, host_id, created_at, ended_at")
+        .gte("created_at", new Date(raw[0].startMs - 6 * 60 * 60_000).toISOString())
+        .lte("created_at", new Date(raw[raw.length - 1].endMs).toISOString());
+      const partyRows = (parties ?? []) as any[];
+      if (partyRows.length > 0) {
+        // A RLS de workout_parties só entrega as parties de que sou membro; as
+        // linhas de membros dizem quem aceitou de fato.
+        const { data: members } = await supabase
+          .from("workout_party_members")
+          .select("party_id, user_id, status, finished_at")
+          .in("party_id", partyRows.map((p) => String(p.id)))
+          .in("status", ["accepted", "left"]);
+        const memberRows = (members ?? []) as any[];
+        const otherIds = [...new Set(memberRows.map((m) => String(m.user_id)).filter((id) => id !== viewer.id))];
+        const profiles = new Map<string, any>();
+        if (otherIds.length > 0) {
+          const { data: pData } = await supabase.from("profiles").select("user_id, nickname, photo").in("user_id", otherIds);
+          for (const p of (pData ?? []) as any[]) profiles.set(String(p.user_id), p);
+        }
+        for (const party of partyRows) {
+          const partyId = String(party.id);
+          const me = memberRows.find((m) => String(m.party_id) === partyId && String(m.user_id) === viewer.id);
+          if (!me) continue;
+          const finishedMs = me.finished_at ? new Date(String(me.finished_at)).getTime() : NaN;
+          const createdMs = new Date(String(party.created_at)).getTime();
+          const endedMs = party.ended_at ? new Date(String(party.ended_at)).getTime() : createdMs + 3 * 60 * 60_000;
+          let idx = -1;
+          if (Number.isFinite(finishedMs)) {
+            let best = Infinity;
+            raw.forEach((s, i) => {
+              const d = Math.abs(s.endMs - finishedMs);
+              if (d <= HISTORY_PARTY_SLACK_MS && d < best) { best = d; idx = i; }
+            });
+          } else {
+            // Sem `finished_at` (banco sem a migração live-stats): a 1ª sessão
+            // terminada dentro da janela da party.
+            idx = raw.findIndex((s) => s.endMs >= createdMs && s.endMs <= endedMs + HISTORY_PARTY_SLACK_MS);
+          }
+          if (idx < 0 || partyLinks.has(idx)) continue;
+          partyLinks.set(idx, {
+            partyId,
+            hostId: String(party.host_id ?? ""),
+            others: memberRows
+              .filter((m) => String(m.party_id) === partyId && String(m.user_id) !== viewer.id)
+              .map((m) => {
+                const p = profiles.get(String(m.user_id));
+                return {
+                  userId: String(m.user_id),
+                  nickname: p?.nickname ? String(p.nickname) : tUi("user_fallback_name"),
+                  photo: p?.photo ? String(p.photo) : null,
+                };
+              }),
+          });
+        }
+      }
+    } catch (err) {
+      console.error("Histórico: falha ao ler treinos em conjunto", err);
+    }
+  }
+
+  // ── Montagem ──
+  const sessions: WorkoutHistorySession[] = raw.map((s, idx) => {
+    const byWorkout = new Map<string, WorkoutHistoryExercise>();
+    let calories: number | null = null;
+    const routineCount = new Map<string, number>();
+    for (const r of s.rows) {
+      const workoutId = String(r.workout_id ?? "");
+      let ex = byWorkout.get(workoutId);
+      if (!ex) {
+        const d = details.get(workoutId);
+        const muscleGroup = d?.muscle_group ?? null;
+        ex = {
+          workoutId,
+          name: pickLocalized(d?.name, d?.name_eng) || tUi("workout_fallback_name"),
+          muscleGroup,
+          isCardio: isCardioExercise(muscleGroup, workoutId),
+          sets: [],
+          seriesCount: 0,
+          bestKg: 0,
+          volumeKg: 0,
+        };
+        byWorkout.set(workoutId, ex);
+      }
+      const kg = Number(r.kilos ?? 0) || 0;
+      // Musculação grava "10 reps"; cardio grava os km ("5.2").
+      const reps = parseFloat(String(r.volume ?? "").replace(",", ".")) || 0;
+      const setKind = (r.set_kind ?? null) as SetKind | null;
+      ex.sets.push({ kg, reps, setKind });
+      if (setKind !== "drop") ex.seriesCount += 1;
+      if (!ex.isCardio) {
+        ex.volumeKg += kg * reps;
+        ex.bestKg = Math.max(ex.bestKg, kg);
+      }
+      // Calorias da sessão: uma linha carrega o valor, as outras vêm NULL.
+      const kcal = r.calories != null ? Number(r.calories) : null;
+      if (kcal != null && Number.isFinite(kcal) && kcal > (calories ?? 0)) calories = kcal;
+      if (r.routine_id != null) routineCount.set(String(r.routine_id), (routineCount.get(String(r.routine_id)) ?? 0) + 1);
+    }
+    const exercises = [...byWorkout.values()];
+    const routineId = [...routineCount.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+    const challenges = challengeLinks.get(idx) ?? [];
+    const party = partyLinks.get(idx) ?? null;
+    const kind: WorkoutHistoryKind =
+      challenges.length > 0 ? "challenge" : party ? "party" : routineId ? "routine" : "quick";
+    const fallbackTitle = topMuscleGroupsTitle(exercises) ?? tUi("goals_quick_workout_title");
+    const title =
+      kind === "challenge"
+        ? challenges[0].challenge.routineName || fallbackTitle
+        : (routineId && routineNames.get(routineId)) || fallbackTitle;
+    return {
+      key: s.firstRaw,
+      completedAt: new Date(s.endMs).toISOString(),
+      kind,
+      title,
+      routineId,
+      exercises,
+      totalSeries: exercises.reduce((n, e) => n + e.seriesCount, 0),
+      volumeKg: Math.round(exercises.reduce((n, e) => n + e.volumeKg, 0)),
+      caloriesKcal: calories,
+      party,
+      challenges,
+    };
+  });
+
+  sessions.reverse();
+  return { sessions, nextBefore };
 }
 
 /**

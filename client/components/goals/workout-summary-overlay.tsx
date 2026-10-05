@@ -1,10 +1,23 @@
 import * as React from "react";
-import { ChallengeComparison } from "@/components/goals/workout-challenge";
+import { ChallengeComparison, challengeVerdict } from "@/components/goals/workout-challenge";
 import { WorkoutPartyDrawer } from "@/components/goals/workout-party-drawer";
 import { buildChallengeResult, buildChallengeSnapshot, type ChallengeOutcome } from "@/lib/workout-challenge";
-import { isThumbEligible, loadThumb } from "@/lib/thumb-cache";
+import { drawCanvasAvatar, loadCanvasAvatar, type CanvasAvatar } from "@/components/goals/canvas-avatars";
+import { drawChallengeCanvas } from "@/components/goals/challenge-card";
 import { useWorkoutPartyMembers } from "@/components/goals/workout-party-live";
-import { Check, ChevronLeft, ChevronRight, CirclePlus, LayoutGrid, RotateCcw, UserRoundPlus, X } from "lucide-react";
+import { BookmarkPlus, Check, ChevronLeft, ChevronRight, CirclePlus, LayoutGrid, RotateCcw, Swords, Trophy, UserRoundPlus, X } from "lucide-react";
+import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  GLASS_FIELD_CLASS,
+  GLASS_FIELD_STYLE,
+  GLASS_LABEL_CLASS,
+  GLASS_PRIMARY_BTN_STYLE,
+  GLASS_SHEET_PROPS,
+  GLASS_SHEET_STYLE,
+} from "@/lib/glass-styles";
+import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
 import { HighlightTextarea, SHADCN_TEXTAREA_CLASS } from "@/components/shared/highlight-textarea";
 import { useLanguage } from "@/lib/language-context";
 import { toast } from "@/components/ui/use-toast";
@@ -97,6 +110,8 @@ export type WorkoutSummaryData = {
    */
   challengeResult?: {
     challengerNickname: string;
+    /** Quem desafiou — já nasce marcado no post do resumo. */
+    challengerId?: string;
     challengedNickname?: string;
     /** Fotos de perfil dos dois lados — miniaturas no canvas do desafio. */
     challengerPhoto?: string | null;
@@ -479,55 +494,6 @@ type PartyParticipantStat = {
 
 const TOGETHER_COLORS = ["#5b8cff", "#fbbf24", "#34d399", "#f472b6"];
 
-/** Foto de perfil já decodificada para o canvas `together`. */
-type CanvasAvatar = { source: CanvasImageSource; width: number; height: number };
-
-const avatarCache = new Map<string, Promise<CanvasAvatar | null>>();
-
-/**
- * Foto de perfil pronta para o canvas SEM "sujá-lo": desenhar uma imagem de
- * outro domínio direto (<img src="https://…supabase…">) marca o canvas como
- * tainted e o `toBlob` da publicação falha. Por isso a foto chega sempre por
- * `blob:` local — a miniatura do `thumb-cache` (que já baixa com CORS) ou, se a
- * original for pequena demais para ganhar miniatura, um `fetch` CORS direto.
- * Qualquer falha (rede, CORS, timeout de 4 s) → `null` e o card usa a inicial.
- */
-function loadCanvasAvatar(url: string | null): Promise<CanvasAvatar | null> {
-  if (!url) return Promise.resolve(null);
-  const cached = avatarCache.get(url);
-  if (cached) return cached;
-
-  const decodeBlobUrl = async (blobUrl: string): Promise<CanvasAvatar> => {
-    const img = new Image();
-    img.src = blobUrl;
-    await img.decode();
-    return { source: img, width: img.naturalWidth, height: img.naturalHeight };
-  };
-
-  const task = (async (): Promise<CanvasAvatar | null> => {
-    try {
-      const thumb = isThumbEligible(url) ? await loadThumb(url, 48) : null;
-      if (thumb) return await decodeBlobUrl(thumb);
-      const res = await fetch(url, { mode: "cors" });
-      if (!res.ok) return null;
-      const blob = await res.blob();
-      return await decodeBlobUrl(URL.createObjectURL(blob));
-    } catch {
-      return null;
-    }
-  })();
-  const withTimeout = Promise.race([
-    task,
-    new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000)),
-  ]).then((avatar) => {
-    // Falhou/expirou: não fixa o null — a próxima tentativa (realtime redesenha)
-    // pode conseguir.
-    if (!avatar) avatarCache.delete(url);
-    return avatar;
-  });
-  avatarCache.set(url, withTimeout);
-  return withTimeout;
-}
 
 /** Modalidade de um template de cardio, ou null se for um template clássico. */
 function cardioTemplateKind(template: CanvasTemplate): CardioKind | null {
@@ -1298,44 +1264,6 @@ function drawNumbersCanvas(
 }
 
 /**
- * Foto de perfil num círculo (cover) com anel na cor dada; sem foto (ou se ela
- * não carregou), a inicial no círculo colorido. Usado pelos canvas
- * `together` e `challenge` — a foto chega sempre por `loadCanvasAvatar`.
- */
-function drawCanvasAvatar(
-  ctx: CanvasRenderingContext2D,
-  avatar: CanvasAvatar | null,
-  cx: number, cy: number, r: number,
-  color: string,
-  name: string,
-) {
-  if (avatar && avatar.width > 0 && avatar.height > 0) {
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.clip();
-    const scale = Math.max((r * 2) / avatar.width, (r * 2) / avatar.height);
-    const dw = avatar.width * scale, dh = avatar.height * scale;
-    ctx.drawImage(avatar.source, cx - dw / 2, cy - dh / 2, dw, dh);
-    ctx.restore();
-    ctx.beginPath();
-    ctx.arc(cx, cy, r + 1.5, 0, Math.PI * 2);
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 2.5;
-    ctx.stroke();
-    return;
-  }
-  ctx.beginPath();
-  ctx.arc(cx, cy, r, 0, Math.PI * 2);
-  ctx.fillStyle = color;
-  ctx.fill();
-  ctx.fillStyle = "#0b0b10";
-  ctx.font = `900 ${Math.round(r * 0.85)}px ${FONT}`;
-  ctx.textAlign = "center";
-  ctx.fillText((name.trim()[0] ?? "?").toUpperCase(), cx, cy + r * 0.3);
-}
-
-/**
  * Card "Treino em conjunto" (2026-10-02): uma linha por participante (até 4)
  * com séries, exercícios, volume e maior carga, e o total do grupo embaixo.
  * Foto de perfil no círculo, com anel na cor da pessoa — vinda de
@@ -1447,115 +1375,6 @@ function drawTogetherCanvas(
   ctx.restore();
 }
 
-/**
- * Card "Desafio" (2026-10-02): quem desafiou quem, quem VENCEU, o placar e, por
- * exercício, de que lado ficou a vitória. Sem nenhum número de carga ou
- * repetição — o card vai para o feed, e o desafio existe justamente para
- * ninguém expor quanto levantou.
- */
-function drawChallengeCanvas(
-  canvas: HTMLCanvasElement, data: WorkoutSummaryData, logo: HTMLImageElement | null,
-  avatars: Map<string, CanvasAvatar | null> = new Map(),
-) {
-  const result = data.challengeResult;
-  const outcome = result?.outcome;
-  if (!result || !outcome) return;
-  const ACCENT = "#f43f5e";
-  const ctx = canvasSetup(canvas, "#2a0a12", "#110508", ACCENT, 0.18);
-  if (!ctx) return;
-  const W = CANVAS_W, H = CANVAS_H;
-  const challenger = result.challengerNickname;
-  const challenged = result.challengedNickname ?? tUi("card_together_you");
-
-  const clip = (text: string, max: number) => {
-    let out = text;
-    while (ctx.measureText(out).width > max && out.length > 3) out = out.slice(0, -2) + "…";
-    return out;
-  };
-
-  ctx.save();
-  drawCanvasHeader(ctx, W, ACCENT, logo);
-  drawCanvasDivider(ctx, W, 62);
-
-  ctx.textAlign = "center";
-  ctx.fillStyle = "#ffffff";
-  ctx.font = `900 18px ${FONT}`;
-  ctx.fillText(`⚔️ ${tUi("card_challenge_title")}`, W / 2, 100);
-  ctx.fillStyle = "rgba(255,255,255,0.6)";
-  ctx.font = `600 13px ${FONT}`;
-  ctx.fillText(
-    clip(tUi("card_challenge_line").replace("{challenger}", challenger).replace("{challenged}", challenged), W - 60),
-    W / 2, 122,
-  );
-
-  // Veredito
-  const verdict =
-    outcome.winner === "tie"
-      ? tUi("card_challenge_tie")
-      : tUi("card_challenge_won").replace("{name}", (outcome.winner === "challenger" ? challenger : challenged).toUpperCase());
-  ctx.fillStyle = outcome.winner === "tie" ? "#fbbf24" : ACCENT;
-  ctx.font = fitFontSize(ctx, verdict, W - 60, 34, 900);
-  ctx.fillText(verdict, W / 2, 168);
-
-  // Placar entre as fotos dos dois lados (nome embaixo de cada uma). O anel
-  // do vencedor fica na cor do card; o de quem perdeu, apagado; empate, âmbar.
-  const ringFor = (side: "challenger" | "challenged") =>
-    outcome.winner === "tie" ? "#fbbf24" : outcome.winner === side ? ACCENT : "rgba(255,255,255,0.35)";
-  const avatarY = 200, avatarR = 24, sideX = 130;
-  const challengerPhoto = result.challengerPhoto ? avatars.get(result.challengerPhoto) ?? null : null;
-  const challengedPhoto = result.challengedPhoto ? avatars.get(result.challengedPhoto) ?? null : null;
-  drawCanvasAvatar(ctx, challengerPhoto, W / 2 - sideX, avatarY, avatarR, ringFor("challenger"), challenger);
-  drawCanvasAvatar(ctx, challengedPhoto, W / 2 + sideX, avatarY, avatarR, ringFor("challenged"), challenged);
-
-  ctx.textAlign = "center";
-  ctx.fillStyle = "#ffffff";
-  ctx.font = `900 42px ${FONT}`;
-  ctx.fillText(`${outcome.challengerScore} × ${outcome.challengedScore}`, W / 2, avatarY + 15);
-  ctx.fillStyle = "rgba(255,255,255,0.6)";
-  ctx.font = `700 12px ${FONT}`;
-  ctx.fillText(clip(challenger, 150), W / 2 - sideX, avatarY + avatarR + 17);
-  ctx.fillText(clip(challenged, 150), W / 2 + sideX, avatarY + avatarR + 17);
-
-  // Exercício a exercício: só de que lado ficou a vitória.
-  drawCanvasDivider(ctx, W, 254);
-  const rows = outcome.rows.slice(0, 6);
-  const rowH = 29;
-  let y = 279;
-  rows.forEach((row) => {
-    const fill = ctx.createLinearGradient(0, y - 18, 0, y + 8);
-    fill.addColorStop(0, "rgba(255,255,255,0.07)");
-    fill.addColorStop(1, "rgba(255,255,255,0.03)");
-    roundRectPath(ctx, 24, y - 18, W - 48, rowH - 5, 10);
-    ctx.fillStyle = fill;
-    ctx.fill();
-    ctx.textAlign = "center";
-    ctx.fillStyle = "rgba(255,255,255,0.85)";
-    ctx.font = `600 12.5px ${FONT}`;
-    ctx.fillText(clip(row.name, W - 170), W / 2, y);
-    ctx.font = `14px ${FONT}`;
-    const left = row.winner === "challenger" ? "🏆" : row.winner === "tie" ? "=" : "";
-    const right = row.winner === "challenged" ? "🏆" : row.winner === "tie" ? "=" : "";
-    ctx.fillStyle = "rgba(255,255,255,0.7)";
-    if (left) ctx.fillText(left, 52, y);
-    if (right) ctx.fillText(right, W - 52, y);
-    y += rowH;
-  });
-  if (outcome.rows.length > rows.length) {
-    ctx.textAlign = "center";
-    ctx.fillStyle = "rgba(255,255,255,0.45)";
-    ctx.font = `600 11px ${FONT}`;
-    ctx.fillText(`+${outcome.rows.length - rows.length}`, W / 2, y - 6);
-  }
-
-  ctx.textAlign = "center";
-  ctx.fillStyle = "rgba(255,255,255,0.4)";
-  ctx.font = `600 10.5px ${FONT}`;
-  ctx.fillText(tUi("card_challenge_rule"), W / 2, 466);
-
-  drawCanvasFooter(ctx, W, H);
-  ctx.restore();
-}
-
 function drawCanvas(
   canvas: HTMLCanvasElement, data: WorkoutSummaryData, logo: HTMLImageElement | null,
   template: CanvasTemplate = "auto", comparisonIndex = 0, cardioGroups: CardioGroup[] = [],
@@ -1566,7 +1385,12 @@ function drawCanvas(
     return drawTogetherCanvas(canvas, data, logo, party, partyAvatars);
   }
   if (template === "challenge" && data.challengeResult?.outcome) {
-    return drawChallengeCanvas(canvas, data, logo, partyAvatars);
+    return drawChallengeCanvas(
+      canvas,
+      { ...data.challengeResult, outcome: data.challengeResult.outcome },
+      logo,
+      partyAvatars,
+    );
   }
   const cardioKind = cardioTemplateKind(template);
   if (cardioKind) {
@@ -1609,15 +1433,65 @@ interface WorkoutSummaryOverlayProps {
   onPartyRoutineSaved?: () => void;
 }
 
+/**
+ * Linha de "Próximos passos" no resumo — ícone, título, uma linha de apoio e
+ * chevron; abre uma folha. Sem `onClick` vira estado concluído (sem chevron).
+ */
+function NextStepRow({
+  icon, tint, title, subtitle, onClick, divider,
+}: {
+  icon: React.ReactNode;
+  tint: string;
+  title: string;
+  subtitle: string;
+  onClick?: () => void;
+  divider?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={!onClick}
+      className="active:bg-white/5"
+      style={{
+        width: "100%", minHeight: 68, display: "flex", alignItems: "center", gap: 12,
+        padding: "10px 14px", background: "none", border: "none", textAlign: "left",
+        borderBottom: divider ? "1px solid rgba(255,255,255,0.12)" : "none",
+        color: "#fff", cursor: onClick ? "pointer" : "default",
+      }}
+    >
+      <span style={{
+        width: 38, height: 38, borderRadius: 12, background: tint, flexShrink: 0,
+        display: "flex", alignItems: "center", justifyContent: "center",
+      }}>
+        {icon}
+      </span>
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span style={{ display: "block", fontSize: 15, fontWeight: 700 }}>{title}</span>
+        <span style={{ display: "block", fontSize: 12, color: "rgba(255,255,255,0.55)", marginTop: 2, lineHeight: 1.35 }}>
+          {subtitle}
+        </span>
+      </span>
+      {onClick && <ChevronRight style={{ width: 16, height: 16, color: "rgba(255,255,255,.45)", flexShrink: 0 }} strokeWidth={2.4} />}
+    </button>
+  );
+}
+
 export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed, onShareToFlow, onPartyRoutineSaved }: WorkoutSummaryOverlayProps) {
   const { t, language } = useLanguage();
 
-  // ── Treinar junto: salvar a rotina do amigo ────────────────────────────────
-  // `idle` → o card com as duas opções; `saving` → botão travado; `done`/
-  // `skipped` → o card se recolhe numa linha, sem sumir (o usuário precisa ver
-  // o que decidiu, e "sumiu do nada" lê como bug).
+  // ── Salvar rotina (convidado do treinar junto / treino rápido) ─────────────
+  // Mora numa FOLHA aberta pela linha de "Próximos passos" (02/10/2026 — antes
+  // era um card com input no meio do resumo). `idle` → a linha abre a folha;
+  // `saving` → botão travado; `done` → a linha vira "Salva nas suas rotinas"
+  // (não some: "sumiu do nada" lê como bug). "Agora não" só fecha a folha.
   const [partySaveState, setPartySaveState] =
-    React.useState<"idle" | "saving" | "done" | "skipped">("idle");
+    React.useState<"idle" | "saving" | "done">("idle");
+  const [saveSheetOpen, setSaveSheetOpen] = React.useState(false);
+  React.useEffect(() => {
+    if (partySaveState === "done") setSaveSheetOpen(false);
+  }, [partySaveState]);
+  const sheetViewportHeight = useKeyboardAwareHeight();
 
   // ── Treinar junto: o convidado já salvou esta rotina antes? ────────────────
   // Fulano convida de novo para a mesma rotina que eu já salvei → nada de
@@ -1831,6 +1705,49 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed, onShareTo
   // válidas (elefante, caminhonete...) ao tocar de novo no chip de Equivalência.
   // ── Treinar junto: participantes ao vivo ───────────────────────────────────
   const { members: partyMembers } = useWorkoutPartyMembers(FEATURES.workoutParty ? data.partyId ?? null : null);
+
+  // ── Quem treinou comigo já nasce MARCADO (02/10/2026) ─────────────────────
+  // Treino em conjunto → os participantes que treinaram de fato; desafio → quem
+  // desafiou. Entram uma vez cada, conforme os dados chegam (os da party vêm
+  // pelo realtime, às vezes um instante depois de o resumo abrir). Se a pessoa
+  // mexer nas marcações por conta própria, o preenchimento automático para —
+  // nunca devolve alguém que ela tirou.
+  const userEditedTagsRef = React.useRef(false);
+  const autoTaggedIdsRef = React.useRef<Set<string>>(new Set());
+  const companions = React.useMemo<SearchUser[]>(() => {
+    const out: SearchUser[] = [];
+    const challenge = data.challengeResult;
+    if (challenge?.challengerId && challenge.challengerId !== data.userId) {
+      out.push({ id: challenge.challengerId, nickname: challenge.challengerNickname, photo: challenge.challengerPhoto ?? null });
+    }
+    if (data.partyId) {
+      for (const m of partyMembers) {
+        if (m.userId === data.userId) continue;
+        const trained =
+          m.status === "accepted" ||
+          (m.status === "left" && (!!m.finishedAt || m.setsDone > 0 || m.progressDone > 0));
+        if (trained) out.push({ id: m.userId, nickname: m.nickname, photo: m.photo });
+      }
+    }
+    return out;
+  }, [data.challengeResult, data.partyId, data.userId, partyMembers]);
+
+  React.useEffect(() => {
+    if (userEditedTagsRef.current) return;
+    const fresh = companions.filter((c) => !autoTaggedIdsRef.current.has(c.id));
+    if (fresh.length === 0) return;
+    fresh.forEach((c) => autoTaggedIdsRef.current.add(c.id));
+    setTaggedUsers((prev) => {
+      const ids = new Set(prev.map((u) => u.id));
+      return [...prev, ...fresh.filter((c) => !ids.has(c.id))].slice(0, MAX_TAGGED_PEOPLE);
+    });
+  }, [companions]);
+
+  /** Mudança feita pela PESSOA nas marcações — desliga o preenchimento automático. */
+  const editTaggedUsers: React.Dispatch<React.SetStateAction<SearchUser[]>> = React.useCallback((next) => {
+    userEditedTagsRef.current = true;
+    setTaggedUsers(next);
+  }, []);
   const partyPeople = React.useMemo<PartyParticipantStat[]>(() => {
     if (!data.partyId) return [];
     const others = partyMembers.filter(
@@ -1839,6 +1756,7 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed, onShareTo
     if (others.length === 0) return [];
     const mine = partyMembers.find((m) => m.userId === data.userId);
     const myExercises: WorkoutPartyExerciseStat[] = data.completedExercises.map((e) => ({
+      workoutId: e.workoutId,
       name: e.name,
       sets: e.totalSets,
       bestKg: e.bestKg,
@@ -1874,6 +1792,20 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed, onShareTo
   }, [data, partyMembers, t]);
   const hasTogether = partyPeople.length >= 2;
 
+  // ── Comparar exercício a exercício com quem treinou junto ─────────────────
+  // A lista de exercícios é o ÚNICO lugar da comparação (02/10/2026): antes o
+  // card "Treino em conjunto" repetia a lista inteira para cada pessoa.
+  // `undefined` = padrão (o primeiro amigo); `null` = "Ninguém".
+  const compareCandidates = partyPeople.filter((p) => !p.isMe);
+  const [compareWithId, setCompareWithId] = React.useState<string | null | undefined>(undefined);
+  const compareTarget =
+    compareWithId === null
+      ? null
+      : compareCandidates.find((p) => p.userId === (compareWithId ?? compareCandidates[0]?.userId)) ?? null;
+  const compareColor = compareTarget
+    ? TOGETHER_COLORS[partyPeople.findIndex((p) => p.userId === compareTarget.userId) % TOGETHER_COLORS.length]
+    : "rgba(255,255,255,0.55)";
+
   const [selectedTemplate, setSelectedTemplate] = React.useState<CanvasTemplate>(() => {
     // Treino só de cardio: o card clássico não tem volume nem carga para
     // mostrar, então já abre no card da modalidade principal da sessão.
@@ -1901,7 +1833,11 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed, onShareTo
   const canChallenge =
     FEATURES.workoutChallenge && !data.challengeResult && challengeableExercises.length > 0 && !!data.userId;
   const [challengePickerOpen, setChallengePickerOpen] = React.useState(false);
-  const [challengeSentCount, setChallengeSentCount] = React.useState(0);
+  // Quem já foi desafiado neste resumo — o seletor marca "✓ já desafiado" e
+  // trava essas pessoas (antes só se guardava a contagem e, ao reabrir, não dava
+  // para saber quem já tinha recebido).
+  const [challengedIds, setChallengedIds] = React.useState<string[]>([]);
+  const challengeSentCount = challengedIds.length;
   const handleSendChallenge = async (userIds: string[]) => {
     try {
       const sent = await createWorkoutChallengesDb(
@@ -1909,7 +1845,7 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed, onShareTo
         buildChallengeSnapshot(data.routineName, challengeableExercises),
         buildChallengeResult(challengeableExercises),
       );
-      setChallengeSentCount((n) => n + sent);
+      if (sent > 0) setChallengedIds((prev) => [...new Set([...prev, ...userIds])]);
       setChallengePickerOpen(false);
       toast({
         title: t("goals_challenge_sent_toast"),
@@ -2422,6 +2358,134 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed, onShareTo
     templateOptions.splice(1, 0, { id: "challenge", emoji: "⚔️", label: t("goals_canvas_tpl_challenge") });
   }
 
+  // ── Lista de exercícios ─────────────────────────────────────────────────────
+  type SummaryExercise = WorkoutSummaryData["completedExercises"][number];
+  /** Exercício do amigo que casa com o meu: pelo id do catálogo; sem id (linha antiga), pelo nome. */
+  const compareStatFor = (ex: SummaryExercise, person: PartyParticipantStat) => {
+    const norm = (v: string) => v.trim().toLowerCase();
+    return person.exerciseStats.find((e) =>
+      ex.workoutId && e.workoutId ? e.workoutId === ex.workoutId : norm(e.name) === norm(ex.name),
+    ) ?? null;
+  };
+  /** Meu número do exercício: tempo/distância no cardio, carga na força (null = só as séries). */
+  const exerciseValue = (ex: SummaryExercise): string | null => {
+    const cardio = ex.isCardio ? sumCardioSets(ex.sets) : null;
+    if (cardio && (cardio.minutes > 0 || cardio.km > 0)) {
+      return [
+        cardio.minutes > 0 ? formatCardioMinutes(cardio.minutes) : null,
+        cardio.km > 0 ? `${formatCardioKm(cardio.km)}km` : null,
+        // Inclinação da esteira, quando informada.
+        ex.elevationPct ? `⛰ ${formatElevationPct(ex.elevationPct)}` : null,
+      ].filter(Boolean).join(" · ");
+    }
+    return ex.bestKg > 0 ? `${ex.bestKg}kg` : null;
+  };
+
+  const renderExerciseList = (list: SummaryExercise[], compare: PartyParticipantStat | null) => (
+    <div style={{
+      background: CARD, borderRadius: 18, overflow: "hidden",
+      border: `1px solid ${BORDER}`,
+      backdropFilter: GLASS_BLUR, WebkitBackdropFilter: GLASS_BLUR,
+      boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06)",
+    }}>
+      {compare && (
+        <div style={{
+          display: "flex", alignItems: "center", padding: "8px 14px 2px",
+          fontSize: 10, fontWeight: 800, letterSpacing: 0.6, textTransform: "uppercase",
+        }}>
+          <span style={{ flex: 1 }} />
+          <span style={{ width: 66, textAlign: "center", color: accentHex }}>{t("goals_challenge_you")}</span>
+          <span style={{
+            width: 66, textAlign: "center", color: compareColor,
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+          }}>
+            {compare.nickname}
+          </span>
+        </div>
+      )}
+      {list.map((ex, idx) => {
+        const mine = exerciseValue(ex);
+        const theirs = compare ? compareStatFor(ex, compare) : null;
+        const theirsLabel = theirs
+          ? theirs.bestKg > 0 ? `${theirs.bestKg}kg` : theirs.sets > 0 ? `${theirs.sets}×` : null
+          : null;
+        return (
+          <div
+            key={ex.name + idx}
+            style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              padding: compare ? "10px 14px" : "11px 14px", minHeight: compare ? 56 : undefined,
+              borderBottom: idx < list.length - 1 ? `1px solid ${BORDER}` : "none",
+            }}
+          >
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{
+                fontSize: 14, fontWeight: 600, color: FG,
+                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+              }}>
+                {ex.name}
+              </div>
+              {(ex.muscleGroup || compare) && (
+                <div style={{ fontSize: 11, color: MUTED, marginTop: 2 }}>
+                  {[
+                    ex.muscleGroup,
+                    // Comparando, o "N×" sai da direita (lá ficam as duas colunas).
+                    compare ? t("goals_challenge_sets").replace("{n}", String(ex.totalSets)) : null,
+                  ].filter(Boolean).join(" · ")}
+                </div>
+              )}
+            </div>
+            {compare ? (
+              <>
+                <span style={{ width: 66, display: "flex", justifyContent: "center", flexShrink: 0 }}>
+                  <span style={{
+                    background: `${accentHex}22`, color: accentHex, borderRadius: 20,
+                    padding: "2px 8px", fontSize: 13, fontWeight: 700, whiteSpace: "nowrap",
+                  }}>
+                    {mine ?? `${ex.totalSets}×`}
+                  </span>
+                </span>
+                <span style={{ width: 66, display: "flex", justifyContent: "center", flexShrink: 0 }}>
+                  {theirsLabel ? (
+                    <span style={{
+                      background: `${compareColor}22`, color: compareColor, borderRadius: 20,
+                      padding: "2px 8px", fontSize: 13, fontWeight: 700, whiteSpace: "nowrap",
+                    }}>
+                      {theirsLabel}
+                    </span>
+                  ) : (
+                    <span style={{ fontSize: 13, color: "rgba(255,255,255,.35)" }}>—</span>
+                  )}
+                </span>
+              </>
+            ) : (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: MUTED }}>
+                  {ex.totalSets}×
+                </span>
+                {mine && (
+                  <span style={{
+                    background: `${accentHex}22`, color: accentHex,
+                    borderRadius: 20, padding: "2px 10px", fontSize: 13, fontWeight: 700,
+                  }}>
+                    {mine}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+
+  // Desafio: exercícios feitos que não estão no placar (a pessoa adicionou).
+  const challengeRowIds = new Set(data.challengeResult?.outcome?.rows.map((r) => r.workoutId) ?? []);
+  const challengeExtras =
+    data.challengeResult?.status === "ready" && data.challengeResult.outcome
+      ? data.completedExercises.filter((e) => !e.workoutId || !challengeRowIds.has(e.workoutId))
+      : [];
+
   // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
@@ -2465,14 +2529,33 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed, onShareTo
       }}>
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 17, fontWeight: 800, color: FG }}>{headerTitle}</div>
-          {/* Treinar junto: quem estava na mesma sessão. Linha, não card — é
-              contexto do treino, não uma ação. */}
-          {data.partyMemberNames && data.partyMemberNames.length > 0 && (
-            <div style={{
-              fontSize: 12, color: MUTED, marginTop: 2,
-              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-            }}>
-              {t("goals_party_with").replace("{names}", data.partyMemberNames.join(", "))}
+          {/* Contexto social do treino — quem treinou junto ou de quem era o
+              desafio. Linha com avatares, não card: é contexto, não ação. */}
+          {(data.challengeResult || (data.partyMemberNames && data.partyMemberNames.length > 0)) && (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4, minWidth: 0 }}>
+              {companions.length > 0 && (
+                <span style={{ display: "flex", flexShrink: 0 }}>
+                  {companions.slice(0, 3).map((c, i) => (
+                    <span
+                      key={c.id}
+                      style={{
+                        marginLeft: i === 0 ? 0 : -5, borderRadius: "50%", lineHeight: 0,
+                        border: "1.5px solid hsl(var(--background))",
+                      }}
+                    >
+                      <UserAvatar photo={c.photo} nickname={c.nickname} size="sm" className="h-[18px] w-[18px]" />
+                    </span>
+                  ))}
+                </span>
+              )}
+              <span style={{
+                fontSize: 12, color: MUTED,
+                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0,
+              }}>
+                {data.challengeResult
+                  ? t("goals_challenge_summary_title").replace("{name}", data.challengeResult.challengerNickname)
+                  : t("goals_party_with").replace("{names}", (data.partyMemberNames ?? []).join(", "))}
+              </span>
             </div>
           )}
         </div>
@@ -2956,8 +3039,152 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed, onShareTo
         </div>
       )}
 
-      {/* ── Exercise list ── */}
-      {data.completedExercises.length > 0 && (
+      {/* ── Juntos: placar do grupo, uma linha por pessoa ── */}
+      {/* Ao vivo: quem ainda está treinando aparece com o selo "treinando" e os
+          números sobem sozinhos (realtime) até a pessoa finalizar. O "com quanto
+          peso" de cada exercício foi para a lista abaixo (Comparar com). */}
+      {hasTogether && (() => {
+        const maxVolume = Math.max(0, ...partyPeople.map((p) => p.volumeKg));
+        const maxSets = Math.max(1, ...partyPeople.map((p) => p.setsDone));
+        const totalVolume = partyPeople.reduce((sum, p) => sum + p.volumeKg, 0);
+        const totalSets = partyPeople.reduce((sum, p) => sum + p.setsDone, 0);
+        return (
+          <div style={{ padding: "16px 16px 0" }}>
+            <div style={{
+              display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8,
+              marginBottom: 10,
+            }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: MUTED, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                {t("goals_party_together_label")}
+              </span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: "#fbbf24", fontVariantNumeric: "tabular-nums" }}>
+                {totalVolume > 0
+                  ? t("goals_party_together_total")
+                      .replace("{volume}", formatVolumeKg(totalVolume))
+                      .replace("{sets}", String(totalSets))
+                  : t("goals_party_together_total_sets").replace("{sets}", String(totalSets))}
+              </span>
+            </div>
+            <div style={{
+              background: CARD, borderRadius: 18, border: `1px solid ${BORDER}`,
+              backdropFilter: GLASS_BLUR, WebkitBackdropFilter: GLASS_BLUR,
+              padding: "2px 14px",
+            }}>
+              {partyPeople.map((p, i) => {
+                const color = TOGETHER_COLORS[i % TOGETHER_COLORS.length];
+                const pct = maxVolume > 0
+                  ? Math.round((p.volumeKg / maxVolume) * 100)
+                  : Math.round((p.setsDone / maxSets) * 100);
+                return (
+                  <div
+                    key={p.userId}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 12, minHeight: 58,
+                      borderBottom: i < partyPeople.length - 1 ? `1px solid ${BORDER}` : "none",
+                    }}
+                  >
+                    <span style={{ borderRadius: "50%", boxShadow: `0 0 0 2px ${color}`, lineHeight: 0, flexShrink: 0 }}>
+                      <UserAvatar photo={p.photo} nickname={p.nickname} size="sm" />
+                    </span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 14, fontWeight: 700, color: FG }}>
+                        <span style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {p.isMe ? t("goals_challenge_you") : p.nickname}
+                          </span>
+                          {!p.finished && (
+                            <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 600, color: "#fbbf24", flexShrink: 0 }}>
+                              <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#fbbf24" }} />
+                              {t("goals_party_together_training")}
+                            </span>
+                          )}
+                        </span>
+                        <span style={{ fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>
+                          {p.volumeKg > 0 ? formatVolumeKg(p.volumeKg) : "—"}
+                        </span>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
+                        <div style={{ flex: 1, height: 4, borderRadius: 2, background: "rgba(255,255,255,.08)", overflow: "hidden" }}>
+                          <div style={{ width: `${pct}%`, height: 4, borderRadius: 2, background: color, transition: "width .4s" }} />
+                        </div>
+                        <span style={{ fontSize: 11, color: MUTED, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
+                          {t("goals_challenge_sets").replace("{n}", String(p.setsDone))}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── Exercícios (ou o placar do desafio) ── */}
+      {/* Uma lista, várias lentes: no treino em conjunto ela compara com quem a
+          pessoa escolher; no desafio ela É o placar. */}
+      {data.challengeResult ? (
+        <div style={{ padding: "16px 16px 0" }}>
+          {(() => {
+            const ch = data.challengeResult;
+            const verdict = ch.status === "ready" && ch.outcome
+              ? challengeVerdict(ch.outcome, "challenged", t)
+              : null;
+            return (
+              <div style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
+                marginBottom: 10, minHeight: 26,
+              }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: MUTED, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                  {t("goals_challenge_scoreboard_title")}
+                </span>
+                {verdict && (
+                  <span style={{
+                    display: "flex", alignItems: "center", gap: 5, flexShrink: 0,
+                    padding: "4px 10px", borderRadius: 999,
+                    background: `${verdict.color}22`, border: `1px solid ${verdict.color}66`,
+                    fontSize: 12, fontWeight: 800, color: verdict.color, fontVariantNumeric: "tabular-nums",
+                  }}>
+                    {verdict.won && <Trophy style={{ width: 13, height: 13 }} strokeWidth={2.4} />}
+                    {verdict.label} · {verdict.myScore} × {verdict.theirScore}
+                  </span>
+                )}
+              </div>
+            );
+          })()}
+          <div style={{
+            background: CARD, borderRadius: 18, border: `1px solid ${BORDER}`,
+            backdropFilter: GLASS_BLUR, WebkitBackdropFilter: GLASS_BLUR,
+            padding: 12,
+          }}>
+            {data.challengeResult.status === "ready" && data.challengeResult.outcome ? (
+              <ChallengeComparison
+                outcome={data.challengeResult.outcome}
+                perspective="challenged"
+                opponentName={data.challengeResult.challengerNickname}
+                showHeadline={false}
+              />
+            ) : (
+              <div style={{ fontSize: 13, color: MUTED, textAlign: "center", padding: "8px 0" }}>
+                {data.challengeResult.status === "loading" ? t("goals_challenge_loading") : t("goals_challenge_result_error")}
+              </div>
+            )}
+          </div>
+          {/* Exercícios feitos além dos do desafio — não entram no placar, mas
+              continuam aparecendo (foram registrados). */}
+          {challengeExtras.length > 0 && (
+            <>
+              <div style={{
+                fontSize: 12, fontWeight: 700, color: MUTED,
+                textTransform: "uppercase", letterSpacing: 0.5, margin: "16px 0 10px",
+              }}>
+                {t("goals_challenge_extra_exercises")}
+              </div>
+              {renderExerciseList(challengeExtras, null)}
+            </>
+          )}
+        </div>
+      ) : data.completedExercises.length > 0 && (
         <div style={{ padding: "16px 16px 0" }}>
           <div style={{
             fontSize: 12, fontWeight: 700, color: MUTED,
@@ -2965,65 +3192,51 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed, onShareTo
           }}>
             {t("goals_summary_exercises_done")}
           </div>
-          <div style={{
-            background: CARD, borderRadius: 18, overflow: "hidden",
-            border: `1px solid ${BORDER}`,
-            backdropFilter: GLASS_BLUR, WebkitBackdropFilter: GLASS_BLUR,
-            boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06)",
-          }}>
-            {displayedExercises.map((ex, idx) => {
-              // Cardio registra MIN × KM, então a linha mostra tempo/distância
-              // no lugar da carga (que é sempre 0 nesses exercícios).
-              const cardio = ex.isCardio ? sumCardioSets(ex.sets) : null;
-              return (
-              <div
-                key={ex.name + idx}
-                style={{
-                  display: "flex", alignItems: "center", justifyContent: "space-between",
-                  padding: "11px 14px",
-                  borderBottom: idx < displayedExercises.length - 1 ? `1px solid ${BORDER}` : "none",
-                }}
-              >
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{
-                    fontSize: 14, fontWeight: 600, color: FG,
-                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                  }}>
-                    {ex.name}
-                  </div>
-                  {ex.muscleGroup && (
-                    <div style={{ fontSize: 11, color: MUTED, marginTop: 2 }}>{ex.muscleGroup}</div>
-                  )}
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: MUTED }}>
-                    {ex.totalSets}×
-                  </span>
-                  {cardio && (cardio.minutes > 0 || cardio.km > 0) ? (
-                    <span style={{
-                      background: `${accentHex}22`, color: accentHex,
-                      borderRadius: 20, padding: "2px 10px", fontSize: 13, fontWeight: 700,
-                    }}>
-                      {[
-                        cardio.minutes > 0 ? formatCardioMinutes(cardio.minutes) : null,
-                        cardio.km > 0 ? `${formatCardioKm(cardio.km)}km` : null,
-                        // Inclinação da esteira, quando informada.
-                        ex.elevationPct ? `⛰ ${formatElevationPct(ex.elevationPct)}` : null,
-                      ].filter(Boolean).join(" · ")}
-                    </span>
-                  ) : ex.bestKg > 0 ? (
-                    <span style={{
-                      background: `${accentHex}22`, color: accentHex,
-                      borderRadius: 20, padding: "2px 10px", fontSize: 13, fontWeight: 700,
-                    }}>
-                      {ex.bestKg}kg
-                    </span>
-                  ) : null}
-                </div>
-              </div>
-              );
-            })}
-          </div>
+          {hasTogether && (
+            <div
+              role="group"
+              aria-label={t("goals_summary_compare_with")}
+              // Rola na horizontal como o seletor de estilo (§6.5/6.6 do design
+              // system: fileira de chips nunca quebra linha).
+              className="summary-tpl-row"
+              style={{ display: "flex", alignItems: "center", gap: 8, overflowX: "auto", WebkitOverflowScrolling: "touch", marginBottom: 10 }}
+            >
+              <span style={{ fontSize: 12, color: MUTED, flexShrink: 0, whiteSpace: "nowrap" }}>{t("goals_summary_compare_with")}</span>
+              {[
+                { id: null as string | null, label: t("goals_summary_compare_none"), photo: undefined as string | null | undefined, color: MUTED },
+                ...compareCandidates.map((c) => ({
+                  id: c.userId as string | null,
+                  label: c.nickname,
+                  photo: c.photo as string | null | undefined,
+                  color: TOGETHER_COLORS[partyPeople.findIndex((p) => p.userId === c.userId) % TOGETHER_COLORS.length],
+                })),
+              ].map((opt) => {
+                const selected = (compareTarget?.userId ?? null) === opt.id;
+                return (
+                  <button
+                    key={opt.id ?? "none"}
+                    type="button"
+                    aria-pressed={selected}
+                    onClick={() => setCompareWithId(opt.id)}
+                    style={{
+                      height: 36, maxWidth: 140, flexShrink: 0, borderRadius: 18, cursor: "pointer",
+                      padding: opt.photo !== undefined ? "0 12px 0 4px" : "0 12px",
+                      display: "flex", alignItems: "center", gap: 6,
+                      background: selected ? `${opt.color}26` : CARD,
+                      border: `1.5px solid ${selected ? `${opt.color}99` : BORDER}`,
+                      color: selected ? FG : MUTED, fontSize: 13, fontWeight: selected ? 700 : 600,
+                    }}
+                  >
+                    {opt.photo !== undefined && (
+                      <UserAvatar photo={opt.photo} nickname={opt.label} size="sm" className="h-[26px] w-[26px]" />
+                    )}
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{opt.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          {renderExerciseList(displayedExercises, compareTarget)}
           {data.completedExercises.length > 4 && (
             <button
               onClick={() => setShowAllExercises((v) => !v)}
@@ -3041,61 +3254,57 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed, onShareTo
         </div>
       )}
 
-      {/* ── Desafio cumprido: o placar ── */}
-      {/* Só aqui (no resumo de quem cumpriu) os números de quem desafiou
-          aparecem — a RLS só os libera depois de gravar os meus. */}
-      {data.challengeResult && (
-        <div style={{
-          margin: "16px 16px 0",
-          background: "linear-gradient(rgba(244,63,94,.12),rgba(255,255,255,.04))",
-          border: "1px solid rgba(244,63,94,.35)",
-          backdropFilter: GLASS_BLUR, WebkitBackdropFilter: GLASS_BLUR,
-          borderRadius: 20, padding: 16,
-        }}>
-          <div style={{ fontSize: 15, fontWeight: 800, color: FG, marginBottom: 12 }}>
-            ⚔️ {t("goals_challenge_summary_title").replace("{name}", data.challengeResult.challengerNickname)}
+      {/* ── Próximos passos ── */}
+      {/* Decisões sobre o treino (desafiar, virar rotina) em LINHAS que abrem
+          folhas — antes eram cards com botões coloridos competindo com o
+          "Compartilhar". Ficam ANTES do compartilhar porque publicar leva para
+          o feed: quem publica primeiro nunca veria estas opções. */}
+      {(canChallenge || (showSaveOffer && data.partySaveOffer)) && (
+        <div style={{ padding: "20px 16px 0" }}>
+          <div style={{
+            fontSize: 12, fontWeight: 700, color: MUTED,
+            textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10,
+          }}>
+            {t("goals_summary_next_steps")}
           </div>
-          {data.challengeResult.status === "ready" && data.challengeResult.outcome ? (
-            <ChallengeComparison
-              outcome={data.challengeResult.outcome}
-              perspective="challenged"
-              opponentName={data.challengeResult.challengerNickname}
-            />
-          ) : (
-            <div style={{ fontSize: 13, color: MUTED, textAlign: "center", padding: "8px 0" }}>
-              {data.challengeResult.status === "loading" ? t("goals_challenge_loading") : t("goals_challenge_result_error")}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── Desafiar seguidores ── */}
-      {canChallenge && (
-        <div style={{
-          margin: "16px 16px 0",
-          background: CARD,
-          border: `1px solid ${BORDER}`,
-          backdropFilter: GLASS_BLUR, WebkitBackdropFilter: GLASS_BLUR,
-          borderRadius: 20, padding: 16,
-        }}>
-          <div style={{ fontSize: 15, fontWeight: 800, color: FG, marginBottom: 4 }}>
-            ⚔️ {t("goals_challenge_cta_title")}
+          <div style={{
+            background: CARD, borderRadius: 18, border: `1px solid ${BORDER}`,
+            backdropFilter: GLASS_BLUR, WebkitBackdropFilter: GLASS_BLUR,
+            overflow: "hidden",
+          }}>
+            {canChallenge && (
+              <NextStepRow
+                icon={<Swords style={{ width: 19, height: 19, color: "#fb7185" }} strokeWidth={2} />}
+                tint="rgba(244,63,94,.16)"
+                title={t("goals_challenge_cta_button")}
+                subtitle={
+                  challengeSentCount > 0
+                    ? t("goals_challenge_row_sent").replace("{n}", String(challengeSentCount))
+                    : t("goals_challenge_row_desc")
+                }
+                onClick={() => setChallengePickerOpen(true)}
+                divider={showSaveOffer && !!data.partySaveOffer}
+              />
+            )}
+            {showSaveOffer && data.partySaveOffer && (
+              <NextStepRow
+                icon={partySaveState === "done"
+                  ? <Check style={{ width: 19, height: 19, color: "#34d399" }} strokeWidth={2.6} />
+                  : <BookmarkPlus style={{ width: 19, height: 19, color: "#8fb0ff" }} strokeWidth={2} />}
+                tint={partySaveState === "done" ? "rgba(52,211,153,.14)" : "rgba(91,140,255,.16)"}
+                title={isQuickOffer
+                  ? t("goals_quick_save_row_title")
+                  : t("goals_party_save_row_title").replace(
+                      "{host}",
+                      data.partySaveOffer.hostNickname || t("notif_sender_fallback"),
+                    )}
+                subtitle={partySaveState === "done"
+                  ? t("goals_summary_routine_saved")
+                  : `${isQuickOffer ? quickRoutineName : (data.partySaveOffer.snapshot.routineName || data.routineName)} · ${t("goals_party_exercise_count").replace("{n}", String(data.partySaveOffer.snapshot.items.length))}`}
+                onClick={partySaveState === "done" ? undefined : () => setSaveSheetOpen(true)}
+              />
+            )}
           </div>
-          <div style={{ fontSize: 13, color: MUTED, marginBottom: 12, lineHeight: 1.45 }}>
-            {t("goals_challenge_cta_desc")}
-          </div>
-          <button
-            onClick={() => setChallengePickerOpen(true)}
-            style={{
-              width: "100%", height: 46, borderRadius: 999, border: "none", cursor: "pointer",
-              background: "linear-gradient(135deg,#ef4444,#f97316)",
-              color: "#fff", fontSize: 14, fontWeight: 700,
-            }}
-          >
-            {challengeSentCount > 0
-              ? t("goals_challenge_cta_more").replace("{n}", String(challengeSentCount))
-              : t("goals_challenge_cta_button")}
-          </button>
         </div>
       )}
       {canChallenge && (
@@ -3105,209 +3314,20 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed, onShareTo
           routineName={data.routineName}
           exerciseCount={challengeableExercises.length}
           mode="add"
+          mutualsOnly
+          alreadyInvitedIds={challengedIds}
           onConfirm={handleSendChallenge}
           copy={{
             title: t("goals_challenge_pick_title"),
             subtitle: t("goals_challenge_pick_subtitle"),
             cta: t("goals_challenge_pick_cta"),
+            alreadyIn: t("goals_challenge_already_challenged"),
+            empty: t("goals_challenge_pick_empty"),
           }}
           // O resumo é `zIndex 9500`: sem elevar o wrapper do portal o drawer
           // abriria atrás dele.
           wrapperClassName="z-[9600]"
         />
-      )}
-
-      {/* ── Treino em conjunto: os números de cada um ── */}
-      {/* Ao vivo: quem ainda está treinando aparece como "treinando…" e os
-          números sobem sozinhos (realtime) até a pessoa finalizar. */}
-      {hasTogether && (
-        <div style={{
-          margin: "16px 16px 0",
-          background: CARD,
-          border: `1px solid ${BORDER}`,
-          backdropFilter: GLASS_BLUR, WebkitBackdropFilter: GLASS_BLUR,
-          borderRadius: 20, padding: 16,
-        }}>
-          <div style={{ fontSize: 15, fontWeight: 800, color: FG, marginBottom: 12 }}>
-            👥 {t("goals_party_summary_title")}
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            {partyPeople.map((p, i) => (
-              <div
-                key={p.userId}
-                style={{
-                  borderRadius: 16, padding: 12,
-                  background: "rgba(255,255,255,.04)",
-                  border: `1px solid ${p.isMe ? "rgba(251,191,36,.4)" : BORDER}`,
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-                  <div style={{ borderRadius: "50%", boxShadow: `0 0 0 2px ${TOGETHER_COLORS[i % TOGETHER_COLORS.length]}`, lineHeight: 0 }}>
-                    <UserAvatar photo={p.photo} nickname={p.nickname} size="sm" />
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: FG, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {p.isMe ? `${p.nickname} (${t("card_together_you")})` : p.nickname}
-                    </div>
-                    <div style={{ fontSize: 11.5, color: p.finished ? MUTED : "#fbbf24", fontWeight: 600 }}>
-                      {p.finished ? t("goals_party_summary_finished") : t("goals_party_summary_training")}
-                    </div>
-                  </div>
-                </div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 6, marginBottom: p.exerciseStats.length > 0 ? 10 : 0 }}>
-                  {[
-                    { value: String(p.setsDone), label: t("goals_party_summary_sets") },
-                    { value: String(p.exercises), label: t("goals_party_summary_exercises") },
-                    { value: p.volumeKg > 0 ? formatVolumeKg(p.volumeKg) : "—", label: t("goals_party_summary_volume") },
-                    { value: p.bestKg > 0 ? `${p.bestKg}kg` : "—", label: t("goals_party_summary_best") },
-                  ].map((stat) => (
-                    <div key={stat.label} style={{ textAlign: "center", padding: "6px 2px", borderRadius: 10, background: "rgba(255,255,255,.05)" }}>
-                      <div style={{ fontSize: 14, fontWeight: 800, color: FG, whiteSpace: "nowrap" }}>{stat.value}</div>
-                      <div style={{ fontSize: 9.5, fontWeight: 700, color: MUTED, textTransform: "uppercase", letterSpacing: 0.3 }}>{stat.label}</div>
-                    </div>
-                  ))}
-                </div>
-                {/* "Com quanto peso": cada exercício com a maior carga e as séries. */}
-                {p.exerciseStats.slice(0, 6).map((e) => (
-                  <div key={e.name} style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 12.5, padding: "3px 2px" }}>
-                    <span style={{ color: "rgba(255,255,255,.8)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
-                      {e.name}
-                    </span>
-                    <span style={{ color: MUTED, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
-                      {e.bestKg > 0
-                        ? t("goals_party_summary_exercise_line").replace("{sets}", String(e.sets)).replace("{kg}", String(e.bestKg))
-                        : t("goals_party_summary_exercise_sets").replace("{sets}", String(e.sets))}
-                    </span>
-                  </div>
-                ))}
-                {p.exerciseStats.length > 6 && (
-                  <div style={{ fontSize: 12, color: MUTED, padding: "3px 2px" }}>+{p.exerciseStats.length - 6}</div>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ── Treinar junto: salvar a rotina do amigo ── */}
-      {/* A pergunta só existe para quem foi CONVIDADO: aceitar o convite não
-          criou rotina nenhuma, e este é o momento em que ele já sabe se o
-          treino valeu a pena. Fica acima de "Compartilhar" porque é uma decisão
-          sobre o próprio app, não sobre publicar. */}
-      {showSaveOffer && data.partySaveOffer && (
-        <div style={{
-          margin: "16px 16px 0",
-          background: CARD,
-          border: `1px solid ${BORDER}`,
-          backdropFilter: GLASS_BLUR, WebkitBackdropFilter: GLASS_BLUR,
-          borderRadius: 20, padding: 16,
-        }}>
-          {partySaveState === "done" || partySaveState === "skipped" ? (
-            <div style={{ fontSize: 13, color: MUTED, textAlign: "center" }}>
-              {partySaveState === "done"
-                ? t(isQuickOffer ? "goals_quick_save_done" : "goals_party_save_done")
-                : t(isQuickOffer ? "goals_quick_save_skipped" : "goals_party_save_skipped")}
-            </div>
-          ) : isQuickOffer ? (
-            <>
-              <div style={{ fontSize: 15, fontWeight: 700, color: FG, marginBottom: 4 }}>
-                ⚡ {t("goals_quick_save_title")}
-              </div>
-              <div style={{ fontSize: 13, color: MUTED, marginBottom: 12, lineHeight: 1.45 }}>
-                {t("goals_quick_save_desc")}
-              </div>
-              <label
-                htmlFor="quick-routine-name"
-                style={{ display: "block", fontSize: 12, fontWeight: 600, color: MUTED, marginBottom: 6 }}
-              >
-                {t("goals_quick_save_name_label")}
-              </label>
-              <input
-                id="quick-routine-name"
-                type="text"
-                value={quickRoutineName}
-                onChange={(e) => setQuickRoutineName(e.target.value)}
-                placeholder={t("goals_quick_save_name_placeholder")}
-                maxLength={60}
-                disabled={partySaveState === "saving"}
-                style={{
-                  width: "100%", height: 46, borderRadius: 14, padding: "0 14px",
-                  background: "rgba(255,255,255,.07)", border: `1px solid ${BORDER}`,
-                  color: FG, fontSize: 15, outline: "none", marginBottom: 10,
-                }}
-              />
-              <div style={{ fontSize: 12.5, color: MUTED, marginBottom: 14, lineHeight: 1.5 }}>
-                {data.partySaveOffer.snapshot.items.slice(0, 3).map((i) => i.name).join(" · ")}
-                {data.partySaveOffer.snapshot.items.length > 3
-                  ? ` · +${data.partySaveOffer.snapshot.items.length - 3}`
-                  : ""}
-              </div>
-              <button
-                onClick={handleSaveQuickRoutine}
-                disabled={partySaveState === "saving" || !quickRoutineName.trim()}
-                style={{
-                  width: "100%", height: 46, borderRadius: 999, border: "none",
-                  background: "linear-gradient(135deg,#5b8cff,#9d6bff)",
-                  color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer",
-                  opacity: partySaveState === "saving" || !quickRoutineName.trim() ? 0.5 : 1,
-                }}
-              >
-                {partySaveState === "saving" ? t("goals_quick_saving") : t("goals_quick_save_cta")}
-              </button>
-              <button
-                onClick={() => setPartySaveState("skipped")}
-                style={{
-                  width: "100%", height: 40, marginTop: 6, background: "none",
-                  border: "none", cursor: "pointer",
-                  fontSize: 13, fontWeight: 600, color: MUTED,
-                }}
-              >
-                {t("goals_quick_save_skip")}
-              </button>
-            </>
-          ) : (
-            <>
-              <div style={{ fontSize: 15, fontWeight: 700, color: FG, marginBottom: 4 }}>
-                {t("goals_party_save_title")}
-              </div>
-              <div style={{ fontSize: 13, color: MUTED, marginBottom: 10 }}>
-                {t("goals_party_save_desc")
-                  .replace("{name}", data.partySaveOffer.snapshot.routineName || data.routineName)
-                  .replace("{host}", data.partySaveOffer.hostNickname || t("notif_sender_fallback"))}
-              </div>
-              <div style={{ fontSize: 12.5, color: MUTED, marginBottom: 14, lineHeight: 1.5 }}>
-                {data.partySaveOffer.snapshot.items.slice(0, 3).map((i) => i.name).join(" · ")}
-                {data.partySaveOffer.snapshot.items.length > 3
-                  ? ` · +${data.partySaveOffer.snapshot.items.length - 3}`
-                  : ""}
-              </div>
-              <button
-                onClick={handleSavePartyRoutine}
-                disabled={partySaveState === "saving"}
-                style={{
-                  width: "100%", height: 46, borderRadius: 999, border: "none",
-                  background: "linear-gradient(135deg,#5b8cff,#9d6bff)",
-                  color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer",
-                  opacity: partySaveState === "saving" ? 0.6 : 1,
-                }}
-              >
-                {partySaveState === "saving"
-                  ? t("goals_party_saving")
-                  : t("goals_party_save_cta")}
-              </button>
-              <button
-                onClick={() => setPartySaveState("skipped")}
-                style={{
-                  width: "100%", height: 40, marginTop: 6, background: "none",
-                  border: "none", cursor: "pointer",
-                  fontSize: 13, fontWeight: 600, color: MUTED,
-                }}
-              >
-                {t("goals_party_save_skip")}
-              </button>
-            </>
-          )}
-        </div>
       )}
 
       {/* ── Share section ── */}
@@ -3387,7 +3407,7 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed, onShareTo
           onChange={setDescription}
           onPick={
             FEATURES.postTags
-              ? (u) => setTaggedUsers((prev) => addMentionToTagged(prev, u, MAX_TAGGED_PEOPLE))
+              ? (u) => editTaggedUsers((prev) => addMentionToTagged(prev, u, MAX_TAGGED_PEOPLE))
               : undefined
           }
           placement="below"
@@ -3425,7 +3445,7 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed, onShareTo
                 {u.nickname}
               </span>
               <button
-                onClick={() => setTaggedUsers((prev) => prev.filter((s) => s.id !== u.id))}
+                onClick={() => editTaggedUsers((prev) => prev.filter((s) => s.id !== u.id))}
                 aria-label={t("tag_people_remove").replace("{name}", u.nickname)}
                 style={{
                   display: "flex", alignItems: "center", background: "none",
@@ -3719,6 +3739,78 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed, onShareTo
         </div>
       )}
 
+      {/* Folha "Salvar rotina" — aberta pela linha de Próximos passos. O
+          resumo é `zIndex 9500`: o wrapper do portal precisa subir junto. */}
+      {showSaveOffer && data.partySaveOffer && (
+        <Drawer open={saveSheetOpen} onOpenChange={setSaveSheetOpen}>
+          <DrawerContent
+            {...GLASS_SHEET_PROPS}
+            wrapperClassName="z-[9600]"
+            style={{ ...GLASS_SHEET_STYLE, maxHeight: `min(85dvh, ${sheetViewportHeight - 8}px)` }}
+          >
+            <DrawerHeader className="pb-2">
+              <DrawerTitle className="text-base font-semibold text-white flex items-center gap-2">
+                <BookmarkPlus className="h-4 w-4 text-[#8fb0ff]" />
+                {isQuickOffer ? t("goals_quick_save_title") : t("goals_party_save_title")}
+              </DrawerTitle>
+              <p className="text-[13px] text-white/55 text-left leading-snug">
+                {isQuickOffer
+                  ? t("goals_quick_save_desc")
+                  : t("goals_party_save_desc")
+                      .replace("{name}", data.partySaveOffer.snapshot.routineName || data.routineName)
+                      .replace("{host}", data.partySaveOffer.hostNickname || t("notif_sender_fallback"))}
+              </p>
+            </DrawerHeader>
+            <div
+              className="px-4 pt-1 space-y-3 overflow-y-auto"
+              style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
+            >
+              {isQuickOffer && (
+                <div className="space-y-1.5">
+                  <label htmlFor="quick-routine-name" className={GLASS_LABEL_CLASS}>
+                    {t("goals_quick_save_name_label")}
+                  </label>
+                  <Input
+                    id="quick-routine-name"
+                    value={quickRoutineName}
+                    onChange={(e) => setQuickRoutineName(e.target.value)}
+                    placeholder={t("goals_quick_save_name_placeholder")}
+                    maxLength={60}
+                    disabled={partySaveState === "saving"}
+                    className={`${GLASS_FIELD_CLASS} h-12 rounded-2xl text-[15px]`}
+                    style={GLASS_FIELD_STYLE}
+                  />
+                </div>
+              )}
+              <p className="text-[12.5px] text-white/55 leading-relaxed">
+                {data.partySaveOffer.snapshot.items.slice(0, 3).map((i) => i.name).join(" · ")}
+                {data.partySaveOffer.snapshot.items.length > 3
+                  ? ` · +${data.partySaveOffer.snapshot.items.length - 3}`
+                  : ""}
+              </p>
+              <Button
+                className="w-full rounded-full h-12 font-semibold"
+                style={GLASS_PRIMARY_BTN_STYLE}
+                disabled={partySaveState === "saving" || (isQuickOffer && !quickRoutineName.trim())}
+                onClick={() => void (isQuickOffer ? handleSaveQuickRoutine() : handleSavePartyRoutine())}
+              >
+                {partySaveState === "saving"
+                  ? t(isQuickOffer ? "goals_quick_saving" : "goals_party_saving")
+                  : t(isQuickOffer ? "goals_quick_save_cta" : "goals_party_save_cta")}
+              </Button>
+              <button
+                type="button"
+                onClick={() => setSaveSheetOpen(false)}
+                disabled={partySaveState === "saving"}
+                className="w-full h-11 text-[14px] font-medium text-white/60 active:opacity-70"
+              >
+                {t(isQuickOffer ? "goals_quick_save_skip" : "goals_party_save_skip")}
+              </button>
+            </div>
+          </DrawerContent>
+        </Drawer>
+      )}
+
       {/* Drawer de marcação — o portal do vaul nasce no body com z-[310] e o
           transform do lift wrapper o torna um stacking context, então sem
           elevar o WRAPPER ele ficaria atrás deste overlay (zIndex 9500). */}
@@ -3727,7 +3819,7 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed, onShareTo
         open={tagPeopleOpen}
         onOpenChange={setTagPeopleOpen}
         selected={taggedUsers}
-        onChange={setTaggedUsers}
+        onChange={editTaggedUsers}
         wrapperClassName="z-[9600]"
       />
       )}

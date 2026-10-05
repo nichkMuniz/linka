@@ -23,17 +23,19 @@ Antes eram 14 seções numa rolagem só, e a fila de denúncias (a única coisa 
 
 | Aba | Conteúdo (na ordem) | Selo na aba |
 |---|---|---|
-| **Indicadores** (padrão) | Card **"Precisa de atenção"** (só aparece com denúncias abertas ou exercícios sem anatomia; cada linha leva à aba) · **Hoje** (ativos com "±N vs ontem · N novos", cadastros, sessões, tempo de uso + gráfico DAU 7 dias) · **Conteúdo de hoje** · **Base de usuários** (total, semana, mês, banidos + gráfico de cadastros) · **Engajamento e retenção** (WAU, MAU, stickiness, duração média, D1, D7) · **Totais gerais** · **Telas mais acessadas** | — |
+| **Indicadores** (padrão) | Card **"Precisa de atenção"** (só aparece com denúncias abertas, exercícios sem anatomia ou sem imagem; cada linha leva à aba) · **Hoje** (ativos com "±N vs ontem · N novos", cadastros, sessões, tempo de uso + gráfico DAU 7 dias) · **Conteúdo de hoje** · **Base de usuários** (total, semana, mês, banidos + gráfico de cadastros) · **Engajamento e retenção** (WAU, MAU, stickiness, duração média, D1, D7) · **Totais gerais** · **Telas mais acessadas** | — |
 | **Atividade** | Mais ativos hoje · **Quem entrou hoje** (cards expansíveis) · Mais seguidos (linha abre o perfil) | — |
 | **Denúncias** | Fila de moderação | vermelho = nº na fila |
 | **Banidos** (2026-10-01) | Lista de quem está banido (avatar, @, "banido em") com botão **Desbanir** + confirmação. Tocar na pessoa abre o perfil | neutro = nº de banidos |
 | **Selos** | Card "Dar selo" (nível + @handle) · lista de contas verificadas | neutro = nº de contas |
 | **Cortesia** | Card "Conceder acesso" (duração + busca) · contas com acesso | neutro = nº ativos |
 | **Anatomia** | Cobertura + fila de exercícios sem músculos mapeados | vermelho = nº pendentes |
+| **Imagens** (2026-10-02) | Cobertura + fila de exercícios do catálogo sem `photo`, com prompt de IA e comando de upload por linha | vermelho = nº pendentes (sem os custom) |
+| **Exercícios** (2026-10-05) | Exercícios criados pelos usuários, agrupados por nome, para tornar oficial, vincular ou ignorar | neutro = nº de grupos pendentes |
 
 - **Aba na URL** (`/admin?aba=denuncias`, com `replace`): "Ver post"/"Ver perfil" saem do painel; ao voltar, a pessoa continua na mesma aba. Indicadores = sem parâmetro. Trocar de aba volta a rolagem ao topo.
 - **Barra rolável na horizontal** (6 abas não cabem em 375px), com o mesmo cuidado da barra do Perfil: `overflow-y-hidden` e linha de base como sombra interna. A aba ativa rola para dentro da área visível quando aberta por link ou pelo "Precisa de atenção".
-- **Uma carga só:** as 8 consultas continuam em paralelo no `load()` — os selos das abas e o card de atenção precisam das contagens de denúncias/anatomia logo de cara.
+- **Uma carga só:** as 9 consultas continuam em paralelo no `load()` — os selos das abas e o card de atenção precisam das contagens de denúncias/anatomia/imagens logo de cara.
 - **Toque:** abas com 44px; botões de ação da fila de moderação com 40px; X de remover selo/cortesia com 36px e `aria-label`. Avatares via `ImageWithFallback` (`UserAvatar`, miniatura no aparelho).
 - Componentes locais do arquivo: `AdminTabBar`, `AttentionRow`, `EmptyState`, `UserAvatar`, `SectionHeader` (`count` + `alert`).
 
@@ -47,7 +49,9 @@ Antes eram 14 seções numa rolagem só, e a fila de denúncias (a única coisa 
 | Telas mais acessadas (7 dias) | `get_admin_analytics()` → `screen_time_logs` |
 | Fila de moderação | `admin_complaints_view` + `adminDismissComplaintDb` / `adminDeleteContentDb` / `adminBanUserDb` → RPC `admin_set_banned()` |
 | **Anatomia dos exercícios** | `getAdminAnatomyCoverageDb()` → `workouts` + `workout_muscles` (leitura direta, sem RPC) |
+| **Exercícios sem imagem** | `getAdminImageCoverageDb()` → `workouts` + `workout_muscles` + `muscles` (leitura direta, sem RPC) |
 | **Acesso cortesia** | `admin_list_premium()` / `admin_set_premium()` — ver `docs/17-premium.md` |
+| **Exercícios criados pelos usuários** | `getAdminCustomWorkoutsDb()` → `user_custom_workouts` + `workouts` + `profiles` + `admin_custom_workout_reviews` (leitura direta) · `adminPromoteCustomWorkoutsDb` → RPC `admin_promote_custom_workouts` · `adminSetCustomWorkoutIgnoredDb` (escrita direta, tabela só de admin) |
 | Selos (contas verificadas) | `getVerifiedAccountsDb()` / `setUserVerifiedTierDb()` — dois níveis (oficial/verificado), ver "Verificar conta" |
 
 ## Atividade de hoje (por usuário)
@@ -88,6 +92,33 @@ O que a seção mostra:
 - **Leitura paginada** (`fetchAllRows`, em `ritmofit-db.ts`): o PostgREST corta em 1000 linhas e `workout_muscles` já passa de 800 — sem paginar, a lista começaria a apontar lacuna falsa conforme a curadoria avança.
 - **Preencher continua sendo SQL.** Não há editor de anatomia no painel: escrita em `workout_muscles` pela anon key cairia na RLS **em silêncio** (a regra do topo da seção de moderação), então um editor exigiria RPC `SECURITY DEFINER` + migração. O indicador entrega a fila e o snippet; o INSERT roda no SQL Editor.
 - **O mesmo aviso aparece no app**, dentro do detalhe do exercício, só para quem está em `ADMIN_USER_IDS` — a lacuna é vista onde ela incomoda, sem precisar abrir o painel.
+
+## Exercícios sem imagem (02/10/2026)
+
+Inventário de `workouts.photo` vazio — exercício nessa situação aparece com o placeholder em todo card do app. Mesmo esquema da aba Anatomia: só as pendências, uma linha por exercício.
+
+**Sem migração e sem RPC.** `getAdminImageCoverageDb()` lê `workouts` (paginado via `fetchAllRows`) e, só para os que faltam, `workout_muscles` + `muscles` para preencher o prompt.
+
+- **"Sem imagem" = `photo` vazio.** Na data da criação todas as 271 URLs preenchidas respondiam 200; checar cada URL (HEAD) a cada abertura do painel não compensa.
+- **Fila:** exercícios do catálogo. Os `custom` (criados por usuário, `created_by_user`) aparecem abaixo como opcionais e não entram no selo.
+- **Botão Copiar (prompt):** `exerciseImagePrompt` em `client/lib/admin.ts` — o template do `exercise-image-prompts.md` (render anatômico, figura cinza, músculos em vermelho, fundo branco, 1:1) com o movimento (`name_eng` + nome PT + 1ª frase da descrição) e os músculos já preenchidos. Músculos vêm da anatomia mapeada (primários → secundários, sem estabilizadores); sem anatomia, cai num mapa por `muscle_group`. Alongamento/mobilidade usa "single held position, side view".
+- **Botão Upload (comando):** `node scripts/upload-exercise-image.mjs <workout_id> ai-exercise-images/<slug>.png`. O script confere se o exercício existe, aceita png/jpg/jpeg/webp (tenta as outras extensões se o caminho exato não existir), achata em fundo branco, redimensiona 1024×1024 JPEG, sobe em `exercises/manual/<workout_id>.jpg` (upsert, cache 7 dias) e grava `workouts.photo`. Precisa de `SUPABASE_SERVICE_ROLE_KEY` no `.env` — roda no PC, nunca no app.
+- **Fluxo:** copiar prompt → gerar a imagem → salvar em `ai-exercise-images/<slug>.png` → copiar e rodar o comando → **Atualizar** no painel.
+
+## Exercícios criados pelos usuários (05/10/2026)
+
+Decide quais exercícios personalizados (`user_custom_workouts`) **faltavam no catálogo** e quais são **específicos** de quem criou. Componente `CustomExercisesPanel` (`client/components/admin/custom-exercises-panel.tsx`). Migração: `docs/migrations/20261005-admin-custom-workouts.sql`.
+
+- **Agrupamento por nome normalizado** (`normalizeExerciseName`: sem acento, minúsculas, pontuação vira espaço). "Supino inclinado na máquina" de 3 pessoas = 1 card com **"3 usuários"**. Ordem: mais usuários primeiro — mais gente criando o mesmo exercício é o sinal mais forte de que ele faltou. O título é a grafia mais usada; "Ver as N criações" mostra quem criou, a grafia de cada um, o grupo e a descrição.
+- **"Parecido no catálogo"** (âmbar): até 3 exercícios do catálogo com nome parecido (PT ou EN) — Jaccard das palavras sem preposições, mínimo 0,75 quando todas as palavras do personalizado estão no nome do catálogo ("supino reto" ⊂ "Supino Reto com Barra"). Ajuda a decidir entre "Tornar oficial" e "Já existe".
+- **Tornar oficial:** diálogo com nome PT (pré-preenchido em "Title Case"), nome EN, grupo muscular (grupos do catálogo), como executar PT/EN (pré-preenchido com a maior descrição escrita). Cria a linha em `workouts` (`created_by_user = false`, `type`/`equipment` herdados). A **foto dos usuários não é copiada** — o exercício cai na fila de **Imagens** (render no padrão do catálogo) e de **Anatomia**; o toast lembra disso.
+- **Já existe:** escolhe o exercício do catálogo (sugestões ou busca) e liga o grupo a ele.
+- **Trocar as cópias pela oficial** (caixa marcada por padrão, nos dois casos): a RPC troca o `workout_id` das cópias pelo do catálogo em `user_workouts`, `user_workouts_hist` e `training_day_exercises` (rotinas, histórico, recordes e gráficos continuam, agora no exercício oficial) e apaga as cópias. Desmarcado, cada usuário mantém a sua e o exercício oficial aparece **além** dela.
+- **Ignorar:** grava `ignored` em `admin_custom_workout_reviews` — o grupo sai da fila (filtro **Ignorados**, com "Voltar para a fila").
+- **Resolvidos:** grupos já oficializados/vinculados que ainda têm cópias (caixa desmarcada, ou alguém criou o mesmo nome depois) — botão "Trocar estas cópias pela oficial".
+- A decisão é por **nome normalizado**, então vale para quem criar o mesmo nome depois.
+
+**Limites:** JSONs que guardam `workoutId` (resumo da última execução em `routines.last_summary`, snapshots de desafio e de treinar junto) **não** são reescritos — comparação de um desafio antigo com esse exercício pode não casar. O catálogo fica em cache nos aparelhos (`workouts:`), então o exercício novo aparece para os outros usuários quando esse cache expira.
 
 ## Fila de moderação — o que cada botão faz de verdade
 

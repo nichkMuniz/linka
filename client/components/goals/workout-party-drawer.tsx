@@ -19,7 +19,7 @@ import {
   GLASS_FIELD_CLASS,
   GLASS_PRIMARY_BTN_STYLE,
 } from "@/lib/glass-styles";
-import { getFollowersDb, searchUsersDb, type SearchUser } from "@/lib/ritmofit-db";
+import { getFollowersDb, getFollowingIdsDb, searchUsersDb, type SearchUser } from "@/lib/ritmofit-db";
 
 interface WorkoutPartyDrawerProps {
   open: boolean;
@@ -53,7 +53,14 @@ interface WorkoutPartyDrawerProps {
    * Textos próprios para reaproveitar o seletor fora do "treinar junto" — hoje
    * o DESAFIO de treino (2026-10-02): título, subtítulo e botão.
    */
-  copy?: { title: string; subtitle?: string; cta: string };
+  copy?: { title: string; subtitle?: string; cta: string; alreadyIn?: string; empty?: string };
+  /**
+   * Só seguidores que o usuário também segue (vínculo mútuo), e a busca filtra
+   * apenas essa lista — não alcança o resto do app. É o modo do DESAFIO: um
+   * desafio é um convite pessoal, e mandar para quem você nem segue virava
+   * spam (2026-10-05).
+   */
+  mutualsOnly?: boolean;
 }
 
 /**
@@ -74,6 +81,7 @@ export function WorkoutPartyDrawer({
   onSkip,
   wrapperClassName,
   copy,
+  mutualsOnly = false,
 }: WorkoutPartyDrawerProps) {
   const { t } = useLanguage();
   const viewportHeight = useKeyboardAwareHeight();
@@ -99,11 +107,17 @@ export function WorkoutPartyDrawer({
       return;
     }
     setLoading(true);
-    getFollowersDb()
+    const load = mutualsOnly
+      ? Promise.all([getFollowersDb(), getFollowingIdsDb()]).then(([list, followingIds]) => {
+          const following = new Set(followingIds);
+          return list.filter((f) => following.has(f.id));
+        })
+      : getFollowersDb();
+    load
       .then(setFollowers)
       .catch(() => setFollowers([]))
       .finally(() => setLoading(false));
-  }, [open]);
+  }, [open, mutualsOnly]);
 
   // Busca fora da lista de seguidores — quem treina junto nem sempre segue de
   // volta, e obrigar a seguir antes de convidar seria uma etapa a mais na
@@ -111,7 +125,7 @@ export function WorkoutPartyDrawer({
   React.useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     const term = search.trim();
-    if (!term) {
+    if (!term || mutualsOnly) {
       setResults([]);
       return;
     }
@@ -123,7 +137,7 @@ export function WorkoutPartyDrawer({
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [search]);
+  }, [search, mutualsOnly]);
 
   /**
    * Lista exibida: durante a busca, o resultado do servidor UNIDO aos
@@ -132,13 +146,19 @@ export function WorkoutPartyDrawer({
    */
   const visible = React.useMemo(() => {
     const term = search.trim().toLowerCase();
-    if (!term) return followers;
-    const localMatches = followers.filter((f) =>
-      f.nickname.toLowerCase().includes(term),
-    );
-    const seen = new Set(localMatches.map((f) => f.id));
-    return [...localMatches, ...results.filter((r) => !seen.has(r.id))];
-  }, [search, followers, results]);
+    let list = followers;
+    if (term) {
+      const localMatches = followers.filter((f) =>
+        f.nickname.toLowerCase().includes(term),
+      );
+      const seen = new Set(localMatches.map((f) => f.id));
+      list = [...localMatches, ...results.filter((r) => !seen.has(r.id))];
+    }
+    // Quem JÁ foi convidado/desafiado sobe para o topo — é a primeira coisa que
+    // a pessoa procura ao reabrir o seletor ("pra quem eu já mandei?").
+    if (alreadyInvited.size === 0) return list;
+    return [...list.filter((p) => alreadyInvited.has(p.id)), ...list.filter((p) => !alreadyInvited.has(p.id))];
+  }, [search, followers, results, alreadyInvited]);
 
   const toggle = (id: string) => {
     if (alreadyInvited.has(id)) return;
@@ -212,7 +232,7 @@ export function WorkoutPartyDrawer({
             <p className="text-center text-sm text-white/40 py-8">
               {search.trim()
                 ? t("goals_party_no_results")
-                : t("goals_party_empty")}
+                : copy?.empty ?? t("goals_party_empty")}
             </p>
           )}
 
@@ -241,7 +261,7 @@ export function WorkoutPartyDrawer({
                     </span>
                     {isLocked && (
                       <span className="block text-[11px] text-white/45">
-                        {t("goals_party_already_in")}
+                        {copy?.alreadyIn ?? t("goals_party_already_in")}
                       </span>
                     )}
                   </span>
