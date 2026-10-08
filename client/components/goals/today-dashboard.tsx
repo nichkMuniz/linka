@@ -16,7 +16,7 @@ import {
   WATER_ACCENT,
   WATER_STEPS_ML,
 } from "@/components/goals/use-water-log";
-import { awardNutritionBadgesDb, type Badge, type UserGoal } from "@/lib/ritmofit-db";
+import type { UserGoal } from "@/lib/ritmofit-db";
 import { FEATURES } from "@/lib/feature-flags";
 
 interface TodayDashboardProps {
@@ -32,9 +32,8 @@ interface TodayDashboardProps {
   onOpenCard: (card: RoutineCard) => void;
   /** Muda quando a água é alterada fora daqui (diário alimentar) → recarrega o slide. */
   waterRefreshToken?: number;
-  /** Registrou água aqui → o pai recarrega o diário e celebra insígnias. */
+  /** Registrou água aqui → o pai recarrega o diário. */
   onWaterLogged?: () => void;
-  onBadgesUnlocked?: (badges: Badge[]) => void;
 }
 
 /** Slide do carrossel: uma rotina de hoje ou o atalho de água. */
@@ -98,7 +97,6 @@ export function TodayDashboard({
   onOpenCard,
   waterRefreshToken,
   onWaterLogged,
-  onBadgesUnlocked,
 }: TodayDashboardProps) {
   const { t } = useLanguage();
 
@@ -166,13 +164,7 @@ export function TodayDashboard({
   // Mesma água do diário (useWaterLog), só com o layout do banner.
   const handleWaterChanged = React.useCallback(() => {
     onWaterLogged?.();
-    if (!onBadgesUnlocked) return;
-    awardNutritionBadgesDb()
-      .then((awarded) => {
-        if (awarded.length > 0) onBadgesUnlocked(awarded);
-      })
-      .catch(() => { /* insígnia é bônus: nunca derruba o registro */ });
-  }, [onWaterLogged, onBadgesUnlocked]);
+  }, [onWaterLogged]);
 
   const { water, target: waterTarget, changeWater } = useWaterLog({
     date: today,

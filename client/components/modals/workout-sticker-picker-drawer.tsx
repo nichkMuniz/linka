@@ -42,6 +42,8 @@ export function sessionToSticker(session: RecentWorkoutSession): StoryWorkoutSti
     caloriesKcal: session.caloriesKcal || undefined,
     exercises: shown,
     extraCount: session.exercises.length - shown.length || undefined,
+    // O card corta em 8; o "Ver treino" do flow mostra todos.
+    allExercises: session.exercises.length > shown.length ? session.exercises : undefined,
   };
 }
 

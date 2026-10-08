@@ -82,6 +82,10 @@ public class EditedMediaPlugin: CAPPlugin, CAPBridgedPlugin {
     /// Chamada do `pickMedia` esperando o PHPicker fechar (uma por vez).
     private var pendingPickCall: CAPPluginCall?
 
+    /// O PHPicker aberto para `pendingPickCall`. Fraco de propósito: com o picker
+    /// fora da tela (ou desalocado), a chamada pendente é órfã — ver `pickMedia`.
+    private weak var activePicker: PHPickerViewController?
+
     /// Cópias da mídia escolhida no `pickMedia`. Computado (não `lazy`): é usado
     /// no callback do item provider, fora da main thread.
     private var pickedDirectory: URL {
@@ -557,11 +561,21 @@ public class EditedMediaPlugin: CAPPlugin, CAPBridgedPlugin {
     /// Resolve `{ cancelled: true }` ao cancelar.
     @objc public func pickMedia(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
-            if self.pendingPickCall != nil {
-                call.reject("pickMedia already in progress")
-                return
+            if let stale = self.pendingPickCall {
+                // Só está "em andamento" se o picker ainda está na tela. Uma
+                // chamada presa SEM picker (apresentação recusada, picker fechado
+                // sem o delegate) respondia "already in progress" a todo toque
+                // seguinte — e o JS ignora isso em silêncio (é o toque duplo), então
+                // o botão da galeria parava de fazer qualquer coisa até reabrir o app.
+                if let open = self.activePicker, open.presentingViewController != nil {
+                    call.reject("pickMedia already in progress")
+                    return
+                }
+                self.pendingPickCall = nil
+                self.activePicker = nil
+                stale.resolve(["cancelled": true])
             }
-            guard let presenter = self.bridge?.viewController else {
+            guard self.bridge?.viewController != nil else {
                 call.reject("Unable to access view controller to present picker")
                 return
             }
@@ -577,8 +591,54 @@ public class EditedMediaPlugin: CAPPlugin, CAPBridgedPlugin {
             let picker = PHPickerViewController(configuration: configuration)
             picker.delegate = self
             self.pendingPickCall = call
-            presenter.present(picker, animated: true)
+            self.activePicker = picker
+            self.presentPicker(picker, call: call, attempt: 0)
         }
+    }
+
+    /// Apresenta o picker a partir do controller do TOPO. `present` no controller
+    /// da bridge com algo já apresentado nela (alerta, folha, o picker anterior
+    /// ainda fechando) é recusado só com um aviso no console — nenhum erro chega
+    /// ao JS, que ficava esperando para sempre.
+    private func presentPicker(_ picker: PHPickerViewController, call: CAPPluginCall, attempt: Int) {
+        guard pendingPickCall === call else { return }
+        guard var top: UIViewController = bridge?.viewController else {
+            failPick(call, message: "Unable to access view controller to present picker")
+            return
+        }
+        while let presented = top.presentedViewController, !presented.isBeingDismissed {
+            top = presented
+        }
+        // O topo ainda está fechando algo (ex.: tocou de novo logo depois de
+        // cancelar o picker anterior) — espera a animação e tenta de novo.
+        if top.presentedViewController != nil {
+            if attempt >= 8 {
+                failPick(call, message: "Could not present the photo picker")
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+                self?.presentPicker(picker, call: call, attempt: attempt + 1)
+            }
+            return
+        }
+        top.present(picker, animated: true)
+        // Rede de segurança: se o UIKit recusou a apresentação mesmo assim, o
+        // picker nunca entra na tela — rejeita para o JS avisar o usuário em vez
+        // de ficar mudo. 1 s cobre a animação de entrada com folga.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self, weak picker] in
+            guard let self = self, self.pendingPickCall === call else { return }
+            if picker?.presentingViewController == nil {
+                self.failPick(call, message: "Could not present the photo picker")
+            }
+        }
+    }
+
+    private func failPick(_ call: CAPPluginCall, message: String) {
+        if pendingPickCall === call {
+            pendingPickCall = nil
+            activePicker = nil
+        }
+        call.reject(message)
     }
 
     /// Esvazia `pickedDirectory`: só a escolha atual importa (o JS lê o arquivo
@@ -822,6 +882,7 @@ extension EditedMediaPlugin: PHPickerViewControllerDelegate {
 
         guard let call = pendingPickCall else { return }
         pendingPickCall = nil
+        activePicker = nil
 
         guard let provider = results.first?.itemProvider else {
             call.resolve(["cancelled": true])

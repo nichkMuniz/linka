@@ -64,7 +64,7 @@ Como a tela sempre exibe exatamente **1 post**, ela não tem scroll de página �
 
 ### Card do Post (Glass)
 - Wrapper com `borderRadius: 28px` e sombra pronunciada (`0 20px 44px -16px rgba(0,0,0,.7)`), mesmo padrão visual do `PostCard` do feed
-- **Post em vídeo (2026-10-05):** com `post.video_url`, o `PostCarousel` recebe `videoUrl` e toca o vídeo no card quadrado (mesmo `PostVideo` do feed — autoplay mudo, capa por baixo, segurar pausa). O botão de som (`PostVideoMuteButton`) fica à esquerda do ⋮, no canto superior direito; o estado de som é o mesmo do feed. Sem dots de carrossel
+- **Post em vídeo (2026-10-05):** com `post.video_url`, o `PostCarousel` recebe `videoUrl` e toca o vídeo no card quadrado (mesmo `PostVideo` do feed — autoplay mudo, capa por baixo, segurar pausa). O botão de som (`PostVideoMuteButton`) fica à esquerda do ⋮, no canto superior direito (desde 2026-10-06 a pílula do autor e as ações dividem um único flex — a pílula encolhe em vez de ficar por baixo dos botões); o estado de som é o mesmo do feed. Sem dots de carrossel
 - Foto/carrossel via `PostCarousel` (`objectFit="cover"`, `hideDots`, `hideCounter`, indicador de página renderizado externamente — o contador "1/N" do carrossel foi ocultado em 2026-09-27 porque ficava atrás do menu "⋮" no canto superior direito); sem foto → gradiente determinístico por `post.id` (`getPostGradient`, `client/lib/post-visuals.tsx`)
 - Overlay de gradiente escuro (`transparent` no meio → `rgba(0,0,0,.65)` embaixo) para garantir contraste do texto branco
 

@@ -176,6 +176,7 @@ supabase
 ```
 
 - Sem polling — usa Supabase Realtime
+- **Exige `notifications` na publicação `supabase_realtime` — migração `docs/migrations/20261006-notifications-realtime.sql` (06/10/2026).** Até então a tabela **nunca tinha sido publicada**: o Realtime respondia "Unable to subscribe to changes… check Realtime is enabled" e nenhum INSERT chegava. Isso derrubava em silêncio três coisas que dependem deste evento: o **pop up in-app** de incentivo/comentário/seguidor com o app aberto (AppLayout → `IncomingMessageToast`), o **badge do sino** ao vivo (`subscribeToUnreadNotificationsDb`) e a lista desta tela. A DM funcionava porque vem do Realtime de `messages`, que já era publicada. Não exige build novo — vale para os builds já distribuídos assim que a migração roda.
 - Ao receber nova notificação, recarrega a lista completa
 - **Invalidação obrigatória antes do refetch:** `getNotificationsDb()` passa pelo cache (`CACHE_TTL_MEDIUM`, 60s). Sem `invalidateQueryCache("notifications")` no handler, o refetch disparado pelo realtime relia a **própria entrada em cache** e a notificação recém-chegada só aparecia quando o TTL vencesse — o realtime era efetivamente um no-op. Mesma regra vale para os badges no `AppLayout` (`unreadNotifCount`, `unreadMsgCount`)
 
@@ -329,6 +330,7 @@ Antes, uma mensagem que chegasse enquanto o usuário navegava (feed, metas, perf
 - **Vibração antes da supressão:** o `hapticLight` roda mesmo quando o banner é suprimido (conversa aberta) — ali o usuário já vê a mensagem chegar, mas o aviso tátil continua fazendo sentido. A supressão continua vindo de `getActiveConversationUserId()`.
 - **Comportamento:** some sozinho em 5s, dispensa arrastando para cima, e o toque abre `/comunidade?user=<remetente>`. Uma mensagem nova durante o banner **substitui** o conteúdo e reinicia o timer (só o aviso mais recente fica na tela).
 - **Idioma:** o efeito de assinatura roda uma vez (`[]`), então `t` vem de uma **ref** — mesmo motivo do banner de notificações.
+- **Tem a vez no topo (06/10/2026):** enquanto este pop up está na tela, o pop up de insígnia espera (`setSystemBannerVisible`, `client/lib/top-banner-slot.ts`; ver `docs/23-insignias.md`).
 - **Depende do Realtime de `messages`:** é a mesma assinatura que alimenta o badge da Comunidade. Sem a tabela na publicação `supabase_realtime` (migração `20260720-messages-realtime.sql`) nenhum evento chega e o pop up nunca aparece.
 
 ---

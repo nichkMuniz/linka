@@ -37,9 +37,9 @@
 >   Os dois links só existiam dentro do paywall; sem ele sumiriam do app
 >   inteiro, e a Apple exige a política acessível de DENTRO do app. Com o
 >   paywall apagado (07/09/2026), esta é a única casa deles.
-> - **Insígnias desligadas** (`FEATURES.badges`) — some a fileira ao lado do
->   nome, no perfil e no post viewer. A guarda está dentro do `UserInsignias`,
->   então o card do feed e a conversa privada caem juntos.
+> - **Insígnias** (`FEATURES.badges`) — desligadas no recorte do v1 e
+>   **religadas em 06/10/2026 como v2** (treino, conteúdo e comunidade; ver
+>   `docs/23-insignias.md`). A guarda continua dentro do `UserInsignias`.
 > - **Histórico de peso** sai de Dados pessoais (`FEATURES.weightTracking`); o
 >   campo de peso permanece, porque alimenta a prescrição da rotina sugerida.
 > - A seção **Assinatura** de Configurações foi **removida em 07/09/2026**,
@@ -188,9 +188,7 @@ Tocar numa miniatura (abas Publicações, Treinos e Marcações) abre uma **tela
 
 Componente: `UserInsignias`
 
-Exibe conquistas e badges desbloqueadas pelo usuário:
-- Baseadas em pontuação, streak, número de posts, etc.
-- Exibidas como ícones coloridos abaixo da bio
+O emoji da insígnia **exibida** ao lado do nome (com tooltip de nome/descrição); tocar abre o `InsigniasDrawer` — só leitura em perfil alheio, com seleção e progresso no próprio. Catálogo, regras de concessão e celebração: **`docs/23-insignias.md`** (v2, 06/10/2026).
 
 ---
 
@@ -445,7 +443,7 @@ Desde 2026-10-05 a exclusão **não é instantânea**. `DeleteAccountDrawer` (`c
 
 Confirmar chama `requestAccountDeletionDb` → RPC `request_account_deletion` (grava motivo + data = agora + 30 dias, apaga os tokens de push), mostra o toast com a data e desloga (`resetSupabaseAuth`). Não há mais a palavra de confirmação "DELETAR CONTA": a fricção agora é o passo de motivo + a linha do tempo, e o pedido é reversível.
 
-**Quarentena:** enquanto o pedido está `pending`, a conta é escondida de todos pelo banco — `banned_user_ids()` passou a incluir quem tem exclusão agendada, então as mesmas policies restritivas do banimento valem (ver `docs/migrations/20261001-hide-banned-users.sql`). Admin continua vendo.
+**Quarentena:** enquanto o pedido está `pending`, a conta é escondida de todos pelo banco — `banned_user_ids()` passou a incluir quem tem exclusão agendada, então as mesmas policies restritivas do banimento valem (ver `docs/migrations/20261001-hide-banned-users.sql`). **Desde 06/10/2026 (`20261006-pending-deletion-hidden-for-all.sql`) a conta some também para o ADMIN** — a exceção de admin é só do banimento (moderação); quem pediu para sair não tem o que moderar, e testar pela conta admin dava a impressão de que a quarentena não funcionava. Some: perfil, posts, flows, reposts, incentivos, comentários, seguidores/seguindo, conversas, marcações, notificações originadas por ela, treino em conjunto e desafios de treino; e ninguém consegue seguir, mandar DM, marcar, convidar ou desafiar. Reativar faz tudo voltar na hora.
 
 **Voltar dentro do prazo:** ao entrar, `usePendingDeletionGuard` (`App.tsx`, no `RequireAuth`, mesmo molde do `useBanGuard`) consulta `getPendingAccountDeletionDb` e, se houver pedido, mostra a `PendingDeletionScreen` (`client/components/shared/pending-deletion-screen.tsx`): **Reativar minha conta** (`cancel_account_deletion` + refresh global do cache) ou **Sair**.
 
@@ -627,7 +625,7 @@ Função: `createOrUpdateCommercialProfileDb` — salva `service_plans` como jso
 
 Aberto ao clicar nas estatísticas (`FollowListDrawer`, `client/components/profile/follow-list-drawer.tsx`):
 - Lista de usuários com avatar, nome e **selo de verificação** (`VerifiedBadge` quando `verifiedTier` vem preenchido — nas três fontes: seguidores, seguindo e perfis mais seguidos)
-- Botão follow/unfollow para cada um
+- Botão follow/unfollow para cada um — o estado é sempre do ponto de vista de **quem está vendo** (`getFollowingStatusBatchDb`, uma consulta para a lista toda). No "Seguindo" do **próprio** perfil todos aparecem como "Seguindo" sem consulta (são seguidos por definição); no "Seguindo" de **outra pessoa** consulta quem eu sigo — antes de 2026-10-08 essa lista também era marcada inteira como "Seguindo" (bug). Status é gravado **antes** da lista, para as linhas não pintarem com o status da lista anterior
 - **"Seguindo" vazio no próprio perfil → perfis mais seguidos (2026-10-01):** quando o usuário ainda não segue ninguém, abaixo da mensagem "Você ainda não segue ninguém…" aparece a seção **"Perfis mais seguidos"** (até 15, do mais seguido para o menos), cada um com "{n} seguidores" e botão **Seguir**. Vem de `getMostFollowedProfilesDb` → RPC `get_most_followed_profiles` (já exclui o próprio usuário, quem ele segue, banidos e bloqueios). Só no **próprio** perfil — a lista vazia de outra pessoa continua só com a mensagem. Prop `emptySuggestions` do drawer (genérica: título, descrição, usuários, loading). Sem a migração `20261001-most-followed-profiles.sql` a seção simplesmente não aparece
 
 ---
@@ -778,23 +776,19 @@ O perfil não é uma tela que muda com frequência, então as queries de carrega
   - A foto do header (`AppLayout.loadProfilePhoto`) e a do anel "Seu flow" no feed também tentam de novo após 1,5 s e 4 s quando o próprio perfil volta vazio.
 - **`deletePostDb` invalida `userPosts`, `post:` e `userStats:{userId}`; `updatePostDb` invalida `userPosts` e `post:`** — a invalidação roda ANTES do `return` (bug corrigido em 2026-07: as chamadas estavam depois do `try/catch` com `return`, código inalcançável, e o post excluído "ressuscitava" do cache ao reentrar no perfil).
 - **`taggedPosts` é invalidado por prefixo** (todos os usuários, não só o viewer) em `createPostDb` (quando o post nasce com marcações), `setPostTagsDb` (quando o diff de marcações não é vazio) e `deletePostDb` — a lista afetada é a de **quem foi marcado**, e o cliente que faz a escrita não sabe qual perfil está em cache.
-- **`getDisplayBadgeDb` (`displayBadge:{userId}`) e `getTotalCheckInsDb` (`totalCheckIns:{userId}`) são cacheados (30s)** — o `UserInsignias` monta no header e a cada post aberto no drawer; sem cache eram 2 queries extras por post visualizado. Invalidam em `createCheckInDb` (check-in novo) e `setSelectedBadgeDb` (troca de insígnia).
+- **`getDisplayBadgeDb` (`displayBadge:{userId}`) é cacheado (30s)** — o `UserInsignias` monta no header e a cada post aberto no drawer. Invalida em `setSelectedBadgeDb` (troca de insígnia) e em `awardMyBadgesDb` quando algo novo é concedido. (`getTotalCheckInsDb` saiu com a v2 das insígnias, 06/10/2026.)
 
 ### Insígnia exibida (persistente)
 
 A insígnia mostrada ao lado do nome é a **escolhida pelo usuário**, guardada em `profiles.selected_badge_id`. Ela **nunca muda sozinha**: conquistar uma insígnia nova só a adiciona ao acervo (`user_badges`) e a libera para seleção — a exibida continua a mesma até o usuário trocar no `InsigniasDrawer`.
 
 - `getDisplayBadgeDb(userId)` → retorna a insígnia de `selected_badge_id` se ela estiver no acervo; se o usuário nunca escolheu nenhuma, cai no fallback histórico (a de maior `sort_order` entre as conquistadas).
-- `setSelectedBadgeDb(badgeId)` → valida que a insígnia foi conquistada (`isBadgeUnlocked`) e grava `profiles.selected_badge_id`. **Não apaga `user_badges`.**
-- `isBadgeUnlocked(badge, earnedIds, totalCheckIns)` → fonte única da regra de desbloqueio, usada pelo drawer e pela validação: conquistada (linha em `user_badges`) **ou** insígnia de `checkin_total` cujo requisito o total de check-ins já cobre.
+- `setSelectedBadgeDb(badgeId)` → valida que a insígnia está no acervo e grava `profiles.selected_badge_id`. **Não apaga nem insere em `user_badges`** (desde a v2 só o servidor escreve lá).
+- `isBadgeUnlocked(badge, earnedIds)` → conquistada = linha em `user_badges`. Só o acervo vale (a v1 também liberava insígnias de `checkin_total` pelo total de check-ins).
 
-### Insígnias com `badges.premium` (2026-07-15, destravadas em 07/09/2026)
+### Insígnias premium — removidas (06/10/2026)
 
-Insígnias com `badges.premium = true` (`premium_coroa` 👑, `premium_diamante` 💎) **não custam nada** — o app não vende assinatura (ver `docs/17-premium.md`):
-
-- Aparecem no catálogo do `InsigniasDrawer` para todos, coloridas (seeds com `required_checkins = 0` fazem `isBadgeUnlocked` retornar `true` sem mudança na função).
-- **Selecionáveis por qualquer usuário.** O selo "Premium" âmbar, o `PaywallDrawer` e o backstop `BADGE_PREMIUM_LOCKED` de `setSelectedBadgeDb` foram removidos em 07/09/2026.
-- Elas ficam **fora** da barra de progresso "próximo nível" do drawer (o `required_checkins = 0` é desbloqueio por status, não marco de check-ins).
+`premium_coroa` 👑 e `premium_diamante` 💎 saíram do catálogo na v2 das insígnias (ninguém as tinha conquistado). A coluna `badges.premium` continua no banco, sem uso.
 
 > **Bug histórico (corrigido em 14/07/2026, migração `20260714-badge-selection-persist.sql`):** `setSelectedBadgeDb` fazia `delete` de todas as linhas de `user_badges` e inseria só a escolhida, e a exibida era "a de maior `sort_order`". Escolher uma insígnia mais baixa apagava o acervo; no check-in seguinte `awardBadgesForCheckInsDb` reconquistava tudo, a de maior `sort_order` voltava e a escolha do usuário era sobrescrita sozinha ("a badge mudava quando virava o dia"). Nunca voltar a apagar `user_badges` na seleção.
 - **Pull-to-refresh** invalida explicitamente todas as chaves acima (incluindo `isFollowing:{viewerId}:{profileUserId}`) antes de chamar `loadProfile({ soft: true })`, já que puxar para atualizar é um pedido explícito de dados frescos — não deve reaproveitar cache.

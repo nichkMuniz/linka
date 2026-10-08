@@ -23,7 +23,6 @@ import {
   formatStickerDuration,
   formatStickerExercise,
   formatStickerVolume,
-  isStickerFieldShown,
 } from "@/components/shared/flow-workout-sticker";
 
 interface FlowWorkoutDetailDrawerProps {
@@ -40,11 +39,15 @@ type Row = { name: string; detail: string | null };
 /**
  * Detalhe do "resumo do treino" postado no flow, aberto ao tocar no sticker.
  *
- * Mostra SÓ os exercícios feitos na sessão — nunca os demais da rotina que
- * não foram executados. O sticker guarda até 8; a sessão completa vem de
- * `routines.last_summary` do autor enquanto ela ainda for a MESMA sessão
- * (`completedAt` igual). Se o autor já treinou a rotina de novo, fica a lista
- * do sticker + "+N exercícios". Rotina apagada → cópia indisponível.
+ * Mostra SEMPRE o treino inteiro — data, números e exercícios —, seja qual for
+ * o card que o autor escolheu (completo, só números, mínimo ou personalizado):
+ * ocultar no card é só visual (2026-10-08). Só os exercícios FEITOS na sessão,
+ * nunca os demais da rotina. Fonte, em ordem: `routines.last_summary` do autor
+ * enquanto for a MESMA sessão (`completedAt` igual) → `allExercises` do
+ * snapshot → os até 8 do card + "+N exercícios". Flow publicado antes de
+ * 2026-10-08 tem os blocos ocultos zerados: números e lista vêm da sessão do
+ * autor quando ainda é a mesma; senão, aviso de lista indisponível.
+ * Rotina apagada → cópia indisponível.
  *
  * "Copiar rotina" usa `copyRoutineToUserDb` — o mesmo caminho da Busca e do
  * feed —, então a rotina chega em Metas com `follower_id` do autor e o botão
@@ -81,19 +84,21 @@ export function FlowWorkoutDetailDrawer({
             .catch(() => {});
         }
       })
-      .catch(() => { if (alive) setSession({ found: false, routineName: null, exercises: null }); });
+      .catch(() => { if (alive) setSession({ found: false, routineName: null, exercises: null, stats: null }); });
     return () => { alive = false; };
   }, [workout, authorId, user?.id, isOwner]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const formatSession = formatStickerExercise;
 
   const routineAvailable = !!session?.found;
-  const fullSession = session?.exercises ?? null;
-  // Só o que foi FEITO: sessão completa quando disponível; senão, o sticker.
+  const fullSession = session?.exercises?.length ? session.exercises : null;
+  const snapshotList = workout?.allExercises?.length ? workout.allExercises : workout?.exercises ?? [];
+  // Só o que foi FEITO: sessão completa quando disponível; senão, o snapshot.
   const rows: Row[] = React.useMemo(
-    () => (fullSession ?? workout?.exercises ?? []).map((ex) => ({ name: ex.name, detail: formatSession(ex) })),
+    () => (fullSession ?? snapshotList).map((ex) => ({ name: ex.name, detail: formatSession(ex) })),
     [fullSession, workout], // eslint-disable-line react-hooks/exhaustive-deps
   );
+  const showExtraNote = !fullSession && !workout?.allExercises?.length && Number(workout?.extraCount ?? 0) > 0;
 
   const handleCopy = async () => {
     if (!user || !workout || isOwner || !session?.found) return;
@@ -117,12 +122,19 @@ export function FlowWorkoutDetailDrawer({
     }
   };
 
-  // O que o autor ocultou no card também fica oculto aqui — senão tocar no
-  // card revelaria tudo. A cópia da rotina continua disponível.
-  const dateLabel = workout && isStickerFieldShown(workout, "date")
+  // Tudo aparece aqui, mesmo o que o card oculta. Número zerado no snapshot
+  // (flow anterior a 2026-10-08 com o bloco oculto) vem da sessão do autor.
+  const dateLabel = workout
     ? formatStickerDate(workout.date, t("flow_workout_today"), t("flow_workout_yesterday"))
     : "";
-  const showExercises = !!workout && isStickerFieldShown(workout, "exercises");
+  const stats = session?.stats ?? null;
+  const pick = (own: number | null | undefined, fallback: number | null | undefined) =>
+    Number(own ?? 0) > 0 ? Number(own) : Number(fallback ?? 0);
+  const totalSeries = pick(workout?.totalSeries, stats?.totalSeries);
+  const totalVolume = pick(workout?.totalVolume, stats?.totalVolume);
+  const durationSecs = pick(workout?.durationSecs, stats?.durationSecs);
+  const caloriesKcal = pick(workout?.caloriesKcal, stats?.caloriesKcal);
+  const prCount = pick(workout?.prCount, stats?.prCount);
 
   const chip = (content: React.ReactNode, accent = false) => (
     <span
@@ -165,14 +177,13 @@ export function FlowWorkoutDetailDrawer({
               style={{ paddingBottom: "max(1.5rem, env(safe-area-inset-bottom))" }}
             >
               <div className="flex flex-wrap gap-2">
-                {isStickerFieldShown(workout, "series") && chip(`${workout.totalSeries} ${t("flow_workout_series")}`)}
-                {workout.totalVolume > 0 && chip(formatStickerVolume(workout.totalVolume))}
-                {workout.durationSecs > 0 && chip(<><Timer className="h-3 w-3" />{formatStickerDuration(workout.durationSecs)}</>)}
-                {Number(workout.caloriesKcal ?? 0) > 0 && chip(<><Flame className="h-3 w-3" />{`${Math.round(Number(workout.caloriesKcal))} kcal`}</>)}
-                {Number(workout.prCount ?? 0) > 0 && chip(<><Trophy className="h-3 w-3" />{`${workout.prCount} ${t("flow_workout_prs")}`}</>, true)}
+                {totalSeries > 0 && chip(`${totalSeries} ${t("flow_workout_series")}`)}
+                {totalVolume > 0 && chip(formatStickerVolume(totalVolume))}
+                {durationSecs > 0 && chip(<><Timer className="h-3 w-3" />{formatStickerDuration(durationSecs)}</>)}
+                {caloriesKcal > 0 && chip(<><Flame className="h-3 w-3" />{`${Math.round(caloriesKcal)} kcal`}</>)}
+                {prCount > 0 && chip(<><Trophy className="h-3 w-3" />{`${prCount} ${t("flow_workout_prs")}`}</>, true)}
               </div>
 
-              {showExercises && (
               <div className="space-y-2">
                 <p className="text-sm font-semibold" style={{ color: "#fff" }}>
                   {t("flow_workout_detail_exercises")}
@@ -181,6 +192,10 @@ export function FlowWorkoutDetailDrawer({
                   <div className="flex justify-center py-6">
                     <Loader2 className="h-5 w-5 animate-spin" style={{ color: "rgba(255,255,255,.5)" }} />
                   </div>
+                ) : rows.length === 0 ? (
+                  <p className="text-xs" style={{ color: "rgba(255,255,255,.45)" }}>
+                    {t("flow_workout_detail_exercises_unavailable")}
+                  </p>
                 ) : (
                   rows.map((r, i) => (
                     <div
@@ -205,13 +220,12 @@ export function FlowWorkoutDetailDrawer({
                     </div>
                   ))
                 )}
-                {session !== null && !fullSession && Number(workout.extraCount ?? 0) > 0 && (
+                {session !== null && showExtraNote && (
                   <p className="text-xs" style={{ color: "rgba(255,255,255,.45)" }}>
                     {t("flow_workout_more_exercises").replace("{n}", String(workout.extraCount))}
                   </p>
                 )}
               </div>
-              )}
 
               {!isOwner && user && session !== null && (
                 routineAvailable ? (

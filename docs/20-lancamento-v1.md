@@ -81,7 +81,7 @@ meta, e seus amigos incentivam com os 6 tipos.
 | `muscleAnatomy` | ✅ **religada 26/09** | Valor no mês 3, ruído no dia 1 |
 | `dietAndHabitRoutines` | ❌ | Rotinas de dieta e hábito (tipos 2 e 3). Cada tipo extra multiplica a superfície da tela mais complexa do app — catálogo, progresso e check-in próprios — para quem ainda não completou a primeira semana de treino |
 | `foodDiary` | ❌ | Diário Alimentar + catálogo TACO. Cai junto por construção: era acessível **só** pelo card "Dietas" |
-| `badges` | ❌ | Insígnias. Amarradas às duas coisas que saíram: as condições de desbloqueio dependem de rotinas de dieta/hábito, e parte do catálogo é premium (selo 👑) |
+| `badges` | ✅ **religada 06/10 (v2)** | Insígnias. A v1 dependia de dieta/hábito e premium; a v2 é de treino, conteúdo e comunidade, concedida no servidor — ver `docs/23-insignias.md`. Exige a migração `20261006-badges-v2.sql` |
 | `weightTracking` | ❌ | Registro e histórico de peso. O monitoramento vem num momento próprio |
 | `workoutStickerOnFlow` | ✅ **religada 26/09** | Mini frame de treino colado no flow. Os dados vêm de `routines.last_summary` — quem ainda não treinou pelo app abre um seletor vazio. E o sticker fica gravado em `flow.text_elements`, então um flow criado hoje segue renderizando depois |
 | `workoutDetailOnPost` | ✅ **religada 26/09** | Botão "Ver treino" no post. O comparador é de 26/08 e não foi validado; o detalhe série a série é leitura densa demais para quem acabou de instalar. O card de resumo no post **continua** |
@@ -512,6 +512,11 @@ ficariam livres para todos — e voltariam a trancar quando o paywall subisse, o
 que é pior do que nunca as ter mostrado. **`user_badges` continua intocada** —
 a flag esconde a UI, o acervo permanece.
 
+**Religada em 06/10/2026 como v2** — catálogo novo, só com o que o app tem
+(treinos, posts, flows, treinar junto, desafios, seguidores, incentivos), e a
+concessão no servidor. O acervo da v1 estava vazio (0 linhas), então trocar o
+catálogo não tirou nada de ninguém. Ver `docs/23-insignias.md`.
+
 ### Peso
 
 `weightTracking` remove o card em Metas, o ícone ⚖️ no card de streak e o
@@ -686,7 +691,7 @@ Uma flag por release, cada uma com seu ciclo de TestFlight:
 | 1.1 | `expertMode` + `workoutDetailOnPost` | Serve quem já está treinando — o usuário que ficou |
 | 1.1+ | `weightTracking` | Barato e autocontido; o primeiro a voltar quando houver gente treinando com constância |
 | 1.2+ | `dietAndHabitRoutines` + `foodDiary` | Precisam voltar **juntos** (o card é a única porta do Diário) |
-| junto do `iap` | `badges` | As condições dependem de dieta/hábito e parte do catálogo é premium — religar antes do paywall cria insígnias que depois trancam |
+| ✅ 06/10 | `badges` | Religada como v2 (treino, conteúdo e comunidade), sem dependência de dieta/hábito nem de premium |
 | 1.2 | `hashtags` + `postTags` + `routineSearch` | Descoberta passa a funcionar quando há conteúdo |
 | 1.3 | `shots` | Só com gente postando com frequência |
 | 1.4 | `duels` + `ranking` | Precisam de densidade social |

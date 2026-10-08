@@ -1,8 +1,9 @@
 import React from "react";
-import { Volume2, VolumeX } from "lucide-react";
+import { Play, Volume2, VolumeX } from "lucide-react";
 import { releaseVideoElement } from "@/lib/media-prefetch";
 import { useLanguage } from "@/lib/language-context";
 import { hapticLight } from "@/lib/haptics";
+import { reportHandledError } from "@/lib/monitoring";
 import { cn } from "@/lib/utils";
 
 /**
@@ -22,6 +23,9 @@ import { cn } from "@/lib/utils";
  * 3. **Autoplay mudo.** O iOS sempre permite tocar mudo; com som pode ser
  *    barrado em silêncio. O som é um estado único para todos os posts (padrão
  *    Instagram): ligou num, segue ligado no próximo.
+ * 4. **Nunca fica travado (2026-10-08).** Um vigia no player ativo detecta a
+ *    imagem congelada com áudio andando e o vídeo parado sem motivo, e troca o
+ *    `<video>` por um novo no mesmo ponto. Ver "Vigia de travamento" abaixo.
  */
 
 // ── Som: um estado só para todos os posts em vídeo ──────────────────────────
@@ -80,10 +84,15 @@ function releasePlay(video: HTMLVideoElement) {
 
 /**
  * Autoplay resiliente: tenta como está (mudo ou com som); se o iOS barrar o som
- * — às vezes sem lançar erro, só deixando pausado —, toca mudo, que é sempre
- * permitido, e reflete no botão.
+ * — às vezes sem lançar erro, só deixando pausado —, toca mudo, e reflete no
+ * botão. Mudo costuma ser sempre permitido; a exceção é o Modo de Pouca
+ * Energia, que barra até o mudo (`NotAllowedError`) → "blocked", e o post
+ * mostra o botão de play na hora (só um toque libera).
  */
-async function playVideo(video: HTMLVideoElement, isCancelled: () => boolean) {
+async function playVideo(
+  video: HTMLVideoElement,
+  isCancelled: () => boolean,
+): Promise<"ok" | "blocked" | "failed"> {
   // Recurso ainda não selecionado: play() direto às vezes traz só o áudio.
   if (video.readyState === 0 && video.networkState !== 2 /* NETWORK_LOADING */) {
     try {
@@ -92,19 +101,27 @@ async function playVideo(video: HTMLVideoElement, isCancelled: () => boolean) {
       /* ignora */
     }
   }
+  let error: unknown = null;
   try {
     await video.play();
-  } catch {
+  } catch (err) {
     /* pode rejeitar OU virar no-op silencioso — checado abaixo */
+    error = err;
   }
-  if (isCancelled() || !video.paused || video.muted) return;
-  video.muted = true;
-  setMutedState(true);
-  try {
-    await video.play();
-  } catch {
-    /* resta a capa */
+  if (isCancelled() || !video.paused) return "ok";
+  if (!video.muted) {
+    video.muted = true;
+    setMutedState(true);
+    error = null;
+    try {
+      await video.play();
+    } catch (err) {
+      error = err;
+    }
+    if (isCancelled() || !video.paused) return "ok";
   }
+  // Os demais (ex.: AbortError de um pause no meio) ficam com o vigia.
+  return (error as { name?: string } | null)?.name === "NotAllowedError" ? "blocked" : "failed";
 }
 
 /**
@@ -123,33 +140,238 @@ const MOUNT_MARGIN = "300px 0px";
 /** Fração visível do frame para tocar. */
 const PLAY_RATIO = 0.6;
 
+// ── Vigia de travamento (2026-10-08) ────────────────────────────────────────
+// No iPhone o player do feed travava de dois jeitos, sem disparar evento:
+//  (a) a imagem congelava e o áudio seguia — o WebKit perde a faixa de vídeo
+//      do elemento;
+//  (b) o vídeo parava e nenhum play() o tirava dali.
+// O vigia roda 1×/s no player ATIVO e, quando detecta um deles, troca o
+// <video> por um novo (remonta, `key`) no mesmo ponto do vídeo. Remontar é o
+// único remédio confiável para (a): o elemento travado não volta a pintar com
+// pause/play.
+const WATCHDOG_MS = 1000;
+/** Sem frame novo por este tempo, com o relógio do vídeo andando = imagem congelada. */
+const FROZEN_FRAMES_MS = 2500;
+/** Relógio parado com dados em buffer = travado. */
+const TIME_STUCK_MS = 4000;
+/** Relógio parado esperando rede, sem o buffer crescer = conexão morta. */
+const NETWORK_STUCK_MS = 9000;
+/** Ticks seguidos em pausa (sem ninguém ter pedido) antes de remontar. */
+const PAUSED_TICKS_LIMIT = 3;
+/** Durante a rolagem o WebKit pode atrasar timers e callbacks de frame: não julga. */
+const SCROLL_GRACE_MS = 900;
+/** Carência depois de (re)começar a tocar, antes de o vigia julgar. */
+const SETTLE_MS = 2000;
+/** Remontagens permitidas por janela; passou disso, mostra o botão de play. */
+const MAX_RECOVERIES = 3;
+const RECOVERY_WINDOW_MS = 60_000;
+
+let lastScrollAt = 0;
+if (typeof window !== "undefined") {
+  window.addEventListener(
+    "scroll",
+    () => {
+      lastScrollAt = performance.now();
+    },
+    { passive: true, capture: true },
+  );
+}
+
+type VideoWithFrameCallback = HTMLVideoElement & {
+  requestVideoFrameCallback?: (cb: () => void) => number;
+  cancelVideoFrameCallback?: (handle: number) => void;
+};
+
+type StuckReason = "frozen-frames" | "time-stuck" | "network" | "paused" | "error" | "blocked";
+
 function PostVideoElement({
   src,
   shouldPlay,
   muted,
+  startAt,
+  videoRef,
   onFirstFrame,
-  onError,
+  onStuck,
 }: {
   src: string;
   shouldPlay: boolean;
   muted: boolean;
+  /** Segundo em que retoma (remontagem depois de travar). */
+  startAt: number;
+  videoRef: React.MutableRefObject<HTMLVideoElement | null>;
   onFirstFrame: () => void;
-  onError: () => void;
+  onStuck: (reason: StuckReason, currentTime: number) => void;
 }) {
   const ref = React.useRef<HTMLVideoElement | null>(null);
+  const onStuckRef = React.useRef(onStuck);
+  onStuckRef.current = onStuck;
+  // Último frame pintado (requestVideoFrameCallback). 0 = nenhum ainda.
+  const lastFrameAtRef = React.useRef(0);
 
   // O React nem sempre aplica `muted` no primeiro render — mantém imperativo.
   React.useEffect(() => {
     if (ref.current) ref.current.muted = muted;
   }, [muted]);
 
+  // Retoma do ponto onde o player anterior travou.
+  React.useEffect(() => {
+    const video = ref.current;
+    if (!video || startAt <= 0) return;
+    const seek = () => {
+      const d = video.duration;
+      // Perto do fim: deixa começar do 0.
+      if (Number.isFinite(d) && startAt >= d - 0.5) return;
+      try {
+        video.currentTime = startAt;
+      } catch {
+        /* ignora */
+      }
+    };
+    if (video.readyState >= 1) seek();
+    else video.addEventListener("loadedmetadata", seek, { once: true });
+    return () => video.removeEventListener("loadedmetadata", seek);
+  }, [startAt]);
+
+  // Contador de frames pintados: é o que distingue "tocando" de "áudio tocando
+  // com a imagem congelada" (o currentTime anda nos dois casos). Sem a API
+  // (iOS < 15.4), o caso (a) não é detectado — os demais continuam valendo.
+  React.useEffect(() => {
+    const video = ref.current as VideoWithFrameCallback | null;
+    if (!video || typeof video.requestVideoFrameCallback !== "function") return;
+    let handle = 0;
+    let alive = true;
+    const onFrame = () => {
+      if (!alive) return;
+      lastFrameAtRef.current = performance.now();
+      handle = video.requestVideoFrameCallback!(onFrame);
+    };
+    handle = video.requestVideoFrameCallback(onFrame);
+    return () => {
+      alive = false;
+      try {
+        video.cancelVideoFrameCallback?.(handle);
+      } catch {
+        /* ignora */
+      }
+    };
+  }, []);
+
   React.useEffect(() => {
     const video = ref.current;
     if (!video || !shouldPlay) return;
     let cancelled = false;
-    requestPlay({ video, start: () => void playVideo(video, () => cancelled) });
+    const start = () => {
+      void playVideo(video, () => cancelled).then((outcome) => {
+        if (outcome === "blocked" && !cancelled) onStuckRef.current("blocked", video.currentTime);
+      });
+    };
+    requestPlay({ video, start });
+
+    // Vigia — só julga enquanto este é o player da vez e o app está à frente.
+    let lastTime = video.currentTime;
+    let lastTimeChangeAt = performance.now();
+    let lastBufferedEnd = 0;
+    let lastBufferGrowthAt = performance.now();
+    let pausedTicks = 0;
+    let frozenTicks = 0;
+    // Depois de (re)começar a tocar o relógio e os frames levam um instante para
+    // andar: não julga até aqui. Sem isso, o post que recupera a vez (o de cima
+    // saiu da tela) seria remontado pelo tempo em que ficou pausado.
+    let settleUntil = performance.now() + SETTLE_MS;
+    let wasActive = true;
+    const settle = (now: number) => {
+      settleUntil = now + SETTLE_MS;
+      lastTimeChangeAt = now;
+      lastBufferGrowthAt = now;
+      frozenTicks = 0;
+    };
+    const bufferedEnd = () => {
+      try {
+        const b = video.buffered;
+        return b.length > 0 ? b.end(b.length - 1) : 0;
+      } catch {
+        return 0;
+      }
+    };
+    const tick = () => {
+      if (cancelled) return;
+      const now = performance.now();
+      if (activeVideo() !== video || document.visibilityState !== "visible") {
+        wasActive = false;
+        return;
+      }
+      if (!wasActive) {
+        wasActive = true;
+        settle(now);
+      }
+      const t = video.currentTime;
+      if (t !== lastTime) {
+        lastTime = t;
+        lastTimeChangeAt = now;
+      }
+      const be = bufferedEnd();
+      if (be > lastBufferedEnd + 0.05) {
+        lastBufferedEnd = be;
+        lastBufferGrowthAt = now;
+      }
+
+      if (video.paused) {
+        // Ninguém pediu pausa (este é o player da vez): o iOS largou o vídeo.
+        // Tenta de novo; persistindo, troca o elemento.
+        pausedTicks += 1;
+        if (pausedTicks > PAUSED_TICKS_LIMIT) {
+          onStuckRef.current("paused", t);
+          return;
+        }
+        start();
+        settle(now);
+        return;
+      }
+      pausedTicks = 0;
+      if (now < settleUntil || now - lastScrollAt < SCROLL_GRACE_MS) {
+        frozenTicks = 0;
+        return;
+      }
+
+      // (a) imagem congelada com o áudio andando.
+      const lastFrameAt = lastFrameAtRef.current;
+      const timeMoving = now - lastTimeChangeAt < WATCHDOG_MS * 1.5;
+      if (lastFrameAt > 0 && timeMoving && now - lastFrameAt > FROZEN_FRAMES_MS) {
+        frozenTicks += 1;
+        // Dois ticks seguidos: um tick atrasado sozinho não remonta nada.
+        if (frozenTicks >= 2) {
+          onStuckRef.current("frozen-frames", t);
+          return;
+        }
+      } else {
+        frozenTicks = 0;
+      }
+
+      // (b) relógio parado sem pausa.
+      const stuckFor = now - lastTimeChangeAt;
+      if (video.readyState >= 3 /* HAVE_FUTURE_DATA */ && stuckFor > TIME_STUCK_MS) {
+        onStuckRef.current("time-stuck", t);
+      } else if (stuckFor > NETWORK_STUCK_MS && now - lastBufferGrowthAt > NETWORK_STUCK_MS) {
+        onStuckRef.current("network", t);
+      }
+    };
+    const timer = window.setInterval(tick, WATCHDOG_MS);
+
+    // `loop` às vezes não volta ao início no WebKit e dispara `ended`: recomeça.
+    const onEnded = () => {
+      try {
+        video.currentTime = 0;
+      } catch {
+        /* ignora */
+      }
+      start();
+    };
+    video.addEventListener("ended", onEnded);
+
     return () => {
       cancelled = true;
+      window.clearInterval(timer);
+      video.removeEventListener("ended", onEnded);
       releasePlay(video);
     };
   }, [shouldPlay]);
@@ -161,12 +383,16 @@ function PostVideoElement({
     const video = ref.current;
     return () => {
       if (video) releaseVideoElement(video);
+      if (videoRef.current === video) videoRef.current = null;
     };
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <video
-      ref={ref}
+      ref={(el) => {
+        ref.current = el;
+        if (el) videoRef.current = el;
+      }}
       src={src}
       muted={muted}
       loop
@@ -179,7 +405,7 @@ function PostVideoElement({
       // Toques atravessam: o card decide (abrir o post, toque duplo, segurar).
       style={{ pointerEvents: "none" }}
       onPlaying={onFirstFrame}
-      onError={onError}
+      onError={() => onStuckRef.current("error", ref.current?.currentTime ?? 0)}
     />
   );
 }
@@ -195,14 +421,22 @@ interface PostVideoProps {
 }
 
 export function PostVideo({ src, poster, alt, paused = false, className }: PostVideoProps) {
+  const { t } = useLanguage();
   const boxRef = React.useRef<HTMLDivElement>(null);
+  const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const [near, setNear] = React.useState(false);
   const [inView, setInView] = React.useState(false);
   const [pageHidden, setPageHidden] = React.useState(
     () => typeof document !== "undefined" && document.visibilityState === "hidden",
   );
   const [painted, setPainted] = React.useState(false);
-  const [failed, setFailed] = React.useState(false);
+  // Cada travamento troca o <video> por um novo (`instance` é a key), que
+  // retoma em `resumeAt`.
+  const [instance, setInstance] = React.useState(0);
+  const [resumeAt, setResumeAt] = React.useState(0);
+  // Travou demais em pouco tempo: para de remontar e mostra o botão de play.
+  const [gaveUp, setGaveUp] = React.useState(false);
+  const recoveriesRef = React.useRef<number[]>([]);
   const muted = usePostVideoMuted();
 
   React.useEffect(() => {
@@ -236,15 +470,76 @@ export function PostVideo({ src, poster, alt, paused = false, className }: PostV
     return () => document.removeEventListener("visibilitychange", onVisibility);
   }, []);
 
-  // Saiu de perto: o player é desmontado; ao voltar, a capa cobre até pintar.
+  // Saiu de perto: o player é desmontado e a próxima aparição começa limpa —
+  // do início e com as tentativas zeradas (um post que travou volta a tocar
+  // sozinho quando o usuário rola até ele de novo).
   React.useEffect(() => {
-    if (!near) setPainted(false);
+    if (near) return;
+    setPainted(false);
+    setResumeAt(0);
+    setGaveUp(false);
+    recoveriesRef.current = [];
   }, [near]);
 
-  const mountVideo = near && !failed;
+  const handleStuck = React.useCallback(
+    (reason: StuckReason, currentTime: number) => {
+      // Autoplay barrado pelo sistema: remontar não adianta, só um toque.
+      if (reason === "blocked") {
+        setGaveUp(true);
+        return;
+      }
+      const now = Date.now();
+      const recent = recoveriesRef.current.filter((at) => now - at < RECOVERY_WINDOW_MS);
+      if (recent.length >= MAX_RECOVERIES) {
+        recoveriesRef.current = recent;
+        setGaveUp(true);
+        reportHandledError(new Error(`post video gave up (${reason})`), "post-video:watchdog", { src, reason });
+        return;
+      }
+      recoveriesRef.current = [...recent, now];
+      setResumeAt(Number.isFinite(currentTime) && currentTime > 0 ? currentTime : 0);
+      setPainted(false);
+      setInstance((n) => n + 1);
+    },
+    [src],
+  );
+
+  // Toque no play depois de desistir: play() DENTRO do gesto (o iOS libera o
+  // que estava barrado) e o vigia volta a valer do zero.
+  const retryFromTap = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    hapticLight();
+    recoveriesRef.current = [];
+    setGaveUp(false);
+    const video = videoRef.current;
+    if (video) {
+      video.muted = mutedState;
+      video.play().catch(() => {
+        /* o vigia remonta se continuar parado */
+      });
+    } else {
+      setInstance((n) => n + 1);
+    }
+  };
 
   return (
     <div ref={boxRef} className={cn("relative h-full w-full overflow-hidden bg-black", className)}>
+      {near && (
+        <PostVideoElement
+          key={instance}
+          src={src}
+          shouldPlay={inView && !paused && !pageHidden && !gaveUp}
+          muted={muted}
+          startAt={resumeAt}
+          videoRef={videoRef}
+          onFirstFrame={() => setPainted(true)}
+          onStuck={handleStuck}
+        />
+      )}
+      {/* A capa fica POR CIMA do vídeo até o 1º frame. Antes era o vídeo que
+          ficava invisível (opacity 0) até pintar — mexer na opacidade da camada
+          do <video> enquanto ele começa a tocar é um gatilho conhecido do
+          WebKit para a imagem congelar com o áudio andando. */}
       {poster && (
         <img
           src={poster}
@@ -253,23 +548,20 @@ export function PostVideo({ src, poster, alt, paused = false, className }: PostV
           decoding="async"
           draggable={false}
           className="absolute inset-0 block h-full w-full object-cover"
+          style={{ opacity: painted && !gaveUp ? 0 : 1, transition: "opacity .15s ease-out", pointerEvents: "none" }}
         />
       )}
-      {mountVideo && (
-        <div
-          className="absolute inset-0"
-          // Some por opacidade até o 1º frame: sem isso o <video> recém-montado
-          // pintaria preto por cima da capa.
-          style={{ opacity: painted ? 1 : 0, transition: "opacity .15s ease-out" }}
+      {gaveUp && (
+        <button
+          type="button"
+          data-no-hold
+          onClick={retryFromTap}
+          aria-label={t("post_video_play")}
+          className="absolute left-1/2 top-1/2 flex h-16 w-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full text-white active:scale-90 transition-transform"
+          style={{ background: "rgba(0,0,0,.5)", border: "1px solid rgba(255,255,255,.2)" }}
         >
-          <PostVideoElement
-            src={src}
-            shouldPlay={inView && !paused && !pageHidden}
-            muted={muted}
-            onFirstFrame={() => setPainted(true)}
-            onError={() => setFailed(true)}
-          />
-        </div>
+          <Play className="h-7 w-7 translate-x-[2px]" fill="currentColor" />
+        </button>
       )}
     </div>
   );

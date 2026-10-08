@@ -16,7 +16,6 @@ import { getUserSafe, hasSupabaseConfig, supabase, registerViewerCacheInvalidato
 import type { PostWorkoutSummary } from "@/lib/workout-summary-types";
 import { SHARE_BASE_URL } from "@/lib/share-url";
 import { estimateOneRepMax } from "@/lib/one-rep-max";
-import { getHabitKind, type HabitKind } from "@/lib/habit-kinds";
 import { compressImageFile } from "@/lib/image-compress";
 import {
   getNetworkStatus,
@@ -30,6 +29,7 @@ import {
   flushOutbox,
 } from "@/lib/offline-outbox";
 import { FEATURES } from "@/lib/feature-flags";
+import { requestBadgeCheck } from "@/lib/badges";
 import { verifiedTierOf, type VerifiedTier } from "@/lib/verified-tier";
 import { parseModerationNotice, type ModerationNotice, type ModerationReason } from "@/lib/notification-copy";
 
@@ -812,6 +812,7 @@ export function togglePostIncentiveDb(
         type: incentiveType,
       });
       if (error) console.error("Error inserting incentive:", error);
+      else requestBadgeCheck(); // "Incentivador"
     } else if (!wantActive && existing?.id) {
       const { error } = await supabase.from("likes").delete().eq("id", existing.id);
       if (error) console.error("Error deleting incentive:", error);
@@ -1125,6 +1126,7 @@ export async function addPostCommentDb(postId: string, text: string, parentId?: 
   }
 
   invalidateQueryCache("postComments");
+  requestBadgeCheck(); // "Primeiro comentário" / "Papo em dia"
 }
 
 export async function getPostCommentsDb(
@@ -3609,6 +3611,12 @@ export type RoutineLastSummary = {
    */
   caloriesKcal?: number | null;
   completedAt: string;
+  /**
+   * Treinar junto (2026-10-06): a party da sessão. Sem ele, reabrir o resumo
+   * perdia o card/canvas "Treino em conjunto" (o overlay lê os participantes por
+   * `partyId`). Ausente nos snapshots anteriores e em todo treino solo.
+   */
+  partyId?: string | null;
 };
 
 export type Workout = {
@@ -3980,8 +3988,10 @@ export async function getFlowWorkoutSessionDb(
   found: boolean;
   routineName: string | null;
   exercises: Array<{ name: string; sets: number; kg: number; isCardio?: boolean }> | null;
+  /** Números da sessão (só quando é a MESMA sessão) — completam flow antigo com campos zerados. */
+  stats: { totalSeries: number; totalVolume: number; durationSecs: number; prCount: number; caloriesKcal: number | null } | null;
 }> {
-  const empty = { found: false, routineName: null, exercises: null };
+  const empty = { found: false, routineName: null, exercises: null, stats: null };
   if (!hasSupabaseConfig || !supabase || !authorId) return empty;
   const { data, error } = await supabase
     .from("routines")
@@ -4006,6 +4016,15 @@ export async function getFlowWorkoutSessionDb(
           kg: e.isCardio ? cardioTotalMinutes(e.sets) : Number(e.bestKg ?? 0),
           isCardio: e.isCardio || undefined,
         }))
+      : null,
+    stats: sameSession
+      ? {
+          totalSeries: Number(summary!.totalSeries ?? 0),
+          totalVolume: Number(summary!.totalVolume ?? 0),
+          durationSecs: Number(summary!.durationSecs ?? 0),
+          prCount: Array.isArray(summary!.prExercises) ? summary!.prExercises.length : 0,
+          caloriesKcal: summary!.caloriesKcal != null ? Number(summary!.caloriesKcal) : null,
+        }
       : null,
   };
 }
@@ -4280,6 +4299,7 @@ export async function createRoutineDb(
 
   if (!data) return null;
 
+  requestBadgeCheck(); // "Rotina montada"
   return {
     id: String(data.id ?? ""),
     user_id: String(data.user_id ?? ""),
@@ -6261,6 +6281,7 @@ export async function followUserDb(followingId: string): Promise<boolean> {
   }
 
   invalidateQueryCache("following"); invalidateQueryCache("followers"); invalidateQueryCache("followingIds"); invalidateQueryCache("userStats"); invalidateQueryCache("isFollowing");
+  requestBadgeCheck(); // "Conectado"
   return true;
 }
 
@@ -6542,12 +6563,16 @@ export type StoryWorkoutSticker = {
   /** quantos exercícios ficaram de fora de `exercises` (vira "+N exercícios") */
   extraCount?: number;
   /**
-   * Informações que o autor escolheu ocultar no card. Ausente = mostra tudo
-   * (flows antigos). Os valores ocultos já saem ZERADOS do snapshot
-   * (`applyStickerFields`), para não ficarem no jsonb nem aparecerem em builds
-   * antigos. As exceções são `series` e `date`: `date` é a chave que o drawer
-   * usa para achar a sessão, e zerar `series` faria build antigo mostrar
-   * "0 séries". Para essas duas, a lista é a única fonte.
+   * Lista COMPLETA dos exercícios feitos — só gravada quando passa do que cabe
+   * no card (`extraCount` > 0). Lida só pelo "Ver treino" do flow (2026-10-08).
+   */
+  allExercises?: Array<{ name: string; sets: number; kg: number; isCardio?: boolean }>;
+  /**
+   * Informações que o autor escolheu ocultar no CARD. Ausente = mostra tudo.
+   * Desde 2026-10-08 os valores continuam no snapshot (o card os esconde via
+   * `stickerCardView`) e o "Ver treino" mostra o treino inteiro. Flows
+   * publicados antes disso têm os ocultos ZERADOS — o drawer completa com
+   * `getFlowWorkoutSessionDb` enquanto for a mesma sessão.
    */
   hidden?: WorkoutStickerField[];
 };
@@ -7157,6 +7182,7 @@ export async function createStoryDb(
       );
     }
 
+    if (data) requestBadgeCheck(); // "Primeiro flow" / "Treino compartilhado"
     return data ? { ...data, id: String(data.id), user_id: String(data.user_id) } : null;
   } catch (err: any) {
     console.error("Error creating story:", err);
@@ -7346,6 +7372,7 @@ export async function toggleStoryLikeDb(
       console.error("Error inserting story like:", error);
       throw error;
     }
+    requestBadgeCheck(); // "Incentivador"
     // Notification is created by the DB trigger `trg_notify_on_flow_incentive`
     // on flow_likes (mirrors shots). Do not insert here or it duplicates.
   }
@@ -7422,6 +7449,7 @@ export async function addStoryCommentDb(
       .maybeSingle();
 
     if (error) throw error;
+    requestBadgeCheck(); // "Primeiro comentário" / "Papo em dia"
     // Notification is created by the DB trigger `trg_notify_flow_comment`
     // on flow_comments (mirrors shots). Do not insert here or it duplicates.
 
@@ -10273,6 +10301,7 @@ export async function createPostDb(
     }
 
     invalidateQueryCache("userPosts"); invalidateQueryCache("post:");
+    requestBadgeCheck(); // "Primeiro post" / "Treino compartilhado" / "Criador"
     return postId;
   } catch (err: any) {
     console.error("Error creating post:", err);
@@ -10716,10 +10745,6 @@ async function insertCheckInOnlineDb(userId: string, checkInDate: string): Promi
   }
 
   invalidateQueryCache("todayCheckIn"); invalidateQueryCache("weekCheckIns"); invalidateQueryCache("checkInHistory"); invalidateQueryCache("completedRoutines");
-  // Contagem total e acervo de insígnias (o check-in pode conceder novas).
-  // A insígnia EXIBIDA não muda com o check-in (é escolha persistida do usuário),
-  // mas o fallback de quem nunca escolheu depende do acervo — daí invalidar também.
-  invalidateQueryCache(`totalCheckIns:${userId}`); invalidateQueryCache(`displayBadge:${userId}`); invalidateQueryCache(`userBadges:${userId}`);
   return inserted as CheckIn;
 }
 
@@ -10748,7 +10773,6 @@ export async function createCheckInDb(userId: string, checkInDate?: string): Pro
     if (!existing) {
       enqueueOutbox("check_in", { userId, checkInDate: dateStr });
       offlineCopyWrite(`checkInHistory:${userId}`, [synthetic, ...copy]);
-      offlineCopyPatch<number>(`totalCheckIns:${userId}`, (n) => n + 1);
       invalidateQueryCache("todayCheckIn"); invalidateQueryCache("weekCheckIns"); invalidateQueryCache("checkInHistory"); invalidateQueryCache("completedRoutines");
     }
     return synthetic;
@@ -14147,31 +14171,25 @@ export async function updateCheckInCommentDb(commentId: string, text: string): P
 // Badge / Insígnia Functions
 // ============================================================
 
+/**
+ * Métrica que cada insígnia mede (v2, 2026-10-06 — treino, conteúdo e
+ * comunidade). Contadas no servidor por `_badge_metrics`; a insígnia sai quando
+ * a métrica chega em `required_checkins` (nome histórico da coluna = limiar).
+ * Ver docs/migrations/20261006-badges-v2.sql.
+ */
 export type BadgeConditionType =
-  | 'checkin_total'         // total acumulado de check-ins
-  | 'checkin_week'          // check-ins na semana atual (Dom–Sáb)
-  | 'checkin_streak'        // dias consecutivos de check-in
-  | 'checkin_after_midnight'// check-in realizado entre 00:00 e 05:59
-  | 'checkin_before_time'   // check-in antes de hora X (condition_metadata.hour)
-  | 'checkin_comeback'      // primeiro check-in após ≥7 dias sem atividade
-  | 'workout_week'          // treinos realizados na semana atual
-  | 'workout_type'          // treinos de tipo específico (condition_metadata.type)
-  | 'nutrition_hydration'   // meta de hidratação
-  | 'nutrition_week'        // semana nutritiva
-  | 'nutrition_no_ultra'    // sem ultraprocessados
-  | 'nutrition_no_sugar'    // sem açúcar
-  | 'nutrition_protein'     // meta de proteína
-  | 'nutrition_home_food'   // prato preparado + zero ultraprocessado no dia (diets.category)
-  | 'nutrition_fruits'      // fruta no dia (diets.category = 'Frutas e derivados')
-  | 'habit_sleep'           // hábito de sono concluído (user_habits_hist)
-  | 'habit_no_alcohol'      // hábito de evitar álcool concluído
-  | 'habit_meditation'      // hábito de meditação/respiração concluído
-  | 'habit_steps'           // hábito de caminhada/passos concluído
-  | 'habit_perfect_week'    // dias seguidos de check-in (streak)
-  | 'habit_perfect_day'     // um dia com treino + hábito + alimentação
-  | 'habit_perfect_30d'     // dias seguidos de check-in (streak longo)
-  | 'app_usage'             // dias de uso do app
-  | 'challenge_count';      // duelos distintos em que entrou (accepted)
+  | 'workouts_total'    // treinos finalizados (sessões, não séries)
+  | 'routines_total'    // rotinas de treino criadas
+  | 'posts_total'       // posts publicados
+  | 'workouts_shared'   // posts com resumo de treino + flows com o mini frame de treino
+  | 'flows_total'       // flows publicados (sem repost)
+  | 'party_workouts'    // treinos em conjunto finalizados
+  | 'challenges_total'  // desafios de treino em que gravou os próprios números
+  | 'incentives_given'  // incentivos mandados para conteúdo de outras pessoas
+  | 'incentives_received' // incentivos de outras pessoas nos meus posts/flows
+  | 'comments_given'    // comentários em posts/flows de outras pessoas
+  | 'followers_total'   // seguidores
+  | 'following_total';  // pessoas que eu sigo
 
 export type Badge = {
   id: string;
@@ -14183,8 +14201,6 @@ export type Badge = {
   sort_order: number;
   condition_type: BadgeConditionType;
   condition_metadata: Record<string, any> | null;
-  /** Insígnia exclusiva de assinante premium (seleção gateada no app). */
-  premium?: boolean;
 };
 
 export type UserBadge = {
@@ -14193,32 +14209,6 @@ export type UserBadge = {
   badge: Badge;
 };
 
-/** Retorna o total de check-ins acumulados de um usuário (todos os tempos) */
-export async function getTotalCheckInsDb(userId: string): Promise<number> {
-  if (!hasSupabaseConfig || !supabase) return 0;
-  try {
-    // Cacheado pelo mesmo motivo de getDisplayBadgeDb (UserInsignias remonta
-    // a cada post aberto). Check-ins novos invalidam via createCheckInDb.
-    return await cached(`totalCheckIns:${userId}`, CACHE_TTL_SHORT, async () => {
-      const { count, error } = await supabase!
-        .from("check_ins")
-        .select("id", { count: "exact", head: true })
-        .eq("user_id", userId);
-      if (error) throw error;
-      const total = count ?? 0;
-      offlineCopyWrite(`totalCheckIns:${userId}`, total);
-      return total;
-    });
-  } catch (err) {
-    console.error("Error fetching total check-ins:", err);
-    if (isTransientNetworkError(err)) {
-      const off = offlineCopyRead<number>(`totalCheckIns:${userId}`);
-      if (off != null) return off;
-    }
-    return 0;
-  }
-}
-
 /** Retorna todos os badges do catálogo ordenados por sort_order */
 export async function getAllBadgesDb(): Promise<Badge[]> {
   if (!hasSupabaseConfig || !supabase) return [];
@@ -14226,7 +14216,7 @@ export async function getAllBadgesDb(): Promise<Badge[]> {
     return await cached("allBadges", CACHE_TTL_LONG, async () => {
       const { data, error } = await supabase!
         .from("badges")
-        .select("id, key, name, emoji, description, required_checkins, sort_order, condition_type, condition_metadata, premium")
+        .select("id, key, name, emoji, description, required_checkins, sort_order, condition_type, condition_metadata")
         .order("sort_order", { ascending: true });
       if (error) throw error;
       const rows = (data ?? []) as Badge[];
@@ -14246,7 +14236,7 @@ export async function getUserBadgesDb(userId: string): Promise<UserBadge[]> {
     return await cached(`userBadges:${userId}`, CACHE_TTL_SHORT, async () => {
       const { data, error } = await supabase!
         .from("user_badges")
-        .select("badge_id, earned_at, badges(id, key, name, emoji, description, required_checkins, sort_order, condition_type, condition_metadata, premium)")
+        .select("badge_id, earned_at, badges(id, key, name, emoji, description, required_checkins, sort_order, condition_type, condition_metadata)")
         .eq("user_id", userId)
         .order("earned_at", { ascending: false });
       if (error) throw error;
@@ -14620,27 +14610,13 @@ export async function upsertNutritionGoalsDb(goals: NutritionGoals): Promise<voi
 
 /**
  * Uma insígnia está desbloqueada se o usuário a CONQUISTOU (linha em
- * user_badges). Insígnias de `checkin_total` também contam quando o total de
- * check-ins já cobre o requisito, mesmo sem linha: o awarding roda no cliente
- * durante o check-in, então quem acumulou check-ins fora desse caminho (ou
- * antes da migração 20260714) ainda enxerga a insígnia como sua.
- *
- * Para os demais tipos, `required_checkins` é o limiar de OUTRA métrica (dias
- * de streak, treinos na semana…), então comparar com o total de check-ins
- * liberaria insígnias não conquistadas — por isso só o acervo vale.
+ * user_badges). Só o acervo vale: quem grava é o servidor (`awardMyBadgesDb`),
+ * então "a métrica já passou do limiar mas ainda não tem linha" se resolve na
+ * próxima avaliação — nunca liberando pelo cliente.
  */
-export function isBadgeUnlocked(
-  badge: Badge,
-  earnedBadgeIds: Set<string> | string[],
-  totalCheckIns: number
-): boolean {
-  const earned =
-    earnedBadgeIds instanceof Set ? earnedBadgeIds : new Set(earnedBadgeIds);
-  if (earned.has(String(badge.id))) return true;
-  return (
-    badge.condition_type === "checkin_total" &&
-    totalCheckIns >= (badge.required_checkins ?? 0)
-  );
+export function isBadgeUnlocked(badge: Badge, earnedBadgeIds: Set<string> | string[]): boolean {
+  const earned = earnedBadgeIds instanceof Set ? earnedBadgeIds : new Set(earnedBadgeIds);
+  return earned.has(String(badge.id));
 }
 
 /**
@@ -14659,41 +14635,18 @@ export async function setSelectedBadgeDb(badgeId: string): Promise<void> {
   if (!viewer) throw new Error("Não autenticado");
 
   try {
-    // 1. Validar que a insígnia foi de fato conquistada
-    const [badgeRes, earned, totalCheckIns] = await Promise.all([
-      supabase
-        .from("badges")
-        .select("id, key, name, emoji, description, required_checkins, sort_order, condition_type, condition_metadata, premium")
-        .eq("id", badgeId)
-        .single(),
-      getUserBadgesDb(viewer.id),
-      getTotalCheckInsDb(viewer.id),
-    ]);
-
-    const badge = badgeRes.data as Badge | null;
-    if (!badge) throw new Error("Insígnia não encontrada");
-
-    const earnedIds = new Set(earned.map((ub) => String(ub.badge_id)));
-    if (!isBadgeUnlocked(badge, earnedIds, totalCheckIns)) {
+    // 1. Só dá para exibir o que está no acervo (quem grava o acervo é o
+    // servidor — o cliente não tem mais permissão de inserir em user_badges).
+    const earned = await getUserBadgesDb(viewer.id);
+    if (!earned.some((ub) => String(ub.badge_id) === String(badgeId))) {
       // Código, não frase: quem exibe traduz (ver InsigniasDrawer).
       throw new Error("BADGE_NOT_UNLOCKED");
     }
 
-    // 2. Garantir a linha no acervo (idempotente). Cobre a insígnia de
-    // `checkin_total` liberada pelo total mas ainda sem linha.
-    if (!earnedIds.has(String(badge.id))) {
-      await supabase
-        .from("user_badges")
-        .upsert(
-          { user_id: viewer.id, badge_id: badge.id },
-          { onConflict: "user_id,badge_id", ignoreDuplicates: true }
-        );
-    }
-
-    // 3. Persistir a escolha
+    // 2. Persistir a escolha
     const { error: updateError } = await supabase
       .from("profiles")
-      .update({ selected_badge_id: badge.id })
+      .update({ selected_badge_id: badgeId })
       .eq("user_id", viewer.id);
     if (updateError) throw updateError;
   } catch (err) {
@@ -14702,933 +14655,142 @@ export async function setSelectedBadgeDb(badgeId: string): Promise<void> {
   }
 
   invalidateQueryCache(`userBadges:${viewer.id}`);
-  invalidateQueryCache(`displayBadge:${viewer.id}`);
+  invalidateQueryCache(`badgeDisplay:${viewer.id}`);
 }
 
-// ─── Helpers para condições de insígnias ─────────────────────────────────────
+// ─── Concessão (servidor) ────────────────────────────────────────────────────
 
 /**
- * Data em YYYY-MM-DD no fuso LOCAL do dispositivo. `toISOString()` seria UTC e
- * jogaria o jantar das 22h (ou a madrugada) para o dia errado.
+ * Progresso de cada métrica do catálogo — uma chave por `condition_type`,
+ * contada no banco por `_badge_metrics` (docs/migrations/20261006-badges-v2.sql).
  */
-function fmtLocalDate(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
+export type BadgeMetrics = Partial<Record<BadgeConditionType, number>>;
 
-/** Conta check-ins na semana atual (Domingo a Sábado, usando data local). */
-async function _getWeekCheckinCountDb(userId: string): Promise<number> {
-  if (!supabase) return 0;
-  const today = new Date();
-  const dow = today.getDay(); // 0=Dom
-  const sunday = new Date(today);
-  sunday.setDate(today.getDate() - dow);
-  const saturday = new Date(sunday);
-  saturday.setDate(sunday.getDate() + 6);
-  const fmt = (d: Date) =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  const { count } = await supabase
-    .from("check_ins")
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", userId)
-    .gte("check_in_date", fmt(sunday))
-    .lte("check_in_date", fmt(saturday));
-  return count ?? 0;
-}
+/**
+ * Avalia e concede as insígnias do usuário logado NO SERVIDOR (RPC
+ * `award_my_badges`) e devolve as conquistadas NESTA chamada + o progresso.
+ *
+ * Desde 2026-10-06 o cliente não grava mais `user_badges` (a RLS só deixa
+ * ler): a avaliação de ~900 linhas que rodava aqui dependia de dieta, hábito e
+ * check-in, e a policy antiga deixava qualquer um se dar qualquer insígnia.
+ * Duas chamadas simultâneas nunca devolvem a mesma insígnia (ON CONFLICT no
+ * banco), então pode chamar à vontade — só a primeira celebra.
+ */
+export async function awardMyBadgesDb(): Promise<{ awarded: Badge[]; metrics: BadgeMetrics }> {
+  const empty = { awarded: [] as Badge[], metrics: {} as BadgeMetrics };
+  if (!hasSupabaseConfig || !supabase) return empty;
+  const viewer = await getViewer();
+  if (!viewer) return empty;
 
-/** Calcula a sequência atual de dias consecutivos de check-in (streak). */
-async function _getCheckinStreakDb(userId: string): Promise<number> {
-  if (!supabase) return 0;
-  // Busca os últimos 100 dias para cobrir streaks longos
-  const since = new Date();
-  since.setDate(since.getDate() - 100);
-  const { data } = await supabase
-    .from("check_ins")
-    .select("check_in_date")
-    .eq("user_id", userId)
-    .gte("check_in_date", since.toISOString().slice(0, 10))
-    .order("check_in_date", { ascending: false });
+  const { data, error } = await supabase.rpc("award_my_badges");
+  if (error) throw error;
+  const res = (data ?? {}) as { awarded?: string[] | null; metrics?: Record<string, unknown> | null };
 
-  if (!data || data.length === 0) return 0;
-
-  const fmt = (d: Date) =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-
-  const today = fmt(new Date());
-  const yesterday = fmt(new Date(Date.now() - 86400000));
-  const mostRecent = data[0].check_in_date;
-
-  // Streak só conta se o check-in mais recente foi hoje ou ontem
-  if (mostRecent !== today && mostRecent !== yesterday) return 0;
-
-  const dateSet = new Set(data.map((r: any) => String(r.check_in_date)));
-  let streak = 0;
-  const cursor = new Date();
-  if (mostRecent === yesterday) cursor.setDate(cursor.getDate() - 1);
-
-  while (dateSet.has(fmt(cursor))) {
-    streak++;
-    cursor.setDate(cursor.getDate() - 1);
+  const metrics: BadgeMetrics = {};
+  for (const [k, v] of Object.entries(res.metrics ?? {})) {
+    const n = Number(v);
+    if (Number.isFinite(n)) metrics[k as BadgeConditionType] = n;
   }
-  return streak;
+
+  const awardedIds = new Set((res.awarded ?? []).map(String));
+  if (awardedIds.size === 0) return { awarded: [], metrics };
+
+  invalidateQueryCache(`userBadges:${viewer.id}`);
+  invalidateQueryCache(`badgeDisplay:${viewer.id}`);
+  const awarded = (await getAllBadgesDb())
+    .filter((b) => awardedIds.has(String(b.id)))
+    .sort((a, b) => a.sort_order - b.sort_order);
+  return { awarded, metrics };
 }
+
 
 /**
- * Retorna a data do check-in anterior ao mais recente (o penúltimo).
- * Usado para detectar "comeback" (retorno após longa ausência).
- */
-async function _getPreviousCheckinDateDb(userId: string): Promise<Date | null> {
-  if (!supabase) return null;
-  const { data } = await supabase
-    .from("check_ins")
-    .select("check_in_date")
-    .eq("user_id", userId)
-    .order("check_in_date", { ascending: false })
-    .limit(2);
-  if (!data || data.length < 2) return null;
-  return new Date(data[1].check_in_date + "T12:00:00");
-}
-
-/**
- * Uma linha do histórico de treino reduzida ao que as insígnias precisam:
- * o DIA LOCAL da execução e o grupo muscular do exercício executado.
- */
-type WorkoutHistDay = { day: string; muscleGroup: string };
-
-/**
- * Grupos musculares que NÃO contam como treino de FORÇA: cardio tem insígnia
- * própria, e alongamento/mobilidade são complemento — quem só alongou a semana
- * inteira não fez 3 treinos de força.
- */
-const NON_STRENGTH_MUSCLE_GROUPS = new Set(["cardio", "alongamento", "mobilidade"]);
-
-/** Grupo muscular sem acento e em minúsculas, para comparar com as listas acima. */
-function normalizeMuscleGroup(raw: unknown): string {
-  return String(raw ?? "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .trim();
-}
-
-/**
- * Histórico de treino do usuário como pares (dia local, grupo muscular) — base
- * de TODAS as insígnias de treino (`workout_week` e `workout_type`).
+ * A insígnia ESCOLHIDA do usuário e se ele a exibe (`profiles.show_badge`,
+ * 2026-10-08 — o usuário pode esconder a insígnia do lado do nome).
  *
- * Duas coisas que já erraram aqui e não podem voltar:
+ * Regra da escolhida: `profiles.selected_badge_id` sempre vence, desde que
+ * ainda esteja no acervo. Conquistar novas insígnias não muda a escolhida — só
+ * uma escolha explícita muda. O fallback para a de maior sort_order vale só
+ * para quem nunca escolheu nenhuma (o comportamento automático de sempre, até
+ * a primeira escolha).
  *
- * 1. **A tabela é `user_workouts_hist`.** Até 21/08/2026 estas leituras
- *    apontavam para uma `workout_histories` que nunca existiu no banco: a
- *    query falhava em silêncio, o count vinha 0 e NENHUMA insígnia de treino
- *    (cardio, força, 3 treinos na semana) podia ser conquistada, por mais
- *    cardio que a pessoa fizesse.
- * 2. **O tipo do treino sai do `muscle_group`**, não de uma coluna
- *    `workout_type` (que também não existe). É a mesma fonte que o resto do app
- *    usa para decidir o que é cardio (ver `client/lib/cardio-exercises.ts`) —
- *    inclusive os cardios estacionários (burpee, polichinelo), que são cardio
- *    de verdade e só se registram em KG×REPS.
- *
- * O histórico grava **uma linha por série**, então contar linhas contaria
- * séries: um único treino de 20 séries estouraria "3 treinos na semana"
- * sozinho. Por isso quem conta são os DIAS DISTINTOS (ver as funções abaixo).
- */
-async function _getWorkoutHistDaysDb(userId: string): Promise<WorkoutHistDay[]> {
-  if (!supabase) return [];
-  // Teto alinhado com as outras leituras de insígnia (check-ins, uso do app).
-  // Quem tem mais de 3000 séries já conquistou tudo isso há muito tempo, e as
-  // mais recentes continuam cobrindo dias distintos de sobra.
-  const { data } = await supabase
-    .from("user_workouts_hist")
-    .select("date_completed, workout_id")
-    .eq("user_id", userId)
-    .order("date_completed", { ascending: false })
-    .limit(3000);
-  if (!data) return [];
-  // Grupo muscular vem do catálogo ou do exercício personalizado. Linha cujo
-  // exercício não existe mais fica de fora (era o que o !inner fazia).
-  const details = await fetchWorkoutDetailsByIds((data as any[]).map((r) => r.workout_id));
-  return (data as any[])
-    .map((r) => {
-      const d = new Date(String(r.date_completed));
-      if (isNaN(d.getTime())) return null;
-      const w = details.get(String(r.workout_id));
-      if (!w) return null;
-      return { day: fmtLocalDate(d), muscleGroup: normalizeMuscleGroup(w.muscle_group) };
-    })
-    .filter((r): r is WorkoutHistDay => r !== null);
-}
-
-/** Dias distintos com treino na semana atual (Domingo→hoje, data local). */
-function countWeekWorkoutDays(rows: WorkoutHistDay[]): number {
-  const today = new Date();
-  const sunday = new Date(today);
-  sunday.setDate(today.getDate() - today.getDay());
-  // Zerar a hora importa: sem isso o domingo só passava a contar depois do
-  // horário atual, e o treino feito de manhã sumia da semana.
-  sunday.setHours(0, 0, 0, 0);
-  const from = fmtLocalDate(sunday);
-  const days = new Set<string>();
-  for (const r of rows) if (r.day >= from) days.add(r.day); // YYYY-MM-DD ordena como string
-  return days.size;
-}
-
-/**
- * Dias distintos com treino do tipo pedido (`condition_metadata.type`).
- * `forca` = qualquer grupo muscular que não seja cardio/alongamento/mobilidade;
- * qualquer outro valor casa direto com o `muscle_group` (`cardio`, `pernas`…).
- */
-function countWorkoutTypeDays(rows: WorkoutHistDay[], type: string): number {
-  const wanted = normalizeMuscleGroup(type);
-  if (!wanted) return 0;
-  const matches =
-    wanted === "forca"
-      ? (g: string) => g !== "" && !NON_STRENGTH_MUSCLE_GROUPS.has(g)
-      : (g: string) => g === wanted;
-  const days = new Set<string>();
-  for (const r of rows) if (matches(r.muscleGroup)) days.add(r.day);
-  return days.size;
-}
-
-/**
- * Horas LOCAIS de todos os check-ins do usuário (a partir de `created_at`).
- * Usado pelas insígnias de horário (madrugador / noturno), que precisam contar
- * QUANTOS check-ins bateram a janela de hora — não só o do momento.
- */
-async function _getCheckinHoursDb(userId: string): Promise<number[]> {
-  if (!supabase) return [];
-  const { data } = await supabase
-    .from("check_ins")
-    .select("created_at")
-    .eq("user_id", userId)
-    .not("created_at", "is", null)
-    .limit(2000);
-  if (!data) return [];
-  return data
-    .map((r: any) => new Date(String(r.created_at)).getHours())
-    .filter((h) => Number.isFinite(h));
-}
-
-/**
- * Dias consecutivos que satisfazem `ok`, contados de hoje para trás.
- *
- * Se HOJE ainda não satisfaz, a sequência vale até ontem — o dia não acabou e
- * ninguém perde uma sequência de 20 dias por abrir o app às 8h da manhã.
- */
-function _dayStreak(ok: (date: string) => boolean): number {
-  const cursor = new Date();
-  if (!ok(fmtLocalDate(cursor))) cursor.setDate(cursor.getDate() - 1);
-  let streak = 0;
-  while (ok(fmtLocalDate(cursor))) {
-    streak++;
-    cursor.setDate(cursor.getDate() - 1);
-  }
-  return streak;
-}
-
-/** Um hábito concluído: o DIA LOCAL da conclusão e o tipo do hábito. */
-type HabitHistDay = { day: string; kind: HabitKind };
-
-/**
- * Hábitos concluídos pelo usuário nos últimos 120 dias, como pares
- * (dia local, tipo) — base das insígnias `habit_sleep`, `habit_meditation`,
- * `habit_no_alcohol` e `habit_steps`.
- *
- * A prova é `user_habits_hist`: uma linha é gravada a cada vez que a pessoa
- * MARCA o hábito como feito (`saveHabitHistoryDb`). O tipo sai do NOME do
- * hábito (ver `client/lib/habit-kinds.ts`), porque o catálogo não tem coluna de
- * categoria e o hábito custom criado pela pessoa precisa contar igual.
- *
- * 120 dias cobrem com folga a maior sequência exigida (7) e mantêm a leitura
- * barata — sequência mais antiga que isso já teria concedido a insígnia.
- */
-async function _getHabitHistDaysDb(userId: string): Promise<HabitHistDay[]> {
-  if (!supabase) return [];
-  const since = new Date();
-  since.setDate(since.getDate() - 120);
-  const { data } = await supabase
-    .from("user_habits_hist")
-    .select("created_at, habits!inner(name, name_eng)")
-    .eq("user_id", userId)
-    .gte("created_at", since.toISOString())
-    .order("created_at", { ascending: false })
-    .limit(3000);
-  if (!data) return [];
-  return (data as any[])
-    .map((r) => {
-      const d = new Date(String(r.created_at));
-      if (isNaN(d.getTime())) return null;
-      const h = Array.isArray(r.habits) ? r.habits[0] : r.habits;
-      // O nome em inglês só entra quando o hábito é do catálogo e a pessoa usa
-      // o app em EN; classificar os dois cobre os dois casos sem depender do
-      // idioma ativo no momento do check-in.
-      const kind = getHabitKind(h?.name);
-      return {
-        day: fmtLocalDate(d),
-        kind: kind !== "other" ? kind : getHabitKind(h?.name_eng),
-      };
-    })
-    .filter((r): r is HabitHistDay => r !== null);
-}
-
-/** Dias LOCAIS distintos em que a pessoa registrou algo no diário alimentar. */
-async function _getFoodLogDaysDb(userId: string): Promise<Set<string>> {
-  if (!supabase) return new Set();
-  const since = new Date();
-  since.setDate(since.getDate() - 120);
-  const { data } = await supabase
-    .from("user_food_logs")
-    .select("log_date")
-    .eq("user_id", userId)
-    .gte("log_date", fmtLocalDate(since))
-    .limit(3000);
-  // `log_date` já é gravado em DIA LOCAL pelo app (ver o schema) — não passa por Date.
-  return new Set(((data ?? []) as any[]).map((r) => String(r.log_date)));
-}
-
-/** Duelos distintos em que o usuário entrou de fato (convite aceito). */
-async function _getDuelCountDb(userId: string): Promise<number> {
-  if (!supabase) return 0;
-  const { data } = await supabase
-    .from("duel_group_participants")
-    .select("group_id")
-    .eq("user_id", userId)
-    .eq("status", "accepted")
-    .limit(500);
-  if (!data) return 0;
-  // Distinto por grupo: entrar, sair e voltar no mesmo duelo é UM desafio.
-  return new Set((data as any[]).map((r) => String(r.group_id))).size;
-}
-
-/** Dias distintos em que a pessoa concluiu um hábito do tipo pedido. */
-function habitKindDays(rows: HabitHistDay[], kind: HabitKind): Set<string> {
-  const days = new Set<string>();
-  for (const r of rows) if (r.kind === kind) days.add(r.day);
-  return days;
-}
-
-/** Conta dias distintos em que o usuário abriu o app (access_sessions). */
-async function _getAppUsageDaysDb(userId: string): Promise<number> {
-  if (!supabase) return 0;
-  const { data } = await supabase
-    .from("access_sessions")
-    .select("session_date")
-    .eq("user_id", userId)
-    .limit(2000);
-  if (!data) return 0;
-  return new Set(data.map((r: any) => String(r.session_date))).size;
-}
-
-/**
- * Limiar mínimo por tipo de condição, usado quando `badges.required_checkins`
- * está zerado/1 na linha.
- *
- * Por que existe: as insígnias de hábito, comida e desafio foram cadastradas
- * direto no painel do Supabase (não há migração de seed para elas) e várias
- * ficaram com `required_checkins = 0`. Como o avaliador faz
- * `Math.max(1, required_checkins)`, ativar esses tipos sem um piso entregaria
- * "Sono 7 dias" na PRIMEIRA noite marcada — a mesma classe de bug do Madrugador
- * em 14/07/2026. O número aqui é o que o próprio `key` da insígnia promete
- * (`sono_7d` → 7, `meditacao_5d` → 5, `modo_monge` → 30).
- *
- * A migração `20260821-badge-thresholds.sql` grava esses valores no banco; este
- * mapa é a rede de segurança para quem ainda não rodou.
- */
-const CONDITION_MIN_THRESHOLD: Partial<Record<BadgeConditionType, number>> = {
-  habit_sleep: 7,
-  habit_meditation: 5,
-  habit_no_alcohol: 7,
-  habit_steps: 7,
-  habit_perfect_week: 7,
-  habit_perfect_30d: 30,
-  habit_perfect_day: 1,
-  nutrition_fruits: 7,
-  nutrition_home_food: 5,
-  challenge_count: 3,
-};
-
-/**
- * Avalia se uma insígnia foi desbloqueada dado o contexto do check-in atual.
- *
- * Regra geral: `required_checkins` é o **limiar da métrica daquele tipo** — nunca
- * o total de check-ins. Para os tipos de horário isso significa "N check-ins
- * DENTRO da janela de hora", e não "1 check-in na janela" nem "N check-ins
- * quaisquer": a insígnia Madrugador (`checkin_before_time`, 9h) exige N check-ins
- * feitos antes das 9h. Um `threshold` de 0/1 degenera naturalmente em "basta um".
- */
-async function _evaluateBadgeCondition(
-  badge: Badge,
-  userId: string,
-  checkinAt: Date,
-  context: {
-    totalCheckIns: number;
-    weekCount?: number;
-    streak?: number;
-    prevCheckinDate?: Date | null;
-    weekWorkouts?: number;
-    checkinHours?: number[];
-    workoutDays?: WorkoutHistDay[];
-    habitDays?: HabitHistDay[];
-    foodLogDays?: Set<string>;
-    duelCount?: number;
-  }
-): Promise<boolean> {
-  const { condition_type, condition_metadata, required_checkins } = badge;
-  const threshold = Math.max(
-    1,
-    required_checkins > 1 ? required_checkins : CONDITION_MIN_THRESHOLD[condition_type] ?? required_checkins ?? 1
-  );
-
-  switch (condition_type) {
-    case "checkin_total":
-      return context.totalCheckIns >= threshold;
-
-    case "checkin_week": {
-      const weekCount = context.weekCount ?? 0;
-      return weekCount >= threshold;
-    }
-
-    case "checkin_streak": {
-      const streak = context.streak ?? 0;
-      return streak >= threshold;
-    }
-
-    case "checkin_after_midnight": {
-      // Quantos check-ins caíram na madrugada (00:00–05:59) — não só o de agora.
-      const hours = context.checkinHours ?? [];
-      const nightly = hours.filter((h) => h >= 0 && h < 6).length;
-      return nightly >= threshold;
-    }
-
-    case "checkin_before_time": {
-      // Quantos check-ins foram feitos ANTES da hora limite — não só o de agora.
-      const limitHour: number = condition_metadata?.hour ?? 9;
-      const hours = context.checkinHours ?? [];
-      const early = hours.filter((h) => h < limitHour).length;
-      return early >= threshold;
-    }
-
-    case "checkin_comeback": {
-      const prev = context.prevCheckinDate ?? null;
-      if (!prev) return false;
-      const daysDiff = Math.floor(
-        (checkinAt.getTime() - prev.getTime()) / (1000 * 60 * 60 * 24)
-      );
-      return daysDiff >= 7;
-    }
-
-    case "workout_week": {
-      const weekWorkouts = context.weekWorkouts ?? 0;
-      return weekWorkouts >= threshold;
-    }
-
-    case "workout_type": {
-      const wType: string = condition_metadata?.type ?? "";
-      if (!wType) return false;
-      // Dias de treino daquele tipo — o histórico já veio no contexto (uma
-      // leitura por check-in, não uma por insígnia).
-      const typeCount = countWorkoutTypeDays(context.workoutDays ?? [], wType);
-      return typeCount >= threshold;
-    }
-
-    case "app_usage": {
-      const days = await _getAppUsageDaysDb(userId);
-      return days >= threshold;
-    }
-
-    // ── Hábitos (21/08/2026) ────────────────────────────────────────────────
-    // A prova é `user_habits_hist`: só conta o hábito que a pessoa MARCOU como
-    // feito. O app não mede sono, meditação nem passos por sensor — quem prova
-    // é o registro do próprio usuário, exatamente como no diário alimentar.
-    case "habit_sleep":
-    case "habit_meditation":
-    case "habit_no_alcohol":
-    case "habit_steps": {
-      const kind: HabitKind =
-        condition_type === "habit_sleep"
-          ? "sleep"
-          : condition_type === "habit_meditation"
-            ? "meditation"
-            : condition_type === "habit_no_alcohol"
-              ? "no_alcohol"
-              : "steps";
-      const days = habitKindDays(context.habitDays ?? [], kind);
-      return _dayStreak((d) => days.has(d)) >= threshold;
-    }
-
-    // Semana perfeita / Modo monge: dias SEGUIDOS de check-in — a mesma
-    // sequência do anel de streak da tela de Metas (rotina concluída no dia).
-    case "habit_perfect_week":
-    case "habit_perfect_30d":
-      return (context.streak ?? 0) >= threshold;
-
-    // Super dia: um dia em que a pessoa fechou os TRÊS pilares do app —
-    // treino, hábito e alimentação. Um dia só (o `threshold` é 1), mas tem que
-    // ser o dia inteiro.
-    case "habit_perfect_day": {
-      const workoutDaySet = new Set((context.workoutDays ?? []).map((r) => r.day));
-      const habitDaySet = new Set((context.habitDays ?? []).map((r) => r.day));
-      const foodDays = context.foodLogDays ?? new Set<string>();
-      let perfect = 0;
-      for (const day of workoutDaySet) {
-        if (habitDaySet.has(day) && foodDays.has(day)) perfect++;
-      }
-      return perfect >= threshold;
-    }
-
-    // Desafio 3x: duelos distintos em que a pessoa entrou de fato.
-    case "challenge_count":
-      return (context.duelCount ?? 0) >= threshold;
-
-    // Insígnias de nutrição não passam por aqui: são avaliadas em
-    // `awardNutritionBadgesDb`, que já tem o diário alimentar em mãos.
-    default:
-      return false;
-  }
-}
-
-/**
- * Avalia as condições das insígnias de ATIVIDADE, concede as desbloqueadas e
- * devolve as recém-ganhas (para o popup).
- *
- * Roda em dois momentos, ambos na tela de Metas: ao concluir um treino/rotina
- * (junto com o check-in) e ao marcar um HÁBITO como feito — sem o segundo, a
- * insígnia de sono só sairia no dia em que a rotina inteira fosse fechada.
- *
- * As insígnias de nutrição têm avaliador próprio (`awardNutritionBadgesDb`),
- * que já carrega o diário alimentar.
- *
- * **Duas fases de propósito:** primeiro descobrimos o que ainda FALTA conquistar
- * e só então buscamos as métricas que esses candidatos exigem. Quem já tem as
- * insígnias de treino não paga mais a leitura do histórico a cada check-in, e
- * marcar um hábito não dispara as consultas de treino/duelo.
- *
- * @param userId - ID do usuário
- * @param checkinAt - Timestamp do check-in (default: agora)
- */
-export async function awardBadgesForCheckInsDb(
-  userId: string,
-  checkinAt: Date = new Date()
-): Promise<Badge[]> {
-  if (!hasSupabaseConfig || !supabase) return [];
-  // Avaliar insígnias exige o estado REAL do servidor (check-ins totais, streak,
-  // badges já conquistadas). Offline, as cópias locais responderiam e a lista de
-  // "já conquistadas" viria vazia — celebrando de novo badges antigas sem
-  // persistir nada. Sem rede, a avaliação fica para o replay do check-in.
-  if (isLikelyOffline()) return [];
-  try {
-    // ── Fase 1: o que ainda falta conquistar ────────────────────────────────
-    const [allBadges, existingRows, isPremium] = await Promise.all([
-      getAllBadgesDb(),
-      supabase.from("user_badges").select("badge_id").eq("user_id", userId),
-      getPremiumStatusDb(),
-    ]);
-
-    // Falha ao ler as badges existentes (ex.: rede caiu no meio) → aborta em
-    // vez de tratar como "nenhuma conquistada" e premiar duplicado.
-    if (existingRows.error) throw existingRows.error;
-
-    const alreadyEarnedIds = new Set(
-      ((existingRows.data ?? []) as any[]).map((r) => String(r.badge_id))
-    );
-
-    // Tipos avaliáveis aqui. Os de nutrição ficam de fora (ver doc acima).
-    const ACTIVITY_CONDITIONS: BadgeConditionType[] = [
-      "checkin_total",
-      "checkin_week",
-      "checkin_streak",
-      "checkin_after_midnight",
-      "checkin_before_time",
-      "checkin_comeback",
-      "workout_week",
-      "workout_type",
-      "app_usage",
-      "habit_sleep",
-      "habit_meditation",
-      "habit_no_alcohol",
-      "habit_steps",
-      "habit_perfect_week",
-      "habit_perfect_day",
-      "habit_perfect_30d",
-      "challenge_count",
-    ];
-
-    const candidates = allBadges.filter(
-      (b) =>
-        !alreadyEarnedIds.has(String(b.id)) &&
-        ACTIVITY_CONDITIONS.includes(b.condition_type) &&
-        // Insígnia premium só é concedida a assinante ativo (is_premium → tabela
-        // subscriptions). As 2 premium são checkin_total com required_checkins=0,
-        // então SEM este gate qualquer check-in as liberava para todo mundo.
-        !(b.premium && !isPremium)
-    );
-
-    if (candidates.length === 0) return [];
-
-    // ── Fase 2: só as métricas que os candidatos exigem ─────────────────────
-    const pending = new Set(candidates.map((b) => b.condition_type));
-    const needs = (...types: BadgeConditionType[]) => types.some((t) => pending.has(t));
-
-    const needsWorkoutDays = needs("workout_week", "workout_type", "habit_perfect_day");
-    const needsHabitDays = needs(
-      "habit_sleep",
-      "habit_meditation",
-      "habit_no_alcohol",
-      "habit_steps",
-      "habit_perfect_day"
-    );
-    const needsStreak = needs("checkin_streak", "habit_perfect_week", "habit_perfect_30d");
-
-    const [totalCheckIns, weekCount, streak, prevCheckinDate, checkinHours, workoutDays, habitDays, foodLogDays, duelCount] =
-      await Promise.all([
-        needs("checkin_total") ? getTotalCheckInsDb(userId) : Promise.resolve(0),
-        needs("checkin_week") ? _getWeekCheckinCountDb(userId) : Promise.resolve(0),
-        needsStreak ? _getCheckinStreakDb(userId) : Promise.resolve(0),
-        needs("checkin_comeback") ? _getPreviousCheckinDateDb(userId) : Promise.resolve(null),
-        needs("checkin_after_midnight", "checkin_before_time")
-          ? _getCheckinHoursDb(userId)
-          : Promise.resolve([] as number[]),
-        needsWorkoutDays ? _getWorkoutHistDaysDb(userId) : Promise.resolve([] as WorkoutHistDay[]),
-        needsHabitDays ? _getHabitHistDaysDb(userId) : Promise.resolve([] as HabitHistDay[]),
-        needs("habit_perfect_day") ? _getFoodLogDaysDb(userId) : Promise.resolve(new Set<string>()),
-        needs("challenge_count") ? _getDuelCountDb(userId) : Promise.resolve(0),
-      ]);
-
-    // Uma leitura do histórico alimenta as duas famílias de insígnia de treino.
-    const weekWorkouts = countWeekWorkoutDays(workoutDays);
-
-    const context = {
-      totalCheckIns,
-      weekCount,
-      streak,
-      prevCheckinDate,
-      weekWorkouts,
-      checkinHours,
-      workoutDays,
-      habitDays,
-      foodLogDays,
-      duelCount,
-    };
-
-    const newBadges: Badge[] = [];
-    for (const badge of candidates) {
-      const earned = await _evaluateBadgeCondition(badge, userId, checkinAt, context);
-      if (earned) newBadges.push(badge);
-    }
-
-    if (newBadges.length > 0) {
-      const { error: upsertError } = await supabase
-        .from("user_badges")
-        .upsert(
-          newBadges.map((b) => ({ user_id: userId, badge_id: b.id })),
-          { onConflict: "user_id,badge_id", ignoreDuplicates: true }
-        );
-      // Não celebrou se não persistiu (ex.: rede caiu entre a avaliação e o upsert)
-      if (upsertError) throw upsertError;
-      invalidateQueryCache(`userBadges:${userId}`);
-      invalidateQueryCache("allBadges");
-    }
-
-    return newBadges;
-  } catch (err) {
-    console.error("Error in awardBadgesForCheckInsDb:", err);
-    return [];
-  }
-}
-
-/**
- * Categoria do alimento (`diets.category`) sem acento e em minúsculas.
- * O catálogo mistura duas fontes com convenções próprias, então a comparação é
- * sempre sobre a string normalizada.
- */
-function normalizeFoodCategory(raw: unknown): string {
-  return String(raw ?? "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .trim();
-}
-
-/**
- * Fruta = categoria "Frutas e derivados" (Tabela TACO). É um PREFIXO, e não um
- * `includes("frut")`, porque "Frutos do Mar" e "Pescados e frutos do mar"
- * também contêm "frut" — casar por dentro daria a insígnia de fruta a quem
- * comeu camarão.
- */
-const FRUIT_CATEGORY_PREFIX = "frutas";
-
-/**
- * Categorias de PRATO PREPARADO — comida que alguém cozinhou, não ingrediente
- * solto. São as categorias de receita do TheMealDB (a outra origem do catálogo,
- * que é um banco de receitas) mais "Alimentos preparados" da TACO.
- *
- * O que fica de FORA é o ponto: as categorias de ingrediente da TACO
- * ("Carnes e derivados", "Cereais e derivados", "Miscelâneas"…) descrevem o
- * insumo cru, não a refeição — daí "carne bovina" (receita) entrar e
- * "carnes e derivados" (ingrediente) não.
- */
-const PREPARED_DISH_CATEGORIES = new Set([
-  "alimentos preparados",
-  "carne bovina",
-  "frango",
-  "porco",
-  "cordeiro",
-  "frutos do mar",
-  "massas",
-  "sobremesa",
-  "entrada",
-  "cafe da manha",
-  "vegetariano",
-]);
-
-/**
- * Concede as insígnias de NUTRIÇÃO avaliáveis a partir do diário alimentar
- * (`user_food_logs`). Chamada após registrar um alimento.
- *
- * Só os tipos que o diário consegue PROVAR são avaliados:
- *   • nutrition_no_ultra → N dias seguidos sem ultraprocessado
- *   • nutrition_protein  → N dias seguidos batendo a meta de proteína
- *   • nutrition_week     → N dias com registro na semana atual (Dom–Sáb)
- *   • nutrition_no_sugar → N dias seguidos com açúcar ≤ limite (metadata.max_sugar_g)
- *   • nutrition_hydration→ N dias seguidos batendo a meta de água
- *   • nutrition_fruits   → N dias seguidos comendo fruta (`diets.category`)
- *   • nutrition_home_food→ N dias seguidos com prato preparado e zero ultraprocessado
- *
- * As duas últimas entraram em 21/08/2026 e saem da CATEGORIA do alimento no
- * catálogo (`diets.category`), nunca do nome digitado — ver
- * `FRUIT_CATEGORY_PREFIX` e `PREPARED_DISH_CATEGORIES`.
- *
- * **Desconhecido nunca conta como zero.** Qualidade e açúcar vêm do catálogo
- * (`diets.food_quality` / `sugar_g`) — entradas manuais sem esse dado tornam o
- * dia inválido para `nutrition_no_ultra` / `nutrition_no_sugar`. Não dá para
- * provar que não houve ultraprocessado (ou açúcar), e aceitar o desconhecido
- * entregaria a insígnia a quem registra tudo na mão.
- */
-export async function awardNutritionBadgesDb(userId?: string): Promise<Badge[]> {
-  if (!hasSupabaseConfig || !supabase) return [];
-  if (isLikelyOffline()) return [];
-  const uid = userId ?? (await getViewer())?.id;
-  if (!uid) return [];
-
-  try {
-    const since = new Date();
-    since.setDate(since.getDate() - 60);
-    const sinceISO = fmtLocalDate(since);
-
-    const [logsRes, waterRes, allBadges, existingRows, goals, isPremium] = await Promise.all([
-      supabase
-        .from("user_food_logs")
-        .select("log_date, protein_g, sugar_g, diet_id, diets(food_quality, category)")
-        .eq("user_id", uid)
-        .gte("log_date", sinceISO),
-      supabase
-        .from("user_water_logs")
-        .select("log_date, ml")
-        .eq("user_id", uid)
-        .gte("log_date", sinceISO),
-      getAllBadgesDb(),
-      supabase.from("user_badges").select("badge_id").eq("user_id", uid),
-      getNutritionGoalsDb(),
-      getPremiumStatusDb(),
-    ]);
-    if (logsRes.error) throw logsRes.error;
-    if (existingRows.error) throw existingRows.error;
-
-    // Agrega por dia local
-    type Day = {
-      protein: number;
-      sugar: number;
-      hasUnknownQuality: boolean;
-      hasUnknownSugar: boolean;
-      hasUltra: boolean;
-      hasFruit: boolean;
-      hasPreparedDish: boolean;
-    };
-    const newDay = (): Day => ({
-      protein: 0,
-      sugar: 0,
-      hasUnknownQuality: false,
-      hasUnknownSugar: false,
-      hasUltra: false,
-      hasFruit: false,
-      hasPreparedDish: false,
-    });
-    const days = new Map<string, Day>();
-    for (const row of (logsRes.data ?? []) as any[]) {
-      const date = String(row.log_date);
-      const day = days.get(date) ?? newDay();
-      day.protein += Number(row.protein_g ?? 0);
-      if (row.sugar_g == null) day.hasUnknownSugar = true;
-      else day.sugar += Number(row.sugar_g);
-      const quality = (row.diets as any)?.food_quality ?? null;
-      if (!quality) day.hasUnknownQuality = true;
-      else if (quality === "ultraprocessado") day.hasUltra = true;
-      const category = normalizeFoodCategory((row.diets as any)?.category);
-      if (category.startsWith(FRUIT_CATEGORY_PREFIX)) day.hasFruit = true;
-      if (PREPARED_DISH_CATEGORIES.has(category)) day.hasPreparedDish = true;
-      days.set(date, day);
-    }
-
-    const water = new Map<string, number>();
-    for (const row of (waterRes.data ?? []) as any[]) {
-      water.set(String(row.log_date), Number(row.ml ?? 0));
-    }
-
-    // Sequência de dias: mesma regra das insígnias de hábito (ver `_dayStreak`).
-    const streakOf = _dayStreak;
-
-    /** Dia com comida registrada que satisfaz `ok` — sem registro não prova nada. */
-    const onDay = (ok: (d: Day) => boolean) => (date: string) => {
-      const day = days.get(date);
-      return day != null && ok(day);
-    };
-
-    const noUltraStreak = streakOf(onDay((d) => !d.hasUnknownQuality && !d.hasUltra));
-
-    const proteinTarget = goals?.protein_target_g ?? 0;
-    const proteinStreak =
-      proteinTarget > 0 ? streakOf(onDay((d) => d.protein >= proteinTarget)) : 0;
-
-    // Açúcar: sem o dado (catálogo sem sugar_g / entrada manual em branco) o dia
-    // não conta — desconhecido não é zero.
-    const sugarStreakFor = (maxSugar: number) =>
-      streakOf(onDay((d) => !d.hasUnknownSugar && d.sugar <= maxSugar));
-
-    // Água: meta do usuário quando definida; senão a da própria insígnia.
-    const waterStreakFor = (targetMl: number) =>
-      targetMl > 0 ? streakOf((date) => (water.get(date) ?? 0) >= targetMl) : 0;
-
-    // Fruta: basta UMA no dia (a insígnia é "comer fruta", não "só fruta").
-    const fruitStreak = streakOf(onDay((d) => d.hasFruit));
-
-    // Comida caseira: um prato preparado no dia E nenhum ultraprocessado. O
-    // prato sozinho não bastaria (dá para "preparar" em cima de industrializado)
-    // e a ausência de ultraprocessado sozinha é outra insígnia.
-    const homeFoodStreak = streakOf(
-      onDay((d) => d.hasPreparedDish && !d.hasUnknownQuality && !d.hasUltra)
-    );
-
-    // Dias com registro na semana atual (Dom–Sáb)
-    const now = new Date();
-    const sunday = new Date(now);
-    sunday.setDate(now.getDate() - now.getDay());
-    let weekDays = 0;
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(sunday);
-      d.setDate(sunday.getDate() + i);
-      if (days.has(fmtLocalDate(d))) weekDays++;
-    }
-
-    const alreadyEarned = new Set(
-      ((existingRows.data ?? []) as any[]).map((r) => String(r.badge_id))
-    );
-
-    const newBadges = allBadges.filter((b) => {
-      if (alreadyEarned.has(String(b.id))) return false;
-      // Premium só para assinante ativo (mesmo gate do award de check-in).
-      if (b.premium && !isPremium) return false;
-      const threshold = Math.max(
-        1,
-        b.required_checkins > 1
-          ? b.required_checkins
-          : CONDITION_MIN_THRESHOLD[b.condition_type] ?? b.required_checkins ?? 1
-      );
-      switch (b.condition_type) {
-        case "nutrition_no_ultra":
-          return noUltraStreak >= threshold;
-        case "nutrition_protein":
-          return proteinStreak >= threshold;
-        case "nutrition_week":
-          return weekDays >= threshold;
-        case "nutrition_no_sugar": {
-          const maxSugar = Number(b.condition_metadata?.max_sugar_g ?? 25);
-          return sugarStreakFor(maxSugar) >= threshold;
-        }
-        case "nutrition_hydration": {
-          const targetMl = Number(
-            goals?.water_target_ml ?? b.condition_metadata?.ml ?? 2000
-          );
-          return waterStreakFor(targetMl) >= threshold;
-        }
-        case "nutrition_fruits":
-          return fruitStreak >= threshold;
-        case "nutrition_home_food":
-          return homeFoodStreak >= threshold;
-        default:
-          return false; // tipos de hábito/treino: avaliados no outro award
-      }
-    });
-
-    if (newBadges.length > 0) {
-      const { error: upsertError } = await supabase
-        .from("user_badges")
-        .upsert(
-          newBadges.map((b) => ({ user_id: uid, badge_id: b.id })),
-          { onConflict: "user_id,badge_id", ignoreDuplicates: true }
-        );
-      if (upsertError) throw upsertError; // não celebrar o que não persistiu
-      invalidateQueryCache(`userBadges:${uid}`);
-      invalidateQueryCache(`displayBadge:${uid}`);
-    }
-
-    return newBadges;
-  } catch (err) {
-    console.error("Error in awardNutritionBadgesDb:", err);
-    return [];
-  }
-}
-
-/**
- * Retorna a insígnia que o usuário exibe no feed e no perfil.
- *
- * Regra: a insígnia ESCOLHIDA (`profiles.selected_badge_id`) sempre vence,
- * desde que ainda esteja no acervo. Conquistar novas insígnias não muda a
- * exibida — só uma escolha explícita muda. O fallback para a de maior
- * sort_order vale só para quem nunca escolheu nenhuma (o comportamento
- * automático de sempre, até a primeira escolha).
+ * `visible` é independente do acervo: esconder não apaga nem troca nada.
+ * Banco sem a coluna (migração 20261008-profile-show-badge) = sempre visível.
  *
  * Nota: o Supabase JS v2 não suporta order por coluna de tabela relacionada,
  * então buscamos todos e filtramos no cliente.
  */
-export async function getDisplayBadgeDb(userId: string): Promise<Badge | null> {
-  if (!hasSupabaseConfig || !supabase) return null;
+export async function getBadgeDisplayDb(userId: string): Promise<{ badge: Badge | null; visible: boolean }> {
+  const fallback = { badge: null, visible: true };
+  if (!hasSupabaseConfig || !supabase) return fallback;
   try {
     // Cacheado: UserInsignias monta no header do perfil E a cada post aberto
     // no drawer — sem cache eram 2 queries extras por post visualizado.
-    return await cached(`displayBadge:${userId}`, CACHE_TTL_SHORT, async () => {
+    return await cached(`badgeDisplay:${userId}`, CACHE_TTL_SHORT, async () => {
+      const readProfile = async () => {
+        const res = await supabase!
+          .from("profiles")
+          .select("selected_badge_id, show_badge")
+          .eq("user_id", userId)
+          .maybeSingle();
+        // Coluna ainda não criada: lê sem ela (insígnia visível).
+        if (res.error?.code === "42703" || res.error?.code === "PGRST204") {
+          return supabase!.from("profiles").select("selected_badge_id").eq("user_id", userId).maybeSingle();
+        }
+        return res;
+      };
       const [earnedRes, profileRes] = await Promise.all([
         supabase!
           .from("user_badges")
-          .select("badges(id, key, name, emoji, description, required_checkins, sort_order, condition_type, condition_metadata, premium)")
+          .select("badges(id, key, name, emoji, description, required_checkins, sort_order, condition_type, condition_metadata)")
           .eq("user_id", userId),
-        supabase!
-          .from("profiles")
-          .select("selected_badge_id")
-          .eq("user_id", userId)
-          .maybeSingle(),
+        readProfile(),
       ]);
       if (earnedRes.error) throw earnedRes.error;
+
+      const profileRow = (profileRes.data ?? null) as { selected_badge_id?: unknown; show_badge?: unknown } | null;
+      const visible = profileRow?.show_badge !== false;
 
       const earned = ((earnedRes.data ?? []) as any[])
         .map((row) => row.badges as Badge)
         .filter(Boolean);
-      if (earned.length === 0) return null;
+      if (earned.length === 0) return { badge: null, visible };
 
-      const selectedId = profileRes.data?.selected_badge_id
-        ? String(profileRes.data.selected_badge_id)
-        : null;
+      const selectedId = profileRow?.selected_badge_id ? String(profileRow.selected_badge_id) : null;
       if (selectedId) {
         const chosen = earned.find((b) => String(b.id) === selectedId);
-        if (chosen) return chosen;
+        if (chosen) return { badge: chosen, visible };
       }
 
       // Nunca escolheu (ou a escolhida saiu do acervo): maior sort_order.
-      return earned.reduce((best, b) =>
+      const top = earned.reduce((best, b) =>
         (b?.sort_order ?? 0) > (best?.sort_order ?? 0) ? b : best
       );
+      return { badge: top, visible };
     });
   } catch (err) {
     console.error("Error fetching display badge:", err);
-    return null;
+    return fallback;
   }
+}
+
+/**
+ * Liga/desliga a exibição da insígnia ao lado do nome do usuário logado
+ * (`profiles.show_badge`). Não mexe no acervo nem na escolhida.
+ */
+export async function setShowBadgeDb(show: boolean): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) throw new Error("Supabase não configurado");
+  const viewer = await getViewer();
+  if (!viewer) throw new Error("Não autenticado");
+  const { data, error } = await supabase
+    .from("profiles")
+    .update({ show_badge: show })
+    .eq("user_id", viewer.id)
+    .select("user_id");
+  if (error) throw error;
+  // UPDATE barrado pela RLS volta 0 linhas sem erro.
+  if (!data || data.length === 0) throw new Error("show_badge não foi salvo");
+  invalidateQueryCache(`badgeDisplay:${viewer.id}`);
 }
 
 // ─── Promoções (Hub de Promoções) ─────────────────────────────────────────────
@@ -17663,12 +16825,8 @@ registerOutboxExecutor("workout_hist", async (p: any) => {
 
 registerOutboxExecutor("check_in", async (p: any) => {
   await insertCheckInOnlineDb(String(p.userId), String(p.checkInDate));
-  // Insígnias que dependiam deste check-in (streak, total…) são avaliadas na
-  // sincronização; a celebração visual fica para a próxima tela que carregá-las.
-  await awardBadgesForCheckInsDb(
-    String(p.userId),
-    new Date(String(p.checkInDate) + "T12:00:00"),
-  ).catch(() => { /* best-effort */ });
+  // Insígnias não dependem de check-in desde a v2 (2026-10-06): o treino
+  // sincronizado entra na contagem da próxima avaliação no servidor.
 });
 
 registerOutboxExecutor("goal_progress", async (p: any) => {
@@ -18497,6 +17655,7 @@ export async function createWorkoutChallengesDb(
       await supabase.from("workout_challenges").delete().in("id", created);
       throw resultError;
     }
+    requestBadgeCheck(); // "Desafiante"
   }
   return created.length;
 }
@@ -18593,6 +17752,7 @@ export async function submitWorkoutChallengeResultDb(
       })
       .eq("id", challengeId);
   }
+  requestBadgeCheck(); // "Desafiante"
   return {
     challenge: {
       ...challenge,
@@ -18696,6 +17856,98 @@ function parseHistTimestampMs(raw: unknown): number {
   return new Date(hasZone ? str : `${str.replace(" ", "T")}Z`).getTime();
 }
 
+type HistRawSession = { rows: any[]; startMs: number; endMs: number; firstRaw: string };
+
+/**
+ * Agrupa séries de `user_workouts_hist` em sessões (um "Finalizar" grava todas
+ * a ms umas das outras; intervalo > 60s = outra sessão). Devolve da mais
+ * antiga para a mais recente.
+ */
+function groupHistRowsIntoSessions(rows: any[]): HistRawSession[] {
+  const raw: HistRawSession[] = [];
+  const asc = rows
+    .map((r) => ({ r, ms: parseHistTimestampMs(r.date_completed) }))
+    .sort((a, b) => a.ms - b.ms);
+  for (const { r, ms } of asc) {
+    const current = raw[raw.length - 1];
+    // Data inválida cola na sessão em aberto em vez de abrir uma nova por linha.
+    const at = Number.isFinite(ms) ? ms : current?.endMs ?? 0;
+    if (current && at - current.endMs <= HISTORY_SESSION_GAP_MS) {
+      current.rows.push(r);
+      current.endMs = at;
+    } else {
+      raw.push({ rows: [r], startMs: at, endMs: at, firstRaw: String(r.date_completed) });
+    }
+  }
+  return raw;
+}
+
+export type WorkoutHistoryMonthStats = { count: number; sets: number; volumeKg: number };
+
+/**
+ * Macro de UM mês do histórico (2026-10-08) — o card de resumo do topo do
+ * Histórico navega entre meses. `monthStart` = dia 1, 00:00 LOCAL. Mesmas
+ * regras da lista: sessão = rajada de séries; drop não conta como série;
+ * volume = kg × reps só de musculação (cardio grava km no `volume`).
+ * A tela só chama para meses que a lista carregada não cobre.
+ */
+export async function getWorkoutHistoryMonthStatsDb(monthStart: Date): Promise<WorkoutHistoryMonthStats> {
+  const empty = { count: 0, sets: 0, volumeKg: 0 };
+  if (!hasSupabaseConfig || !supabase) return empty;
+  const viewer = await getViewer();
+  if (!viewer) return empty;
+  const from = new Date(monthStart.getFullYear(), monthStart.getMonth(), 1);
+  const to = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 1);
+
+  // Coluna sem fuso, gravada em UTC: compara com o instante UTC do limite local.
+  const PAGE = 1000;
+  const rows: any[] = [];
+  for (let offset = 0; ; offset += PAGE) {
+    const { data, error } = await supabase
+      .from("user_workouts_hist")
+      .select("workout_id, kilos, volume, date_completed, set_kind")
+      .eq("user_id", viewer.id)
+      .gte("date_completed", from.toISOString())
+      .lt("date_completed", to.toISOString())
+      .order("date_completed", { ascending: true })
+      .range(offset, offset + PAGE - 1);
+    if (error) throw error;
+    rows.push(...((data ?? []) as any[]));
+    if (!data || data.length < PAGE) break;
+  }
+  if (rows.length === 0) return empty;
+
+  const details = await fetchWorkoutDetailsByIds(rows.map((r) => String(r.workout_id ?? "")));
+  let sets = 0;
+  let volume = 0;
+  for (const r of rows) {
+    if (r.set_kind !== "drop") sets += 1;
+    const workoutId = String(r.workout_id ?? "");
+    if (isCardioExercise(details.get(workoutId)?.muscle_group ?? null, workoutId)) continue;
+    const kg = Number(r.kilos ?? 0) || 0;
+    const reps = parseFloat(String(r.volume ?? "").replace(",", ".")) || 0;
+    volume += kg * reps;
+  }
+  return { count: groupHistRowsIntoSessions(rows).length, sets, volumeKg: Math.round(volume) };
+}
+
+/** Data (ISO UTC) da série mais antiga do usuário — limite da navegação por mês. */
+export async function getWorkoutHistoryFirstDateDb(): Promise<string | null> {
+  if (!hasSupabaseConfig || !supabase) return null;
+  const viewer = await getViewer();
+  if (!viewer) return null;
+  const { data, error } = await supabase
+    .from("user_workouts_hist")
+    .select("date_completed")
+    .eq("user_id", viewer.id)
+    .order("date_completed", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (error || !data) return null;
+  const ms = parseHistTimestampMs((data as any).date_completed);
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
+}
+
 function topMuscleGroupsTitle(exercises: WorkoutHistoryExercise[]): string | null {
   const counts = new Map<string, number>();
   for (const ex of exercises) {
@@ -18771,22 +18023,7 @@ export async function getWorkoutHistoryPageDb(
   if (rows.length === 0) return empty;
 
   // ── Sessões (da mais antiga para a mais recente durante o agrupamento) ──
-  type RawSession = { rows: any[]; startMs: number; endMs: number; firstRaw: string };
-  const raw: RawSession[] = [];
-  const asc = rows
-    .map((r) => ({ r, ms: parseHistTimestampMs(r.date_completed) }))
-    .sort((a, b) => a.ms - b.ms);
-  for (const { r, ms } of asc) {
-    const current = raw[raw.length - 1];
-    // Data inválida cola na sessão em aberto em vez de abrir uma nova por linha.
-    const at = Number.isFinite(ms) ? ms : current?.endMs ?? 0;
-    if (current && at - current.endMs <= HISTORY_SESSION_GAP_MS) {
-      current.rows.push(r);
-      current.endMs = at;
-    } else {
-      raw.push({ rows: [r], startMs: at, endMs: at, firstRaw: String(r.date_completed) });
-    }
-  }
+  const raw = groupHistRowsIntoSessions(rows);
 
   let nextBefore: string | null = null;
   if (rows.length >= HISTORY_PAGE_ROWS && raw.length > 1) {

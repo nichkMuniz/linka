@@ -15,13 +15,16 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { FEATURES } from "@/lib/feature-flags";
 import { useLanguage } from "@/lib/language-context";
 import type { TranslationKey } from "@/lib/i18n";
 import { reportHandledError } from "@/lib/monitoring";
 import { compareChallenge, type ChallengeOutcome } from "@/lib/workout-challenge";
 import { cardioMinutesFromInput, formatCardioKm, formatCardioMinutes, sumCardioSets } from "@/lib/cardio-exercises";
 import { ExerciseThumb } from "@/components/shared/workout-detail-dialog";
+import type { WorkoutSummaryData } from "@/components/goals/workout-summary-overlay";
 import {
+  getUserRoutinesDb,
   getWorkoutChallengeResultsDb,
   getWorkoutPartyMembersDb,
   type WorkoutHistoryChallengeLink,
@@ -139,6 +142,79 @@ export const BADGE_TONE_STYLE: Record<ChallengeBadge["tone"], React.CSSPropertie
 
 export function countLabel(n: number, oneKey: TranslationKey, manyKey: TranslationKey, t: T): string {
   return n === 1 ? t(oneKey) : t(manyKey).replace("{n}", String(n));
+}
+
+/** Até quanto o `last_summary.completedAt` pode distar da última série gravada e ainda ser a MESMA sessão. */
+const LAST_SUMMARY_MATCH_MS = 10 * 60_000;
+
+/**
+ * Dados do "Resumo do treino" (o mesmo overlay do Finalizar) para uma sessão
+ * do histórico (2026-10-06).
+ *
+ * Se a sessão é o ÚLTIMO treino da rotina, o `routines.last_summary` dela é o
+ * resumo completo daquele Finalizar (duração, recordes, máquina zerada, corrida
+ * GPS) — é o mesmo que o ícone de resumo do detalhe da rotina reabre. Senão, o
+ * resumo é montado só com o que o histórico guarda: sem duração (fica
+ * escondida no overlay) e sem recordes/máquina zerada, que não ficam gravados.
+ *
+ * Duelos ficam de fora (`userGroups: []`): um check-in de duelo agora contaria
+ * um treino antigo como se fosse de hoje.
+ */
+export async function buildHistorySummaryData(
+  session: WorkoutHistorySession,
+  userId: string,
+): Promise<WorkoutSummaryData> {
+  const partyId = session.party?.partyId ?? null;
+  const partyMemberNames = session.party?.others.map((o) => o.nickname);
+
+  if (session.routineId) {
+    try {
+      const routine = (await getUserRoutinesDb(userId)).find((r) => r.id === session.routineId);
+      const last = routine?.last_summary;
+      const lastAt = last?.completedAt ? new Date(last.completedAt).getTime() : NaN;
+      const sessionAt = new Date(session.completedAt).getTime();
+      if (last && Math.abs(lastAt - sessionAt) <= LAST_SUMMARY_MATCH_MS) {
+        return {
+          ...last,
+          // O casamento por horário do histórico pode falhar; o snapshot sabe.
+          partyId: partyId ?? (FEATURES.workoutParty ? last.partyId ?? null : null),
+          partyMemberNames: partyMemberNames?.length ? partyMemberNames : undefined,
+          userId,
+          userGoalId: null,
+          userGroups: [],
+        };
+      }
+    } catch {
+      // Sem a rotina (rede, rotina apagada): cai no resumo montado do histórico.
+    }
+  }
+
+  return {
+    routineName: session.title,
+    totalSeries: session.totalSeries,
+    totalVolume: Math.round(session.volumeKg),
+    durationSecs: 0,
+    badges: [],
+    userId,
+    userGoalId: null,
+    completedAt: session.completedAt,
+    partyId,
+    partyMemberNames: partyMemberNames?.length ? partyMemberNames : undefined,
+    caloriesKcal: session.caloriesKcal,
+    completedExercises: session.exercises.map((ex) => ({
+      name: ex.name,
+      workoutId: ex.workoutId,
+      totalSets: ex.seriesCount,
+      bestKg: ex.bestKg,
+      muscleGroup: ex.muscleGroup,
+      photo: ex.photo,
+      sets: ex.sets.map((s) => ({ kg: s.kg, reps: s.reps })),
+      isCardio: ex.isCardio || undefined,
+    })),
+    prExercises: [],
+    machinedExercises: [],
+    userGroups: [],
+  };
 }
 
 const CARD_STYLE: React.CSSProperties = {
@@ -451,12 +527,17 @@ export function WorkoutHistoryDetail({
   onBack,
   onSharedToFeed,
   onDelete,
+  onOpenSummary,
+  summaryLoading,
 }: {
   session: WorkoutHistorySession;
   onBack: () => void;
   onSharedToFeed: () => void;
   /** Apaga as séries desta sessão. Lança em caso de erro (o toast fica aqui). */
   onDelete: () => Promise<void>;
+  /** Abre o "Resumo do treino" desta sessão (compartilhar no feed/flow). */
+  onOpenSummary: () => void;
+  summaryLoading: boolean;
 }) {
   const { t, language } = useLanguage();
   const style = HISTORY_KIND_STYLE[session.kind];
@@ -559,6 +640,20 @@ export function WorkoutHistoryDetail({
           </div>
         ))}
       </div>
+
+      {/* Resumo do treino — o mesmo do Finalizar, para postar no feed/flow depois. */}
+      {session.exercises.length > 0 && (
+        <button
+          type="button"
+          onClick={onOpenSummary}
+          disabled={summaryLoading}
+          className="w-full h-11 rounded-full flex items-center justify-center gap-2 text-[14px] font-semibold text-white active:scale-[0.985] transition-transform disabled:opacity-60"
+          style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)" }}
+        >
+          {summaryLoading ? <LoadingSpinner className="h-4 w-4" /> : <Share2 className="h-4 w-4" />}
+          {t("goals_history_summary_cta")}
+        </button>
+      )}
 
       {session.challenges.map((link) => (
         <ChallengeBlock key={link.challenge.id} link={link} onSharedToFeed={onSharedToFeed} />

@@ -32,12 +32,10 @@ import {
   getFoodLogDayTotalsDb,
   getDietsDb,
   createCustomDietDb,
-  awardNutritionBadgesDb,
   type FoodLog,
   type FoodLogMealType,
   type NutritionGoals,
   type Diet,
-  type Badge,
 } from "@/lib/ritmofit-db";
 import {
   useWaterLog,
@@ -153,12 +151,6 @@ interface FoodDiaryDrawerProps {
   onOpenChange: (open: boolean) => void;
   /** Incrementado pelo pai quando o diário muda fora daqui (auto-log da rotina de dieta). */
   refreshToken?: number;
-  /**
-   * Insígnias de nutrição conquistadas ao registrar um alimento. O pai (Goals)
-   * guarda como pendente e só celebra quando o diário fecha — o BadgeUnlockedDialog
-   * é Radix e abriria ATRÁS deste drawer (mesmo motivo do resumo do treino).
-   */
-  onBadgesUnlocked?: (badges: Badge[]) => void;
   /** O usuário já tem rotina(s) de dieta? Controla o botão rotina × transformar e o prompt. */
   hasDietRoutines: boolean;
   /** Abre a lista de rotinas de dieta (o pai fecha o diário e abre o RoutineListDrawer). */
@@ -174,7 +166,6 @@ export function FoodDiaryDrawer({
   hasDietRoutines,
   onOpenRoutines,
   onTransform,
-  onBadgesUnlocked,
 }: FoodDiaryDrawerProps) {
   const { t, language } = useLanguage();
   const today = localDateISO();
@@ -273,22 +264,10 @@ export function FoodDiaryDrawer({
     setView("goal");
   };
 
-  // Insígnias de nutrição são avaliadas a partir do diário (comida + água), então
-  // qualquer registro pode fechar uma sequência (ex.: 7º dia batendo a meta de água).
-  const checkNutritionBadges = () => {
-    if (!onBadgesUnlocked) return;
-    awardNutritionBadgesDb()
-      .then((awarded) => {
-        if (awarded.length > 0) onBadgesUnlocked(awarded);
-      })
-      .catch(() => { /* insígnia é bônus: nunca derruba o registro */ });
-  };
-
   const { water, target: waterTarget, changeWater } = useWaterLog({
     date,
     targetMl: goals?.water_target_ml ?? null,
     refreshToken,
-    onChanged: checkNutritionBadges,
     celebrateOnGoalReached: date === today, // não celebra ao editar dia passado
   });
 
@@ -342,7 +321,6 @@ export function FoodDiaryDrawer({
       setManualOpen(false);
       setView("diary");
       maybeAskRoutine(date, nextLogs);
-      checkNutritionBadges();
     } catch {
       toast({ title: t("nutrition_error"), variant: "destructive" });
     } finally {

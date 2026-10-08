@@ -73,9 +73,19 @@ export function EditPostDrawer({ open, onOpenChange, post, onSaved }: EditPostDr
         : post.photo ? [post.photo] : [];
       setPhotos(allPhotos);
 
+      // Só as metas ATIVAS (perc < 100, mesma regra do Novo Post) — concluída
+      // não recebe mais progresso. Exceção: a que já está vinculada ao post,
+      // mesmo concluída, continua na lista para o vínculo não "sumir".
+      const linked = post.user_goal_id != null && post.user_goal_id !== "" ? String(post.user_goal_id) : null;
       setIsLoadingGoals(true);
       getUserGoalsDb()
-        .then((goals) => setUserGoals(goals.map((g) => ({ id: g.id, description: g.description }))))
+        .then((goals) =>
+          setUserGoals(
+            goals
+              .filter((g) => g.perc < 100 || String(g.id) === linked)
+              .map((g) => ({ id: String(g.id), description: g.description })),
+          ),
+        )
         .catch(() => setUserGoals([]))
         .finally(() => setIsLoadingGoals(false));
 

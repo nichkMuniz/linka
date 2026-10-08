@@ -1,6 +1,6 @@
 import * as React from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { ArrowLeft, ChevronRight, History, MoreVertical, Trash2 } from "lucide-react";
+import { ArrowLeft, ChevronLeft, ChevronRight, History, MoreVertical, Trash2 } from "lucide-react";
 
 import { ScreenAura } from "@/components/shared/screen-aura";
 import { UserAvatar } from "@/components/shared/user-avatar";
@@ -9,6 +9,7 @@ import {
   BADGE_TONE_STYLE,
   HISTORY_KIND_STYLE,
   WorkoutHistoryDetail,
+  buildHistorySummaryData,
   challengeBadge,
   challengeSubtitle,
   countLabel,
@@ -33,24 +34,47 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import type { WorkoutSummaryData } from "@/components/goals/workout-summary-overlay";
+import { useAuth } from "@/hooks/useAuth";
 import { useLanguage } from "@/lib/language-context";
 import { useAppRefreshTick } from "@/lib/app-refresh";
 import { reportHandledError } from "@/lib/monitoring";
+import { hapticLight } from "@/lib/haptics";
 import { FEATURES } from "@/lib/feature-flags";
 import {
   deleteWorkoutHistoryDb,
+  getPendingWorkoutChallengesDb,
+  getWorkoutHistoryFirstDateDb,
+  getWorkoutHistoryMonthStatsDb,
   getWorkoutHistoryPageDb,
+  type WorkoutHistoryMonthStats,
+  type WorkoutChallenge,
   type WorkoutHistoryKind,
   type WorkoutHistorySession,
 } from "@/lib/ritmofit-db";
 
 type Filter = "all" | WorkoutHistoryKind;
 
+// ~3.900 linhas (canvas, templates) — só baixa quando alguém abre o resumo.
+// `openSummary` espera o chunk ANTES de montar o overlay: sem rede, a falha vira
+// toast em vez de derrubar a tela pelo Suspense.
+const loadSummaryOverlay = () => import("@/components/goals/workout-summary-overlay");
+const WorkoutSummaryOverlay = React.lazy(() =>
+  loadSummaryOverlay().then((m) => ({ default: m.WorkoutSummaryOverlay })),
+);
+
 /**
  * Última leitura em memória: voltar de Metas para cá pinta na hora e relê por
  * baixo. Só a 1ª página — as mais antigas recarregam sob demanda.
  */
 let lastFirstPage: { sessions: WorkoutHistorySession[]; nextBefore: string | null } | null = null;
+/**
+ * Macro dos meses que a lista carregada NÃO cobre (lidos do banco), por
+ * "ano-mês". Zerado ao apagar treino e ao reler a tela.
+ */
+const monthStatsCache = new Map<string, WorkoutHistoryMonthStats>();
+/** Idem para os desafios recebidos em aberto (seção "Desafios pendentes"). */
+let lastPending: WorkoutChallenge[] = [];
 
 /** Segunda-feira 00:00 (local) da semana de `d`. */
 function weekStart(d: Date): number {
@@ -78,7 +102,39 @@ export default function WorkoutHistory() {
   const [filter, setFilter] = React.useState<Filter>("all");
   const [clearConfirmOpen, setClearConfirmOpen] = React.useState(false);
   const [clearing, setClearing] = React.useState(false);
+  // Mês do card de resumo — na página para sobreviver a abrir/fechar um treino.
+  const [statsMonth, setStatsMonth] = React.useState(() => startOfMonth(new Date()));
   const refreshTick = useAppRefreshTick();
+  const { user } = useAuth();
+  // "Resumo do treino" da sessão aberta no detalhe (o mesmo overlay do Finalizar).
+  const [summaryData, setSummaryData] = React.useState<WorkoutSummaryData | null>(null);
+  const [summaryLoading, setSummaryLoading] = React.useState(false);
+  // Desafios que me mandaram e ainda não fiz (pendentes ou aceitos e largados).
+  const [pending, setPending] = React.useState<WorkoutChallenge[]>(lastPending);
+
+  const openSummary = async (session: WorkoutHistorySession) => {
+    if (!user || summaryLoading) return;
+    setSummaryLoading(true);
+    try {
+      const [data] = await Promise.all([buildHistorySummaryData(session, user.id), loadSummaryOverlay()]);
+      setSummaryData(data);
+    } catch (err) {
+      reportHandledError(err, "workout-history:open-summary");
+      toast({ title: t("goals_history_summary_error"), description: t("retry"), variant: "destructive" });
+    } finally {
+      setSummaryLoading(false);
+    }
+  };
+  // O resumo é de UMA sessão: sair do detalhe (voltar) ou abrir outra o descarta.
+  React.useEffect(() => {
+    setSummaryData(null);
+  }, [selectedKey]);
+
+  // Publicou no feed / vai criar o flow: mesmo destino do resumo em Metas.
+  const leaveSummaryToFeed = (state: Record<string, unknown>) => {
+    setSummaryData(null);
+    navigate("/", { state });
+  };
 
   // Mantém o cache do módulo em dia com o que a tela mostra depois de apagar —
   // senão voltar para cá pintaria por um instante o treino apagado.
@@ -90,6 +146,7 @@ export default function WorkoutHistory() {
 
   const deleteSession = async (session: WorkoutHistorySession) => {
     await deleteWorkoutHistoryDb(session.rowIds);
+    monthStatsCache.clear();
     applySessions(sessions.filter((s) => s.key !== session.key), nextBefore);
     // Fecha o detalhe (o `?s=` foi empilhado ao abrir).
     navigate(-1);
@@ -101,6 +158,7 @@ export default function WorkoutHistory() {
     setClearing(true);
     try {
       await deleteWorkoutHistoryDb(null);
+      monthStatsCache.clear();
       applySessions([], null);
       setFilter("all");
       setClearConfirmOpen(false);
@@ -115,6 +173,7 @@ export default function WorkoutHistory() {
 
   React.useEffect(() => {
     let cancelled = false;
+    monthStatsCache.clear();
     getWorkoutHistoryPageDb()
       .then((page) => {
         if (cancelled) return;
@@ -132,6 +191,32 @@ export default function WorkoutHistory() {
     // `t` fora de propósito: trocar o idioma não relê o banco.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshTick]);
+
+  React.useEffect(() => {
+    if (!FEATURES.workoutChallenge || !user) return;
+    let cancelled = false;
+    // Já devolve [] em erro: a seção é um atalho, a lista segue sem ela.
+    void getPendingWorkoutChallengesDb().then((list) => {
+      if (cancelled) return;
+      lastPending = list;
+      setPending(list);
+    });
+    return () => { cancelled = true; };
+  }, [refreshTick, user]);
+
+  // Aceitar/recusar mora em Metas (o aceite abre a sessão do desafio lá):
+  // `?challenge=<id>` abre o mesmo ChallengeInviteDialog do push.
+  const openPendingChallenge = (c: WorkoutChallenge) => navigate(`/metas?challenge=${encodeURIComponent(c.id)}`);
+  const showPending =
+    FEATURES.workoutChallenge && pending.length > 0 && (filter === "all" || filter === "challenge");
+  const pendingSection = showPending ? (
+    <section className="space-y-2">
+      <h2 className="text-[13px] font-semibold text-white/60">{t("goals_history_pending_title")}</h2>
+      {pending.map((c) => (
+        <PendingChallengeRow key={c.id} challenge={c} onOpen={() => openPendingChallenge(c)} />
+      ))}
+    </section>
+  ) : null;
 
   const loadMore = async () => {
     if (!nextBefore || loadingMore) return;
@@ -183,19 +268,6 @@ export default function WorkoutHistory() {
     return list;
   }, [t]);
 
-  const monthSummary = React.useMemo(() => {
-    const now = new Date();
-    const inMonth = sessions.filter((s) => {
-      const d = new Date(s.completedAt);
-      return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
-    });
-    return {
-      count: inMonth.length,
-      sets: inMonth.reduce((n, s) => n + s.totalSeries, 0),
-      volume: inMonth.reduce((n, s) => n + s.volumeKg, 0),
-    };
-  }, [sessions]);
-
   const groups = React.useMemo(() => {
     const visible = filter === "all" ? sessions : sessions.filter((s) => s.kind === filter);
     const thisWeek = weekStart(new Date());
@@ -234,7 +306,25 @@ export default function WorkoutHistory() {
           onBack={() => navigate(-1)}
           onSharedToFeed={() => navigate("/", { state: { refreshFeed: true, showFollowing: true } })}
           onDelete={() => deleteSession(selected)}
+          onOpenSummary={() => void openSummary(selected)}
+          summaryLoading={summaryLoading}
         />
+        {summaryData && (
+          <React.Suspense fallback={null}>
+            <WorkoutSummaryOverlay
+              data={summaryData}
+              onClose={() => setSummaryData(null)}
+              onSharedToFeed={() => leaveSummaryToFeed({ refreshFeed: true })}
+              // Não publica o flow aqui: o criador mora no Feed e abre direto na
+              // legenda com a mídia do resumo (ver Goals.tsx).
+              onShareToFlow={(seed, opts) =>
+                leaveSummaryToFeed(
+                  opts?.alsoPostedToFeed ? { createFlowSeed: seed, refreshFeed: true } : { createFlowSeed: seed },
+                )
+              }
+            />
+          </React.Suspense>
+        )}
       </div>
     );
   }
@@ -304,42 +394,28 @@ export default function WorkoutHistory() {
       {loading && sessions.length === 0 ? (
         <SkeletonLoader lines={6} className="mt-4" />
       ) : sessions.length === 0 ? (
-        <div className="flex flex-col items-center gap-2 py-16 text-center">
-          <div
-            className="mb-1 flex h-14 w-14 items-center justify-center rounded-full"
-            style={{ background: "rgba(91,140,255,.18)" }}
-          >
-            <History className="h-6 w-6" style={{ color: "#b9cfff" }} />
+        <>
+          {pendingSection && <div className="mt-2">{pendingSection}</div>}
+          <div className="flex flex-col items-center gap-2 py-16 text-center">
+            <div
+              className="mb-1 flex h-14 w-14 items-center justify-center rounded-full"
+              style={{ background: "rgba(91,140,255,.18)" }}
+            >
+              <History className="h-6 w-6" style={{ color: "#b9cfff" }} />
+            </div>
+            <p className="text-[15px] font-semibold text-white">{t("goals_history_empty_title")}</p>
+            <p className="max-w-xs text-[13px] text-white/60">{t("goals_history_empty_desc")}</p>
           </div>
-          <p className="text-[15px] font-semibold text-white">{t("goals_history_empty_title")}</p>
-          <p className="max-w-xs text-[13px] text-white/60">{t("goals_history_empty_desc")}</p>
-        </div>
+        </>
       ) : (
         <div className="mt-2 space-y-4">
-          {monthSummary.count > 0 && (
-            <div
-              className="px-4 py-3.5"
-              style={{
-                borderRadius: 22,
-                background: "linear-gradient(rgba(255,255,255,.08),rgba(255,255,255,.03))",
-                border: "1px solid rgba(255,255,255,.1)",
-              }}
-            >
-              <p className="text-[12px] font-semibold text-white/60">{t("goals_history_this_month")}</p>
-              <div className="mt-2 grid grid-cols-3 gap-2">
-                {[
-                  { v: String(monthSummary.count), l: t("goals_history_stat_workouts") },
-                  { v: String(monthSummary.sets), l: t("goals_history_stat_sets") },
-                  { v: formatHistoryNumber(monthSummary.volume, language), l: t("goals_history_stat_volume") },
-                ].map((s) => (
-                  <div key={s.l}>
-                    <p className="text-[20px] font-extrabold text-white tabular-nums">{s.v}</p>
-                    <p className="text-[12px] text-white/60">{s.l}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          <MonthStatsCard
+            sessions={sessions}
+            nextBefore={nextBefore}
+            refreshTick={refreshTick}
+            month={statsMonth}
+            onMonthChange={setStatsMonth}
+          />
 
           <div className="-mx-4 flex gap-2 overflow-x-auto px-4 no-scrollbar">
             {chips.map((c) => {
@@ -363,8 +439,10 @@ export default function WorkoutHistory() {
             })}
           </div>
 
+          {pendingSection}
+
           {groups.length === 0 ? (
-            <p className="py-10 text-center text-[13px] text-white/55">{t("goals_history_filter_empty")}</p>
+            !pendingSection && <p className="py-10 text-center text-[13px] text-white/55">{t("goals_history_filter_empty")}</p>
           ) : (
             groups.map((g) => (
               <section key={g.key} className="space-y-2">
@@ -390,6 +468,212 @@ export default function WorkoutHistory() {
         </div>
       )}
     </div>
+  );
+}
+
+function startOfMonth(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), 1);
+}
+
+/**
+ * Macro do mês (treinos · séries · kg de volume) com navegação ‹ › entre meses
+ * (2026-10-08). Mês que a lista carregada cobre inteiro = conta das sessões já
+ * na tela; mais antigo que isso = `getWorkoutHistoryMonthStatsDb` (só as
+ * séries daquele mês, com cache). Vai até o mês da 1ª série do usuário.
+ */
+function MonthStatsCard({
+  sessions,
+  nextBefore,
+  refreshTick,
+  month,
+  onMonthChange,
+}: {
+  sessions: WorkoutHistorySession[];
+  nextBefore: string | null;
+  refreshTick: number;
+  /** Dia 1, 00:00 local. */
+  month: Date;
+  onMonthChange: (month: Date) => void;
+}) {
+  const { t, language } = useLanguage();
+  const thisMonth = startOfMonth(new Date());
+  const [firstDate, setFirstDate] = React.useState<string | null>(null);
+  const [, setCacheVersion] = React.useState(0);
+  const key = `${month.getFullYear()}-${month.getMonth()}`;
+  const monthMs = month.getTime();
+  const nextMonthMs = new Date(month.getFullYear(), month.getMonth() + 1, 1).getTime();
+  const isEmpty = sessions.length === 0;
+
+  // Limite da seta ‹: o mês da 1ª série. Relê ao voltar ao app e se a lista
+  // esvaziar (apagou o histórico).
+  React.useEffect(() => {
+    let cancelled = false;
+    getWorkoutHistoryFirstDateDb()
+      .then((iso) => { if (!cancelled) setFirstDate(iso); })
+      .catch(() => { /* sem o limite, a seta usa a sessão mais antiga carregada */ });
+    return () => { cancelled = true; };
+  }, [refreshTick, isEmpty]);
+
+  // A lista desce do mais novo para o mais antigo: cobre o mês inteiro se não
+  // há mais páginas ou se a sessão mais antiga carregada é anterior ao mês.
+  const oldest = sessions[sessions.length - 1];
+  const covered = !nextBefore || (!!oldest && Date.parse(oldest.completedAt) < monthMs);
+
+  const local = React.useMemo<WorkoutHistoryMonthStats>(() => {
+    const inMonth = sessions.filter((s) => {
+      const ms = Date.parse(s.completedAt);
+      return ms >= monthMs && ms < nextMonthMs;
+    });
+    return {
+      count: inMonth.length,
+      sets: inMonth.reduce((n, s) => n + s.totalSeries, 0),
+      volumeKg: inMonth.reduce((n, s) => n + s.volumeKg, 0),
+    };
+  }, [sessions, monthMs, nextMonthMs]);
+
+  React.useEffect(() => {
+    if (covered || monthStatsCache.has(key)) return;
+    let cancelled = false;
+    getWorkoutHistoryMonthStatsDb(new Date(monthMs))
+      .then((stats) => {
+        monthStatsCache.set(key, stats);
+        if (!cancelled) setCacheVersion((v) => v + 1);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        reportHandledError(err, "workout-history:month-stats");
+        toast({ title: t("goals_history_load_error"), description: t("retry"), variant: "destructive" });
+      });
+    return () => { cancelled = true; };
+    // `t` fora de propósito: trocar o idioma não relê o banco.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, covered, refreshTick]);
+
+  const stats = covered ? local : monthStatsCache.get(key) ?? null;
+
+  const firstMonthMs = firstDate
+    ? startOfMonth(new Date(firstDate)).getTime()
+    : oldest
+      ? startOfMonth(new Date(oldest.completedAt)).getTime()
+      : thisMonth.getTime();
+  // Sem o limite do banco e com páginas por carregar, ainda pode haver meses antes.
+  const canPrev = monthMs > firstMonthMs || (!firstDate && !!nextBefore);
+  const canNext = monthMs < thisMonth.getTime();
+  const shift = (delta: number) => {
+    hapticLight();
+    onMonthChange(new Date(month.getFullYear(), month.getMonth() + delta, 1));
+  };
+
+  let label = t("goals_history_this_month");
+  if (monthMs !== thisMonth.getTime()) {
+    const m = month.toLocaleDateString(historyLocale(language), { month: "long", year: "numeric" });
+    label = m.charAt(0).toUpperCase() + m.slice(1);
+  }
+
+  const arrow = (dir: -1 | 1, enabled: boolean) => (
+    <button
+      type="button"
+      onClick={() => shift(dir)}
+      disabled={!enabled}
+      aria-label={dir < 0 ? t("goals_history_prev_month") : t("goals_history_next_month")}
+      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white active:scale-90 transition-transform disabled:opacity-30 disabled:active:scale-100"
+      style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)" }}
+    >
+      {dir < 0 ? <ChevronLeft className="h-[18px] w-[18px]" /> : <ChevronRight className="h-[18px] w-[18px]" />}
+    </button>
+  );
+
+  return (
+    <div
+      className="px-4 py-3"
+      style={{
+        borderRadius: 22,
+        background: "linear-gradient(rgba(255,255,255,.08),rgba(255,255,255,.03))",
+        border: "1px solid rgba(255,255,255,.1)",
+      }}
+    >
+      <div className="flex items-center gap-2">
+        <p className="min-w-0 flex-1 truncate text-[13px] font-semibold text-white/70" aria-live="polite">
+          {label}
+        </p>
+        {arrow(-1, canPrev)}
+        {arrow(1, canNext)}
+      </div>
+      <div className="mt-1.5 grid grid-cols-3 gap-2">
+        {[
+          { v: stats ? String(stats.count) : null, l: t("goals_history_stat_workouts") },
+          { v: stats ? String(stats.sets) : null, l: t("goals_history_stat_sets") },
+          { v: stats ? formatHistoryNumber(stats.volumeKg, language) : null, l: t("goals_history_stat_volume") },
+        ].map((s) => (
+          <div key={s.l}>
+            {s.v != null ? (
+              <p className="text-[20px] font-extrabold text-white tabular-nums">{s.v}</p>
+            ) : (
+              <div className="my-[5px] h-[20px] w-10 rounded-md bg-white/10 animate-pulse" />
+            )}
+            <p className="text-[12px] text-white/60">{s.l}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Desafio recebido em aberto — toque abre o convite (aceitar/recusar) em Metas. */
+function PendingChallengeRow({ challenge, onOpen }: { challenge: WorkoutChallenge; onOpen: () => void }) {
+  const { t, language } = useLanguage();
+  const style = HISTORY_KIND_STYLE.challenge;
+  const Icon = style.icon;
+  const kicker = `${t(style.labelKey)} · ${formatHistoryDate(challenge.createdAt, language, t)}`;
+  const leftMs = Date.parse(challenge.expiresAt) - Date.now();
+  const leftHours = Math.max(1, Math.ceil(leftMs / 3_600_000));
+  const expires = Number.isFinite(leftMs)
+    ? leftHours <= 24
+      ? t("goals_history_pending_expires_hours").replace("{n}", String(leftHours))
+      : t("goals_history_pending_expires_days").replace("{n}", String(Math.ceil(leftHours / 24)))
+    : null;
+  const meta = [
+    t("goals_history_challenge_from").replace("{name}", challenge.challengerNickname),
+    countLabel(challenge.snapshot.items.length, "goals_history_exercises_one", "goals_history_exercises", t),
+    expires,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="flex w-full items-center gap-3 p-3 text-left active:scale-[0.99] transition-transform"
+      style={{
+        borderRadius: 18,
+        background: "linear-gradient(rgba(244,63,94,.14),rgba(244,63,94,.04))",
+        border: "1px solid rgba(244,63,94,.32)",
+      }}
+    >
+      <div className="relative shrink-0">
+        <UserAvatar photo={challenge.challengerPhoto} nickname={challenge.challengerNickname} size="md" />
+        <span
+          className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full"
+          style={{ background: "#2a1218", color: style.color, boxShadow: "0 0 0 2px #0b0c11" }}
+        >
+          <Icon className="h-3 w-3" strokeWidth={2.4} />
+        </span>
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[11.5px] font-semibold text-white/60">{kicker}</p>
+        <p className="truncate text-[15px] font-semibold text-white">
+          {challenge.routineName || t(style.labelKey)}
+        </p>
+        <p className="truncate text-[12.5px] text-white/60">{meta}</p>
+      </div>
+      <span
+        className="shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-[12.5px] font-bold"
+        style={{ background: style.color, color: "#0b0c11" }}
+      >
+        {challenge.status === "accepted" ? t("goals_history_pending_resume") : t("goals_history_pending_accept")}
+      </span>
+    </button>
   );
 }
 

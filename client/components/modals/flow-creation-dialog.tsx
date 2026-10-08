@@ -19,6 +19,7 @@ import {
   formatStickerVolume,
   isStickerFieldShown,
   applyStickerFields,
+  stickerCardView,
 } from "@/components/shared/flow-workout-sticker";
 import {
   WorkoutStickerPickerDrawer,
@@ -2246,9 +2247,11 @@ export function FlowCreationDialog({
     }));
     // O mini frame de treino também entra no rascunho, no mesmo lugar/tamanho
     // do preview (os textos dele chegam prontos — o desenho não tem `t()`).
+    // `stickerCardView`: o rascunho desenha o card como ele aparece (blocos
+    // ocultos fora), não o snapshot completo que vai para o flow.
     const drawableSticker: DrawableSticker | null = workoutSticker
       ? {
-          data: workoutSticker.data,
+          data: stickerCardView(workoutSticker.data),
           x: workoutSticker.x,
           y: workoutSticker.y,
           scale: workoutSticker.scale,

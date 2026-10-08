@@ -13,6 +13,7 @@ import {
   type IncomingNotificationPayload,
 } from "@/lib/incoming-message-toast";
 import { getUserProfileDb } from "@/lib/ritmofit-db";
+import { setSystemBannerVisible } from "@/lib/top-banner-slot";
 
 /** Tempo em tela antes de sumir sozinho. */
 const AUTO_DISMISS_MS = 5000;
@@ -122,6 +123,13 @@ export function IncomingMessageToast() {
   React.useEffect(() => () => {
     if (timerRef.current) clearTimeout(timerRef.current);
   }, []);
+
+  // Este aviso tem a vez no topo: o pop up de insígnia espera ele sumir (ver
+  // top-banner-slot.ts).
+  React.useEffect(() => {
+    setSystemBannerVisible(banner !== null);
+  }, [banner]);
+  React.useEffect(() => () => setSystemBannerVisible(false), []);
 
   const dismiss = React.useCallback(() => {
     if (timerRef.current) clearTimeout(timerRef.current);

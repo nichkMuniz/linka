@@ -735,6 +735,8 @@ com a PK), e descarta o evento em silêncio.
 
 Notificações geradas para os usuários (follows, likes, comentários, duelos).
 
+> **Realtime (2026-10-06):** publicada em `supabase_realtime` por `docs/migrations/20261006-notifications-realtime.sql` (idempotente) — antes NÃO estava, e o pop up in-app, o badge do sino e a lista de Notificações não recebiam nada ao vivo. `REPLICA IDENTITY` padrão (PK): só o INSERT importa e ele traz a linha inteira; UPDATE/DELETE chegam só com a PK e a RLS os descarta.
+
 | Coluna | Tipo | Obrigatório | Padrão | Descrição |
 |---|---|---|---|---|
 | `id` | bigint | PK (identity) | — | Identificador único |
@@ -957,6 +959,7 @@ Perfil público dos usuários da plataforma.
 | `hide_posts_from_non_followers` | boolean | ✓ | `false` | Privacidade: quando `true`, a aba Posts do perfil só é visível para quem segue o dono. |
 | `is_banned` | boolean | ✓ | `false` | Conta banida pela moderação. Escrito **só** pela RPC `admin_set_banned` (o trigger `freeze_is_banned` reverte qualquer outra origem). Sozinho ele **não bloqueia nada** — quem barra o acesso é o `auth.users.banned_until` que a mesma RPC grava; este flag serve ao card de métricas e à tela `BannedScreen`. Migration: `docs/migrations/20260811-admin-ban-user.sql` |
 | `selected_badge_id` | uuid | — | `null` | FK → `badges.id`. Insígnia que o usuário **escolheu** exibir. Persistente: check-ins e novas conquistas **nunca** a alteram — só uma troca explícita no `InsigniasDrawer`. `null` = nunca escolheu (exibe a de maior `sort_order` do acervo). Migration: `docs/migrations/20260714-badge-selection-persist.sql` |
+| `show_badge` | boolean | ✓ | `true` | `false` = o usuário **escondeu** a insígnia ao lado do nome (interruptor "Mostrar insígnia no perfil" do `InsigniasDrawer`, 2026-10-08). Só a exibição: acervo (`user_badges`) e escolhida (`selected_badge_id`) ficam intactos. Escrito pelo próprio usuário (policy de UPDATE de `profiles`); lido por todos (`getBadgeDisplayDb`). Sem a coluna, o app lê como visível. Migration: `docs/migrations/20261008-profile-show-badge.sql` |
 
 > Migration: `docs/migrations/20260626-profile-privacy.sql`
 
@@ -1018,7 +1021,7 @@ Rotinas de treino dos usuários (estrutura de programação).
 | `updated_at` | timestamp | — | `now()` | Data de atualização |
 | `goal_id` | bigint | — | — | Meta vinculada à rotina: a identidade da meta (`user_goals.goal_id ?? custom_goal_id`, ou seja, id de `goals` ou de `user_custom_goals`), não `user_goals.id`. Sem FK desde `20260925-user-custom-goals.sql`. Zerado automaticamente pelo próprio app no dia seguinte a essa meta chegar a 100% (`unlinkCompletedGoalRoutinesDb`, ver `docs/05-metas.md`) — não é RLS nem trigger, é uma checagem no carregamento da tela de Metas. |
 | `name` | text | — | — | Nome da rotina |
-| `last_summary` | jsonb | — | — | Snapshot do resumo do **último treino finalizado** desta rotina (mesmo formato de `WorkoutSummaryData`, sem `userId`/`userGroups` — resolvidos de novo ao reabrir): `routineName`, `totalSeries`, `totalVolume`, `durationSecs`, `badges`, `completedExercises`, `prExercises`, `machinedExercises`, `caloriesKcal` (kcal da sessão, desde 21/08/2026 — ausente nos snapshots anteriores), `completedAt`. Sobrescrito a cada "Finalizar" (`updateRoutineLastSummaryDb`) — nunca há mais de um snapshot por rotina, sempre o mais recente. `NULL` = rotina nunca executada. Gateia o ícone de "resumo do treino" no `routine-detail-drawer.tsx` (só aparece quando não-nulo). Migration: `docs/migrations/20260702-routine-last-summary.sql`. |
+| `last_summary` | jsonb | — | — | Snapshot do resumo do **último treino finalizado** desta rotina (mesmo formato de `WorkoutSummaryData`, sem `userId`/`userGroups` — resolvidos de novo ao reabrir): `routineName`, `totalSeries`, `totalVolume`, `durationSecs`, `badges`, `completedExercises`, `prExercises`, `machinedExercises`, `caloriesKcal` (kcal da sessão, desde 21/08/2026 — ausente nos snapshots anteriores), `completedAt`, `partyId` (treinar junto, desde 06/10/2026 — só quando houve party; é o que mantém o card "Em conjunto" ao reabrir). Sobrescrito a cada "Finalizar" (`updateRoutineLastSummaryDb`) — nunca há mais de um snapshot por rotina, sempre o mais recente. `NULL` = rotina nunca executada. Gateia o ícone de "resumo do treino" no `routine-detail-drawer.tsx` (só aparece quando não-nulo). Migration: `docs/migrations/20260702-routine-last-summary.sql`. |
 | `training_mode` | text | ✓ | `'simple'` | **(2026-08-05)** Modo da experiência de treino desta rotina — a escolha do usuário no passo `routine-mode` do wizard. `'simple'` = tela clássica de registro (tabela KG × REPS); `'expert'` = série tipada (aquecimento/válida/falha), com o aquecimento contando no volume e na contagem de séries mas fora do PR e da progressão (ver `docs/05-metas.md`). `CHECK (training_mode IN ('simple','expert'))`. É **por rotina**, não por conta: o mesmo usuário pode ter "Peito/Tríceps" no expert e "Corrida de domingo" no simplificado. Só rotinas de treino (`type = 1`) perguntam; dieta/hábito ficam no default. Lido em `getUserRoutinesDb` → `RoutineCard.trainingMode` → prop `trainingMode` do `WorkoutSessionDialog`. Gravado por `updateRoutineTrainingModeDb` (por id, caminho do quiz) e `updateRoutineTrainingModeByNameDb` (por `user_id`+`type`+`name`, caminho "do zero", onde a linha nasce de trigger). Migration: `docs/migrations/20260805-training-mode.sql`. |
 | `program_meta` | jsonb | — | — | **(2026-07-08)** Metadados do programa que criou a rotina via o **quiz de personalização** do "Sugerido pelo app": `{ origin: "quiz", exercises: [{ name, muscleGroup, series, reps }] }` (formato `RoutineProgramMeta` em `ritmofit-db.ts`, nomes brutos PT do catálogo). Programas gerados são únicos por usuário e não existem no catálogo estático (`suggested-routines-data.ts`), então o **pré-preenchimento de séries×reps** na primeira execução (`getSuggestedSetsForCard` em `goals-helpers.ts`) lê daqui — rotinas antigas/sem meta caem no fallback por nome (`getSuggestedSetsForRoutine`). `NULL` = rotina criada do zero. Gravado por `updateRoutineProgramMetaDb`. Migration: `docs/migrations/20260708-fitness-profile-and-program-meta.sql`. |
 
@@ -1353,7 +1356,7 @@ Metas personalizadas criadas pelo usuário (passo `goal-custom` do wizard). Até
 
 ## badges
 
-Catálogo de insígnias disponíveis na plataforma.
+Catálogo de insígnias disponíveis na plataforma. **v2 desde 2026-10-06** (`docs/migrations/20261006-badges-v2.sql` + `20261006-badges-v2-more.sql`): 41 insígnias de treino, conteúdo e comunidade, concedidas no servidor por `award_my_badges()`. Catálogo, regras e celebração: `docs/23-insignias.md`.
 
 | Coluna | Tipo | Obrigatório | Padrão | Descrição |
 |---|---|---|---|---|
@@ -1366,41 +1369,38 @@ Catálogo de insígnias disponíveis na plataforma.
 | `sort_order` | int | ✓ | `0` | Ordenação (menor = mais básico) |
 | `condition_type` | text | ✓ | `checkin_total` | Tipo de condição para concessão (ver tabela abaixo) |
 | `condition_metadata` | jsonb | — | `null` | Parâmetros extras da condição (ex: `{"hour": 9}`, `{"type": "cardio"}`) |
-| `premium` | boolean | ✓ | `false` | Insígnia exclusiva de assinante. Visível para todos no catálogo (gera desejo), mas a **seleção** é gateada: `setSelectedBadgeDb` lança `BADGE_PREMIUM_LOCKED` para não-assinante. Seeds: `premium_coroa` 👑, `premium_diamante` 💎 — `condition_type = checkin_total` com `required_checkins = 0` (desbloqueio "por status", ver `docs/17-premium.md`) |
+| `premium` | boolean | ✓ | `false` | **Sem uso desde a v2 (2026-10-06).** Marcava as insígnias de assinante (`premium_coroa`, `premium_diamante`), removidas do catálogo |
 | `created_at` | timestamptz | ✓ | `now()` | Data de criação |
 
-### Tipos de condição (`condition_type`)
+### Tipos de condição (`condition_type`) — v2
 
-| Valor | Critério | Exemplo |
+Cada tipo é uma métrica contada no banco por `_badge_metrics(uid)`; a insígnia sai quando a métrica chega em `required_checkins` (piso 1).
+
+| Valor | Métrica | Níveis (limiar) |
 |---|---|---|
-| `checkin_total` | Total acumulado de check-ins ≥ `required_checkins` | `total_10`, `total_100` |
-| `checkin_week` | Check-ins na semana atual (Dom–Sáb) ≥ `required_checkins` | `iniciante`, `lendario` |
-| `checkin_streak` | Dias consecutivos de check-in ≥ `required_checkins` | `streak_7`, `streak_30` |
-| `checkin_after_midnight` | Check-ins feitos entre 00:00 e 05:59 (hora local) ≥ `required_checkins` | `noturno` |
-| `checkin_before_time` | Check-ins feitos antes de `condition_metadata.hour` (hora local) ≥ `required_checkins` | `treino_manha` (antes das 9h) |
-| `checkin_comeback` | Primeiro check-in após ≥ 7 dias sem atividade | `comeback` |
-| `workout_week` | **DIAS distintos** com treino na semana atual (Dom–hoje, data local) em `user_workouts_hist` ≥ `required_checkins` | `treino_3_semana` |
-| `workout_type` | **DIAS distintos** com treino do tipo `condition_metadata.type` em `user_workouts_hist` ≥ `required_checkins`. O tipo sai de `workouts.muscle_group` (não existe coluna `workout_type`): `cardio` casa com o grupo `Cardio`, `forca` = qualquer grupo que **não** seja `Cardio`/`Alongamento`/`Mobilidade`. Conta **dias**, não linhas — o histórico grava uma linha por SÉRIE. **Corrigido em 21/08/2026**: as duas leituras apontavam para uma tabela `workout_histories` inexistente e nunca concediam nada | `treino_forca_10`, `treino_cardio_10` |
-| `app_usage` | Dias distintos com sessão em `access_sessions` ≥ `required_checkins` | `app_7dias`, `app_30dias` |
-| `nutrition_no_ultra` | Dias **seguidos** sem ultraprocessado no diário ≥ `required_checkins` | `sem_ultraprocessado_7d` |
-| `nutrition_protein` | Dias **seguidos** batendo `user_nutrition_goals.protein_target_g` ≥ `required_checkins` | `proteina_7d` |
-| `nutrition_week` | Dias com registro no diário na semana atual (Dom–Sáb) ≥ `required_checkins` | `semana_nutritiva` |
-| `nutrition_no_sugar` | Dias **seguidos** com açúcar total ≤ `condition_metadata.max_sugar_g` (25 g, OMS) ≥ `required_checkins` | `sem_acucar_7d` |
-| `nutrition_hydration` | Dias **seguidos** batendo a meta de água (`user_nutrition_goals.water_target_ml`, ou `condition_metadata.ml` = 2000) ≥ `required_checkins` | `hidratacao_7dias` |
-| `nutrition_fruits` | **(21/08/2026)** Dias **seguidos** com ao menos uma fruta no diário — `diets.category` começando com `Frutas` (é prefixo: `Frutos do Mar` também contém "frut") | `frutas_7d` |
-| `nutrition_home_food` | **(21/08/2026)** Dias **seguidos** com **prato preparado** no diário **e** nenhum ultraprocessado. Prato preparado = `diets.category` na lista `PREPARED_DISH_CATEGORIES` (categorias de receita do TheMealDB + `Alimentos preparados` da TACO) — categorias de **ingrediente** da TACO (`Carnes e derivados`, `Cereais e derivados`) ficam de fora | `comida_caseira_5d` |
-| `habit_sleep` / `habit_meditation` / `habit_no_alcohol` / `habit_steps` | **(21/08/2026)** Dias **seguidos** com um hábito daquele tipo **marcado como feito** (`user_habits_hist`). O tipo sai do **nome** do hábito (`client/lib/habit-kinds.ts`), não do `habits.id` — hábito custom criado pela pessoa conta igual | `sono_7d`, `meditacao_5d`, `sem_alcool_7d`, `passos_10k_7d` |
-| `habit_perfect_week` / `habit_perfect_30d` | **(21/08/2026)** Dias **seguidos** de check-in (mesma sequência do anel de streak) ≥ `required_checkins` | `semana_perfeita` (7), `modo_monge` (30) |
-| `habit_perfect_day` | **(21/08/2026)** Um dia com os **três pilares**: treino (`user_workouts_hist`) + hábito (`user_habits_hist`) + alimentação (`user_food_logs`) | `super_dia` |
-| `challenge_count` | **(21/08/2026)** Duelos distintos em que o usuário entrou de fato (`duel_group_participants` com `status = 'accepted'`) | `desafio_3x` |
+| `workouts_total` | **Sessões** em `user_workouts_hist` (linhas a > 60 s uma da outra = sessões diferentes — o histórico grava uma linha por série) | 1, 5, 10, 25, 50, 100, 250, 500 |
+| `routines_total` | `routines` com `type = 1` | 1, 3, 5 |
+| `posts_total` | `posts` do usuário | 1, 10, 25, 50 |
+| `workouts_shared` | `posts.workout_summary` não nulo + `flow.text_elements @> '[{"kind":"workout"}]'` | 1, 10, 25 |
+| `flows_total` | `flow` com `reposted_from` nulo | 1, 10, 30 |
+| `party_workouts` | `workout_party_members.finished_at` não nulo | 1, 5, 20 |
+| `challenges_total` | linhas em `workout_challenge_results` | 1, 5, 20 |
+| `incentives_given` | `likes` + `flow_likes` em conteúdo de outras pessoas | 10, 100, 500 |
+| `incentives_received` | `likes` + `flow_likes` de outras pessoas no conteúdo do usuário (**06/10/2026**, `20261006-badges-v2-more.sql`) | 10, 100, 500 |
+| `comments_given` | `comments` + `flow_comments` no conteúdo de outras pessoas (**06/10/2026**) | 1, 25 |
+| `followers_total` | `following` com `following_id` = usuário | 1, 10, 50, 100, 500 |
+| `following_total` | `following` com `user_id` = usuário (**06/10/2026**) | 5 |
 
-**Insígnias de nutrição** (`awardNutritionBadgesDb`, chamada ao registrar um alimento **ou água** — e, desde 21/08/2026, também ao concluir um item de dieta na rotina) são avaliadas sobre `user_food_logs` + `user_water_logs`. As demais (`checkin_*`, `workout_*`, `habit_*`, `app_usage`, `challenge_count`) ficam em `awardBadgesForCheckInsDb`, chamada ao concluir um treino/rotina **e** ao marcar um hábito.
+41 insígnias no total (chaves, emojis e nomes em `docs/23-insignias.md`). `20261006-badges-v2-more.sql` só acrescenta: recria `_badge_metrics` com as três métricas novas e faz upsert do catálogo inteiro — nenhuma linha de `badges`/`user_badges` é apagada.
 
-> ⚠️ **`required_checkins` precisa estar preenchido.** As insígnias de hábito, comida e desafio foram cadastradas pelo painel e ficaram com `0` — inofensivo enquanto elas nunca eram concedidas, fatal depois de 21/08/2026 (`Math.max(1, 0)` = 1 → "Sono 7 dias" na primeira noite). A migração `docs/migrations/20260821-badge-thresholds.sql` grava os valores certos; o cliente ainda tem o piso `CONDITION_MIN_THRESHOLD` como rede de segurança.
+Os tipos da v1 (`checkin_*`, `workout_week`/`workout_type`, `nutrition_*`, `habit_*`, `app_usage`, `challenge_count`) e as 38 linhas do catálogo antigo foram **apagados** na migração — o acervo estava vazio (0 linhas em `user_badges`), então ninguém perdeu nada.
 
-> **Desconhecido nunca conta como zero.** A qualidade vem de `diets.food_quality` via `diet_id` e o açúcar de `user_food_logs.sugar_g`. Um dia com qualquer alimento de valor **desconhecido** (entrada manual sem o campo preenchido, ou item de catálogo com `sugar_g` nulo) **não conta** para `nutrition_no_ultra` / `nutrition_no_sugar`: não há como provar que não houve ultraprocessado ou açúcar, e aceitar o desconhecido entregaria a insígnia a quem registra tudo na mão. Consequência prática: enquanto `diets.sugar_g` não estiver populado no catálogo, `sem_acucar_7d` continua (corretamente) inalcançável.
+### Funções
 
-> **Cada insígnia só é concedida quando a condição DELA é satisfeita.** Os tipos marcados com ⚠️ não têm como ser verificados hoje, então `_evaluateBadgeCondition` devolve `false` e eles ficam permanentemente bloqueados — **é intencional**. Liberá-los por contagem de check-ins (o que o drawer fazia até 14/07/2026, via `totalCheckIns >= required_checkins` para todo tipo) entregava, por exemplo, o Madrugador a quem nunca treinou de manhã. Para ativá-los é preciso implementar o tracking + a avaliação, não afrouxar o desbloqueio.
+| Função | Acesso | O que faz |
+|---|---|---|
+| `_badge_metrics(p_user uuid) → jsonb` | interna (`REVOKE` de `anon`/`authenticated`) | `SECURITY DEFINER`, `STABLE`. Uma chave por `condition_type` com a contagem do usuário |
+| `award_my_badges() → jsonb` | `authenticated` | `SECURITY DEFINER`. Calcula as métricas do `auth.uid()`, insere em `user_badges` o que passou do limiar (`ON CONFLICT DO NOTHING`) e devolve `{ awarded: [badge_id…], metrics: {…} }` — `awarded` só com o que entrou NESTA chamada. Sem sessão: `NOT_AUTHENTICATED` (42501). Cliente: `awardMyBadgesDb()` |
 
 ---
 
@@ -1493,9 +1493,9 @@ Fonte de verdade **do servidor** sobre quem é admin. Criada em `docs/migrations
 | `earned_at` | timestamptz | ✓ | `now()` | Data de conquista |
 | UNIQUE | — | — | — | `(user_id, badge_id)` — cada insígnia é conquistada uma vez |
 
-> RLS: qualquer usuário autenticado pode ler `user_badges` (necessário para exibir no feed sem restrição de seguimento).
+> RLS: qualquer usuário autenticado pode ler `user_badges` (necessário para exibir no feed sem restrição de seguimento). **Desde 2026-10-06 não há policy de INSERT/UPDATE/DELETE** — só `award_my_badges()` (SECURITY DEFINER) escreve. A policy antiga `auth.uid() = user_id` deixava qualquer usuário se dar qualquer insígnia pela API.
 
-> **Acervo ≠ seleção.** Esta tabela guarda o que foi **conquistado**; a insígnia **exibida** é `profiles.selected_badge_id`. Nunca apagar linhas daqui para trocar a insígnia exibida — era o que `setSelectedBadgeDb` fazia até 14/07/2026 e fazia a insígnia do usuário "virar sozinha" no check-in seguinte (ver `docs/08-perfil.md`). Escrito por `awardBadgesForCheckInsDb` (upsert com `ignoreDuplicates`).
+> **Acervo ≠ seleção.** Esta tabela guarda o que foi **conquistado**; a insígnia **exibida** é `profiles.selected_badge_id`. Nunca apagar linhas daqui para trocar a insígnia exibida — era o que `setSelectedBadgeDb` fazia até 14/07/2026 e fazia a insígnia do usuário "virar sozinha" no check-in seguinte (ver `docs/08-perfil.md`). Escrito só por `award_my_badges()` (v2, 2026-10-06; antes era `awardBadgesForCheckInsDb`, no cliente).
 
 ---
 
@@ -2146,7 +2146,8 @@ Migração `docs/migrations/20261001-hide-banned-users.sql`. Banido (`profiles.i
 | Helper | O que faz |
 |---|---|
 | `banned_user_ids()` | `uuid[]` com todos os **escondidos**: banidos **e**, desde `20261005-scheduled-account-deletion.sql`, contas com exclusão agendada (`account_deletion_requests.status = pending`). SECURITY DEFINER (lê `profiles` sem recursar na RLS). Chamado sempre como `(select public.banned_user_ids())` → initplan, roda **uma vez por query**. Índice parcial `profiles_banned_idx`. A policy `profiles_hide_banned` também esconde a quarentena, via `pending_deletion_user_ids()` |
-| `viewer_sees_banned()` | `is_app_admin(auth.uid())` com `coalesce` — o **admin enxerga tudo** |
+| `viewer_sees_banned()` | `is_app_admin(auth.uid())` com `coalesce`. Desde `20261006-pending-deletion-hidden-for-all.sql` só a policy de `profiles` usa — o admin enxerga **banido**, não conta com exclusão agendada |
+| `hidden_user_ids()` | **(2026-10-06)** Quem está escondido **para quem olha**: exclusão agendada sempre (admin incluso) + banidos só para quem não é admin. É a função das policies `*_hide_banned_*` / `*_no_banned_*` e de `post_reposts_hide_banned_user_id`, recriadas sem o `OR viewer_sees_banned()`. A lista ganhou `workout_parties.host_id`, `workout_challenges.challenger_id`/`challenged_id` e `workout_challenge_results.user_id` (SELECT) e `workout_challenges.challenged_id` (INSERT). `banned_user_ids()` continua igual para as RPCs |
 
 - **SELECT** (`<tabela>_hide_banned_<coluna>`; em `profiles` é `profiles_hide_banned`, que também libera o próprio banido): `posts.user_id`/`reposted_from_user`, `flow.user_id`/`reposted_from_user`, `shots`, `comments`, `flow_comments`, `shots_comments`, `likes`, `shots_likes`, `flow_likes`, `following` (os 2 lados), `followers` (os 2 lados), `messages` (os 2 lados), `post_tags`, `flow_tags`, `notifications.follower_id`, `check_ins`, `duel_check_ins`, `duel_group_participants`, `ranking`, `workout_party_members`.
 - **INSERT** (`<tabela>_no_banned_<coluna>`): não dá para seguir (`following.following_id`, `followers.user_id`), mandar DM (`messages.following_id`), marcar (`post_tags`/`flow_tags`) nem convidar para duelo/treino (`duel_group_participants`, `workout_party_members`).

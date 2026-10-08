@@ -1,6 +1,6 @@
 import * as React from "react";
 import { useAppRefresh } from "@/lib/app-refresh";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { useLanguage } from "@/lib/language-context";
 import { useWorkout } from "@/lib/workout-context";
@@ -25,8 +25,7 @@ import {
   type WorkoutPartySnapshot,
   getUserBadgesDb,
   getAllBadgesDb,
-  getDisplayBadgeDb,
-  getTotalCheckInsDb,
+  getBadgeDisplayDb,
   getWeightLogsDb,
   addWeightLogDb,
   deleteWeightLogDb,
@@ -36,8 +35,7 @@ import {
   createUserDietsDb,
   backfillRoutineIdOnItemsDb,
   createCheckInDb,
-  awardBadgesForCheckInsDb,
-  awardNutritionBadgesDb,
+  awardMyBadgesDb,
   incrementGoalProgressDb,
   unlinkCompletedGoalRoutinesDb,
   toggleUserDietCompletionDb,
@@ -128,6 +126,7 @@ import {
 import { BadgeUnlockedDialog } from "@/components/goals/badge-unlocked-dialog";
 import { GoalCompletedDialog } from "@/components/shared/goal-completed-dialog";
 import { InsigniasDrawer } from "@/components/profile/insignias-drawer";
+import { badgeName, visibleBadges } from "@/lib/badges";
 import { CheckInCalendarModal } from "@/components/goals/check-in-calendar-modal";
 import { FEATURES } from "@/lib/feature-flags";
 
@@ -220,6 +219,7 @@ export default function Goals() {
   const { user } = useAuth();
   const { t } = useLanguage();
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const {
     workoutModalOpen,
@@ -275,7 +275,6 @@ export default function Goals() {
   const [allBadges, setAllBadges] = React.useState<Badge[]>([]);
   // Escolha persistida do usuário (profiles.selected_badge_id) — não muda no check-in
   const [selectedBadgeId, setSelectedBadgeId] = React.useState<string | null>(null);
-  const [totalCheckIns, setTotalCheckIns] = React.useState(0);
 
   // UI state — drawers/overlays identified by stable keys so they stay fresh
   const [selectedCardKey, setSelectedCardKey] = React.useState<string | null>(null);
@@ -290,6 +289,15 @@ export default function Goals() {
   // rotina sendo editada (adicionar itens) via CreateWizardDrawer em modo "add items"
   const [editRoutineCard, setEditRoutineCard] = React.useState<RoutineCard | null>(null);
   const [badgesOpen, setBadgesOpen] = React.useState(false);
+  // "Ver" do toast de insígnia nova (BadgeCheckHost, em qualquer tela) chega
+  // aqui com `state.openBadges` — abre o drawer e limpa o state, para o voltar
+  // não reabrir.
+  React.useEffect(() => {
+    const st = location.state as { openBadges?: boolean } | null;
+    if (!FEATURES.badges || !st?.openBadges) return;
+    setBadgesOpen(true);
+    navigate(location.pathname + location.search, { replace: true, state: null });
+  }, [location.state, location.pathname, location.search, navigate]);
   const [calendarOpen, setCalendarOpen] = React.useState(false);
   const [checkInDates, setCheckInDates] = React.useState<string[]>([]);
   const [weightLogs, setWeightLogs] = React.useState<WeightLog[]>([]);
@@ -387,14 +395,14 @@ export default function Goals() {
   /** Check-ins, sequência e insígnias — muda quando um treino é concluído. */
   const reloadProgress = React.useCallback(async () => {
     if (!user) return;
-    const [hist, badges, allB, totalCi, displayB] = await Promise.all([
+    const [hist, badges, allB, displayB] = await Promise.all([
       getCheckInHistoryDb(user.id, 60),
       // Streak e check-ins continuam (são o coração da tela); só o acervo de
       // insígnias sai, com FEATURES.badges desligada.
       FEATURES.badges ? getUserBadgesDb(user.id) : Promise.resolve([]),
       FEATURES.badges ? getAllBadgesDb() : Promise.resolve([]),
-      getTotalCheckInsDb(user.id),
-      FEATURES.badges ? getDisplayBadgeDb(user.id) : Promise.resolve(null),
+      // A ESCOLHIDA, mesmo escondida (show_badge): é o que o drawer marca.
+      FEATURES.badges ? getBadgeDisplayDb(user.id).then((d) => d.badge) : Promise.resolve(null),
     ]);
     setStreak(computeStreak(hist));
     setRecordStreak(Math.max(computeRecordStreak(hist), computeStreak(hist)));
@@ -403,7 +411,6 @@ export default function Goals() {
     setUserBadges(badges);
     setAllBadges(allB);
     setSelectedBadgeId(displayB?.id ?? null);
-    setTotalCheckIns(totalCi);
   }, [user]);
 
   /**
@@ -783,6 +790,13 @@ export default function Goals() {
 
   const activeWorkoutName =
     workoutModalOpen || workoutMinimized ? selectedRoutineName : null;
+
+  // Insígnias no card de streak: as 2 conquistadas mais recentes (o acervo vem
+  // por `earned_at` desc) e quantas do catálogo visível faltam.
+  const visibleBadgeIds = new Set(visibleBadges(allBadges).map((b) => String(b.id)));
+  const earnedVisible = userBadges.filter((ub) => visibleBadgeIds.has(String(ub.badge_id)));
+  const earnedBadgeEmojis = earnedVisible.slice(0, 2).map((ub) => ub.badge.emoji);
+  const lockedBadgeCount = Math.max(0, visibleBadgeIds.size - earnedVisible.length);
 
   // ── Progresso dos 3 cards "Suas rotinas" ──
   // Modelo único: rotinas concluídas ÷ total de rotinas do tipo.
@@ -1203,6 +1217,9 @@ export default function Goals() {
         machinedExercises: summary.machinedExercises,
         caloriesKcal: summary.caloriesKcal,
         completedAt,
+        // Sem a party, reabrir o resumo pelo detalhe da rotina perdia o card
+        // "Treino em conjunto". Só grava a chave quando houve party.
+        ...(FEATURES.workoutParty && partyId ? { partyId } : {}),
       }).catch(() => { /* resumo persistido é best-effort */ });
     };
     persistSummary([]);
@@ -1278,14 +1295,12 @@ export default function Goals() {
       // "compartilhar no feed", e a navegação ficava esperando um diálogo de
       // insígnia que nunca renderiza — o usuário publicava e continuava parado
       // na tela de resumo.
-      const awarded = FEATURES.badges
-        ? await awardBadgesForCheckInsDb(user.id, new Date())
-        : [];
+      // Insígnias v2: avaliadas no servidor (o treino recém-gravado já conta).
+      const awarded = FEATURES.badges ? (await awardMyBadgesDb()).awarded : [];
       if (awarded.length > 0) {
-        setSummaryData((prev) =>
-          prev ? { ...prev, badges: awarded.map((b) => b.name) } : prev,
-        );
-        persistSummary(awarded.map((b) => b.name));
+        const names = awarded.map((b) => badgeName(b, t));
+        setSummaryData((prev) => (prev ? { ...prev, badges: names } : prev));
+        persistSummary(names);
         // Adiado: as insígnias são Radix Dialog e ficariam atrás do resumo; só
         // exibimos quando o resumo for fechado (ver onClose do overlay).
         setPendingBadges(awarded);
@@ -1376,12 +1391,27 @@ export default function Goals() {
     const linkedUserGoal = card.goalId
       ? userGoals.find((g) => g.goal_id === card.goalId)
       : undefined;
+    const partyId = FEATURES.workoutParty ? card.lastSummary.partyId ?? null : null;
     setSummaryData({
       ...card.lastSummary,
+      partyId,
       userId: user?.id ?? "",
       userGoalId: linkedUserGoal?.id ?? null,
       userGroups: [],
     });
+    // Treino em conjunto: a linha "Treino em grupo com …" (o card/canvas do
+    // grupo o overlay já lê sozinho pelo `partyId`). Mesmo filtro do Finalizar.
+    if (user && partyId) {
+      getWorkoutPartyMembersDb(partyId)
+        .then((members) => {
+          const names = members
+            .filter((m) => m.status === "accepted" && m.userId !== user.id)
+            .map((m) => m.nickname);
+          if (names.length === 0) return;
+          setSummaryData((prev) => (prev && prev.partyId === partyId ? { ...prev, partyMemberNames: names } : prev));
+        })
+        .catch(() => { /* linha some, o resumo continua íntegro */ });
+    }
     if (!user || !FEATURES.duels) return;
     getEnrichedDuelGroupsDb(user.id)
       .then(({ myGroups }) => {
@@ -1402,20 +1432,6 @@ export default function Goals() {
    * tela. A recarga completa agora só acontece quando ela de fato traz algo novo:
    * ao fechar a rotina do dia (check-in, insígnias e progresso de meta).
    */
-  /**
-   * Celebra insígnias ganhas dentro do `RoutineDetailDrawer`.
-   *
-   * O `BadgeUnlockedDialog` é Radix e abriria ATRÁS do drawer (vaul) — mesmo
-   * motivo do adiamento no diário alimentar e no resumo do treino. Com o drawer
-   * aberto a conquista fica em `pendingBadges` e aparece quando ele fecha.
-   */
-  const celebrateBadges = (awarded: Badge[]) => {
-    if (!FEATURES.badges) return;
-    if (awarded.length === 0) return;
-    if (selectedCardKey !== null) setPendingBadges((prev) => [...prev, ...awarded]);
-    else setUnlockedBadges(awarded);
-  };
-
   const handleToggleItem = async (card: RoutineCard, item: RoutineItem, completed: boolean) => {
     if (!user) return;
 
@@ -1453,15 +1469,6 @@ export default function Goals() {
             await deleteFoodLogForDietItemDb(item.id, foodDate);
           }
           setFoodDiaryVersion((v) => v + 1);
-          // O item da rotina alimenta o MESMO diário que o drawer de comida, e
-          // as insígnias de nutrição (fruta, comida caseira, sem ultra…) saem
-          // dele — sem avaliar aqui, quem come pela rotina só ganharia a
-          // insígnia ao abrir o diário depois.
-          if (completed) {
-            awardNutritionBadgesDb(user.id)
-              .then(celebrateBadges)
-              .catch(() => { /* insígnia é bônus: nunca derruba o registro */ });
-          }
         } catch {
           /* diário indisponível (ex.: migração não rodada) — check continua válido */
         }
@@ -1483,19 +1490,6 @@ export default function Goals() {
       return;
     }
 
-    // Hábito marcado → avalia as insígnias de hábito (Sono 7d, Meditação 5d,
-    // Sem álcool 7d, 10k passos 7d). Precisa ser AQUI e não só no check-in de
-    // rotina completa: quem tem 4 hábitos no dia e fecha só o do sono ficaria
-    // sem a insígnia até completar a rotina inteira. Best-effort — insígnia não
-    // desfaz o check do item.
-    if (completed && item.kind === "habit") {
-      try {
-        celebrateBadges(await awardBadgesForCheckInsDb(user.id, new Date()));
-      } catch {
-        /* insígnia é bônus — o hábito já está registrado */
-      }
-    }
-
     // Concluir todos os itens da rotina hoje → check-in + progresso de meta
     if (!completed) return;
     const others = card.items.filter((i) => i.id !== item.id);
@@ -1505,7 +1499,6 @@ export default function Goals() {
     try {
       showRoutineCompleteToast({ type: card.type, name: card.name });
       await createCheckInDb(user.id);
-      celebrateBadges(await awardBadgesForCheckInsDb(user.id, new Date()));
       if (card.goalId) {
         const ug = userGoals.find((g) => g.goal_id === card.goalId);
         if (ug) {
@@ -1742,8 +1735,8 @@ export default function Goals() {
           streakCount={streak}
           weekDone={week.doneCount}
           recordStreak={recordStreak}
-          earnedCount={userBadges.length}
-          lockedCount={Math.max(0, allBadges.length - userBadges.length)}
+          earnedEmojis={earnedBadgeEmojis}
+          lockedCount={lockedBadgeCount}
           onOpenCalendar={() => setCalendarOpen(true)}
           onOpenBadges={() => setBadgesOpen(true)}
           onOpenWeight={() => setWeightHistoryOpen(true)}
@@ -1761,8 +1754,6 @@ export default function Goals() {
           waterRefreshToken={waterVersion}
           // Registrou água no Hub → o diário relê ao abrir.
           onWaterLogged={() => setFoodDiaryVersion((v) => v + 1)}
-          // Aqui não há drawer por cima, então a insígnia pode celebrar na hora.
-          onBadgesUnlocked={setUnlockedBadges}
         />
 
         <RoutineTypeCards
@@ -1827,7 +1818,6 @@ export default function Goals() {
           setListType(2);
         }}
         onTransform={handleTransformDiaryToRoutine}
-        onBadgesUnlocked={setPendingBadges}
       />
       )}
       {user && (
@@ -1943,10 +1933,9 @@ export default function Goals() {
         onOpenChange={setBadgesOpen}
         userBadges={userBadges}
         allBadges={allBadges}
-        totalCheckIns={totalCheckIns}
         profileUserId={user?.id}
         selectedBadgeId={selectedBadgeId}
-        onSelected={loadData}
+        onChanged={reloadProgress}
       />
       )}
 

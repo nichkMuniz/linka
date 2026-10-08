@@ -40,6 +40,7 @@ O objetivo central é motivar pessoas a manterem uma rotina saudável através d
 | 12 | ~~Página não encontrada~~ | `*` | **Removida em 21/08/2026** — rota desconhecida redireciona para o Feed |
 | 16 | [Hashtag](./16-hashtag.md) | `/tag/:tag` | Grade de posts de uma hashtag |
 | 22 | [Histórico de treinos](./22-historico-treinos.md) | `/metas/historico` | Todos os treinos finalizados: rotina, rápido, em conjunto e desafio (2026-10-05) |
+| 23 | [Insígnias](./23-insignias.md) | Metas (card de streak), perfil, feed | 41 insígnias de treino, conteúdo e comunidade, concedidas no servidor (2026-10-06) |
 | 13 | [Layouts e Componentes](./13-layouts-e-componentes.md) | — | Componentes compartilhados e layouts |
 | 14 | [Database Schema](./14-database-schema.md) | — | Documentação técnica de todas as tabelas do banco |
 | 15 | [Design System](./15-design-system.md) | — | Paleta de cores, tipografia, componentes, padrões visuais |

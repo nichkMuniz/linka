@@ -326,11 +326,13 @@ function generateDefaultDescription(
   data: WorkoutSummaryData,
   t: (key: TranslationKey) => string,
 ): string {
-  const duration = formatSummaryDuration(data.durationSecs);
+  // Duração 0 = desconhecida (resumo aberto pelo Histórico de treinos, que não
+  // guarda o início da sessão) — fica fora do texto em vez de virar "0s".
+  const duration = data.durationSecs > 0 ? formatSummaryDuration(data.durationSecs) : null;
   const setsWord = t("goals_summary_sets_label");
   const volumeStr = data.totalVolume > 0 ? ` • ${data.totalVolume}kg` : "";
   const kcalStr = (data.caloriesKcal ?? 0) > 0 ? ` • ${Math.round(data.caloriesKcal!)} kcal` : "";
-  const baseStats = `${duration} • ${data.totalSeries} ${setsWord}${volumeStr}${kcalStr}`;
+  const baseStats = `${duration ? `${duration} • ` : ""}${data.totalSeries} ${setsWord}${volumeStr}${kcalStr}`;
 
   if (data.machinedExercises.length > 0) {
     const top = data.machinedExercises[0];
@@ -362,7 +364,7 @@ function generateDefaultDescription(
     .filter((g) => !(runLine && g.kind === "run"))
     .map((g) => `\n${formatCardioLine(g)}`)
     .join("");
-  return `${t("goals_caption_completed").replace("{routine}", data.routineName)} ✅\n\n⏱ ${duration} | 💪 ${data.totalSeries} ${setsWord}${data.totalVolume > 0 ? ` | 🏋️ ${data.totalVolume}kg` : ""}${kcalStr ? ` | 🔥 ${Math.round(data.caloriesKcal!)} kcal` : ""}${runLine}${cardioLine ? `\n${cardioLine}` : ""}${exLine}\n\n${t("goals_caption_tags_default")}`;
+  return `${t("goals_caption_completed").replace("{routine}", data.routineName)} ✅\n\n${duration ? `⏱ ${duration} | ` : ""}💪 ${data.totalSeries} ${setsWord}${data.totalVolume > 0 ? ` | 🏋️ ${data.totalVolume}kg` : ""}${kcalStr ? ` | 🔥 ${Math.round(data.caloriesKcal!)} kcal` : ""}${runLine}${cardioLine ? `\n${cardioLine}` : ""}${exLine}\n\n${t("goals_caption_tags_default")}`;
 }
 
 // ─── Persisted payload (posts.workout_summary) ──────────────────────────────
@@ -415,7 +417,15 @@ function buildPostWorkoutSummary(
 // `routines.last_summary` (ver `sessionToSticker`), só que direto do resumo
 // aberto — sem esperar a gravação best-effort do last_summary.
 function buildFlowWorkoutSticker(data: WorkoutSummaryData): StoryWorkoutSticker {
-  const shown = data.completedExercises.slice(0, MAX_STICKER_EXERCISES);
+  const all = data.completedExercises.map((ex) => ({
+    name: ex.name,
+    sets: ex.totalSets,
+    // Cardio: `kg` do frame = MINUTOS totais (somados das séries); o bestKg
+    // do cardio é sempre 0.
+    kg: ex.isCardio ? cardioTotalMinutes(ex.sets) : ex.bestKg,
+    isCardio: ex.isCardio || undefined,
+  }));
+  const shown = all.slice(0, MAX_STICKER_EXERCISES);
   return {
     name: data.routineName,
     date: data.completedAt ?? new Date().toISOString(),
@@ -424,15 +434,10 @@ function buildFlowWorkoutSticker(data: WorkoutSummaryData): StoryWorkoutSticker 
     durationSecs: data.durationSecs,
     prCount: data.prExercises.length || undefined,
     caloriesKcal: (data.caloriesKcal ?? 0) > 0 ? Math.round(data.caloriesKcal!) : undefined,
-    exercises: shown.map((ex) => ({
-      name: ex.name,
-      sets: ex.totalSets,
-      // Cardio: `kg` do frame = MINUTOS totais (somados das séries); o bestKg
-      // do cardio é sempre 0.
-      kg: ex.isCardio ? cardioTotalMinutes(ex.sets) : ex.bestKg,
-      isCardio: ex.isCardio || undefined,
-    })),
-    extraCount: data.completedExercises.length - shown.length || undefined,
+    exercises: shown,
+    extraCount: all.length - shown.length || undefined,
+    // O card corta em 8; o "Ver treino" do flow mostra todos.
+    allExercises: all.length > shown.length ? all : undefined,
   };
 }
 
@@ -527,9 +532,12 @@ function drawCanvasStats(
   // card ficaria com um painel solitário.
   const hideSeries = cardioOnly && cardioKm > 0;
   return drawCanvasStatPanels(ctx, W, y, [
-    showCardioTime
-      ? { l: tUi("card_stat_time"), v: formatCardioMinutes(cardioMin) }
-      : { l: tUi("card_stat_duration"), v: formatSummaryDuration(data.durationSecs) },
+    // Duração 0 = desconhecida (resumo vindo do Histórico) → sem o painel.
+    ...(showCardioTime
+      ? [{ l: tUi("card_stat_time"), v: formatCardioMinutes(cardioMin) }]
+      : data.durationSecs > 0
+        ? [{ l: tUi("card_stat_duration"), v: formatSummaryDuration(data.durationSecs) }]
+        : []),
     ...(cardioKm > 0 ? [{ l: tUi("card_stat_distance"), v: `${formatCardioKm(cardioKm)} km` }] : []),
     ...(hideSeries ? [] : [{ l: tUi("card_stat_sets"), v: String(data.totalSeries) }]),
     ...(data.totalVolume > 0 ? [{ l: tUi("card_stat_volume"), v: formatVolumeKg(data.totalVolume) }] : []),
@@ -1122,7 +1130,12 @@ function drawEvolutionCanvas(
       .filter((e) => e.bestKg > 0)
       .sort((a, b) => b.bestKg - a.bestKg);
     label = tUi("card_evo_top_load");
-    big = best[0] ? `${best[0].bestKg}kg` : formatSummaryDuration(data.durationSecs);
+    const exCount = data.completedExercises.length;
+    big = best[0]
+      ? `${best[0].bestKg}kg`
+      : data.durationSecs > 0
+        ? formatSummaryDuration(data.durationSecs)
+        : tUi(exCount === 1 ? "card_exercise_count_one" : "card_exercise_count_many").replace("{n}", String(exCount));
     sub = best[0] ? tUi("card_evo_on").replace("{name}", best[0].name) : tUi("card_evo_consistency");
     rows = best.slice(0, 3).map((e) => `${e.name}  ·  ${e.bestKg}kg`);
   }
@@ -1189,18 +1202,27 @@ function drawNumbersCanvas(
   );
   const { minutes: cardioMin, km: cardioKm } = getSessionCardioTotals(data.completedExercises);
   const cardioOnly = isCardioOnlySession(data.completedExercises);
-  const tiles: Array<{ emoji: string; value: string; label: string }> = [
-    // Mesma regra de cardio dos painéis de stat (ver drawCanvasStats): tempo
-    // registrado no lugar do cronômetro da sessão, distância no lugar de séries.
+  const exercisesTile = { emoji: "🎯", value: String(data.completedExercises.length), label: tUi("card_exercises") };
+  // Mesma regra de cardio dos painéis de stat (ver drawCanvasStats): tempo
+  // registrado no lugar do cronômetro da sessão. Duração 0 = desconhecida
+  // (resumo vindo do Histórico) → o tile vira o de exercícios.
+  const timeTile =
     cardioOnly && cardioMin > 0
       ? { emoji: "⏱", value: formatCardioMinutes(cardioMin), label: tUi("card_stat_time") }
-      : { emoji: "⏱", value: formatSummaryDuration(data.durationSecs), label: tUi("card_stat_active_time") },
+      : data.durationSecs > 0
+        ? { emoji: "⏱", value: formatSummaryDuration(data.durationSecs), label: tUi("card_stat_active_time") }
+        : null;
+  const tiles: Array<{ emoji: string; value: string; label: string }> = [
+    timeTile ?? exercisesTile,
+    // Distância no lugar de séries (mesma regra de drawCanvasStats).
     cardioOnly && cardioKm > 0
       ? { emoji: "📍", value: `${formatCardioKm(cardioKm)} km`, label: tUi("card_stat_distance") }
       : { emoji: "💪", value: String(data.totalSeries), label: tUi("card_stat_sets") },
     totalReps > 0
       ? { emoji: "💥", value: fmtInt(totalReps), label: tUi("card_stat_reps") }
-      : { emoji: "🎯", value: String(data.completedExercises.length), label: tUi("card_exercises") },
+      : timeTile
+        ? exercisesTile
+        : { emoji: "✅", value: "100%", label: tUi("card_stat_completed") },
     data.totalVolume > 0
       ? { emoji: "🏋️", value: formatVolumeKg(data.totalVolume), label: tUi("card_stat_volume") }
       : { emoji: "✅", value: "100%", label: tUi("card_stat_completed") },
@@ -2923,9 +2945,12 @@ export function WorkoutSummaryOverlay({ data, onClose, onSharedToFeed, onShareTo
       {/* ── Stats row ── (mesma regra de cardio do card gerado: ver drawCanvasStats) */}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, padding: "12px 16px 4px" }}>
         {[
-          showCardioTimeStat
-            ? { label: t("goals_run_time"), value: formatCardioMinutes(sessionCardio.minutes) }
-            : { label: t("goals_summary_duration"), value: formatSummaryDuration(data.durationSecs) },
+          // Duração 0 = desconhecida (resumo aberto pelo Histórico) → sem o chip.
+          ...(showCardioTimeStat
+            ? [{ label: t("goals_run_time"), value: formatCardioMinutes(sessionCardio.minutes) }]
+            : data.durationSecs > 0
+              ? [{ label: t("goals_summary_duration"), value: formatSummaryDuration(data.durationSecs) }]
+              : []),
           ...(sessionCardio.km > 0
             ? [{ label: t("goals_run_distance"), value: `${formatCardioKm(sessionCardio.km)} km` }]
             : []),

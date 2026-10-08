@@ -11,10 +11,14 @@ Botão só com ícone (`History`, relógio) no canto superior direito do **card 
 ```
 ┌─────────────────────────────────┐
 │ (←)  Histórico de treinos       │
-│ ╭ Este mês ───────────────────╮ │ ← só com treino no mês corrente
+│ ╭ Este mês           (‹)  (›) ╮ │ ← navega entre meses
 │ │ 3 treinos · 38 séries · 13.696 kg de volume │
 │ ╰─────────────────────────────╯ │
 │ [Todos][Rotinas][Rápidos][Em conjunto][Desafios] ← chips, rolagem horizontal
+│ Desafios pendentes              │ ← só com desafio recebido em aberto
+│ (◉⚔) Desafio · Hoje, 07:10      │
+│      Peito e Tríceps  [Aceitar] │
+│      de Camila · 6 exercícios · expira em 6 dias
 │ Esta semana / Semana passada / Setembro de 2026
 │ [⚔] Desafio · Ontem, 08:21      │
 │     Peito e Tríceps   [Venceu 2×1]
@@ -35,6 +39,26 @@ Botão só com ícone (`History`, relógio) no canto superior direito do **card 
 - **Estados:** esqueleto (`SkeletonLoader`) na 1ª carga; vazio com ícone + "Nenhum treino ainda"; filtro sem resultado com uma frase; erro = toast `goals_history_load_error` + `reportHandledError`.
 - Chips de "Rápidos", "Em conjunto" e "Desafios" só aparecem com as flags `quickWorkout`, `workoutParty` e `workoutChallenge`.
 
+## Resumo por mês (2026-10-08)
+
+O card do topo mostra **treinos · séries · kg de volume** de um mês e tem setas **‹ ›** para navegar (`MonthStatsCard`, em `WorkoutHistory.tsx`). Antes só existia "Este mês", e só aparecia com treino no mês corrente; agora aparece sempre que há histórico (mês sem treino = zeros).
+
+- **Rótulo:** "Este mês" no mês corrente; nos demais, "Setembro de 2026". A seta › para no mês atual; a ‹ para no mês da **1ª série** do usuário (`getWorkoutHistoryFirstDateDb`; sem essa leitura, usa a sessão mais antiga carregada e libera enquanto houver página por carregar).
+- **De onde vêm os números:** se a lista já carregada cobre o mês inteiro (não há mais páginas, ou a sessão mais antiga carregada é anterior ao mês), soma as sessões da tela — mesmos números da lista. Senão, `getWorkoutHistoryMonthStatsDb(dia 1 do mês)` lê só as séries daquele mês (limites em dia LOCAL convertidos para UTC, paginado de 1.000 em 1.000) e aplica as mesmas regras: sessão = rajada de séries (`groupHistRowsIntoSessions`, compartilhado com a lista), drop não conta como série, volume = kg × reps só de musculação. Enquanto carrega, os números viram barras pulsando; erro = toast `goals_history_load_error` + `reportHandledError`.
+- **Cache:** meses lidos do banco ficam em `monthStatsCache` (memória do módulo); zera ao apagar um treino/o histórico e ao reler a tela (`useAppRefreshTick`).
+- O mês escolhido fica na página (`statsMonth`): abrir um treino e voltar mantém o mês.
+- Uma sessão que atravessa a meia-noite da virada do mês pode ser contada nos dois meses pela leitura do banco — raro, aceito.
+
+## Desafios pendentes (2026-10-08)
+
+Seção **"Desafios pendentes"** logo abaixo dos chips (filtro "Todos" ou "Desafios"; sem treino nenhum, aparece acima do estado vazio). Lista os desafios que **me mandaram** e que ainda não fiz — `pending` ou `accepted` (aceitei e larguei a sessão) e não expirados — para quem não quis aceitar na hora do push não perder o convite.
+
+- **Linha:** avatar de quem desafiou com um selo rosa de espadas (`Swords`), "Desafio · <quando recebi>", nome do treino e "de Fulano · N exercícios · expira em N dias/Nh" (`expires_at`, 7 dias). Fundo e borda rosados para destacar da lista de treinos feitos.
+- **Lado direito:** botão-pílula rosa **"Aceitar"** (`pending`) ou **"Treinar"** (`accepted`).
+- **Toque:** vai para `/metas?challenge=<id>` — abre o **mesmo `ChallengeInviteDialog` do push** (aceitar abre a sessão do desafio; recusar; "mais tarde"; com outro treino em andamento o diálogo não deixa aceitar). Aceitar/recusar mora em Metas porque é lá que a sessão de treino é montada. Voltar retorna ao histórico.
+- **Dados:** `getPendingWorkoutChallengesDb()` (o mesmo da faixa de desafios de Metas; até 10, mais recentes primeiro; erro = lista vazia, a seção some). Cache do módulo (`lastPending`) e releitura no `useAppRefreshTick`. Só com a flag `workoutChallenge`.
+- Quando o desafio é feito, ele sai daqui e a sessão aparece na lista normal como "Desafio" com o placar.
+
 ## Apagar treinos (2026-10-05)
 
 Duas ações, as duas com `AlertDialog` de confirmação (botão vermelho, spinner enquanto apaga, o diálogo só fecha depois de apagar) e toast de sucesso/erro:
@@ -52,6 +76,11 @@ Abre no lugar da lista com `?s=<key>` na URL (push), então o botão e o gesto d
 
 - Cabeçalho: voltar + rótulo do tipo colorido, título (24px), data/hora e, no treino em conjunto, "com Fulano, Ciclano".
 - Card de números: séries · kg de volume (se > 0) · kcal (se registrada).
+- **"Resumo do treino" (2026-10-06):** botão em gradiente azul→roxo (`Share2`, `goals_history_summary_cta`) logo abaixo do card de números, em toda sessão com exercícios. Abre o **mesmo `WorkoutSummaryOverlay` do Finalizar** — cards/templates, fotos, legenda, marcação, "Compartilhar no Feed" e "no Flow" (o flow abre no Feed com `createFlowSeed`, igual a Metas; o post vai com `refreshFeed`). Os dados vêm de `buildHistorySummaryData(session, userId)` (`workout-history-detail.tsx`):
+  - Se a sessão é o **último treino da rotina** (`routines.last_summary.completedAt` a até 10 min da última série), usa esse snapshot: resumo completo, com duração, recordes, máquina zerada e corrida GPS. O `partyId` vem da party casada pelo histórico ou, se o casamento falhar, do próprio snapshot (`last_summary.partyId`, gravado desde 06/10/2026).
+  - Senão, monta só com o que o histórico guarda: exercícios/séries, volume, kcal, título, `partyId` (card "Treino em conjunto" e marcação automática de quem treinou junto). **Sem duração** — o overlay esconde a duração quando `durationSecs` é 0 (legenda, chip da tela, painel do card, tile do template "Números" e o número grande do "Evolução") — e sem recordes/máquina zerada, que não ficam gravados.
+  - **Sem duelos** (`userGroups: []`): o check-in de duelo contaria um treino antigo como de hoje. `userGoalId` vai nulo (o post não amarra a barra da meta).
+  - O overlay é `React.lazy`; `openSummary` espera o chunk e os dados antes de montar (spinner no botão). Falha = toast `goals_history_summary_error` + `reportHandledError`. Voltar do detalhe ou abrir outra sessão descarta o resumo.
 - **Desafio:** um card por desafio ligado à sessão — avatar e "Desafio de/para Fulano"; concluído = `ChallengeComparison` (veredito + placar por exercício) e, se fui eu quem desafiou, botão **"Compartilhar no feed"** (`shareChallengeResultToFeed`, a mesma função do `ChallengeResultDialog`; depois vai ao Feed na aba Seguindo); pendente/recusado/expirado = frase, sem números (a RLS não entrega os do adversário antes).
 - **Em conjunto:** "Quem treinou" — `getWorkoutPartyMembersDb(partyId)`, eu primeiro como "Você", com séries · volume e melhor carga de cada um. Sem as colunas live-stats, só os nomes.
 - **Exercícios (`HistoryExerciseCard`, redesenhado em 2026-10-05):** um card por exercício.
@@ -66,6 +95,7 @@ Abre no lugar da lista com `?s=<key>` na URL (push), então o botão e o gesto d
 | `user_workouts_hist` (do usuário, desc, 1.500 linhas por página) | As sessões: séries agrupadas por "Finalizar" (todas gravadas a ms umas das outras; intervalo > 60s = outra sessão) |
 | `workouts` / `user_custom_workouts` (`fetchWorkoutDetailsByIds`) | Nome, grupo muscular, se é cardio |
 | `routines` | Nome da rotina |
+| `workout_challenges` (recebidos, `pending`/`accepted`, não expirados — `getPendingWorkoutChallengesDb`) | Seção "Desafios pendentes" |
 | `workout_challenge_results` (meus) + `workout_challenges` | Desafio: o resultado que gravei casa com a sessão mais recente terminada até ele (janela de 3h — quem desafia grava ao enviar, no resumo) |
 | `workout_parties` + `workout_party_members` + `profiles` | Em conjunto: meu `finished_at` (±15 min) casa com a sessão; sem ele, a janela da party |
 
@@ -85,12 +115,14 @@ Abre no lugar da lista com `?s=<key>` na URL (push), então o botão e o gesto d
 
 | Componente | Arquivo |
 |---|---|
-| Página (lista, filtros, paginação) | `client/pages/WorkoutHistory.tsx` |
+| Página (lista, filtros, paginação, resumo por mês — `MonthStatsCard`, desafios pendentes — `PendingChallengeRow`) | `client/pages/WorkoutHistory.tsx` |
+| Convite do desafio (aceitar/recusar), aberto via `/metas?challenge=` | `ChallengeInviteDialog` (`workout-challenge.tsx`, montado em `Goals.tsx`) |
 | Miniatura do exercício (compartilhada com o "Ver treino" do feed) | `ExerciseThumb` (`client/components/shared/workout-detail-dialog.tsx`, prop `size`) |
 | Detalhe + peças compartilhadas (`HISTORY_KIND_STYLE`, `formatHistoryDate`, `challengeBadge`, `challengeSubtitle`) | `client/components/goals/workout-history-detail.tsx` |
 | Placar do desafio | `ChallengeComparison` (`workout-challenge.tsx`) |
 | Publicar resultado do desafio | `shareChallengeResultToFeed` (`workout-challenge.tsx`) |
 | Botão de entrada | `StreakBadgesCard` (`streak-badges-card.tsx`) |
+| Resumo do treino (compartilhar no feed/flow) | `WorkoutSummaryOverlay` (`workout-summary-overlay.tsx`, lazy) + `buildHistorySummaryData` |
 
 ## i18n
 

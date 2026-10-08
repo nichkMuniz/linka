@@ -153,19 +153,18 @@ export const FEATURES = {
   foodDiary: false,
 
   /**
-   * Insígnias / conquistas — acervo, seleção da exibida no perfil e o diálogo
-   * de desbloqueio.
+   * Insígnias / conquistas — acervo, seleção da exibida no perfil, o diálogo
+   * de desbloqueio no fim do treino e o toast em qualquer tela.
    *
-   * Adiado porque o sistema está amarrado às duas coisas que também saíram do
-   * v1: as condições de desbloqueio dependem de rotinas de dieta e hábito, e
-   * parte do catálogo é premium (selo 👑). Com o IAP desligado, as insígnias
-   * premium ficariam livres para todos — e voltariam a trancar quando o
-   * paywall subisse, o que é pior do que nunca as ter mostrado.
-   *
-   * O acervo (`user_badges`) NÃO é apagado — a flag esconde a UI. Ver
-   * `docs/14-database-schema.md` e a nota de que user_badges nunca se limpa.
+   * Religado em 2026-10-06 como **v2**: catálogo novo de treino, conteúdo e
+   * comunidade (primeiro treino, primeiro post, treino compartilhado, treino em
+   * conjunto…), avaliado no SERVIDOR (`award_my_badges`). A v1 dependia de
+   * dieta, hábito, duelos e premium — tudo fora do v1 — e por isso ficou
+   * desligada. **Exige a migração `docs/migrations/20261006-badges-v2.sql`**;
+   * sem ela o app não quebra (a RPC falta → nada é concedido), só não há
+   * insígnias. Ver `docs/23-insignias.md`.
    */
-  badges: false,
+  badges: true,
 
   /**
    * Registro e histórico de peso corporal.

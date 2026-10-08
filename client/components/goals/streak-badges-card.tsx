@@ -7,7 +7,9 @@ interface StreakBadgesCardProps {
   /** check-ins done this week (0–7) — controls the ring fill */
   weekDone: number;
   recordStreak: number;
-  earnedCount: number;
+  /** emojis das insígnias conquistadas mais recentes (até 2) */
+  earnedEmojis: string[];
+  /** insígnias do catálogo ainda não conquistadas */
   lockedCount: number;
   /** opens the check-in calendar modal */
   onOpenCalendar: () => void;
@@ -34,7 +36,7 @@ export function StreakBadgesCard({
   streakCount,
   weekDone,
   recordStreak,
-  earnedCount,
+  earnedEmojis,
   lockedCount,
   onOpenCalendar,
   onOpenBadges,
@@ -46,7 +48,7 @@ export function StreakBadgesCard({
   const frac = Math.max(0.05, Math.min(1, weekDone / 7));
   const ringDeg = Math.round(frac * 360);
 
-  const hasBadges = FEATURES.badges && (earnedCount > 0 || lockedCount > 0);
+  const hasBadges = FEATURES.badges && (earnedEmojis.length > 0 || lockedCount > 0);
 
   return (
     <button
@@ -112,12 +114,14 @@ export function StreakBadgesCard({
               }
             }}
           >
-            {earnedCount > 0 && (
-              <span style={chipStyle("linear-gradient(135deg,#ffb15e,#ff7a3c)")}>🏅</span>
-            )}
-            {earnedCount > 1 && (
-              <span style={chipStyle("linear-gradient(135deg,#9d6bff,#5b8cff)")}>⚡</span>
-            )}
+            {earnedEmojis.slice(0, 2).map((emoji, i) => (
+              <span
+                key={i}
+                style={chipStyle(i === 0 ? "linear-gradient(135deg,#ffb15e,#ff7a3c)" : "linear-gradient(135deg,#9d6bff,#5b8cff)")}
+              >
+                {emoji}
+              </span>
+            ))}
             {lockedCount > 0 && (
               <span
                 className="flex items-center justify-center"

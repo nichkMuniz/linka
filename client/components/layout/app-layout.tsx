@@ -36,6 +36,8 @@ import {
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { IncentiveConfirmToast } from "@/components/shared/incentive-confirm-toast";
 import { IncomingMessageToast } from "@/components/shared/incoming-message-toast";
+import { BadgeCheckHost } from "@/components/shared/badge-check-host";
+import { requestBadgeCheck } from "@/lib/badges";
 import { showIncomingMessageToast, showIncomingNotificationToast } from "@/lib/incoming-message-toast";
 import { RoutineCompletedToast } from "@/components/shared/routine-completed-toast";
 import { FEATURES } from "@/lib/feature-flags";
@@ -643,6 +645,8 @@ export function AppLayout() {
       hiddenAt = null;
       // Voltou sem ser fechado: a marca do disco não vale mais para um cold start.
       clearAppBackgrounded();
+      // Insígnias passivas (seguidores) chegam enquanto o app está fechado.
+      if (awayMs >= RESUME_BADGES_AFTER_MS) requestBadgeCheck();
       if (awayMs >= RESUME_REFRESH_AFTER_MS) {
         requestAppRefresh("resume");
       } else if (awayMs >= RESUME_BADGES_AFTER_MS) {
@@ -1373,6 +1377,9 @@ export function AppLayout() {
 
       {/* Pop up de mensagem privada recebida com o app aberto (qualquer tela) */}
       <IncomingMessageToast />
+
+      {/* Insígnias conquistadas fora do fim de treino → toast em qualquer tela */}
+      <BadgeCheckHost userId={user?.id ?? null} />
 
       {/* Convite para treinar junto — chega em qualquer tela porque o treino é
           AGORA; deixar só na aba de notificações seria o mesmo que não avisar. */}

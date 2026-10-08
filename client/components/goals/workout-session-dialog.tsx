@@ -44,7 +44,7 @@ import {
   type ReorderUnit,
 } from "@/components/goals/workout-reorder-overlay";
 import { hapticMedium, hapticSuccess } from "@/lib/haptics";
-import { GripVertical, TrendingUp } from "lucide-react";
+import { GripVertical, TrendingUp, Zap } from "lucide-react";
 import { beatsE1rm, estimateOneRepMax, roundE1rm } from "@/lib/one-rep-max";
 import { toast } from "@/components/ui/use-toast";
 import {
@@ -2278,7 +2278,32 @@ export function WorkoutSessionDialog({
   };
   // O selo "Máquina zerada" no card é só um indicador (não é tocável). Para
   // removê-lo, o usuário desmarca o exercício como concluído — quando ele fica
-  // sem nenhuma série concluída, a marca é removida (ver toggleCompleted).
+  // sem nenhuma série concluída, a marca é removida (ver toggleCompleted) — ou
+  // usa o "Desmarcar" do menu ⋯.
+  //
+  // Marcação MANUAL (menu ⋯ do card): o prompt só aparece a partir de 80/120 kg,
+  // mas cadeira abdutora, glúteo na polia, rosca na máquina… zeram bem antes.
+  // Mesma regra do resumo: só vale com uma série concluída COM carga (a maior
+  // carga é o que vai para o card dourado; sem ela o resumo ignoraria a marca).
+  const toggleMachineMaxedManual = (workoutId: string) => {
+    setMenuId(null);
+    if (maxedExerciseIds.includes(workoutId)) {
+      setMaxedExerciseIds((prev) => prev.filter((x) => x !== workoutId));
+      return;
+    }
+    const hasLoadedSet = (workoutSeries[workoutId] ?? []).some((s) => s.completed && (s.kg || 0) > 0);
+    if (!hasLoadedSet) {
+      showNotice({
+        kind: "warn",
+        title: t("goals_machine_manual_need_set_title"),
+        desc: t("goals_machine_manual_need_set_desc"),
+      });
+      return;
+    }
+    if (machinePrompt?.workoutId === workoutId) dismissMachinePrompt();
+    void hapticSuccess();
+    setMaxedExerciseIds((prev) => (prev.includes(workoutId) ? prev : [...prev, workoutId]));
+  };
 
   // Modal de descanso (contador regressivo em destaque ao concluir uma série)
   const [restModalOpen, setRestModalOpen] = React.useState(false);
@@ -2464,6 +2489,31 @@ export function WorkoutSessionDialog({
       document.removeEventListener("focusin", onFocusIn);
     };
   }, [open]);
+
+  // ── Voltar no exercício em andamento ──────────────────────────────────────
+  // Fechado, este overlay retorna null: ao reabrir (minimizou, descanso acabou,
+  // app voltou do fundo) a lista nasce de novo com o scroll no TOPO. O exercício
+  // expandido sobrevive (mora no contexto), mas numa rotina de 10 ele ficava
+  // escondido no meio e parecia fechado. Rolamos até ele antes da pintura.
+  // Fica pendente até o card existir — os itens podem chegar depois do open.
+  const restoreScrollPendingRef = React.useRef(true);
+  React.useLayoutEffect(() => {
+    if (!open) {
+      restoreScrollPendingRef.current = true;
+      return;
+    }
+    if (!restoreScrollPendingRef.current || renderUnits.length === 0) return;
+    const container = cardsScrollRef.current;
+    if (!container) return;
+    restoreScrollPendingRef.current = false;
+    if (!expandedId) return;
+    const card = container.querySelector<HTMLElement>(
+      `[data-exercise-ids~="${CSS.escape(expandedId)}"]`,
+    );
+    if (!card) return;
+    // 12 = paddingTop da área de cards: o card para no mesmo respiro do topo.
+    container.scrollTop += card.getBoundingClientRect().top - container.getBoundingClientRect().top - 12;
+  }, [open, expandedId, renderUnits.length]);
 
   // Semeia o tempo de descanso salvo (user_workouts.time_to_rest) por exercício
   // ao abrir o treino. Padrão = 60s (1 min). Só preenche o que ainda não tem
@@ -3552,6 +3602,7 @@ export function WorkoutSessionDialog({
     return (
       <div
         key={`block:${group}`}
+        data-exercise-ids={ids.join(" ")}
         {...cardLongPressProps}
         style={{
           background: CARD, borderRadius: 24, overflow: "hidden",
@@ -4431,6 +4482,7 @@ export function WorkoutSessionDialog({
           return (
             <div
               key={item.id}
+              data-exercise-ids={item.workout_id}
               // Toque longo em qualquer ponto "morto" do card abre a tela de
               // reordenar (ver cardLongPressProps).
               {...cardLongPressProps}
@@ -4914,6 +4966,23 @@ export function WorkoutSessionDialog({
                           </svg>
                           {noteOpen ? t("goals_note_close") : t("goals_note_add")}
                         </button>
+                        {/* Máquina zerada manual — o prompt automático só
+                            aparece a partir de 80/120 kg (ver toggleMachineMaxedManual). */}
+                        {!isCardio && !isRunExercise && (
+                        <button
+                          onClick={() => toggleMachineMaxedManual(item.workout_id)}
+                          style={{
+                            width: "100%", background: "none", border: "none",
+                            padding: "12px 16px", textAlign: "left", cursor: "pointer",
+                            fontSize: 14, fontWeight: 500, color: isMaxed ? FG : "#eab308",
+                            display: "flex", alignItems: "center", gap: 10,
+                            borderBottom: `1px solid ${BORDER}`,
+                          }}
+                        >
+                          <Zap className="h-3.5 w-3.5" />
+                          {isMaxed ? t("goals_machine_manual_unmark") : t("goals_machine_manual_mark")}
+                        </button>
+                        )}
                         {/* Reordenar — o toque longo no card faz o mesmo, mas
                             ninguém descobre um gesto invisível sozinho. Some
                             com um exercício só, como o toque longo. */}

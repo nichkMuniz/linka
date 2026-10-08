@@ -45,10 +45,11 @@ export function isStickerFieldShown(data: StoryWorkoutSticker, field: WorkoutSti
 }
 
 /**
- * Snapshot que vai para o flow a partir do completo + o que o autor ocultou.
- * Zera os valores ocultos para eles não serem publicados (ver o comentário de
- * `StoryWorkoutSticker.hidden`). O composer guarda o completo à parte, para
- * o autor poder reexibir um bloco antes de publicar.
+ * Snapshot que vai para o flow: o COMPLETO + a lista do que o autor ocultou.
+ * Desde 2026-10-08 os valores ocultos são publicados — o "Ver treino" do flow
+ * mostra sempre o treino inteiro; ocultar só muda o que o card desenha
+ * (`stickerCardView`). O composer guarda o completo à parte, para o autor
+ * poder reexibir um bloco antes de publicar.
  */
 export function applyStickerFields(
   full: StoryWorkoutSticker,
@@ -57,13 +58,26 @@ export function applyStickerFields(
   const off = new Set(hidden);
   return {
     ...full,
-    totalVolume: off.has("volume") ? 0 : full.totalVolume,
-    durationSecs: off.has("duration") ? 0 : full.durationSecs,
-    caloriesKcal: off.has("calories") ? undefined : full.caloriesKcal,
-    prCount: off.has("prs") ? undefined : full.prCount,
-    exercises: off.has("exercises") ? [] : full.exercises,
-    extraCount: off.has("exercises") ? undefined : full.extraCount,
     hidden: hidden.length > 0 ? WORKOUT_STICKER_FIELDS.filter((f) => off.has(f)) : undefined,
+  };
+}
+
+/**
+ * O que o CARD desenha: zera os blocos ocultos (o card e o rascunho em canvas
+ * escondem número 0 / lista vazia). Só para desenhar — o detalhe ("Ver treino")
+ * lê o snapshot inteiro.
+ */
+export function stickerCardView(data: StoryWorkoutSticker): StoryWorkoutSticker {
+  if (!data.hidden?.length) return data;
+  const off = new Set(data.hidden);
+  return {
+    ...data,
+    totalVolume: off.has("volume") ? 0 : data.totalVolume,
+    durationSecs: off.has("duration") ? 0 : data.durationSecs,
+    caloriesKcal: off.has("calories") ? undefined : data.caloriesKcal,
+    prCount: off.has("prs") ? undefined : data.prCount,
+    exercises: off.has("exercises") ? [] : data.exercises,
+    extraCount: off.has("exercises") ? undefined : data.extraCount,
   };
 }
 
@@ -119,8 +133,9 @@ interface FlowWorkoutStickerProps {
   className?: string;
 }
 
-export function FlowWorkoutSticker({ data, scale = 1, className, interactive = false }: FlowWorkoutStickerProps) {
+export function FlowWorkoutSticker({ data: raw, scale = 1, className, interactive = false }: FlowWorkoutStickerProps) {
   const { t } = useLanguage();
+  const data = stickerCardView(raw);
 
   const exercises = isStickerFieldShown(data, "exercises") && Array.isArray(data.exercises) ? data.exercises : [];
   const extra = isStickerFieldShown(data, "exercises") ? Number(data.extraCount ?? 0) : 0;

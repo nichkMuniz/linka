@@ -201,12 +201,18 @@ function PostCardImpl({
           style={{ background: "linear-gradient(to bottom,rgba(0,0,0,.1) 0%,transparent 28%,transparent 55%,rgba(0,0,0,.65) 100%)", ...holdHiddenStyle }}
         />
 
+        {/* ── Topo: identidade (esquerda) + ações (direita) num ÚNICO flex ──
+            Eram dois `absolute` independentes: com vídeo (som) + "Seguir" + ⋮ a
+            fileira da direita passava por cima do nome e do halter do treino
+            (2026-10-06). Agora a pílula encolhe (o nome trunca) e as ações nunca
+            a cobrem. O wrapper não pega toque — o vão entre os dois abre o post. */}
+        <div className="absolute top-3 left-3 right-3 z-10 flex items-start justify-between gap-2 pointer-events-none">
         {/* ── Compact pill — user identity (left side) ──
             Meta ("🎯 80%") e treino (halter, só ícone) são selos DENTRO da
             pílula. O "Ver treino" com rótulo, ao lado dela, espremia o nome
             quando o post tinha os dois (2026-09-30). */}
         <div
-          className="absolute top-3 left-3 inline-flex items-center gap-2 pointer-events-auto z-10"
+          className="min-w-0 inline-flex items-center gap-2 pointer-events-auto"
           style={{ height: "44px", borderRadius: "22px", padding: "0 12px 0 6px", ...GLASS_TOP, ...zoomHiddenStyle }}
           onClick={(e) => e.stopPropagation()}
         >
@@ -258,14 +264,15 @@ function PostCardImpl({
           )}
         </div>
 
-        {/* ── Detached actions — right side ── */}
+        {/* ── Detached actions — right side ──
+            Som do vídeo numa 2ª linha, sob o ⋮: na mesma fileira de "Seguir" e ⋮
+            ele roubava ~40px da pílula do autor. */}
         <div
-          className="absolute top-3 right-3 flex items-center gap-1.5 pointer-events-auto z-10"
+          className="flex shrink-0 flex-col items-end gap-2 pointer-events-auto"
           style={holdHiddenStyle}
           onClick={(e) => e.stopPropagation()}
         >
-          {videoUrl && <PostVideoMuteButton />}
-
+        <div className="flex h-11 items-center gap-1.5">
           {showFollowButton && !isOwner && (
             <FollowButton targetUserId={post.user_id} variant="overlay" />
           )}
@@ -331,6 +338,9 @@ function PostCardImpl({
               )}
             </DropdownMenuContent>
           </DropdownMenu>
+        </div>
+          {videoUrl && <PostVideoMuteButton />}
+        </div>
         </div>
 
         {/* ── Bottom: description + glass action bar ── */}

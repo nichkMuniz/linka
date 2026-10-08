@@ -327,10 +327,13 @@ export default function PostDetail() {
             style={{ background: "linear-gradient(to bottom,rgba(0,0,0,.1) 0%,transparent 28%,transparent 55%,rgba(0,0,0,.65) 100%)", ...holdHiddenStyle }}
           />
 
+          {/* Topo num ÚNICO flex (2026-10-06, igual ao PostCard): a pílula encolhe
+              e o nome trunca, em vez de o som + ⋮ passarem por cima dela. */}
+          <div className="absolute top-3 left-3 right-3 z-10 flex items-start justify-between gap-2 pointer-events-none">
           {/* Compact pill — user identity (top-left). Meta e treino (halter, só
               ícone) são selos DENTRO da pílula — mesmo layout do PostCard. */}
           <div
-            className="absolute top-3 left-3 inline-flex items-center gap-2 pointer-events-auto z-10"
+            className="min-w-0 inline-flex items-center gap-2 pointer-events-auto"
             style={{ height: "44px", borderRadius: "22px", padding: "0 12px 0 6px", ...GLASS_TOP, ...holdHiddenStyle }}
           >
             <button
@@ -384,7 +387,7 @@ export default function PostDetail() {
           </div>
 
           {/* Context menu (top-right) — compartilhar para todos; editar/excluir só para o dono */}
-          <div className="absolute top-3 right-3 z-10 flex items-center gap-1.5" style={holdHiddenStyle}>
+          <div className="flex h-11 shrink-0 items-center gap-1.5 pointer-events-auto" style={holdHiddenStyle}>
             {videoUrl && <PostVideoMuteButton />}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -431,6 +434,7 @@ export default function PostDetail() {
                 )}
               </DropdownMenuContent>
             </DropdownMenu>
+          </div>
           </div>
 
           {/* Bottom: description + glass action bar */}

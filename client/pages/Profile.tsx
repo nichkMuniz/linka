@@ -690,12 +690,13 @@ export default function Profile() {
     setIsLoadingFollowers(true);
     try {
       const data = await getFollowersDb(profileUserId);
-      setFollowers(data);
 
-      // Batch-check follow status for all followers in one query instead of N individual queries
+      // Batch-check follow status for all followers in one query instead of N individual queries.
+      // Status antes da lista: as linhas já pintam com o botão certo.
       const followerIds = data.map((f: any) => f.id).filter(Boolean);
       const statusMap = await getFollowingStatusBatchDb(followerIds);
       setFollowerFollowStatus(statusMap);
+      setFollowers(data);
     } catch (err: any) {
       console.error("Error loading followers:", err);
       toast({
@@ -711,6 +712,21 @@ export default function Profile() {
     setIsLoadingFollowers(true);
     try {
       const data = await getFollowingDb(profileUserId);
+
+      // No PRÓPRIO perfil, todo mundo da lista é seguido por definição. No
+      // perfil de outra pessoa, a lista é quem ELA segue — o botão de cada linha
+      // tem que refletir se EU sigo (mesma consulta em lote dos seguidores).
+      // Lista e status entram juntos: sem isso as linhas pintavam um instante
+      // com o status da lista anterior.
+      const followingIds = data.map((u: any) => u.id).filter(Boolean);
+      let statusMap: Record<string, boolean>;
+      if (isViewingOtherProfile) {
+        statusMap = await getFollowingStatusBatchDb(followingIds);
+      } else {
+        statusMap = {};
+        followingIds.forEach((id: string) => { statusMap[id] = true; });
+      }
+      setFollowingFollowStatus(statusMap);
       setFollowing(data);
 
       // Próprio perfil sem seguir ninguém → sugere os perfis mais seguidos no
@@ -723,11 +739,6 @@ export default function Profile() {
       } else {
         setSuggestedProfiles([]);
       }
-
-      // All users in the "following" list are already followed by definition
-      const statusMap: Record<string, boolean> = {};
-      data.forEach((u: any) => { if (u.id) statusMap[u.id] = true; });
-      setFollowingFollowStatus(statusMap);
     } catch (err: any) {
       console.error("Error loading following:", err);
       toast({
