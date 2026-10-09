@@ -456,7 +456,7 @@ Nenhum dado do LinKa é anônimo: tudo está atrelado a uma conta.
 | **Dados de uso** | Interação com o produto | `screen_time_logs` e `access_sessions` (tempo por tela e duração de sessão) | Funcionalidade do app, Análise |
 | **Diagnóstico** | Dados de falha | Sentry — evento de erro com `user.id` | Funcionalidade do app, Análise |
 | | Outros dados de diagnóstico | `push_delivery_log` — resultado de cada push (status da Apple, atraso) com `user_id` (desde 05/10/2026) | Funcionalidade do app |
-| **Localização** | Localização precisa | Corrida/caminhada por GPS (`FEATURES.gpsRun`, religada em 01/10/2026): o trajeto sai do aparelho ao carregar os tiles do mapa (CARTO) e na imagem do mapa publicada com o resumo | Funcionalidade do app |
+| **Localização** | Localização precisa | Corrida/caminhada por GPS (`FEATURES.gpsRun`, religada em 01/10/2026): o trajeto sai do aparelho ao carregar os tiles do mapa (Esri) e na imagem do mapa publicada com o resumo | Funcionalidade do app |
 | | Dados de desempenho | Sentry | Funcionalidade do app, Análise |
 
 ### O que **NÃO** declarar nesta versão

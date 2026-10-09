@@ -44,6 +44,7 @@ export function sessionToSticker(session: RecentWorkoutSession): StoryWorkoutSti
     extraCount: session.exercises.length - shown.length || undefined,
     // O card corta em 8; o "Ver treino" do flow mostra todos.
     allExercises: session.exercises.length > shown.length ? session.exercises : undefined,
+    run: session.runStats,
   };
 }
 
@@ -60,6 +61,7 @@ const FIELD_LABEL: Record<WorkoutStickerField, TranslationKey> = {
   duration: "flow_workout_field_duration",
   calories: "flow_workout_field_calories",
   prs: "flow_workout_field_prs",
+  splits: "goals_run_splits_title",
   exercises: "flow_workout_field_exercises",
 };
 
@@ -67,7 +69,7 @@ const FIELD_LABEL: Record<WorkoutStickerField, TranslationKey> = {
 const PRESETS: Array<{ key: TranslationKey; hidden: WorkoutStickerField[] }> = [
   { key: "flow_workout_preset_full", hidden: [] },
   { key: "flow_workout_preset_numbers", hidden: ["exercises"] },
-  { key: "flow_workout_preset_minimal", hidden: ["volume", "calories", "prs", "exercises"] },
+  { key: "flow_workout_preset_minimal", hidden: ["volume", "calories", "prs", "splits", "exercises"] },
 ];
 
 // Última escolha do usuário — conveniência por aparelho (a do flow publicado
@@ -99,6 +101,7 @@ function availableFields(full: StoryWorkoutSticker): WorkoutStickerField[] {
       case "duration": return full.durationSecs > 0;
       case "calories": return Number(full.caloriesKcal ?? 0) > 0;
       case "prs": return Number(full.prCount ?? 0) > 0;
+      case "splits": return (full.run?.splits?.length ?? 0) > 0;
       case "exercises": return (full.exercises?.length ?? 0) > 0;
       default: return true;
     }

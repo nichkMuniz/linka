@@ -3,9 +3,13 @@ import type { RunPoint } from "@/lib/run-tracker";
 
 // ── Mapa do trajeto (corrida GPS) ───────────────────────────────────────────
 // Mini-renderizador de "slippy map" sem dependências: calcula o zoom que
-// enquadra o trajeto, monta a grade de tiles (CARTO dark — combina com o tema
-// glass escuro; atribuição OSM/CARTO obrigatória no canto) e desenha a
-// polyline do percurso por cima. Duas saídas com a MESMA matemática:
+// enquadra o trajeto, monta a grade de tiles (Esri Dark Gray Canvas — sem
+// chave de API e com CORS; atribuição Esri/OSM obrigatória no canto),
+// escurece o fundo e desenha a polyline do percurso por cima, no estilo
+// Strava (rota laranja com contorno, largada verde, chegada quadriculada).
+// CARTO (basemaps.cartocdn.com) foi abandonado: passou a exigir API key e
+// devolve um tile "API KEY REQUIRED" com HTTP 200. Duas saídas com a MESMA
+// matemática:
 //   - <RouteMap/>            → DOM (tiles em <img> + SVG), para exibição
 //   - renderRouteMapImage()  → canvas → Blob JPEG, para compartilhar/postar
 // Estático de propósito (sem pan/zoom): é um resumo pós-corrida.
@@ -13,13 +17,17 @@ import type { RunPoint } from "@/lib/run-tracker";
 const TILE = 256;
 const MIN_ZOOM = 3;
 const MAX_ZOOM = 17;
+/** zoom máximo servido pelo Dark Gray Canvas — acima disso vem "Map data not yet available" */
+const TILE_MAX_ZOOM = 16;
 /** margem interna (px) entre o trajeto e a borda do mapa no componente DOM */
 const FIT_PADDING = 28;
-const MAP_BG = "#12141c";
-const ROUTE_COLOR = "#5b8cff";
-const START_COLOR = "#34d399";
-const END_COLOR = "hsl(24, 95%, 55%)";
-const ATTRIBUTION = "© OpenStreetMap © CARTO";
+const MAP_BG = "#16181f";
+/** véu sobre os tiles: o cinza do Esri vira o quase-preto do mapa escuro do Strava */
+const MAP_SHADE = "rgba(8,10,16,0.42)";
+const ROUTE_COLOR = "#fc5200";
+const ROUTE_CASING = "rgba(0,0,0,0.6)";
+const START_COLOR = "#22c55e";
+const ATTRIBUTION = "Esri, HERE, Garmin, © OpenStreetMap";
 
 // Projeção Web Mercator normalizada [0..1]
 function mercX(lng: number): number {
@@ -30,20 +38,26 @@ function mercY(lat: number): number {
   return (1 - Math.asinh(Math.tan(rad)) / Math.PI) / 2;
 }
 
+// Esri usa a ordem z/y/x na URL
 function tileUrl(z: number, x: number, y: number): string {
-  return `https://${"abcd"[(x + y) % 4]}.basemaps.cartocdn.com/dark_all/${z}/${x}/${y}@2x.png`;
+  return `https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/${z}/${y}/${x}`;
 }
 
 interface RouteLayout {
-  zoom: number;
+  /** zoom em que os tiles são buscados (pode diferir do zoom de exibição) */
+  tileZoom: number;
+  /** lado de cada tile em px de exibição (128 no Retina, 256 normal, 512 se ampliado) */
+  tileSize: number;
   tiles: Array<{ x: number; y: number; left: number; top: number }>;
   toLocal: (p: RunPoint) => { x: number; y: number };
 }
 
 // Enquadramento: maior zoom inteiro em que o bbox do trajeto cabe com folga,
 // centro no meio do bbox, e a grade de tiles que cobre o viewport width×height.
+// `hiDpi`: o Esri não tem tiles @2x, então no DOM (tela Retina) busca um zoom
+// acima e desenha cada tile com metade do tamanho — mesma área, o dobro de pixels.
 function computeRouteLayout(
-  points: RunPoint[], width: number, height: number, padding: number,
+  points: RunPoint[], width: number, height: number, padding: number, hiDpi: boolean,
 ): RouteLayout {
   const xs = points.map((p) => mercX(p.lng));
   const ys = points.map((p) => mercY(p.lat));
@@ -69,25 +83,28 @@ function computeRouteLayout(
   const tlX = ((minX + maxX) / 2) * worldSize - width / 2;
   const tlY = ((minY + maxY) / 2) * worldSize - height / 2;
 
-  const maxTile = Math.pow(2, zoom) - 1;
-  const txMin = Math.floor(tlX / TILE);
-  const txMax = Math.floor((tlX + width) / TILE);
-  const tyMin = Math.max(0, Math.floor(tlY / TILE));
-  const tyMax = Math.min(maxTile, Math.floor((tlY + height) / TILE));
+  const tileZoom = Math.min(TILE_MAX_ZOOM, zoom + (hiDpi ? 1 : 0));
+  const tileSize = TILE * Math.pow(2, zoom - tileZoom);
+  const maxTile = Math.pow(2, tileZoom) - 1;
+  const txMin = Math.floor(tlX / tileSize);
+  const txMax = Math.floor((tlX + width) / tileSize);
+  const tyMin = Math.max(0, Math.floor(tlY / tileSize));
+  const tyMax = Math.min(maxTile, Math.floor((tlY + height) / tileSize));
   const tiles: RouteLayout["tiles"] = [];
   for (let tx = txMin; tx <= txMax; tx++) {
     for (let ty = tyMin; ty <= tyMax; ty++) {
       tiles.push({
         x: ((tx % (maxTile + 1)) + maxTile + 1) % (maxTile + 1),
         y: ty,
-        left: tx * TILE - tlX,
-        top: ty * TILE - tlY,
+        left: tx * tileSize - tlX,
+        top: ty * tileSize - tlY,
       });
     }
   }
 
   return {
-    zoom,
+    tileZoom,
+    tileSize,
     tiles,
     toLocal: (p) => ({
       x: mercX(p.lng) * worldSize - tlX,
@@ -109,6 +126,7 @@ interface RouteMapProps {
 export function RouteMap({ path, height = 220, emptyLabel }: RouteMapProps) {
   const containerRef = React.useRef<HTMLDivElement>(null);
   const [width, setWidth] = React.useState(0);
+  const checkerId = `route-finish-${React.useId().replace(/:/g, "")}`;
 
   React.useLayoutEffect(() => {
     if (containerRef.current) setWidth(containerRef.current.clientWidth);
@@ -140,12 +158,14 @@ export function RouteMap({ path, height = 220, emptyLabel }: RouteMapProps) {
     return <div ref={containerRef} style={{ width: "100%", height }} />;
   }
 
-  const layout = computeRouteLayout(points, width, height, FIT_PADDING);
+  const layout = computeRouteLayout(points, width, height, FIT_PADDING, true);
   const segments = path
     .filter((seg) => seg.length > 1)
-    .map((seg) => seg.map(layout.toLocal));
+    .map((seg) => seg.map(layout.toLocal).map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" "));
   const start = layout.toLocal(points[0]);
   const end = layout.toLocal(points[points.length - 1]);
+  const dotR = 6;
+  const sq = dotR / 2;
 
   return (
     <div
@@ -157,18 +177,30 @@ export function RouteMap({ path, height = 220, emptyLabel }: RouteMapProps) {
         border: "1px solid rgba(255,255,255,0.1)",
       }}
     >
-      {layout.tiles.map((tile) => (
-        <img
-          key={`${tile.x}-${tile.y}`}
-          src={tileUrl(layout.zoom, tile.x, tile.y)}
-          alt=""
-          draggable={false}
-          style={{
-            position: "absolute", left: tile.left, top: tile.top,
-            width: TILE, height: TILE, pointerEvents: "none", userSelect: "none",
-          }}
-        />
-      ))}
+      {layout.tiles.map((tile) => {
+        // bordas arredondadas a partir da posição absoluta: tiles vizinhos
+        // encostam sem a linha fina que aparece com coordenadas fracionárias
+        const left = Math.round(tile.left);
+        const top = Math.round(tile.top);
+        return (
+          <img
+            key={`${tile.x}-${tile.y}`}
+            src={tileUrl(layout.tileZoom, tile.x, tile.y)}
+            alt=""
+            draggable={false}
+            onLoad={(e) => { e.currentTarget.style.opacity = "1"; }}
+            style={{
+              position: "absolute", left, top,
+              width: Math.round(tile.left + layout.tileSize) - left,
+              height: Math.round(tile.top + layout.tileSize) - top,
+              opacity: 0, transition: "opacity 0.25s ease-out",
+              pointerEvents: "none", userSelect: "none",
+            }}
+          />
+        );
+      })}
+
+      <div style={{ position: "absolute", inset: 0, background: MAP_SHADE, pointerEvents: "none" }} />
 
       <svg
         width={width}
@@ -176,21 +208,45 @@ export function RouteMap({ path, height = 220, emptyLabel }: RouteMapProps) {
         viewBox={`0 0 ${width} ${height}`}
         style={{ position: "absolute", inset: 0 }}
       >
-        {segments.map((seg, i) => (
+        <defs>
+          {/* bandeira quadriculada da chegada */}
+          <pattern
+            id={checkerId}
+            patternUnits="userSpaceOnUse"
+            x={end.x - dotR} y={end.y - dotR}
+            width={sq * 2} height={sq * 2}
+          >
+            <rect width={sq * 2} height={sq * 2} fill="#fff" />
+            <rect width={sq} height={sq} fill="#111" />
+            <rect x={sq} y={sq} width={sq} height={sq} fill="#111" />
+          </pattern>
+        </defs>
+        {/* contorno escuro por baixo — destaca a rota sobre as ruas, como no Strava */}
+        {segments.map((pts, i) => (
           <polyline
-            key={i}
-            points={seg.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")}
+            key={`c${i}`}
+            points={pts}
+            fill="none"
+            stroke={ROUTE_CASING}
+            strokeWidth={6.5}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        ))}
+        {segments.map((pts, i) => (
+          <polyline
+            key={`r${i}`}
+            points={pts}
             fill="none"
             stroke={ROUTE_COLOR}
             strokeWidth={3.5}
             strokeLinecap="round"
             strokeLinejoin="round"
-            style={{ filter: "drop-shadow(0 0 4px rgba(91,140,255,0.6))" }}
           />
         ))}
-        {/* início (verde) e fim (laranja) */}
-        <circle cx={start.x} cy={start.y} r={6} fill={START_COLOR} stroke="#fff" strokeWidth={2} />
-        <circle cx={end.x} cy={end.y} r={6} fill={END_COLOR} stroke="#fff" strokeWidth={2} />
+        {/* largada (verde) e chegada (quadriculada) */}
+        <circle cx={start.x} cy={start.y} r={dotR} fill={START_COLOR} stroke="#fff" strokeWidth={2} />
+        <circle cx={end.x} cy={end.y} r={dotR} fill={`url(#${checkerId})`} stroke="#fff" strokeWidth={2} />
       </svg>
 
       {/* Atribuição obrigatória dos tiles */}
@@ -246,7 +302,7 @@ export async function renderRouteMapImage(
 
   // Reserva o rodapé de stats fora da área útil do trajeto
   const statsBarH = Math.round(size * 0.16);
-  const layout = computeRouteLayout(points, size, size - statsBarH, Math.round(size * 0.1));
+  const layout = computeRouteLayout(points, size, size - statsBarH, Math.round(size * 0.1), false);
 
   const canvas = document.createElement("canvas");
   canvas.width = size;
@@ -258,37 +314,70 @@ export async function renderRouteMapImage(
     ctx.clearRect(0, 0, size, size);
     ctx.fillStyle = MAP_BG;
     ctx.fillRect(0, 0, size, size);
-    for (const t of tiles) ctx.drawImage(t.img, t.left, t.top, TILE, TILE);
+    for (const t of tiles) {
+      // mesmo arredondamento do DOM: sem frestas entre tiles vizinhos
+      const left = Math.round(t.left);
+      const top = Math.round(t.top);
+      ctx.drawImage(
+        t.img, left, top,
+        Math.round(t.left + layout.tileSize) - left,
+        Math.round(t.top + layout.tileSize) - top,
+      );
+    }
+    ctx.fillStyle = MAP_SHADE;
+    ctx.fillRect(0, 0, size, size);
 
-    // Rota
+    // Rota: contorno escuro por baixo + linha laranja por cima (estilo Strava)
     const lineW = Math.max(6, size / 110);
+    const tracePath = () => {
+      for (const seg of path) {
+        if (seg.length < 2) continue;
+        ctx.beginPath();
+        seg.forEach((p, i) => {
+          const { x, y } = layout.toLocal(p);
+          i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+      }
+    };
     ctx.save();
-    ctx.strokeStyle = ROUTE_COLOR;
-    ctx.lineWidth = lineW;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
-    ctx.shadowColor = "rgba(91,140,255,0.65)";
-    ctx.shadowBlur = lineW * 1.2;
-    for (const seg of path) {
-      if (seg.length < 2) continue;
-      ctx.beginPath();
-      seg.forEach((p, i) => {
-        const { x, y } = layout.toLocal(p);
-        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-      });
-      ctx.stroke();
-    }
+    ctx.strokeStyle = ROUTE_CASING;
+    ctx.lineWidth = lineW * 1.85;
+    tracePath();
+    ctx.strokeStyle = ROUTE_COLOR;
+    ctx.lineWidth = lineW;
+    tracePath();
     ctx.restore();
 
-    // Início (verde) e fim (laranja)
+    // Largada (verde) e chegada (quadriculada)
     const dotR = Math.max(8, size / 90);
     const start = layout.toLocal(points[0]);
     const end = layout.toLocal(points[points.length - 1]);
-    for (const [pt, color] of [[start, START_COLOR], [end, "#f97316"]] as const) {
+    ctx.beginPath();
+    ctx.arc(start.x, start.y, dotR, 0, Math.PI * 2);
+    ctx.fillStyle = START_COLOR;
+    ctx.fill();
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(end.x, end.y, dotR, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(end.x - dotR, end.y - dotR, dotR * 2, dotR * 2);
+    ctx.fillStyle = "#111";
+    const sq = dotR / 2;
+    for (let r = 0; r < 4; r++) {
+      for (let c = 0; c < 4; c++) {
+        if ((r + c) % 2 === 0) ctx.fillRect(end.x - dotR + c * sq, end.y - dotR + r * sq, sq, sq);
+      }
+    }
+    ctx.restore();
+
+    for (const pt of [start, end]) {
       ctx.beginPath();
       ctx.arc(pt.x, pt.y, dotR, 0, Math.PI * 2);
-      ctx.fillStyle = color;
-      ctx.fill();
       ctx.lineWidth = dotR * 0.45;
       ctx.strokeStyle = "#fff";
       ctx.stroke();
@@ -341,7 +430,7 @@ export async function renderRouteMapImage(
     });
 
   const loaded = await Promise.all(
-    layout.tiles.map(async (t) => ({ ...t, img: await loadTile(layout.zoom, t.x, t.y) })),
+    layout.tiles.map(async (t) => ({ ...t, img: await loadTile(layout.tileZoom, t.x, t.y) })),
   );
   const okTiles = loaded.filter((t): t is typeof t & { img: HTMLImageElement } => t.img !== null);
 

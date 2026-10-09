@@ -20,6 +20,17 @@ import {
   isStickerFieldShown,
   applyStickerFields,
   stickerCardView,
+  stickerRunBlockHeight,
+  stickerRunStats,
+  stickerSplitRows,
+  STICKER_RUN_ACCENT,
+  STICKER_RUN_BAR,
+  STICKER_RUN_STATS_H,
+  STICKER_SPLIT_GAP,
+  STICKER_SPLIT_LABEL_W,
+  STICKER_SPLIT_PACE_W,
+  STICKER_SPLIT_ROW_H,
+  STICKER_SPLITS_TOP,
 } from "@/components/shared/flow-workout-sticker";
 import {
   WorkoutStickerPickerDrawer,
@@ -590,7 +601,17 @@ type DrawableSticker = {
   x: number;
   y: number;
   scale: number;
-  labels: { title: string; series: string; prs: string; more: string; date: string };
+  labels: {
+    title: string;
+    series: string;
+    prs: string;
+    more: string;
+    date: string;
+    /** colunas do bloco da corrida GPS (Distância/Tempo/Ritmo) */
+    runDistance: string;
+    runTime: string;
+    runPace: string;
+  };
 };
 
 const STICKER_FONT = "-apple-system, system-ui, 'Segoe UI', sans-serif";
@@ -651,6 +672,7 @@ function stickerCardHeight(data: StoryWorkoutSticker, chipLines = 1): number {
   const rows = data.exercises?.length ?? 0;
   let h = STICKER_PAD + STICKER_HEADER_H;
   if (chipLines > 0) h += 9 + STICKER_CHIPS_H + (chipLines - 1) * (STICKER_CHIPS_H + 6);
+  if (data.run) h += 9 + 1 + 8 + stickerRunBlockHeight(data.run);
   if (rows > 0) {
     h += 9 + 1 + 8 + rows * STICKER_ROW_H + (rows - 1) * STICKER_ROW_GAP;
     if (data.extraCount) h += STICKER_ROW_GAP + 12;
@@ -772,11 +794,67 @@ function drawWorkoutStickerOnCanvas(
     chipX += w + 6;
   }
 
+  // Base do último bloco desenhado — sem chips, o próximo bloco começa logo
+  // abaixo do cabeçalho (como no React).
+  let blockBottom = chips.length > 0 ? chipY + STICKER_CHIPS_H : iconTop + STICKER_HEADER_H;
+
+  // Corrida GPS: distância · tempo · ritmo + parciais por km
+  if (data.run) {
+    const lineY = blockBottom + 9;
+    ctx.fillStyle = "rgba(255,255,255,.1)";
+    ctx.fillRect(left, lineY, contentW, 1);
+    const top = lineY + 1 + 8;
+    const stats = stickerRunStats(data.run);
+    const cols = [
+      { label: item.labels.runDistance, value: stats.distance },
+      { label: item.labels.runTime, value: stats.time },
+      { label: item.labels.runPace, value: stats.pace },
+    ];
+    const colW = contentW / 3;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    cols.forEach((c, i) => {
+      const x = left + colW * i;
+      ctx.font = `700 8px ${STICKER_FONT}`;
+      ctx.fillStyle = "rgba(255,255,255,.5)";
+      ctx.fillText(ellipsize(ctx, c.label.toUpperCase(), colW - 4), x, top + 5);
+      ctx.font = `800 13px ${STICKER_FONT}`;
+      ctx.fillStyle = "#fff";
+      ctx.fillText(ellipsize(ctx, c.value, colW - 4), x, top + 12 + 8);
+    });
+
+    const { rows: splitRows, extra } = stickerSplitRows(data.run);
+    let rowY = top + STICKER_RUN_STATS_H + STICKER_SPLITS_TOP;
+    const barX = left + STICKER_SPLIT_LABEL_W + 6;
+    const barMaxW = contentW - STICKER_SPLIT_LABEL_W - STICKER_SPLIT_PACE_W - 12;
+    for (const r of splitRows) {
+      const mid = rowY + STICKER_SPLIT_ROW_H / 2;
+      ctx.textAlign = "left";
+      ctx.font = `800 9.5px ${STICKER_FONT}`;
+      ctx.fillStyle = "#fff";
+      ctx.fillText(r.label, left, mid);
+      roundRectPath(ctx, barX, rowY + 4, Math.max(4, barMaxW * r.ratio), 4, 2);
+      ctx.fillStyle = r.fastest ? STICKER_RUN_ACCENT : STICKER_RUN_BAR;
+      ctx.fill();
+      ctx.textAlign = "right";
+      ctx.font = `700 10px ${STICKER_FONT}`;
+      ctx.fillStyle = r.fastest ? STICKER_RUN_ACCENT : "rgba(255,255,255,.75)";
+      ctx.fillText(r.pace, left + contentW, mid);
+      rowY += STICKER_SPLIT_ROW_H + STICKER_SPLIT_GAP;
+    }
+    if (extra > 0) {
+      ctx.textAlign = "left";
+      ctx.font = `600 9.5px ${STICKER_FONT}`;
+      ctx.fillStyle = "rgba(255,255,255,.45)";
+      ctx.fillText(`+${extra} km`, left, rowY + STICKER_SPLIT_ROW_H / 2);
+    }
+    blockBottom = top + stickerRunBlockHeight(data.run);
+  }
+
   // Exercícios da sessão
   const rows = data.exercises ?? [];
   if (rows.length > 0) {
-    // Sem chips, a lista começa logo abaixo do cabeçalho (como no React).
-    const lineY = (chips.length > 0 ? chipY + STICKER_CHIPS_H : iconTop + STICKER_HEADER_H) + 9;
+    const lineY = blockBottom + 9;
     ctx.fillStyle = "rgba(255,255,255,.1)";
     ctx.fillRect(left, lineY, contentW, 1);
     let rowY = lineY + 1 + 8;
@@ -2259,6 +2337,9 @@ export function FlowCreationDialog({
             title: t("flow_workout_sticker_label"),
             series: t("flow_workout_series"),
             prs: t("flow_workout_prs"),
+            runDistance: t("goals_run_distance"),
+            runTime: t("goals_run_time"),
+            runPace: t("goals_run_pace"),
             more: t("flow_workout_more_exercises").replace(
               "{n}",
               String(workoutSticker.data.extraCount ?? 0),

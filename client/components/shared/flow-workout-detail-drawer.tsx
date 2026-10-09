@@ -23,7 +23,10 @@ import {
   formatStickerDuration,
   formatStickerExercise,
   formatStickerVolume,
+  stickerRunStats,
+  STICKER_RUN_ACCENT,
 } from "@/components/shared/flow-workout-sticker";
+import { RunSplitsList } from "@/components/shared/run-splits";
 
 interface FlowWorkoutDetailDrawerProps {
   /** Treino citado no flow (o sticker). null = fechado. */
@@ -135,6 +138,9 @@ export function FlowWorkoutDetailDrawer({
   const durationSecs = pick(workout?.durationSecs, stats?.durationSecs);
   const caloriesKcal = pick(workout?.caloriesKcal, stats?.caloriesKcal);
   const prCount = pick(workout?.prCount, stats?.prCount);
+  // Corrida GPS: do snapshot; flow anterior a 09/10 completa pela sessão do autor.
+  const run = workout?.run ?? session?.runStats ?? null;
+  const runStats = run ? stickerRunStats(run) : null;
 
   const chip = (content: React.ReactNode, accent = false) => (
     <span
@@ -183,6 +189,45 @@ export function FlowWorkoutDetailDrawer({
                 {caloriesKcal > 0 && chip(<><Flame className="h-3 w-3" />{`${Math.round(caloriesKcal)} kcal`}</>)}
                 {prCount > 0 && chip(<><Trophy className="h-3 w-3" />{`${prCount} ${t("flow_workout_prs")}`}</>, true)}
               </div>
+
+              {run && runStats && (
+                <div className="space-y-2">
+                  <p className="text-sm font-semibold" style={{ color: "#fff" }}>
+                    {t(run.activity === "walk" ? "goals_walk_section_title" : "goals_run_section_title")}
+                  </p>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { label: t("goals_run_distance"), value: runStats.distance },
+                      { label: t("goals_run_time"), value: runStats.time },
+                      { label: t("goals_run_pace"), value: runStats.pace },
+                    ].map((c) => (
+                      <div
+                        key={c.label}
+                        className="rounded-2xl px-3 py-2.5 min-w-0"
+                        style={{ background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.1)" }}
+                      >
+                        <p
+                          className="text-[10px] font-bold uppercase tracking-wide truncate"
+                          style={{ color: "rgba(255,255,255,.5)" }}
+                        >
+                          {c.label}
+                        </p>
+                        <p className="text-base font-extrabold tabular-nums truncate" style={{ color: "#fff" }}>
+                          {c.value}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                  {(run.splits?.length ?? 0) > 0 && (
+                    <>
+                      <p className="text-xs font-semibold pt-1" style={{ color: "rgba(255,255,255,.6)" }}>
+                        {t("goals_run_splits_title")}
+                      </p>
+                      <RunSplitsList splits={run.splits!} accent={STICKER_RUN_ACCENT} />
+                    </>
+                  )}
+                </div>
+              )}
 
               <div className="space-y-2">
                 <p className="text-sm font-semibold" style={{ color: "#fff" }}>

@@ -3,10 +3,13 @@ import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
 import { Dumbbell, Flame, ImageOff, Timer, Trophy } from "lucide-react";
 import { useLanguage } from "@/lib/language-context";
 import { UserAvatar } from "@/components/shared/user-avatar";
+import { formatCardioKm } from "@/lib/cardio-exercises";
+import { formatRunPace, formatRunTime, type RunSplit } from "@/lib/run-tracker";
 import type {
   StoryPostSticker,
   StoryTextElement,
   StoryWorkoutSticker,
+  WorkoutRunStats,
   WorkoutStickerField,
 } from "@/lib/ritmofit-db";
 
@@ -36,6 +39,7 @@ export const WORKOUT_STICKER_FIELDS: WorkoutStickerField[] = [
   "duration",
   "calories",
   "prs",
+  "splits",
   "exercises",
 ];
 
@@ -76,6 +80,8 @@ export function stickerCardView(data: StoryWorkoutSticker): StoryWorkoutSticker 
     durationSecs: off.has("duration") ? 0 : data.durationSecs,
     caloriesKcal: off.has("calories") ? undefined : data.caloriesKcal,
     prCount: off.has("prs") ? undefined : data.prCount,
+    // Parciais ocultas: distância/tempo/ritmo da corrida continuam no card.
+    run: off.has("splits") && data.run ? { ...data.run, splits: undefined } : data.run,
     exercises: off.has("exercises") ? [] : data.exercises,
     extraCount: off.has("exercises") ? undefined : data.extraCount,
   };
@@ -104,8 +110,88 @@ export function formatStickerDuration(secs: number): string {
  * em vez de um "0 min" falso.
  */
 export function formatStickerExercise(ex: StoryWorkoutSticker["exercises"][number]): string {
-  if (ex.isCardio) return ex.kg > 0 ? formatStickerDuration(ex.kg * 60) : `${ex.sets}×`;
+  if (ex.isCardio) {
+    // Distância primeiro (corrida/caminhada GPS, esteira...) — "5,23 km · 28 min".
+    const parts = [
+      Number(ex.km ?? 0) > 0 ? `${formatCardioKm(Number(ex.km))} km` : null,
+      ex.kg > 0 ? formatStickerDuration(ex.kg * 60) : null,
+    ].filter(Boolean);
+    return parts.length > 0 ? parts.join(" · ") : `${ex.sets}×`;
+  }
   return ex.kg > 0 ? `${ex.sets}× ${ex.kg}kg` : `${ex.sets}×`;
+}
+
+// ── Bloco da corrida GPS no card ─────────────────────────────────────────────
+// Distância · tempo · ritmo + até STICKER_SPLITS_MAX parciais por km (barra
+// proporcional à velocidade, como o RunSplitsList). Alturas em px de CSS — o
+// rascunho em canvas (flow-creation-dialog) usa as MESMAS constantes.
+
+/** cor da corrida no card — a mesma da rota no mapa (route-map.tsx) */
+export const STICKER_RUN_ACCENT = "#fc5200";
+export const STICKER_RUN_BAR = "rgba(252,82,0,.45)";
+/** acima disso o card mostra STICKER_SPLITS_MAX - 1 linhas + "+N km" */
+export const STICKER_SPLITS_MAX = 6;
+export const STICKER_RUN_STATS_H = 28; // rótulo 10 + 2 + valor 16
+export const STICKER_SPLIT_ROW_H = 12;
+export const STICKER_SPLIT_GAP = 3;
+export const STICKER_SPLITS_TOP = 7;
+export const STICKER_SPLIT_LABEL_W = 22;
+export const STICKER_SPLIT_PACE_W = 34;
+/** menor fração da barra, para o km mais lento ainda aparecer */
+const STICKER_SPLIT_MIN_BAR = 0.28;
+
+/** "0,45" — distância do trecho parcial final */
+function formatSplitKm(km: number): string {
+  return km.toFixed(2).replace(/0+$/, "").replace(/[.,]$/, "").replace(".", ",");
+}
+
+/** Linhas de parciais que o card desenha (React e canvas leem daqui). */
+export function stickerSplitRows(run: WorkoutRunStats | undefined): {
+  rows: Array<{ label: string; pace: string; ratio: number; fastest: boolean }>;
+  extra: number;
+} {
+  const splits: RunSplit[] = run?.splits ?? [];
+  if (splits.length === 0) return { rows: [], extra: 0 };
+  const shown = splits.length > STICKER_SPLITS_MAX ? splits.slice(0, STICKER_SPLITS_MAX - 1) : splits;
+  const paces = splits.map((sp) => sp.paceSecPerKm).filter((v) => v > 0);
+  const fastestPace = paces.length > 0 ? Math.min(...paces) : 0;
+  // "mais rápido" só entre km fechados (igual ao RunSplitsList)
+  const full = splits.filter((sp) => !sp.partial);
+  const fastestIndex =
+    full.length > 1 ? full.reduce((b, sp) => (sp.paceSecPerKm < b.paceSecPerKm ? sp : b)).index : null;
+  return {
+    rows: shown.map((sp) => ({
+      label: sp.partial ? formatSplitKm(sp.distanceKm) : String(sp.index),
+      pace: formatRunPace(sp.paceSecPerKm),
+      ratio:
+        fastestPace > 0 && sp.paceSecPerKm > 0
+          ? Math.max(STICKER_SPLIT_MIN_BAR, Math.min(1, fastestPace / sp.paceSecPerKm))
+          : STICKER_SPLIT_MIN_BAR,
+      fastest: sp.index === fastestIndex,
+    })),
+    extra: splits.length - shown.length,
+  };
+}
+
+/** Distância / tempo / ritmo da corrida, já formatados. */
+export function stickerRunStats(run: WorkoutRunStats): { distance: string; time: string; pace: string } {
+  return {
+    distance: `${formatCardioKm(run.distanceKm)} km`,
+    time: formatRunTime(run.elapsedMs),
+    pace: run.paceSecPerKm ? `${formatRunPace(run.paceSecPerKm)} /km` : "—",
+  };
+}
+
+/** Altura do bloco da corrida (sem a margem/divisor de cima). */
+export function stickerRunBlockHeight(run: WorkoutRunStats | undefined): number {
+  if (!run) return 0;
+  const { rows, extra } = stickerSplitRows(run);
+  let h = STICKER_RUN_STATS_H;
+  if (rows.length > 0) {
+    h += STICKER_SPLITS_TOP + rows.length * STICKER_SPLIT_ROW_H + (rows.length - 1) * STICKER_SPLIT_GAP;
+    if (extra > 0) h += STICKER_SPLIT_GAP + STICKER_SPLIT_ROW_H;
+  }
+  return h;
 }
 
 /**
@@ -225,6 +311,9 @@ export function FlowWorkoutSticker({ data: raw, scale = 1, className, interactiv
       </div>
       )}
 
+      {/* Corrida/caminhada GPS — distância, tempo, ritmo e parciais por km */}
+      {data.run && <StickerRunBlock run={data.run} />}
+
       {/* Exercícios feitos */}
       {exercises.length > 0 && (
         <div
@@ -268,6 +357,81 @@ export function FlowWorkoutSticker({ data: raw, scale = 1, className, interactiv
         >
           {t("flow_workout_tap_hint")}
         </p>
+      )}
+    </div>
+  );
+}
+
+function StickerRunBlock({ run }: { run: WorkoutRunStats }) {
+  const { t } = useLanguage();
+  const stats = stickerRunStats(run);
+  const { rows, extra } = stickerSplitRows(run);
+  const cols = [
+    { label: t("goals_run_distance"), value: stats.distance },
+    { label: t("goals_run_time"), value: stats.time },
+    { label: t("goals_run_pace"), value: stats.pace },
+  ];
+  return (
+    <div style={{ marginTop: 9, paddingTop: 8, borderTop: "1px solid rgba(255,255,255,.1)" }}>
+      <div className="flex" style={{ height: STICKER_RUN_STATS_H }}>
+        {cols.map((c) => (
+          <div key={c.label} className="min-w-0 flex-1">
+            <p
+              className="truncate"
+              style={{ fontSize: 8, lineHeight: "10px", fontWeight: 700, letterSpacing: ".06em", color: "rgba(255,255,255,.5)" }}
+            >
+              {c.label.toUpperCase()}
+            </p>
+            <p
+              className="truncate"
+              style={{ marginTop: 2, fontSize: 13, lineHeight: "16px", fontWeight: 800, fontVariantNumeric: "tabular-nums" }}
+            >
+              {c.value}
+            </p>
+          </div>
+        ))}
+      </div>
+
+      {rows.length > 0 && (
+        <div style={{ marginTop: STICKER_SPLITS_TOP, display: "flex", flexDirection: "column", gap: STICKER_SPLIT_GAP }}>
+          {rows.map((r, i) => (
+            <div key={i} className="flex items-center" style={{ height: STICKER_SPLIT_ROW_H, gap: 6 }}>
+              <span
+                className="shrink-0"
+                style={{
+                  width: STICKER_SPLIT_LABEL_W, fontSize: 9.5, lineHeight: "12px", fontWeight: 800,
+                  fontVariantNumeric: "tabular-nums",
+                }}
+              >
+                {r.label}
+              </span>
+              <span className="flex-1" style={{ position: "relative", height: 4 }}>
+                <span
+                  style={{
+                    position: "absolute", left: 0, top: 0, height: 4, borderRadius: 2,
+                    width: `${r.ratio * 100}%`,
+                    background: r.fastest ? STICKER_RUN_ACCENT : STICKER_RUN_BAR,
+                  }}
+                />
+              </span>
+              <span
+                className="shrink-0 text-right"
+                style={{
+                  width: STICKER_SPLIT_PACE_W, fontSize: 10, lineHeight: "12px", fontWeight: 700,
+                  fontVariantNumeric: "tabular-nums",
+                  color: r.fastest ? STICKER_RUN_ACCENT : "rgba(255,255,255,.75)",
+                }}
+              >
+                {r.pace}
+              </span>
+            </div>
+          ))}
+          {extra > 0 && (
+            <span style={{ fontSize: 9.5, lineHeight: "12px", fontWeight: 600, color: "rgba(255,255,255,.45)" }}>
+              {`+${extra} km`}
+            </span>
+          )}
+        </div>
       )}
     </div>
   );

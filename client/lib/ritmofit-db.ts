@@ -9,7 +9,8 @@ import {
   type WorkoutChallengeResult,
   type WorkoutChallengeSnapshot,
 } from "@/lib/workout-challenge";
-import { cardioTotalMinutes, isCardioExercise } from "@/lib/cardio-exercises";
+import { cardioTotalKm, cardioTotalMinutes, isCardioExercise } from "@/lib/cardio-exercises";
+import type { RunSplit } from "@/lib/run-tracker";
 import { IMMUTABLE_CACHE_CONTROL } from "@/lib/storage-cache";
 import { resolveLanguage, tUi, type TranslationKey } from "@/lib/i18n";
 import { getUserSafe, hasSupabaseConfig, supabase, registerViewerCacheInvalidator, registerAuthUserReadyHandler } from "@/lib/supabase";
@@ -3567,6 +3568,42 @@ export type RoutineProgramMeta = {
  * sem `userId`/`userGroups`, resolvidos de novo ao reabrir. Sobrescrito a cada
  * "Finalizar" (sempre o mais recente).
  */
+/**
+ * Números da corrida/caminhada por GPS SEM o trajeto (`path` pode ter milhares
+ * de pontos). É o que vai para `routines.last_summary.runStats` e para o mini
+ * frame de treino do flow — distância, tempo, ritmo e as parciais por km
+ * (uma linha por km, então continua pequeno em qualquer corrida real).
+ */
+export type WorkoutRunStats = {
+  /** corrida ou caminhada ao ar livre (ausente = corrida) */
+  activity?: "run" | "walk";
+  distanceKm: number;
+  elapsedMs: number;
+  paceSecPerKm: number | null;
+  splits?: RunSplit[];
+};
+
+/** Reduz o `run` da sessão ao que é persistido (sem trajeto, números arredondados). */
+export function toWorkoutRunStats(
+  run: { distanceKm: number; elapsedMs: number; paceSecPerKm: number | null; splits?: RunSplit[]; activity?: "run" | "walk" } | null | undefined,
+): WorkoutRunStats | undefined {
+  if (!run || !(run.distanceKm > 0)) return undefined;
+  const splits = (run.splits ?? []).map((sp) => ({
+    index: sp.index,
+    distanceKm: Math.round(sp.distanceKm * 1000) / 1000,
+    durationMs: Math.round(sp.durationMs),
+    paceSecPerKm: Math.round(sp.paceSecPerKm),
+    partial: sp.partial,
+  }));
+  return {
+    ...(run.activity === "walk" ? { activity: "walk" as const } : {}),
+    distanceKm: Math.round(run.distanceKm * 1000) / 1000,
+    elapsedMs: Math.round(run.elapsedMs),
+    paceSecPerKm: run.paceSecPerKm != null ? Math.round(run.paceSecPerKm) : null,
+    ...(splits.length > 0 ? { splits } : {}),
+  };
+}
+
 export type RoutineLastSummary = {
   routineName: string;
   totalSeries: number;
@@ -3617,6 +3654,12 @@ export type RoutineLastSummary = {
    * `partyId`). Ausente nos snapshots anteriores e em todo treino solo.
    */
   partyId?: string | null;
+  /**
+   * Corrida/caminhada por GPS da sessão, sem o trajeto (2026-10-09). Alimenta
+   * distância e parciais por km no mini frame de treino do flow. Ausente nos
+   * snapshots anteriores e em toda sessão sem GPS.
+   */
+  runStats?: WorkoutRunStats;
 };
 
 export type Workout = {
@@ -3964,7 +4007,9 @@ export type RecentWorkoutSession = {
   prCount: number;
   /** calorias gastas (kcal); null = sessão anterior à feature ou sem estimativa */
   caloriesKcal: number | null;
-  exercises: Array<{ name: string; sets: number; kg: number; isCardio?: boolean }>;
+  /** corrida/caminhada por GPS da sessão (sem trajeto) */
+  runStats?: WorkoutRunStats;
+  exercises: Array<{ name: string; sets: number; kg: number; isCardio?: boolean; km?: number }>;
 };
 
 /**
@@ -3987,9 +4032,11 @@ export async function getFlowWorkoutSessionDb(
 ): Promise<{
   found: boolean;
   routineName: string | null;
-  exercises: Array<{ name: string; sets: number; kg: number; isCardio?: boolean }> | null;
+  exercises: Array<{ name: string; sets: number; kg: number; isCardio?: boolean; km?: number }> | null;
   /** Números da sessão (só quando é a MESMA sessão) — completam flow antigo com campos zerados. */
   stats: { totalSeries: number; totalVolume: number; durationSecs: number; prCount: number; caloriesKcal: number | null } | null;
+  /** Corrida GPS da sessão (só quando é a MESMA sessão) — flows de antes de 09/10 não a têm no snapshot. */
+  runStats?: WorkoutRunStats | null;
 }> {
   const empty = { found: false, routineName: null, exercises: null, stats: null };
   if (!hasSupabaseConfig || !supabase || !authorId) return empty;
@@ -4015,6 +4062,7 @@ export async function getFlowWorkoutSessionDb(
           // Cardio: minutos totais das séries (o bestKg do cardio é sempre 0).
           kg: e.isCardio ? cardioTotalMinutes(e.sets) : Number(e.bestKg ?? 0),
           isCardio: e.isCardio || undefined,
+          km: (e.isCardio && cardioTotalKm(e.sets)) || undefined,
         }))
       : null,
     stats: sameSession
@@ -4026,6 +4074,7 @@ export async function getFlowWorkoutSessionDb(
           caloriesKcal: summary!.caloriesKcal != null ? Number(summary!.caloriesKcal) : null,
         }
       : null,
+    runStats: sameSession ? summary!.runStats ?? null : null,
   };
 }
 
@@ -4048,12 +4097,14 @@ export async function getRecentWorkoutSessionsDb(
         durationSecs: Number(s.durationSecs ?? 0),
         prCount: Array.isArray(s.prExercises) ? s.prExercises.length : 0,
         caloriesKcal: s.caloriesKcal != null ? Number(s.caloriesKcal) : null,
+        runStats: s.runStats,
         exercises: (s.completedExercises ?? []).map((e) => ({
           name: e.name,
           sets: Number(e.totalSets ?? 0),
           // Cardio: minutos totais das séries (o bestKg do cardio é sempre 0).
           kg: e.isCardio ? cardioTotalMinutes(e.sets) : Number(e.bestKg ?? 0),
           isCardio: e.isCardio || undefined,
+          km: (e.isCardio && cardioTotalKm(e.sets)) || undefined,
         })),
       };
     })
@@ -6559,14 +6610,14 @@ export type StoryWorkoutSticker = {
   /** calorias gastas na sessão (kcal); ausente = não registrado */
   caloriesKcal?: number | null;
   /** exercícios da sessão, já cortados no máximo exibido pelo card */
-  exercises: Array<{ name: string; sets: number; kg: number; isCardio?: boolean }>;
+  exercises: Array<{ name: string; sets: number; kg: number; isCardio?: boolean; km?: number }>;
   /** quantos exercícios ficaram de fora de `exercises` (vira "+N exercícios") */
   extraCount?: number;
   /**
    * Lista COMPLETA dos exercícios feitos — só gravada quando passa do que cabe
    * no card (`extraCount` > 0). Lida só pelo "Ver treino" do flow (2026-10-08).
    */
-  allExercises?: Array<{ name: string; sets: number; kg: number; isCardio?: boolean }>;
+  allExercises?: Array<{ name: string; sets: number; kg: number; isCardio?: boolean; km?: number }>;
   /**
    * Informações que o autor escolheu ocultar no CARD. Ausente = mostra tudo.
    * Desde 2026-10-08 os valores continuam no snapshot (o card os esconde via
@@ -6575,6 +6626,12 @@ export type StoryWorkoutSticker = {
    * `getFlowWorkoutSessionDb` enquanto for a mesma sessão.
    */
   hidden?: WorkoutStickerField[];
+  /**
+   * Corrida/caminhada por GPS da sessão (2026-10-09): distância, tempo, ritmo e
+   * parciais por km — sem o trajeto. Ausente em flows anteriores e em sessões
+   * sem GPS (o "Ver treino" ainda completa pela sessão do autor).
+   */
+  run?: WorkoutRunStats;
 };
 
 /** Blocos do card de treino do flow que o autor pode ocultar. */
@@ -6585,6 +6642,7 @@ export type WorkoutStickerField =
   | "duration"
   | "calories"
   | "prs"
+  | "splits"
   | "exercises";
 
 /**

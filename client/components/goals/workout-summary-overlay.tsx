@@ -32,6 +32,7 @@ import {
   type WorkoutPartyExerciseStat,
   type SearchUser,
   type WorkoutPartySnapshot,
+  toWorkoutRunStats,
 } from "@/lib/ritmofit-db";
 import { TagPeopleDrawer, MAX_TAGGED_PEOPLE } from "@/components/shared/tag-people-drawer";
 import { MentionSuggestions, addMentionToTagged } from "@/components/shared/mention-suggestions";
@@ -58,6 +59,7 @@ import {
   formatCardioMinutes,
   formatElevationPct,
   type CardioKind,
+  cardioTotalKm,
   cardioTotalMinutes,
 } from "@/lib/cardio-exercises";
 import {
@@ -424,6 +426,7 @@ function buildFlowWorkoutSticker(data: WorkoutSummaryData): StoryWorkoutSticker 
     // do cardio é sempre 0.
     kg: ex.isCardio ? cardioTotalMinutes(ex.sets) : ex.bestKg,
     isCardio: ex.isCardio || undefined,
+    km: (ex.isCardio && cardioTotalKm(ex.sets)) || undefined,
   }));
   const shown = all.slice(0, MAX_STICKER_EXERCISES);
   return {
@@ -438,6 +441,7 @@ function buildFlowWorkoutSticker(data: WorkoutSummaryData): StoryWorkoutSticker 
     extraCount: all.length - shown.length || undefined,
     // O card corta em 8; o "Ver treino" do flow mostra todos.
     allExercises: all.length > shown.length ? all : undefined,
+    run: toWorkoutRunStats(data.run),
   };
 }
 

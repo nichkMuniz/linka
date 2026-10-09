@@ -73,6 +73,7 @@ import {
   respondWorkoutPartyInviteDb,
   getWorkoutPartyMembersDb,
   type WorkoutPartyInvite,
+  toWorkoutRunStats,
 } from "@/lib/ritmofit-db";
 import {
   buildRoutineCards,
@@ -1220,6 +1221,9 @@ export default function Goals() {
         // Sem a party, reabrir o resumo pelo detalhe da rotina perdia o card
         // "Treino em conjunto". Só grava a chave quando houve party.
         ...(FEATURES.workoutParty && partyId ? { partyId } : {}),
+        // Corrida GPS SEM o trajeto: distância + parciais por km para o mini
+        // frame de treino do flow (o path segue fora — milhares de pontos).
+        ...(summary.run ? { runStats: toWorkoutRunStats(summary.run) } : {}),
       }).catch(() => { /* resumo persistido é best-effort */ });
     };
     persistSummary([]);

@@ -97,6 +97,15 @@ export function cardioTotalMinutes(sets?: Array<{ kg: number; reps: number }>): 
   return Math.round(sumCardioSets(sets).minutes);
 }
 
+/**
+ * Km totais (2 casas) de um exercício de cardio — a distância que o mini frame
+ * de treino do flow mostra ao lado dos minutos ("5,23 km · 28 min"). Sem ela a
+ * corrida/caminhada por GPS chegava ao flow só com o tempo.
+ */
+export function cardioTotalKm(sets?: Array<{ kg: number; reps: number }>): number {
+  return Math.round(sumCardioSets(sets).km * 100) / 100;
+}
+
 // ── Formatação ───────────────────────────────────────────────────────────────
 // Formatadores puros do contrato de cardio (MIN × KM), fora do módulo de canvas
 // para poderem ser usados também por telas comuns (ex.: o modal "Ver treino" do
